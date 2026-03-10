@@ -2,12 +2,11 @@
 # ClaudeSec — Network: TLS & Connection Security Checks
 
 # NET-001: HTTPS enforced (no plain HTTP URLs)
-local http_files
-http_files=$(find "$SCAN_DIR" -name "*.ts" -o -name "*.js" -o -name "*.py" -o -name "*.go" -o -name "*.java" \
-  2>/dev/null | grep -v node_modules | grep -v ".git" | head -100)
+http_files=$(find "$SCAN_DIR" \( -name "*.ts" -o -name "*.js" -o -name "*.py" -o -name "*.go" -o -name "*.java" \) \
+  -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | head -100 || true)
 
 if [[ -n "$http_files" ]]; then
-  if echo "$http_files" | xargs grep -lE "http://[^l][^o][^c]" 2>/dev/null | head -1 | grep -q .; then
+  if echo "$http_files" | xargs grep -lE "http://[^l][^o][^c]" 2>/dev/null | head -1 | grep -q . 2>/dev/null; then
     warn "NET-001" "Non-HTTPS URLs found in source code" \
       "Replace http:// with https:// for external connections"
   else

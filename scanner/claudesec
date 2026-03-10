@@ -18,7 +18,7 @@
 #   claudesec version
 # ============================================================================
 
-set -euo pipefail
+set -uo pipefail
 
 VERSION="0.1.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -59,7 +59,7 @@ Usage:
 Scan Options:
   --category, -c <category>   Scan specific category:
                                  infra, ai, network, cloud,
-                                 access-control, cicd, all (default: all)
+                                 access-control, cicd, macos, all (default: all)
   --severity, -s <level>      Minimum severity: critical, high, medium, low, all
   --format, -f <format>       Output format: text, json (default: text)
   --dir, -d <path>            Directory to scan (default: current directory)
@@ -120,7 +120,7 @@ run_scan() {
   # Determine which categories to scan
   local categories=()
   if [[ "$CATEGORY" == "all" ]]; then
-    categories=(infra ai network cloud access-control cicd)
+    categories=(infra ai network cloud access-control cicd macos)
   else
     IFS=',' read -ra categories <<< "$CATEGORY"
   fi
