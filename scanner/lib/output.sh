@@ -54,6 +54,7 @@ category_label() {
     cicd)           echo "CI/CD Pipeline Security" ;;
     macos)          echo "macOS / CIS Benchmark Security" ;;
     saas)           echo "SaaS & Solutions Security" ;;
+    windows)        echo "Windows Security (KISA)" ;;
     *)              echo "$1" ;;
   esac
 }

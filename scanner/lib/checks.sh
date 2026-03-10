@@ -299,9 +299,10 @@ compliance_map() {
     CICD-*) echo "NIST:SA-11,CM-2|ISO:A.14|ISMS-P:2.9|SOC2:CC8.1" ;;
     AI-*) echo "NIST-AI:MAP,MEASURE|ISO42001:6,7|ISMS-P:2.9" ;;
     INFRA-*) echo "NIST:CM-6,CM-7|ISO:A.12,A.14|ISMS-P:2.10|SOC2:CC6.6" ;;
-    MAC-*|CIS-*) echo "CIS:macOS-Benchmark|NIST:CM-6,CM-7|ISO:A.8.9" ;;
+    MAC-*|CIS-*) echo "CIS:macOS-Benchmark|NIST:CM-6,CM-7|ISO:A.8.9|KISA-PC:PC-01~PC-19" ;;
     SECRETS-*) echo "NIST:IA-5,SC-28|ISO:A.8.4,A.8.24|ISMS-P:2.5,2.7|SOC2:CC6.1,CC6.7" ;;
     SAAS-*) echo "NIST:AC-2,CM-6|ISO:A.9,A.12|ISMS-P:2.5,2.10|SOC2:CC6.1,CC6.6" ;;
+    WIN-*) echo "KISA-W:W-01~W-84|NIST:CM-6,AC-2,IA-5|ISO:A.8,A.9|ISMS-P:2.5,2.10" ;;
     *) echo "" ;;
   esac
 }
