@@ -55,6 +55,7 @@ category_label() {
     macos)          echo "macOS / CIS Benchmark Security" ;;
     saas)           echo "SaaS & Solutions Security" ;;
     windows)        echo "Windows Security (KISA)" ;;
+    prowler)        echo "Prowler Deep Scan (Multi-Cloud)" ;;
     *)              echo "$1" ;;
   esac
 }
@@ -311,6 +312,9 @@ _html_findings_rows() {
     IFS='|' read -r f_id f_title _ f_fix <<< "$entry"
     f_title="$(html_escape "$f_title")"
     f_fix="$(html_escape "$f_fix")"
+    # Convert literal \n to <br> for HTML display
+    f_title="${f_title//\\n/<br>}"
+    f_fix="${f_fix//\\n/<br>}"
     findings_html+="<tr class=\"${sev_class}\"><td><span class=\"badge ${badge_class}\">${badge_text}</span></td><td class=\"mono\">$f_id</td><td>$f_title</td><td class=\"fix\">$f_fix</td></tr>"
   done
 }
