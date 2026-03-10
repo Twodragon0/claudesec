@@ -188,8 +188,8 @@ AI Components:
 ## References
 
 - [MITRE ATLAS — atlas.mitre.org](https://atlas.mitre.org/)
-- [ATLAS Matrix](https://atlas.mitre.org/matrices/ATLAS)
-- [ATLAS Case Studies](https://atlas.mitre.org/studies)
+- [ATLAS Matrix](https://atlas.mitre.org/matrices)
+- [ATLAS Case Studies](https://atlas.mitre.org/resources/case-studies)
 - [MITRE SAFE-AI Report (PDF)](https://atlas.mitre.org/pdf-files/SAFEAI_Full_Report.pdf)
 - [NIST AI RMF — nist.gov](https://www.nist.gov/artificial-intelligence)
 - [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
