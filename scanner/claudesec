@@ -145,7 +145,23 @@ parse_args() {
     dashboard)
       FORMAT="text"
       QUIET=1
-      local html_output="${1:-claudesec-dashboard.html}"
+      local html_output="claudesec-dashboard.html"
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --aws-profile) export AWS_PROFILE="$2"; export AWS_DEFAULT_PROFILE="$2"; shift 2 ;;
+          --aws-sso) AWS_SSO_FORCE=1; shift ;;
+          --kubecontext) kubectl config use-context "$2" &>/dev/null; shift 2 ;;
+          -c|--category) CATEGORY="$2"; shift 2 ;;
+          -s|--severity) SEVERITY="$2"; shift 2 ;;
+          -d|--dir) SCAN_DIR="$2"; shift 2 ;;
+          --compliance) COMPLIANCE="$2"; shift 2 ;;
+          -*) shift ;;
+          *) html_output="$1"; shift ;;
+        esac
+      done
+      if [[ "${AWS_SSO_FORCE:-}" == "1" ]]; then
+        aws_sso_ensure_login || true
+      fi
       run_scan_for_dashboard
       generate_html_dashboard "$html_output"
       echo -e "  ${GREEN}✓${NC} Dashboard saved to ${BOLD}$html_output${NC}"
