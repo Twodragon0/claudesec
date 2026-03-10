@@ -44,7 +44,7 @@ cp templates/*.yml /path/to/your/project/.github/workflows/
 
 ## Scanner CLI
 
-ClaudeSec includes a zero-dependency bash scanner that checks your project for security best practices across 6 categories (~50 checks).
+ClaudeSec includes a zero-dependency bash scanner that checks your project for security best practices across 10 categories (~120+ checks). Optionally integrates with [Prowler](https://github.com/prowler-cloud/prowler) for deep multi-cloud scanning.
 
 ```bash
 # Run all checks
@@ -64,6 +64,18 @@ ClaudeSec includes a zero-dependency bash scanner that checks your project for s
 # With compliance mapping
 ./scanner/claudesec scan --compliance iso27001
 ./scanner/claudesec scan --compliance isms-p
+
+# AWS SSO login + cloud scan
+./scanner/claudesec scan -c cloud --aws-profile audit --aws-sso
+
+# Prowler deep scan (requires prowler installed)
+./scanner/claudesec scan -c prowler --aws-profile audit
+
+# SaaS API scanning
+./scanner/claudesec scan -c saas
+
+# Generate HTML dashboard
+./scanner/claudesec dashboard
 ```
 
 ### Scanner Categories
@@ -78,6 +90,8 @@ ClaudeSec includes a zero-dependency bash scanner that checks your project for s
 | `cicd` | 8 | GHA permissions, SHA pinning, SAST, lockfiles |
 | `macos` | 20 | FileVault, SIP, Gatekeeper, CIS Benchmark v4.0 |
 | `windows` | 20 | KISA W-series, UAC, Firewall, Defender, SMBv1 |
+| `saas` | 8+ | SaaS API scanning (GitHub, Datadog, Cloudflare, Vercel, Sentry, Okta, SendGrid) |
+| `prowler` | 11 providers | Deep scan via Prowler: AWS, Azure, GCP, K8s, GitHub, M365, Cloudflare, IaC, LLM, OpenStack, NHN |
 
 ## Project Structure
 
@@ -86,7 +100,7 @@ claudesec/
 ├── scanner/             # Security scanner CLI (bash, zero dependencies)
 │   ├── claudesec        # Main CLI entry point
 │   ├── lib/             # Output formatting, helper functions
-│   └── checks/          # Check modules (infra, ai, network, cloud, cicd, access-control)
+│   └── checks/          # Check modules (infra, ai, network, cloud, cicd, access-control, macos, windows, saas, prowler)
 ├── docs/
 │   ├── devsecops/       # DevSecOps practices, OWASP, supply chain, cloud, K8s
 │   ├── github/          # GitHub security features and workflows

@@ -82,7 +82,7 @@ Usage:
 Scan Options:
   --category, -c <category>   Scan specific category:
                                  infra, ai, network, cloud, access-control,
-                                 cicd, macos, windows, saas, all (default: all)
+                                 cicd, macos, windows, saas, prowler, all
   --severity, -s <level>      Minimum severity: critical, high, medium, low, all
   --format, -f <format>       Output format: text, json (default: text)
   --dir, -d <path>            Directory to scan (default: current directory)
@@ -193,7 +193,7 @@ run_scan() {
   # Determine which categories to scan
   local categories=()
   if [[ "$CATEGORY" == "all" ]]; then
-    categories=(infra ai network cloud access-control cicd macos windows saas)
+    categories=(infra ai network cloud access-control cicd macos windows saas prowler)
   else
     IFS=',' read -ra categories <<< "$CATEGORY"
   fi
@@ -314,7 +314,7 @@ run_scan_for_dashboard() {
 
   local categories=()
   if [[ "$CATEGORY" == "all" ]]; then
-    categories=(infra ai network cloud access-control cicd macos windows saas)
+    categories=(infra ai network cloud access-control cicd macos windows saas prowler)
   else
     IFS=',' read -ra categories <<< "$CATEGORY"
   fi

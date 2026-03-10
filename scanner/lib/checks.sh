@@ -303,6 +303,7 @@ compliance_map() {
     SECRETS-*) echo "NIST:IA-5,SC-28|ISO:A.8.4,A.8.24|ISMS-P:2.5,2.7|SOC2:CC6.1,CC6.7" ;;
     SAAS-*|SAAS-API-*) echo "NIST:AC-2,CM-6|ISO:A.9,A.12|ISMS-P:2.5,2.10|SOC2:CC6.1,CC6.6" ;;
     WIN-*) echo "KISA-W:W-01~W-84|NIST:CM-6,AC-2,IA-5|ISO:A.8,A.9|ISMS-P:2.5,2.10" ;;
+    PROWLER-*) echo "NIST:AC,CM,IA,SC|ISO:A.8,A.9,A.12,A.14|CIS:Benchmark|SOC2:CC6,CC7,CC8" ;;
     *) echo "" ;;
   esac
 }
