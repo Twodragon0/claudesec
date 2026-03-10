@@ -35,6 +35,7 @@ SEVERITY="all"
 CATEGORY="all"
 OUTPUT_FILE=""
 SCAN_DIR="${SCAN_DIR:-.}"
+declare -a ENV_SCAN_FILES=()
 
 # Counters
 TOTAL_CHECKS=0
@@ -53,6 +54,7 @@ Usage:
   claudesec scan [options]          Run security checks
   claudesec init                    Initialize .claudesec.yml config
   claudesec report [options]        Generate security report
+  claudesec dashboard [file]         Generate HTML dashboard (default: claudesec-dashboard.html)
   claudesec version                 Show version
   claudesec help                    Show this help
 
@@ -68,6 +70,10 @@ Scan Options:
                                  nist-csf, nist-800-53, iso27001,
                                  isms-p, soc2, pci-dss
   --quiet, -q                 Only show failures
+  --aws-profile <profile>     Use specific AWS profile (triggers SSO login)
+  --kubecontext <context>     Use specific kubectl context
+  --aws-sso                   Force AWS SSO login before scan
+  --env-file <path>           Scan external .env file for leaked secrets
 
 Examples:
   claudesec scan                          # Full scan, current directory
@@ -75,6 +81,9 @@ Examples:
   claudesec scan -c ai -f json            # AI checks, JSON output
   claudesec scan --compliance iso27001    # Scan with ISO 27001 mapping
   claudesec scan -c infra -c network      # Multiple categories
+  claudesec scan --aws-profile prod       # Scan with AWS SSO profile
+  claudesec scan --kubecontext staging    # Scan specific K8s context
+  claudesec scan -c cloud --aws-sso       # Force SSO login for cloud scan
 EOF
 }
 
@@ -94,6 +103,10 @@ parse_args() {
           --compliance) COMPLIANCE="$2"; shift 2 ;;
           -q|--quiet) QUIET=1; shift ;;
           --all) CATEGORY="all"; shift ;;
+          --aws-profile) export AWS_PROFILE="$2"; export AWS_DEFAULT_PROFILE="$2"; shift 2 ;;
+          --kubecontext) kubectl config use-context "$2" &>/dev/null; shift 2 ;;
+          --aws-sso) AWS_SSO_FORCE=1; shift ;;
+          --env-file) ENV_SCAN_FILES+=("$2"); shift 2 ;;
           *) error "Unknown option: $1"; usage; exit 1 ;;
         esac
       done
@@ -101,6 +114,15 @@ parse_args() {
       ;;
     init) run_init ;;
     report) run_report "$@" ;;
+    dashboard)
+      FORMAT="text"
+      QUIET=1
+      local html_output="${1:-claudesec-dashboard.html}"
+      run_scan_for_dashboard
+      generate_html_dashboard "$html_output"
+      echo -e "  ${GREEN}✓${NC} Dashboard saved to ${BOLD}$html_output${NC}"
+      echo -e "  ${DIM}Open in browser: open $html_output${NC}"
+      ;;
     version) echo "claudesec v$VERSION" ;;
     help|--help|-h) usage ;;
     *) error "Unknown command: $cmd"; usage; exit 1 ;;
@@ -115,6 +137,11 @@ run_scan() {
 
   if [[ "$FORMAT" == "text" ]]; then
     print_banner
+  fi
+
+  # Force AWS SSO login if requested
+  if [[ "${AWS_SSO_FORCE:-}" == "1" ]]; then
+    aws_sso_ensure_login || true
   fi
 
   # Determine which categories to scan
@@ -230,6 +257,29 @@ YAML
 run_report() {
   info "Generating security report..."
   run_scan
+}
+
+run_scan_for_dashboard() {
+  local start_time
+  start_time=$(date +%s)
+
+  local categories=()
+  if [[ "$CATEGORY" == "all" ]]; then
+    categories=(infra ai network cloud access-control cicd macos)
+  else
+    IFS=',' read -ra categories <<< "$CATEGORY"
+  fi
+
+  for cat in "${categories[@]}"; do
+    local check_dir="$CHECKS_DIR/$cat"
+    [[ -d "$check_dir" ]] || continue
+    for check_file in "$check_dir"/*.sh; do
+      [[ -f "$check_file" ]] || continue
+      source "$check_file"
+    done
+  done
+
+  SCAN_DURATION=$(( $(date +%s) - start_time ))
 }
 
 # ── Entry Point ──────────────────────────────────────────────────────────────
