@@ -122,13 +122,20 @@ _prowler_report() {
   local details="Prowler found ${total} issue(s): ${critical} critical, ${high} high, ${medium} medium"
 
   # Extract top findings for remediation advice (handles pretty-printed JSON)
+  # Use literal \n (not real newlines) so pipe-delimited storage works correctly
   local top_findings=""
   top_findings=$(awk '
+    /"event_code":/ { gsub(/.*"event_code": *"/, ""); gsub(/".*/, ""); code=$0 }
     /"severity":/ { gsub(/.*"severity": *"/, ""); gsub(/".*/, ""); sev=$0 }
     /"message":/ { gsub(/.*"message": *"/, ""); gsub(/".*/, ""); msg=$0 }
-    /"status_code": *"FAIL"/ { if (count < 5 && msg != "") { print "    [" sev "] " msg; count++ } }
+    /"status_code": *"FAIL"/ {
+      if (count < 15 && msg != "") {
+        if (code != "") printf "\\n    [%s] (%s) %s", sev, code, msg
+        else printf "\\n    [%s] %s", sev, msg
+        count++
+      }
+    }
   ' "$json_file" 2>/dev/null || true)
-  [[ -n "$top_findings" ]] && top_findings=$'\n'"$top_findings"
 
   fail "${check_id_prefix}-001" "Prowler ${provider}: ${total} security finding(s)" "$severity" \
     "${details}${top_findings}" \
