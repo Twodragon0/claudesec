@@ -81,15 +81,15 @@ Usage:
 
 Scan Options:
   --category, -c <category>   Scan specific category:
-                                 infra, ai, network, cloud,
-                                 access-control, cicd, macos, saas, all (default: all)
+                                 infra, ai, network, cloud, access-control,
+                                 cicd, macos, windows, saas, all (default: all)
   --severity, -s <level>      Minimum severity: critical, high, medium, low, all
   --format, -f <format>       Output format: text, json (default: text)
   --dir, -d <path>            Directory to scan (default: current directory)
   --output, -o <file>         Write results to file
   --compliance <framework>    Map to compliance framework:
                                  nist-csf, nist-800-53, iso27001,
-                                 isms-p, soc2, pci-dss
+                                 isms-p, soc2, pci-dss, kisa
   --quiet, -q                 Only show failures
   --aws-profile <profile>     Use specific AWS profile (triggers SSO login)
   --kubecontext <context>     Use specific kubectl context
@@ -177,7 +177,7 @@ run_scan() {
   # Determine which categories to scan
   local categories=()
   if [[ "$CATEGORY" == "all" ]]; then
-    categories=(infra ai network cloud access-control cicd macos saas)
+    categories=(infra ai network cloud access-control cicd macos windows saas)
   else
     IFS=',' read -ra categories <<< "$CATEGORY"
   fi
@@ -298,7 +298,7 @@ run_scan_for_dashboard() {
 
   local categories=()
   if [[ "$CATEGORY" == "all" ]]; then
-    categories=(infra ai network cloud access-control cicd macos saas)
+    categories=(infra ai network cloud access-control cicd macos windows saas)
   else
     IFS=',' read -ra categories <<< "$CATEGORY"
   fi

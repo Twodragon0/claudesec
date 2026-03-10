@@ -28,6 +28,15 @@ fi
 
 # ---------------------------------------------------------------------------
 # macOS Security Checks (MAC-0xx)
+# KISA PC-series mapping:
+#   MAC-001 (FileVault)      → PC-03 (디스크 암호화)
+#   MAC-002 (Firewall)       → PC-11 (방화벽 활성화)
+#   MAC-003 (SIP)            → PC-18 (시스템 무결성 보호)
+#   MAC-005 (Auto updates)   → PC-16 (보안 업데이트)
+#   MAC-006 (Screen lock)    → PC-12 (화면보호기 잠금)
+#   MAC-009 (Guest account)  → PC-02 (Guest 계정 비활성화)
+#   CIS-001 (Password)       → PC-04 (패스워드 복잡성)
+#   CIS-002 (Audit log)      → PC-15 (로깅 설정)
 # ---------------------------------------------------------------------------
 
 # MAC-001: FileVault disk encryption enabled

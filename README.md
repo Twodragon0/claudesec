@@ -18,7 +18,7 @@ AI coding assistants accelerate development — but speed without security creat
 - **AI Security automation**: GitHub Actions, pre-commit hooks, and CI/CD templates
 - **SaaS security scanning**: Datadog, Cloudflare, Vercel, ArgoCD, Sentry, Okta, SendGrid, and more
 - **Supply chain integrity**: SLSA, SBOM, and artifact signing workflows
-- **Compliance mapping**: SOC 2, ISO 27001, NIST, PCI-DSS, KISA ISMS-P
+- **Compliance mapping**: SOC 2, ISO 27001, NIST, PCI-DSS, KISA ISMS-P, KISA 주요정보통신기반시설
 - **Living documentation**: Actionable guides for OWASP Top 10, MITRE ATLAS, and more
 
 ## Quick Start
@@ -77,6 +77,7 @@ ClaudeSec includes a zero-dependency bash scanner that checks your project for s
 | `access-control` | 6 | .env files, password hashing, JWT, sessions |
 | `cicd` | 8 | GHA permissions, SHA pinning, SAST, lockfiles |
 | `macos` | 20 | FileVault, SIP, Gatekeeper, CIS Benchmark v4.0 |
+| `windows` | 20 | KISA W-series, UAC, Firewall, Defender, SMBv1 |
 
 ## Project Structure
 
@@ -142,6 +143,7 @@ claudesec/
 | [ISO 27001:2022](docs/compliance/iso27001-2022.md) | 93 controls in 4 themes, 11 new controls |
 | [ISO 42001:2023](docs/compliance/iso42001-ai.md) | AI Management System (AIMS) with Annex A controls |
 | [KISA ISMS-P](docs/compliance/isms-p.md) | 102 certification items for Korean compliance |
+| KISA 주요정보통신기반시설 | Windows W-01~W-84, Unix U-01~U-72, PC-01~PC-19 (175 items) |
 
 ### Guides
 
