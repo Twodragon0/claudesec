@@ -1,0 +1,54 @@
+# .github/workflows/prowler.yml
+# ClaudeSec template — Cloud security posture scan with Prowler
+
+name: Cloud Security Scan (Prowler)
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  id-token: write
+
+jobs:
+  prowler-aws:
+    name: AWS Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PROWLER_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Install Prowler
+        run: pip install prowler
+
+      - name: Run Prowler scan
+        run: |
+          prowler aws \
+            --severity critical high \
+            --compliance cis_2.0_aws \
+            --output-formats json-ocsf csv html \
+            --output-directory prowler-output
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: prowler-aws-report
+          path: prowler-output/
+          retention-days: 90
+
+      - name: Fail on critical findings
+        run: |
+          CRITICAL=$(find prowler-output -name "*.ocsf.json" -exec \
+            jq '[.[] | select(.status == "FAIL" and .severity == "critical")] | length' {} \; \
+            | awk '{sum+=$1} END {print sum}')
+          echo "Critical findings: ${CRITICAL:-0}"
+          if [ "${CRITICAL:-0}" -gt 0 ]; then
+            echo "::error::Found $CRITICAL critical security findings"
+            exit 1
+          fi
