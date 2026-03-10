@@ -1,6 +1,6 @@
 # ClaudeSec
 
-> DevSecOps toolkit for AI-assisted secure development with Claude Code
+> AI Security Best Practices toolkit for secure development with Claude Code
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -15,7 +15,8 @@ AI coding assistants accelerate development — but speed without security creat
 
 - **Shift-left security**: Catch vulnerabilities before they reach production
 - **AI-native guardrails**: Security hooks and prompts designed for Claude Code workflows
-- **DevSecOps automation**: GitHub Actions, pre-commit hooks, and CI/CD templates
+- **AI Security automation**: GitHub Actions, pre-commit hooks, and CI/CD templates
+- **SaaS security scanning**: Datadog, Cloudflare, Vercel, ArgoCD, Sentry, Okta, SendGrid, and more
 - **Supply chain integrity**: SLSA, SBOM, and artifact signing workflows
 - **Compliance mapping**: SOC 2, ISO 27001, NIST, PCI-DSS, KISA ISMS-P
 - **Living documentation**: Actionable guides for OWASP Top 10, MITRE ATLAS, and more

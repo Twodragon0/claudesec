@@ -28,7 +28,7 @@ print_banner() {
   echo ""
   echo -e "${BOLD}${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
   echo -e "${BOLD}${CYAN}║${NC}  ${BOLD}ClaudeSec Scanner${NC} v${VERSION}                              ${BOLD}${CYAN}║${NC}"
-  echo -e "${BOLD}${CYAN}║${NC}  DevSecOps Security Best Practices Scanner              ${BOLD}${CYAN}║${NC}"
+  echo -e "${BOLD}${CYAN}║${NC}  AI Security Best Practices Scanner                     ${BOLD}${CYAN}║${NC}"
   echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
   echo ""
   echo -e "  ${DIM}Scan directory: ${SCAN_DIR}${NC}"
@@ -53,6 +53,7 @@ category_label() {
     access-control) echo "Access Control & IAM" ;;
     cicd)           echo "CI/CD Pipeline Security" ;;
     macos)          echo "macOS / CIS Benchmark Security" ;;
+    saas)           echo "SaaS & Solutions Security" ;;
     *)              echo "$1" ;;
   esac
 }
@@ -347,7 +348,7 @@ generate_html_dashboard() {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="generator" content="ClaudeSec v${VERSION}">
-<title>ClaudeSec Dashboard</title>
+<title>ClaudeSec AI Security Dashboard</title>
 <style>
   :root { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
