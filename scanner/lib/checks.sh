@@ -8,6 +8,19 @@ has_command() {
   command -v "$1" &>/dev/null
 }
 
+# Run a command with timeout (default 15s)
+run_with_timeout() {
+  local timeout_sec="${1:-15}"
+  shift
+  if has_command timeout; then
+    timeout "$timeout_sec" "$@" 2>/dev/null
+  elif has_command gtimeout; then
+    gtimeout "$timeout_sec" "$@" 2>/dev/null
+  else
+    "$@" 2>/dev/null
+  fi
+}
+
 # Check if a file exists in the scan directory
 has_file() {
   [[ -f "$SCAN_DIR/$1" ]]
@@ -61,7 +74,7 @@ git_remote_url() {
 
 # Check AWS credentials availability (STS call)
 has_aws_credentials() {
-  has_command aws && aws sts get-caller-identity &>/dev/null
+  has_command aws && run_with_timeout 10 aws sts get-caller-identity
 }
 
 # Attempt AWS SSO login if configured but session expired
@@ -149,21 +162,21 @@ aws_identity_info() {
 
 # Check GCP credentials
 has_gcp_credentials() {
-  has_command gcloud && gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | grep -q .
+  has_command gcloud && run_with_timeout 10 gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q .
 }
 
 # ── Azure credential helpers ───────────────────────────────────────────────
 
 # Check Azure credentials
 has_azure_credentials() {
-  has_command az && az account show &>/dev/null
+  has_command az && run_with_timeout 10 az account show
 }
 
 # ── Kubernetes credential helpers ───────────────────────────────────────────
 
 # Check kubectl access (tries current context)
 has_kubectl_access() {
-  has_command kubectl && kubectl cluster-info &>/dev/null
+  has_command kubectl && run_with_timeout 10 kubectl cluster-info &>/dev/null
 }
 
 # List available kubeconfig contexts
@@ -183,7 +196,7 @@ kubectl_ensure_access() {
   has_command kubectl || return 1
 
   # 1. Already connected
-  if kubectl cluster-info &>/dev/null; then
+  if run_with_timeout 10 kubectl cluster-info &>/dev/null; then
     return 0
   fi
 
@@ -245,7 +258,7 @@ kubectl_ensure_access() {
     fi
 
     # Test again after refresh
-    if kubectl cluster-info &>/dev/null; then
+    if run_with_timeout 10 kubectl cluster-info &>/dev/null; then
       echo -e "  ${GREEN}✓${NC} Connected to cluster (context: $current_ctx)"
       return 0
     fi
@@ -255,7 +268,7 @@ kubectl_ensure_access() {
   while IFS= read -r ctx; do
     [[ -z "$ctx" || "$ctx" == "$current_ctx" ]] && continue
     kubectl config use-context "$ctx" &>/dev/null || continue
-    if kubectl cluster-info &>/dev/null; then
+    if run_with_timeout 10 kubectl cluster-info &>/dev/null; then
       echo -e "  ${GREEN}✓${NC} Connected to cluster (context: $ctx)"
       return 0
     fi

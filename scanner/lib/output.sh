@@ -147,10 +147,39 @@ should_report() {
   esac
 }
 
+html_escape() {
+  local s="$1"
+  s="${s//&/\&amp;}"
+  s="${s//</\&lt;}"
+  s="${s//>/\&gt;}"
+  s="${s//\"/\&quot;}"
+  echo "$s"
+}
+
 append_json() {
   local id="$1" title="$2" status="$3" details="$4" severity="${5:-}"
-  # JSON building is simplified — full implementation would use jq
-  :
+  # Escape JSON strings
+  title="${title//\\/\\\\}"; title="${title//\"/\\\"}"
+  details="${details//\\/\\\\}"; details="${details//\"/\\\"}"
+  local entry="{\"id\":\"$id\",\"status\":\"$status\",\"title\":\"$title\""
+  [[ -n "$severity" ]] && entry+=",\"severity\":\"$severity\""
+  [[ -n "$details" ]] && entry+=",\"details\":\"$details\""
+  entry+="}"
+  if [[ "$JSON_RESULTS" == "[]" ]]; then
+    JSON_RESULTS="[$entry]"
+  else
+    JSON_RESULTS="${JSON_RESULTS%]},${entry}]"
+  fi
+}
+
+_print_findings() {
+  local -n arr=$1
+  local label="$2" show_fix="${3:-true}"
+  for entry in "${arr[@]+"${arr[@]}"}"; do
+    IFS='|' read -r f_id f_title _ f_fix <<< "$entry"
+    echo -e "  ${label}${NC}  ${DIM}[$f_id]${NC} $f_title"
+    [[ "$show_fix" == "true" && -n "$f_fix" ]] && echo -e "          ${CYAN}→ $f_fix${NC}"
+  done
 }
 
 print_summary() {
@@ -216,18 +245,8 @@ print_summary() {
     if [[ $((n_crit + n_high)) -gt 0 ]]; then
       echo -e "  ${RED}${BOLD}▸ Action Required${NC}"
       echo -e "  ──────────────────────────────────────────────────────"
-
-      for entry in "${FINDINGS_CRITICAL[@]+"${FINDINGS_CRITICAL[@]}"}"; do
-        IFS='|' read -r f_id f_title f_sev f_fix <<< "$entry"
-        echo -e "  ${RED}${BOLD}■ CRIT${NC}  ${DIM}[$f_id]${NC} $f_title"
-        [[ -n "$f_fix" ]] && echo -e "          ${CYAN}→ $f_fix${NC}"
-      done
-
-      for entry in "${FINDINGS_HIGH[@]+"${FINDINGS_HIGH[@]}"}"; do
-        IFS='|' read -r f_id f_title f_sev f_fix <<< "$entry"
-        echo -e "  ${RED}■ HIGH${NC}  ${DIM}[$f_id]${NC} $f_title"
-        [[ -n "$f_fix" ]] && echo -e "          ${CYAN}→ $f_fix${NC}"
-      done
+      _print_findings FINDINGS_CRITICAL "${RED}${BOLD}■ CRIT" true
+      _print_findings FINDINGS_HIGH "${RED}■ HIGH" true
       echo ""
     fi
 
@@ -235,10 +254,7 @@ print_summary() {
     if [[ $n_med -gt 0 ]]; then
       echo -e "  ${YELLOW}${BOLD}▸ Recommended Fixes${NC}"
       echo -e "  ──────────────────────────────────────────────────────"
-      for entry in "${FINDINGS_MEDIUM[@]}"; do
-        IFS='|' read -r f_id f_title f_sev f_fix <<< "$entry"
-        echo -e "  ${YELLOW}▪ MED${NC}   ${DIM}[$f_id]${NC} $f_title"
-      done
+      _print_findings FINDINGS_MEDIUM "${YELLOW}▪ MED " false
       echo ""
     fi
 
@@ -246,20 +262,26 @@ print_summary() {
     if [[ $n_warn -gt 0 ]]; then
       echo -e "  ${DIM}${BOLD}▸ Warnings (${n_warn})${NC}"
       echo -e "  ──────────────────────────────────────────────────────"
-      for entry in "${FINDINGS_WARN[@]}"; do
-        IFS='|' read -r f_id f_title _ _ <<< "$entry"
-        echo -e "  ${DIM}▫ WARN  [$f_id] $f_title${NC}"
-      done
+      _print_findings FINDINGS_WARN "${DIM}▫ WARN" false
       echo ""
     fi
   fi
 
-  echo -e "  ${DIM}Scanned in ${duration}s · $(date '+%Y-%m-%d %H:%M:%S') · claudesec v${VERSION}${NC}"
+  local duration_str
+  if [[ $duration -ge 60 ]]; then
+    duration_str="$((duration / 60))m $((duration % 60))s"
+  else
+    duration_str="${duration}s"
+  fi
+  echo -e "  ${DIM}Scanned in ${duration_str} · $(date '+%Y-%m-%d %H:%M:%S') · claudesec v${VERSION}${NC}"
   echo ""
 }
 
 print_json_summary() {
   local duration="$1"
+  local active=$((TOTAL_CHECKS - SKIPPED))
+  local score=0
+  [[ $active -gt 0 ]] && score=$(( (PASSED * 100) / active ))
   cat <<EOF
 {
   "version": "$VERSION",
@@ -272,10 +294,23 @@ print_json_summary() {
     "failed": $FAILED,
     "warnings": $WARNINGS,
     "skipped": $SKIPPED,
-    "score": $(( (TOTAL_CHECKS - SKIPPED) > 0 ? (PASSED * 100) / (TOTAL_CHECKS - SKIPPED) : 0 ))
-  }
+    "score": $score,
+    "grade": "$(if [[ $score -ge 90 ]]; then echo A; elif [[ $score -ge 80 ]]; then echo B; elif [[ $score -ge 70 ]]; then echo C; elif [[ $score -ge 60 ]]; then echo D; else echo F; fi)"
+  },
+  "results": $JSON_RESULTS
 }
 EOF
+}
+
+_html_findings_rows() {
+  local -n arr=$1
+  local sev_class="$2" badge_class="$3" badge_text="$4"
+  for entry in "${arr[@]+"${arr[@]}"}"; do
+    IFS='|' read -r f_id f_title _ f_fix <<< "$entry"
+    f_title="$(html_escape "$f_title")"
+    f_fix="$(html_escape "$f_fix")"
+    findings_html+="<tr class=\"${sev_class}\"><td><span class=\"badge ${badge_class}\">${badge_text}</span></td><td class=\"mono\">$f_id</td><td>$f_title</td><td class=\"fix\">$f_fix</td></tr>"
+  done
 }
 
 generate_html_dashboard() {
@@ -299,37 +334,11 @@ generate_html_dashboard() {
 
   # Build findings HTML
   local findings_html=""
-
-  for entry in "${FINDINGS_CRITICAL[@]+"${FINDINGS_CRITICAL[@]}"}"; do
-    IFS='|' read -r f_id f_title f_sev f_fix <<< "$entry"
-    f_title="${f_title//\"/&quot;}"
-    f_fix="${f_fix//\"/&quot;}"
-    findings_html+="<tr class=\"sev-critical\"><td><span class=\"badge critical\">CRITICAL</span></td><td class=\"mono\">$f_id</td><td>$f_title</td><td class=\"fix\">$f_fix</td></tr>"
-  done
-  for entry in "${FINDINGS_HIGH[@]+"${FINDINGS_HIGH[@]}"}"; do
-    IFS='|' read -r f_id f_title f_sev f_fix <<< "$entry"
-    f_title="${f_title//\"/&quot;}"
-    f_fix="${f_fix//\"/&quot;}"
-    findings_html+="<tr class=\"sev-high\"><td><span class=\"badge high\">HIGH</span></td><td class=\"mono\">$f_id</td><td>$f_title</td><td class=\"fix\">$f_fix</td></tr>"
-  done
-  for entry in "${FINDINGS_MEDIUM[@]+"${FINDINGS_MEDIUM[@]}"}"; do
-    IFS='|' read -r f_id f_title f_sev f_fix <<< "$entry"
-    f_title="${f_title//\"/&quot;}"
-    f_fix="${f_fix//\"/&quot;}"
-    findings_html+="<tr class=\"sev-medium\"><td><span class=\"badge medium\">MEDIUM</span></td><td class=\"mono\">$f_id</td><td>$f_title</td><td class=\"fix\">$f_fix</td></tr>"
-  done
-  for entry in "${FINDINGS_WARN[@]+"${FINDINGS_WARN[@]}"}"; do
-    IFS='|' read -r f_id f_title _ f_detail <<< "$entry"
-    f_title="${f_title//\"/&quot;}"
-    f_detail="${f_detail//\"/&quot;}"
-    findings_html+="<tr class=\"sev-warn\"><td><span class=\"badge warn\">WARN</span></td><td class=\"mono\">$f_id</td><td>$f_title</td><td class=\"fix\">$f_detail</td></tr>"
-  done
-  for entry in "${FINDINGS_LOW[@]+"${FINDINGS_LOW[@]}"}"; do
-    IFS='|' read -r f_id f_title f_sev f_fix <<< "$entry"
-    f_title="${f_title//\"/&quot;}"
-    f_fix="${f_fix//\"/&quot;}"
-    findings_html+="<tr class=\"sev-low\"><td><span class=\"badge low\">LOW</span></td><td class=\"mono\">$f_id</td><td>$f_title</td><td class=\"fix\">$f_fix</td></tr>"
-  done
+  _html_findings_rows FINDINGS_CRITICAL "sev-critical" "critical" "CRITICAL"
+  _html_findings_rows FINDINGS_HIGH "sev-high" "high" "HIGH"
+  _html_findings_rows FINDINGS_MEDIUM "sev-medium" "medium" "MEDIUM"
+  _html_findings_rows FINDINGS_WARN "sev-warn" "warn" "WARN"
+  _html_findings_rows FINDINGS_LOW "sev-low" "low" "LOW"
 
   cat > "$output_file" <<HTMLEOF
 <!DOCTYPE html>
@@ -337,6 +346,7 @@ generate_html_dashboard() {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="generator" content="ClaudeSec v${VERSION}">
 <title>ClaudeSec Dashboard</title>
 <style>
   :root { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8; }
@@ -398,6 +408,12 @@ generate_html_dashboard() {
   .empty { padding: 2rem; text-align: center; color: #22c55e; font-size: 1.1rem; }
 
   footer { text-align: center; padding: 2rem 0 1rem; color: var(--muted); font-size: 0.8rem; }
+
+  @media (max-width: 768px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .score-section { flex-direction: column; }
+    .fix { max-width: 200px; }
+  }
 </style>
 </head>
 <body>
