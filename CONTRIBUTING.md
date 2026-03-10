@@ -6,7 +6,7 @@ Thank you for your interest in contributing to ClaudeSec! This project aims to m
 
 ### Reporting Issues
 
-- Use [GitHub Issues](../../issues) to report bugs or suggest features
+- Use [GitHub Issues](https://github.com/Twodragon0/claudesec/issues) to report bugs or suggest features
 - Check existing issues before creating a new one
 - Use the provided issue templates
 
@@ -57,4 +57,4 @@ Be respectful, constructive, and inclusive. We follow the [Contributor Covenant]
 
 ## Questions?
 
-Open a [Discussion](../../discussions) or reach out via Issues.
+Open a [Discussion](https://github.com/Twodragon0/claudesec/discussions) or reach out via Issues.

@@ -129,5 +129,5 @@ Based on the [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-t
 ## References
 
 - [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
-- [NIST AI 600-1 — AI Risk Management](https://csrc.nist.gov/pubs/ai/600/1/final)
+- [NIST AI 600-1 — AI Risk Management](https://airc.nist.gov/Docs/1)
 - [MITRE ATLAS — AI Threat Framework](https://atlas.mitre.org/)

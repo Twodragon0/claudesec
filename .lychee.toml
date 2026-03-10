@@ -1,0 +1,28 @@
+# Lychee link checker configuration
+# https://lychee.cli.rs/configuration/
+
+# Exclude URLs that are known to block CI crawlers or are unreliable
+exclude = [
+  # Korean government sites block non-browser requests
+  "isms.kisa.or.kr",
+  "isms-p.or.kr",
+  "privacy.go.kr",
+  "law.go.kr",
+  # Sites that return 403/timeout to bots
+  "media.defense.gov",
+  "jamf.com",
+  # GitHub relative paths that resolve only in the GitHub UI
+  "file://",
+]
+
+# Accept 403 and 429 status codes (rate limiting / bot blocking)
+accept = [403, 429]
+
+# Timeout per request
+timeout = 20
+
+# Max retries
+max_retries = 2
+
+# Skip fragments (anchors) to avoid false positives
+include_fragments = false
