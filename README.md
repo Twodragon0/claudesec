@@ -24,7 +24,7 @@ AI coding assistants accelerate development — but speed without security creat
 
 ```bash
 # Clone the repository
-git clone https://github.com/yongwoo-Han/claudesec.git
+git clone https://github.com/Twodragon0/claudesec.git
 cd claudesec
 
 # One-command setup into your project
