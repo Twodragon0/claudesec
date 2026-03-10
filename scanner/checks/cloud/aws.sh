@@ -3,7 +3,6 @@
 
 if has_aws_credentials 2>/dev/null; then
   # CLOUD-001: Root account MFA
-  local root_mfa
   root_mfa=$(aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled' --output text 2>/dev/null || echo "error")
   if [[ "$root_mfa" == "1" ]]; then
     pass "CLOUD-001" "AWS root account MFA enabled"
@@ -16,7 +15,6 @@ if has_aws_credentials 2>/dev/null; then
   fi
 
   # CLOUD-002: CloudTrail enabled
-  local trail_count
   trail_count=$(aws cloudtrail describe-trails --query 'trailList | length(@)' --output text 2>/dev/null || echo "0")
   if [[ "$trail_count" -gt 0 ]]; then
     pass "CLOUD-002" "AWS CloudTrail enabled ($trail_count trail(s))"
@@ -27,7 +25,6 @@ if has_aws_credentials 2>/dev/null; then
   fi
 
   # CLOUD-003: S3 public access block
-  local s3_block
   s3_block=$(aws s3control get-public-access-block \
     --account-id "$(aws sts get-caller-identity --query Account --output text 2>/dev/null)" \
     --query 'PublicAccessBlockConfiguration.BlockPublicAcls' --output text 2>/dev/null || echo "error")
@@ -42,7 +39,6 @@ if has_aws_credentials 2>/dev/null; then
   fi
 
   # CLOUD-004: Default VPC usage
-  local default_vpcs
   default_vpcs=$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true \
     --query 'Vpcs | length(@)' --output text 2>/dev/null || echo "0")
   if [[ "$default_vpcs" -gt 0 ]]; then
@@ -53,7 +49,6 @@ if has_aws_credentials 2>/dev/null; then
   fi
 
   # CLOUD-005: IMDSv2 enforcement
-  local imdsv1_instances
   imdsv1_instances=$(aws ec2 describe-instances \
     --query 'Reservations[].Instances[?MetadataOptions.HttpTokens==`optional`] | length(@)' \
     --output text 2>/dev/null || echo "error")

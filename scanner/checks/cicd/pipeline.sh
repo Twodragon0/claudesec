@@ -85,7 +85,6 @@ fi
 
 # CICD-008: Branch protection (GitHub)
 if is_git_repo; then
-  local remote_url
   remote_url=$(git_remote_url)
   if [[ "$remote_url" == *"github.com"* ]]; then
     if has_file ".github/CODEOWNERS"; then

@@ -21,14 +21,24 @@ has_dir() {
 # Search for a pattern in files
 file_contains() {
   local file="$1" pattern="$2"
-  [[ -f "$SCAN_DIR/$file" ]] && grep -qE "$pattern" "$SCAN_DIR/$file" 2>/dev/null
+  if [[ -f "$SCAN_DIR/$file" ]]; then
+    grep -qE "$pattern" "$SCAN_DIR/$file" 2>/dev/null
+    return $?
+  fi
+  return 1
 }
 
 # Search for pattern across files matching a glob
 files_contain() {
-  local glob="$1" pattern="$2"
-  find "$SCAN_DIR" -name "$glob" -not -path "*/node_modules/*" -not -path "*/.git/*" \
-    -exec grep -lE "$pattern" {} \; 2>/dev/null | head -1 | grep -q .
+  local glob="$1" pattern="$2" result
+  if [[ "$glob" == */* ]]; then
+    result=$(find "$SCAN_DIR" -path "$SCAN_DIR/$glob" -not -path "*/node_modules/*" -not -path "*/.git/*" \
+      -exec grep -lE "$pattern" {} \; 2>/dev/null | head -1 || true)
+  else
+    result=$(find "$SCAN_DIR" -name "$glob" -not -path "*/node_modules/*" -not -path "*/.git/*" \
+      -exec grep -lE "$pattern" {} \; 2>/dev/null | head -1 || true)
+  fi
+  [[ -n "$result" ]]
 }
 
 # Count files matching a pattern
@@ -79,6 +89,7 @@ compliance_map() {
     CICD-*) echo "NIST:SA-11,CM-2|ISO:A.14|ISMS-P:2.9|SOC2:CC8.1" ;;
     AI-*) echo "NIST-AI:MAP,MEASURE|ISO42001:6,7|ISMS-P:2.9" ;;
     INFRA-*) echo "NIST:CM-6,CM-7|ISO:A.12,A.14|ISMS-P:2.10|SOC2:CC6.6" ;;
+    MAC-*|CIS-*) echo "CIS:macOS-Benchmark|NIST:CM-6,CM-7|ISO:A.8.9" ;;
     *) echo "" ;;
   esac
 }

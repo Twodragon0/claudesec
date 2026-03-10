@@ -3,8 +3,7 @@
 
 # IAM-001: Environment files not in repository
 if is_git_repo; then
-  local tracked_env
-  tracked_env=$(git -C "$SCAN_DIR" ls-files '*.env' '.env*' 2>/dev/null | grep -v ".env.example" | head -5)
+  tracked_env=$(git -C "$SCAN_DIR" ls-files '*.env' '.env*' 2>/dev/null | grep -v ".env.example" | head -5 || true)
   if [[ -n "$tracked_env" ]]; then
     fail "IAM-001" ".env file tracked in git" "critical" \
       "Files: $tracked_env" \
@@ -18,7 +17,7 @@ fi
 
 # IAM-002: .gitignore includes sensitive patterns
 if has_file ".gitignore"; then
-  local missing_patterns=""
+  missing_patterns=""
   for pattern in ".env" "*.pem" "*.key" "credentials" "*.secret"; do
     if ! file_contains ".gitignore" "$pattern"; then
       missing_patterns="$missing_patterns $pattern"

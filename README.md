@@ -74,6 +74,7 @@ ClaudeSec includes a zero-dependency bash scanner that checks your project for s
 | `cloud` | 13 | AWS, GCP, Azure (IAM, logging, storage, network) |
 | `access-control` | 6 | .env files, password hashing, JWT, sessions |
 | `cicd` | 8 | GHA permissions, SHA pinning, SAST, lockfiles |
+| `macos` | 20 | FileVault, SIP, Gatekeeper, CIS Benchmark v4.0 |
 
 ## Project Structure
 
@@ -111,6 +112,7 @@ claudesec/
 | [Security Maturity (SAMM)](docs/devsecops/security-maturity.md) | OWASP SAMM assessment and roadmap |
 | [Threat Modeling](docs/devsecops/threat-modeling.md) | AI-assisted STRIDE threat modeling |
 | [Security Champions](docs/devsecops/security-champions.md) | Building security culture at scale |
+| [macOS CIS Security](docs/devsecops/macos-cis-security.md) | CIS Benchmark v4.0 hardening guide |
 
 ### AI Security
 
@@ -222,7 +224,6 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Acknowledgments
 
-- Inspired by [oh-my-claudecode](https://github.com/anthropics/oh-my-claudecode)
 - Cloud security patterns from [prowler-cloud/prowler](https://github.com/prowler-cloud/prowler)
 - Audit framework informed by [querypie/audit-points](https://github.com/querypie/audit-points)
 - Web security based on [OWASP Top 10 2025](https://github.com/OWASP/Top10/tree/master/2025)

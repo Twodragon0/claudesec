@@ -45,6 +45,7 @@ category_label() {
     cloud)          echo "Cloud Security (AWS/GCP/Azure)" ;;
     access-control) echo "Access Control & IAM" ;;
     cicd)           echo "CI/CD Pipeline Security" ;;
+    macos)          echo "macOS / CIS Benchmark Security" ;;
     *)              echo "$1" ;;
   esac
 }
