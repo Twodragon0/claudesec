@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 # ClaudeSec — Cloud: AWS Security Checks
 
+# Attempt SSO login if credentials are not available
+if ! has_aws_credentials 2>/dev/null; then
+  aws_sso_ensure_login 2>/dev/null || true
+fi
+
 if has_aws_credentials 2>/dev/null; then
+  # Display identity info
+  _aws_id=$(aws_identity_info)
+  _aws_account=$(echo "$_aws_id" | cut -d'|' -f1)
+  _aws_arn=$(echo "$_aws_id" | cut -d'|' -f2)
+  info "AWS Account: ${_aws_account} (${_aws_arn})"
   # CLOUD-001: Root account MFA
   root_mfa=$(aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled' --output text 2>/dev/null || echo "error")
   if [[ "$root_mfa" == "1" ]]; then

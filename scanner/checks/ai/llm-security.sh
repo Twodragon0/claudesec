@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ClaudeSec — AI / LLM Security Checks
 
-local has_ai=false
+has_ai=false
 if files_contain "*.py" "(openai|anthropic|langchain|transformers|torch)" 2>/dev/null || \
    files_contain "*.ts" "(openai|@anthropic|langchain)" 2>/dev/null || \
    files_contain "*.js" "(openai|anthropic|langchain)" 2>/dev/null || \

@@ -16,3 +16,10 @@ package-lock.json
 .env
 .env.*
 .omc/
+
+# Scan results (never commit scan reports)
+claudesec-dashboard.html
+*.scan-report.html
+*.scan-report.json
+docs/reports/scan-report*.md
+scanner/output/

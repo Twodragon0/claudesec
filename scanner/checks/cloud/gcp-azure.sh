@@ -4,12 +4,10 @@
 # ── GCP Checks ───────────────────────────────────────────────────────────────
 
 if has_gcp_credentials 2>/dev/null; then
-  local project
   project=$(gcloud config get-value project 2>/dev/null || echo "")
 
   if [[ -n "$project" ]]; then
     # CLOUD-010: GCP audit logging
-    local audit_policy
     audit_policy=$(gcloud projects get-iam-policy "$project" --format=json 2>/dev/null | \
       grep -c "auditLogConfigs" 2>/dev/null || echo "0")
     if [[ "$audit_policy" -gt 0 ]]; then
@@ -20,7 +18,6 @@ if has_gcp_credentials 2>/dev/null; then
     fi
 
     # CLOUD-011: GCP default service account usage
-    local default_sa
     default_sa=$(gcloud iam service-accounts list --format="value(email)" 2>/dev/null | \
       grep -c "compute@developer\|appspot" || echo "0")
     if [[ "$default_sa" -gt 0 ]]; then
@@ -49,7 +46,6 @@ fi
 
 if has_azure_credentials 2>/dev/null; then
   # CLOUD-020: Azure Security Center
-  local sec_center
   sec_center=$(az security pricing list --query "[?pricingTier=='Standard'] | length(@)" \
     --output tsv 2>/dev/null || echo "error")
   if [[ "$sec_center" =~ ^[0-9]+$ && "$sec_center" -gt 0 ]]; then
