@@ -23,3 +23,11 @@ claudesec-dashboard.html
 *.scan-report.json
 docs/reports/scan-report*.md
 scanner/output/
+
+# Credentials & keys
+*.pem
+*.key
+*.p12
+*.pfx
+*.secret
+credentials.json

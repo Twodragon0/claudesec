@@ -44,6 +44,26 @@ FAILED=0
 WARNINGS=0
 SKIPPED=0
 
+# ── Config Loading ───────────────────────────────────────────────────────────
+
+load_config() {
+  local config_file="$SCAN_DIR/.claudesec.yml"
+  [[ -f "$config_file" ]] || return 0
+
+  # Simple YAML parser for key settings (no external deps)
+  local line key val
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Strip comments and trim
+    line="${line%%#*}"
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*$ ]] && continue
+
+    # Match "key: value" patterns
+    if [[ "$line" =~ ^[[:space:]]*severity:[[:space:]]*(.+) ]]; then
+      SEVERITY="${BASH_REMATCH[1]// /}"
+    fi
+  done < "$config_file"
+}
+
 # ── CLI Parsing ──────────────────────────────────────────────────────────────
 
 usage() {
@@ -107,6 +127,7 @@ parse_args() {
           --kubecontext) kubectl config use-context "$2" &>/dev/null; shift 2 ;;
           --aws-sso) AWS_SSO_FORCE=1; shift ;;
           --env-file) ENV_SCAN_FILES+=("$2"); shift 2 ;;
+          -V|--version) echo "claudesec v$VERSION"; exit 0 ;;
           *) error "Unknown option: $1"; usage; exit 1 ;;
         esac
       done
@@ -134,6 +155,8 @@ parse_args() {
 run_scan() {
   local start_time
   start_time=$(date +%s)
+
+  load_config
 
   if [[ "$FORMAT" == "text" ]]; then
     print_banner
@@ -167,7 +190,9 @@ run_scan() {
     # Source and run each check file
     for check_file in "$check_dir"/*.sh; do
       [[ -f "$check_file" ]] || continue
-      source "$check_file"
+      if ! source "$check_file" 2>/dev/null; then
+        warning "Check failed to load: $(basename "$check_file")"
+      fi
     done
   done
 
@@ -275,7 +300,9 @@ run_scan_for_dashboard() {
     [[ -d "$check_dir" ]] || continue
     for check_file in "$check_dir"/*.sh; do
       [[ -f "$check_file" ]] || continue
-      source "$check_file"
+      if ! source "$check_file" 2>/dev/null; then
+        warning "Check failed to load: $(basename "$check_file")"
+      fi
     done
   done
 

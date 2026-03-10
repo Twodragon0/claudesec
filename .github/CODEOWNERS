@@ -1,0 +1,5 @@
+# CODEOWNERS - default reviewer assignments
+
+* @Twodragon0
+scanner/ @Twodragon0
+docs/ @Twodragon0
