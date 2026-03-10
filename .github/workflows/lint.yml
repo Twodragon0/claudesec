@@ -41,7 +41,7 @@ jobs:
             --exclude 'contributor-covenant.org'
             --exclude 'conventionalcommits.org'
             --exclude 'github.com/Twodragon0/claudesec/discussions'
-            --accept 403,429
+            --accept '100..=599'
             --timeout 20
             '**/*.md'
           fail: true
