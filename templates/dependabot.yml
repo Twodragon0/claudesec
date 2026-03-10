@@ -1,0 +1,46 @@
+# .github/dependabot.yml
+# ClaudeSec template — copy to your project's .github/dependabot.yml
+
+version: 2
+updates:
+  # JavaScript / TypeScript
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "your-org/security-team"  # Update this
+    labels:
+      - "dependencies"
+      - "security"
+    groups:
+      production-deps:
+        patterns: ["*"]
+        exclude-patterns: ["@types/*", "eslint*", "prettier*", "vitest*", "jest*"]
+        update-types: ["minor", "patch"]
+      dev-deps:
+        patterns: ["@types/*", "eslint*", "prettier*", "vitest*", "jest*"]
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"
+
+  # Docker (if applicable)
+  # - package-ecosystem: "docker"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+
+  # Python (if applicable)
+  # - package-ecosystem: "pip"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"

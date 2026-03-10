@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+# ============================================================================
+# ClaudeSec Scanner — DevSecOps Security Best Practices Scanner
+# ============================================================================
+# Scans your environment for security best practices across:
+#   - Infrastructure (Docker, Kubernetes, IaC)
+#   - AI/LLM Security (model configs, prompt injection risks)
+#   - Network (TLS, firewall, DNS)
+#   - Cloud (AWS, GCP, Azure)
+#   - Access Control (IAM, SSO, MFA)
+#   - CI/CD (GitHub Actions, Jenkins, secrets)
+#
+# Usage:
+#   claudesec scan [--category <cat>] [--format json|text] [--severity <level>]
+#   claudesec scan --all
+#   claudesec report [--output <file>]
+#   claudesec init
+#   claudesec version
+# ============================================================================
+
+set -euo pipefail
+
+VERSION="0.1.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CHECKS_DIR="$SCRIPT_DIR/checks"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# Source library
+source "$LIB_DIR/output.sh"
+source "$LIB_DIR/checks.sh"
+
+# Defaults
+FORMAT="text"
+SEVERITY="all"
+CATEGORY="all"
+OUTPUT_FILE=""
+SCAN_DIR="${SCAN_DIR:-.}"
+
+# Counters
+TOTAL_CHECKS=0
+PASSED=0
+FAILED=0
+WARNINGS=0
+SKIPPED=0
+
+# ── CLI Parsing ──────────────────────────────────────────────────────────────
+
+usage() {
+  cat <<'EOF'
+ClaudeSec Scanner — DevSecOps Security Best Practices Scanner
+
+Usage:
+  claudesec scan [options]          Run security checks
+  claudesec init                    Initialize .claudesec.yml config
+  claudesec report [options]        Generate security report
+  claudesec version                 Show version
+  claudesec help                    Show this help
+
+Scan Options:
+  --category, -c <category>   Scan specific category:
+                                 infra, ai, network, cloud,
+                                 access-control, cicd, all (default: all)
+  --severity, -s <level>      Minimum severity: critical, high, medium, low, all
+  --format, -f <format>       Output format: text, json (default: text)
+  --dir, -d <path>            Directory to scan (default: current directory)
+  --output, -o <file>         Write results to file
+  --compliance <framework>    Map to compliance framework:
+                                 nist-csf, nist-800-53, iso27001,
+                                 isms-p, soc2, pci-dss
+  --quiet, -q                 Only show failures
+
+Examples:
+  claudesec scan                          # Full scan, current directory
+  claudesec scan -c cloud -s high         # Cloud checks, high+ severity
+  claudesec scan -c ai -f json            # AI checks, JSON output
+  claudesec scan --compliance iso27001    # Scan with ISO 27001 mapping
+  claudesec scan -c infra -c network      # Multiple categories
+EOF
+}
+
+parse_args() {
+  local cmd="${1:-help}"
+  shift || true
+
+  case "$cmd" in
+    scan)
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          -c|--category) CATEGORY="$2"; shift 2 ;;
+          -s|--severity) SEVERITY="$2"; shift 2 ;;
+          -f|--format) FORMAT="$2"; shift 2 ;;
+          -d|--dir) SCAN_DIR="$2"; shift 2 ;;
+          -o|--output) OUTPUT_FILE="$2"; shift 2 ;;
+          --compliance) COMPLIANCE="$2"; shift 2 ;;
+          -q|--quiet) QUIET=1; shift ;;
+          --all) CATEGORY="all"; shift ;;
+          *) error "Unknown option: $1"; usage; exit 1 ;;
+        esac
+      done
+      run_scan
+      ;;
+    init) run_init ;;
+    report) run_report "$@" ;;
+    version) echo "claudesec v$VERSION" ;;
+    help|--help|-h) usage ;;
+    *) error "Unknown command: $cmd"; usage; exit 1 ;;
+  esac
+}
+
+# ── Core Functions ───────────────────────────────────────────────────────────
+
+run_scan() {
+  local start_time
+  start_time=$(date +%s)
+
+  if [[ "$FORMAT" == "text" ]]; then
+    print_banner
+  fi
+
+  # Determine which categories to scan
+  local categories=()
+  if [[ "$CATEGORY" == "all" ]]; then
+    categories=(infra ai network cloud access-control cicd)
+  else
+    IFS=',' read -ra categories <<< "$CATEGORY"
+  fi
+
+  # Run checks for each category
+  for cat in "${categories[@]}"; do
+    local check_dir="$CHECKS_DIR/$cat"
+    if [[ ! -d "$check_dir" ]]; then
+      warning "Unknown category: $cat"
+      continue
+    fi
+
+    if [[ "$FORMAT" == "text" ]]; then
+      section "$(category_label "$cat")"
+    fi
+
+    # Source and run each check file
+    for check_file in "$check_dir"/*.sh; do
+      [[ -f "$check_file" ]] || continue
+      source "$check_file"
+    done
+  done
+
+  # Print summary
+  local end_time
+  end_time=$(date +%s)
+  local duration=$((end_time - start_time))
+
+  if [[ "$FORMAT" == "text" ]]; then
+    print_summary "$duration"
+  elif [[ "$FORMAT" == "json" ]]; then
+    print_json_summary "$duration"
+  fi
+
+  # Write to file if requested
+  if [[ -n "$OUTPUT_FILE" ]]; then
+    info "Report saved to $OUTPUT_FILE"
+  fi
+
+  # Exit code based on failures
+  if [[ $FAILED -gt 0 ]]; then
+    exit 1
+  fi
+}
+
+run_init() {
+  local config_file="$SCAN_DIR/.claudesec.yml"
+  if [[ -f "$config_file" ]]; then
+    warning "$config_file already exists"
+    return
+  fi
+
+  cat > "$config_file" <<'YAML'
+# ClaudeSec Scanner Configuration
+# See: https://github.com/your-username/claudesec
+
+version: "0.1"
+
+scan:
+  # Categories to scan (default: all)
+  categories:
+    - infra
+    - ai
+    - network
+    - cloud
+    - access-control
+    - cicd
+
+  # Minimum severity to report: critical, high, medium, low
+  severity: low
+
+  # Compliance framework mapping (optional)
+  # compliance: iso27001
+
+  # Paths to exclude from scanning
+  exclude:
+    - node_modules/
+    - .git/
+    - vendor/
+    - dist/
+
+# Cloud provider settings
+cloud:
+  aws:
+    enabled: true
+    # profile: default
+    # regions: [us-east-1, ap-northeast-2]
+  gcp:
+    enabled: false
+    # project: my-project
+  azure:
+    enabled: false
+    # subscription: my-subscription
+
+# Custom check overrides
+overrides:
+  # Disable specific checks
+  # disabled:
+  #   - INFRA-001
+  #   - NET-003
+YAML
+
+  success "Created $config_file"
+  info "Edit this file to customize your scan settings."
+}
+
+run_report() {
+  info "Generating security report..."
+  run_scan
+}
+
+# ── Entry Point ──────────────────────────────────────────────────────────────
+
+parse_args "$@"
