@@ -66,6 +66,7 @@ Human reviewers excel at business logic and architectural concerns but can miss 
 ### Claude Code Review Prompts
 
 **Quick Security Scan:**
+
 ```bash
 claude "Review this diff for security vulnerabilities. Focus on:
 1. Input validation gaps
@@ -76,6 +77,7 @@ Provide severity ratings (Critical/High/Medium/Low) and fix suggestions."
 ```
 
 **Deep Review:**
+
 ```bash
 claude "Perform a thorough security review of src/auth/ directory:
 1. Check authentication flow for bypasses
@@ -87,6 +89,7 @@ Format as a security report with findings, severity, and remediation."
 ```
 
 **Dependency Audit:**
+
 ```bash
 claude "Audit package.json for:
 1. Packages with known CVEs (cross-reference with npm audit)

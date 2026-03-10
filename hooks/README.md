@@ -41,6 +41,7 @@ chmod +x .git/hooks/pre-commit
 ## Creating Custom Hooks
 
 Hooks are bash scripts that:
+
 1. Receive file path and content as arguments
 2. Exit `0` to allow the operation
 3. Exit `1` to block the operation (with error message)

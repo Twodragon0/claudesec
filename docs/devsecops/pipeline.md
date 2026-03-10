@@ -40,6 +40,7 @@ repos:
 ```
 
 **Claude Code Integration:**
+
 ```json
 {
   "hooks": {

@@ -104,6 +104,7 @@ rules:
 ```
 
 ### etcd Security
+
 - Enable TLS for all etcd communication
 - Restrict network access to etcd (control plane only)
 - Enable encryption at rest for secrets

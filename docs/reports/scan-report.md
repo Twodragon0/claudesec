@@ -173,9 +173,11 @@ All FAIL and WARN findings listed below, ordered by severity (Critical → High 
 - **Risk:** Vulnerable code and dependencies may reach production undetected.
 - **Remediation:**
   1. Add CodeQL analysis to `.github/workflows/`:
+
      ```yaml
      - uses: github/codeql-action/analyze@v3
      ```
+
   2. Alternatively, add Semgrep or Trivy for SAST/container scanning.
   3. Consider adding `actions/dependency-review-action` alongside (see CICD-004).
 
@@ -184,6 +186,7 @@ All FAIL and WARN findings listed below, ordered by severity (Critical → High 
 - **Issue:** Physical access to the machine grants full account access without authentication.
 - **Risk:** High — anyone with brief physical access can read files, exfiltrate data, or install malware.
 - **Remediation:**
+
   ```bash
   defaults write com.apple.screensaver askForPassword -bool true
   defaults write com.apple.screensaver askForPasswordDelay -int 0
@@ -194,9 +197,11 @@ All FAIL and WARN findings listed below, ordered by severity (Critical → High 
 - **Issue:** macOS audit daemon is inactive; security events are not being recorded.
 - **Risk:** High — incident response and forensic investigation are severely limited without audit logs.
 - **Remediation:**
+
   ```bash
   sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.auditd.plist
   ```
+
   Verify with: `sudo launchctl list | grep auditd`
 
 #### CIS-004 — World-writable files found in /System (14 files)
@@ -205,13 +210,17 @@ All FAIL and WARN findings listed below, ordered by severity (Critical → High 
 - **Risk:** High — any local user can modify system files, enabling privilege escalation.
 - **Remediation:**
   1. Review the affected files:
+
      ```bash
      sudo find /System -maxdepth 4 -perm -0002 -not -type l
      ```
+
   2. Remove world-write bits where appropriate:
+
      ```bash
      sudo chmod o-w <file>
      ```
+
   3. If files are Apple-managed, running `sudo /usr/libexec/repair_packages --repair --standard-pkgs` may restore correct permissions.
 
 ---
@@ -231,6 +240,7 @@ All FAIL and WARN findings listed below, ordered by severity (Critical → High 
 - **Issue:** macOS is not automatically checking for software updates.
 - **Risk:** Security patches may be delayed indefinitely.
 - **Remediation:**
+
   ```bash
   sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled -bool true
   sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticDownload -bool true
@@ -242,6 +252,7 @@ All FAIL and WARN findings listed below, ordered by severity (Critical → High 
 - **Issue:** 42 Homebrew packages are out of date and may contain known CVEs.
 - **Risk:** Medium — outdated tools (compilers, interpreters, CLI utilities) can be exploited.
 - **Remediation:**
+
   ```bash
   brew update && brew upgrade
   # Audit for known vulnerabilities:
@@ -257,6 +268,7 @@ All FAIL and WARN findings listed below, ordered by severity (Critical → High 
 - **Issue:** `.gitignore` does not exclude `*.pem`, `*.key`, `credentials`, or `*.secret` files.
 - **Risk:** Private keys or credentials could be accidentally committed.
 - **Remediation:** Add the following to `.gitignore`:
+
   ```gitignore
   *.pem
   *.key
@@ -271,15 +283,18 @@ All FAIL and WARN findings listed below, ordered by severity (Critical → High 
 - **Issue:** Actions use `@v3`-style tags which are mutable and can be changed by the action author.
 - **Risk:** Supply chain attack via tag mutation.
 - **Remediation:** Pin each action to its full commit SHA, e.g.:
+
   ```yaml
   - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
   ```
+
   Use tools like `pin-github-action` or Dependabot to automate this.
 
 #### CICD-004 — No dependency review action in CI
 
 - **Issue:** No `actions/dependency-review-action` is configured to block PRs introducing vulnerable dependencies.
 - **Remediation:**
+
   ```yaml
   - uses: actions/dependency-review-action@v4
     with:
@@ -290,6 +305,7 @@ All FAIL and WARN findings listed below, ordered by severity (Critical → High 
 
 - **Issue:** Scanner could not verify whether SSH remote login is enabled.
 - **Remediation:** Check manually and disable if not needed:
+
   ```bash
   sudo systemsetup -getremotelogin
   sudo systemsetup -setremotelogin off
@@ -300,10 +316,12 @@ All FAIL and WARN findings listed below, ordered by severity (Critical → High 
 - **Issue:** No `pwpolicy` or MDM-enforced password complexity rules are configured.
 - **Risk:** Weak passwords may be in use on local accounts.
 - **Remediation:**
+
   ```bash
   # Example: require minimum 15 characters with complexity
   sudo pwpolicy -setaccountpolicies
   ```
+
   CIS Benchmark recommends at least 15 characters with uppercase, lowercase, number, and symbol requirements.
 
 ---
@@ -315,6 +333,7 @@ All FAIL and WARN findings listed below, ordered by severity (Critical → High 
 - **Issue:** No `.github/CODEOWNERS` file is present.
 - **Risk:** No automatic review assignment; security-sensitive files may be merged without appropriate expert review.
 - **Remediation:** Create `.github/CODEOWNERS`:
+
   ```
   # Default owners for all files
   *       @your-team
@@ -333,6 +352,7 @@ All FAIL and WARN findings listed below, ordered by severity (Critical → High 
 
 - **Issue:** Active Bluetooth increases wireless attack surface.
 - **Remediation:** Disable Bluetooth when not in use via **System Settings > Bluetooth > Turn Off**, or:
+
   ```bash
   blueutil -p 0
   ```

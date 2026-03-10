@@ -3,15 +3,24 @@
 
 # Exclude URLs that are known to block CI crawlers or are unreliable
 exclude = [
-  # Korean government sites block non-browser requests
+  # Korean government sites — SSL issues in CI
   "isms.kisa.or.kr",
   "isms-p.or.kr",
   "privacy.go.kr",
   "law.go.kr",
-  # Sites that return 403/timeout to bots
+  # Sites that block bots (403/timeout/connection reset)
   "media.defense.gov",
   "jamf.com",
-  # GitHub relative paths that resolve only in the GitHub UI
+  "kyverno.io",
+  "contributor-covenant.org",
+  "conventionalcommits.org",
+  # GitHub features not yet enabled
+  "github.com/Twodragon0/claudesec/discussions",
+  # MITRE ATLAS — URL structure changed
+  "atlas.mitre.org",
+  # NIST AI — URL structure varies
+  "airc.nist.gov",
+  # Local file references
   "file://",
 ]
 

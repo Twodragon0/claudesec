@@ -16,7 +16,7 @@ We take security seriously. If you discover a vulnerability:
 
 1. **Do NOT open a public issue**
 2. Use [GitHub Private Vulnerability Reporting](https://github.com/Twodragon0/claudesec/security/advisories/new)
-3. Or email: security@your-domain.com (update this)
+3. Or email: <security@your-domain.com> (update this)
 
 ### What to Include
 
@@ -41,6 +41,7 @@ We credit reporters in our security advisories (unless you prefer anonymity).
 ## Security Measures
 
 This project implements:
+
 - Dependency scanning via Dependabot
 - Code scanning via CodeQL
 - Secret scanning with push protection
