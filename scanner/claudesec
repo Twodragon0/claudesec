@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# ClaudeSec Scanner — DevSecOps Security Best Practices Scanner
+# ClaudeSec Scanner — AI Security Best Practices Scanner
 # ============================================================================
 # Scans your environment for security best practices across:
 #   - Infrastructure (Docker, Kubernetes, IaC)
@@ -9,6 +9,7 @@
 #   - Cloud (AWS, GCP, Azure)
 #   - Access Control (IAM, SSO, MFA)
 #   - CI/CD (GitHub Actions, Jenkins, secrets)
+#   - SaaS & Solutions (third-party integrations, API security)
 #
 # Usage:
 #   claudesec scan [--category <cat>] [--format json|text] [--severity <level>]
@@ -20,7 +21,7 @@
 
 set -uo pipefail
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHECKS_DIR="$SCRIPT_DIR/checks"
 LIB_DIR="$SCRIPT_DIR/lib"
@@ -68,7 +69,7 @@ load_config() {
 
 usage() {
   cat <<'EOF'
-ClaudeSec Scanner — DevSecOps Security Best Practices Scanner
+ClaudeSec Scanner — AI Security Best Practices Scanner
 
 Usage:
   claudesec scan [options]          Run security checks
@@ -81,7 +82,7 @@ Usage:
 Scan Options:
   --category, -c <category>   Scan specific category:
                                  infra, ai, network, cloud,
-                                 access-control, cicd, macos, all (default: all)
+                                 access-control, cicd, macos, saas, all (default: all)
   --severity, -s <level>      Minimum severity: critical, high, medium, low, all
   --format, -f <format>       Output format: text, json (default: text)
   --dir, -d <path>            Directory to scan (default: current directory)
@@ -115,7 +116,13 @@ parse_args() {
     scan)
       while [[ $# -gt 0 ]]; do
         case "$1" in
-          -c|--category) CATEGORY="$2"; shift 2 ;;
+          -c|--category)
+            if [[ "$CATEGORY" == "all" ]]; then
+              CATEGORY="$2"
+            else
+              CATEGORY="${CATEGORY},${2}"
+            fi
+            shift 2 ;;
           -s|--severity) SEVERITY="$2"; shift 2 ;;
           -f|--format) FORMAT="$2"; shift 2 ;;
           -d|--dir) SCAN_DIR="$2"; shift 2 ;;
@@ -170,7 +177,7 @@ run_scan() {
   # Determine which categories to scan
   local categories=()
   if [[ "$CATEGORY" == "all" ]]; then
-    categories=(infra ai network cloud access-control cicd macos)
+    categories=(infra ai network cloud access-control cicd macos saas)
   else
     IFS=',' read -ra categories <<< "$CATEGORY"
   fi
@@ -240,6 +247,7 @@ scan:
     - cloud
     - access-control
     - cicd
+    - saas
 
   # Minimum severity to report: critical, high, medium, low
   severity: low
@@ -290,7 +298,7 @@ run_scan_for_dashboard() {
 
   local categories=()
   if [[ "$CATEGORY" == "all" ]]; then
-    categories=(infra ai network cloud access-control cicd macos)
+    categories=(infra ai network cloud access-control cicd macos saas)
   else
     IFS=',' read -ra categories <<< "$CATEGORY"
   fi

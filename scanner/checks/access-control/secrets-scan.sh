@@ -71,6 +71,30 @@ SECRET_PATTERNS=(
   "Shopify Token|shpat_[a-f0-9]{32}|high"
   "FRED API Key|[Ff][Rr][Ee][Dd]_[Aa][Pp][Ii]_[Kk][Ee][Yy][[:space:]]*[=:][[:space:]]*[a-f0-9]{32}|medium"
 
+  # Security & Identity (Okta, Zscaler, SentinelOne, Jamf)
+  "Okta API Token|[Oo][Kk][Tt][Aa].*[Aa][Pp][Ii].*[Tt][Oo][Kk][Ee][Nn][[:space:]]*[=:][[:space:]]*['\"]?00[a-zA-Z0-9_-]{38,}['\"]?|critical"
+  "Okta SSWS Token|SSWS [a-zA-Z0-9_-]{30,}|critical"
+  "Zscaler API Key|[Zz][Ss][Cc][Aa][Ll][Ee][Rr].*[Aa][Pp][Ii].*[Kk][Ee][Yy][[:space:]]*[=:][[:space:]]*[a-zA-Z0-9_-]{20,}|high"
+  "SentinelOne API Token|[Ss][Ee][Nn][Tt][Ii][Nn][Ee][Ll].*[Tt][Oo][Kk][Ee][Nn][[:space:]]*[=:][[:space:]]*[a-zA-Z0-9_-]{80,}|critical"
+  "Jamf Pro Token|[Jj][Aa][Mm][Ff].*[Tt][Oo][Kk][Ee][Nn][[:space:]]*[=:][[:space:]]*[a-zA-Z0-9_-]{20,}|high"
+
+  # CDN & Edge (Cloudflare, Vercel)
+  "Cloudflare API Token|[Cc][Ff]_[Aa][Pp][Ii]_[Tt][Oo][Kk][Ee][Nn][[:space:]]*[=:][[:space:]]*[a-zA-Z0-9_-]{40}|critical"
+  "Cloudflare Global Key|[Cc][Ll][Oo][Uu][Dd][Ff][Ll][Aa][Rr][Ee].*[Aa][Pp][Ii].*[Kk][Ee][Yy][[:space:]]*[=:][[:space:]]*[a-f0-9]{37}|critical"
+  "Vercel Token|[Vv][Ee][Rr][Cc][Ee][Ll].*[Tt][Oo][Kk][Ee][Nn][[:space:]]*[=:][[:space:]]*[a-zA-Z0-9]{24,}|high"
+
+  # CI/CD & GitOps (ArgoCD)
+  "ArgoCD Token|[Aa][Rr][Gg][Oo][Cc][Dd].*[Tt][Oo][Kk][Ee][Nn][[:space:]]*[=:][[:space:]]*[a-zA-Z0-9._-]{20,}|high"
+  "ArgoCD Admin Password|[Aa][Rr][Gg][Oo][Cc][Dd].*[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][[:space:]]*[=:][[:space:]]*['\"][^'\"]{8,}['\"]|high"
+
+  # Analytics & Data (Redash, QueryPie)
+  "Redash API Key|[Rr][Ee][Dd][Aa][Ss][Hh].*[Aa][Pp][Ii].*[Kk][Ee][Yy][[:space:]]*[=:][[:space:]]*[a-zA-Z0-9]{20,}|high"
+  "QueryPie Token|[Qq][Uu][Ee][Rr][Yy][Pp][Ii][Ee].*[Tt][Oo][Kk][Ee][Nn][[:space:]]*[=:][[:space:]]*[a-zA-Z0-9_-]{20,}|high"
+
+  # Google Workspace
+  "Google OAuth Client Secret|client_secret.*[a-zA-Z0-9_-]{24}|high"
+  "Google Service Account Key|\"private_key\":[[:space:]]*\"-----BEGIN|critical"
+
   # Generic patterns (used only when explicitly enabled)
   "Generic API Key|[Aa][Pp][Ii]_[Kk][Ee][Yy][[:space:]]*[=:][[:space:]]*['\"]?[a-zA-Z0-9_-]{20,}['\"]?|medium"
   "Generic Secret|([Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd])[[:space:]]*[=:][[:space:]]*['\"][^'\"]{8,}['\"]|medium"
@@ -163,7 +187,10 @@ if [[ -n "$_env_files" ]]; then
         *SLACK*|*GITHUB*|*GITLAB*|*DATABASE_URL*|*REDIS_URL*|\
         *MONGO*|*POSTGRES*|*MYSQL*|*FIREBASE*|*SUPABASE*|\
         *FRED_*|*GRAFANA*|*PAGERDUTY*|*MAPBOX*|*ALGOLIA*|\
-        *NPM_TOKEN*|*PYPI_TOKEN*|*VAULT*|*AWS_SECRET*)
+        *NPM_TOKEN*|*PYPI_TOKEN*|*VAULT*|*AWS_SECRET*|\
+        *OKTA*|*ZSCALER*|*SENTINEL*|*JAMF*|*CLOUDFLARE*|*CF_API*|\
+        *VERCEL*|*ARGOCD*|*ARGO_*|*REDASH*|*QUERYPIE*|\
+        *GOOGLE_*|*SENTRY*|*SENDGRID*)
           _env_secrets=$((_env_secrets + 1))
           _env_secret_list="${_env_secret_list}\n    $(basename "$envfile"): $_key"
           ;;
