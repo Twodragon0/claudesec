@@ -30,6 +30,7 @@ The [OWASP Top 10 2025](https://owasp.org/Top10/) reflects the current web appli
 Users acting beyond intended permissions. Now includes SSRF (CWE-918).
 
 ### Key Threats
+
 - IDOR (Insecure Direct Object References)
 - Privilege escalation via JWT manipulation
 - CORS misconfiguration allowing unauthorized origins
@@ -58,6 +59,7 @@ function validateUrl(url: string): boolean {
 ```
 
 ### Claude Code Review Prompt
+
 ```
 Review this code for broken access control:
 1. Are all endpoints checking authorization (not just authentication)?
@@ -74,6 +76,7 @@ Review this code for broken access control:
 Jumped from #5 to #2 — cloud-native and container adoption expanded the misconfiguration attack surface.
 
 ### Key Threats
+
 - Default credentials on databases, admin panels
 - Unnecessary features enabled (debug, directory listing)
 - Missing security headers (CSP, HSTS, X-Frame-Options)
@@ -100,6 +103,7 @@ prowler aws --severity critical high \
 ```
 
 ### Checklist
+
 - [ ] Default credentials changed on all services
 - [ ] Debug mode disabled in production
 - [ ] Unnecessary ports/services/endpoints removed
@@ -114,6 +118,7 @@ prowler aws --severity critical high \
 Expanded from "Vulnerable Components" to cover the **entire software supply chain** — dependencies, CI/CD, build tools, artifact repositories, developer workstations.
 
 ### Key Threats
+
 - Dependency confusion / typosquatting attacks
 - Compromised CI/CD pipelines (2025 Bybit: $1.5B)
 - Malicious packages in npm/PyPI/Maven
@@ -145,6 +150,7 @@ See [Supply Chain Security Guide](supply-chain-security.md) for full SLSA/SBOM/S
 ## A04: Cryptographic Failures
 
 ### Key Threats
+
 - Data transmitted in cleartext (HTTP, FTP, SMTP without TLS)
 - Weak algorithms (MD5, SHA1, DES, RC4)
 - Hardcoded encryption keys in source code
@@ -172,6 +178,7 @@ async function hashPassword(password: string): Promise<string> {
 ```
 
 ### Post-Quantum Readiness
+
 - NIST standardized ML-KEM (Kyber), ML-DSA (Dilithium), SLH-DSA (SPHINCS+) in 2024
 - Plan migration by 2030 — inventory all cryptographic usage now
 
@@ -180,6 +187,7 @@ async function hashPassword(password: string): Promise<string> {
 ## A05: Injection
 
 ### Key Threats
+
 - SQL/NoSQL injection
 - OS command injection
 - LDAP injection
@@ -214,6 +222,7 @@ const user = await prisma.user.findUnique({
 Design flaws cannot be fixed by perfect implementation. Security must be built in from the start.
 
 ### Controls
+
 - Threat modeling (STRIDE) for every major feature
 - Security requirements in user stories
 - Secure design pattern library (rate limiting, tenant isolation, auth flows)
@@ -252,6 +261,7 @@ const limiter = rateLimit({
 ## A08: Software & Data Integrity Failures
 
 ### Controls
+
 - Verify digital signatures on all downloaded packages
 - Use lock files (`package-lock.json`, `poetry.lock`) and verify checksums
 - Require code review for all changes (CODEOWNERS)
@@ -290,6 +300,7 @@ logger.info({
 ```
 
 ### Checklist
+
 - [ ] All auth events logged (success AND failure)
 - [ ] High-value transactions logged with tamper-evident audit trail
 - [ ] Logs don't contain passwords, tokens, or PII
@@ -304,6 +315,7 @@ logger.info({
 Software that fails to prevent, detect, or properly respond to abnormal situations.
 
 ### Key Threats
+
 - Unhandled exceptions exposing stack traces
 - Race conditions leading to privilege escalation
 - Integer overflow bypassing validation

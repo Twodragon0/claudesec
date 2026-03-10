@@ -66,12 +66,14 @@ Work through these controls in order — critical items first.
 **Why it matters**: Without full-disk encryption, a stolen or lost Mac exposes all data at rest. An attacker with physical access can bypass the login password entirely by booting from an external drive.
 
 **Check**:
+
 ```bash
 fdesetup status
 # Expected: "FileVault is On."
 ```
 
 **Remediation**:
+
 ```bash
 # Via GUI: System Settings > Privacy & Security > FileVault > Turn On FileVault
 # Via CLI (initiates the process — user must log out/in to complete):
@@ -87,12 +89,14 @@ sudo fdesetup enable
 **Why it matters**: The macOS Application Firewall blocks incoming connections to applications that have not been explicitly permitted. It limits network exposure without requiring manual `pf` rule management.
 
 **Check**:
+
 ```bash
 /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
 # Expected: "Firewall is enabled. (State = 1)"
 ```
 
 **Remediation**:
+
 ```bash
 sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on
 # Enable stealth mode (drops probes without replying):
@@ -106,12 +110,14 @@ sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on
 **Why it matters**: SIP (introduced in OS X El Capitan) restricts the root user from modifying protected system files, directories, and processes. Disabling it is a prerequisite for many macOS rootkits.
 
 **Check**:
+
 ```bash
 csrutil status
 # Expected: "System Integrity Protection status: enabled."
 ```
 
 **Remediation** (re-enabling after it has been disabled):
+
 ```bash
 # 1. Restart into Recovery Mode: hold Cmd+R during boot (Intel) or hold Power (Apple Silicon)
 # 2. Open Terminal from the Utilities menu
@@ -128,12 +134,14 @@ csrutil enable
 **Why it matters**: Gatekeeper checks the digital signature and notarisation status of downloaded applications before allowing them to run. It prevents trivially-distributed malware from executing.
 
 **Check**:
+
 ```bash
 spctl --status
 # Expected: "assessments enabled"
 ```
 
 **Remediation**:
+
 ```bash
 sudo spctl --master-enable
 # Verify:
@@ -147,12 +155,14 @@ spctl --status
 **Why it matters**: Timely patching is the single highest-ROI security control. CIS Benchmark requires that macOS automatically checks for and installs critical security patches.
 
 **Check**:
+
 ```bash
 defaults read /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled
 # Expected: 1
 ```
 
 **Remediation**:
+
 ```bash
 sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled -bool true
 sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticDownload -bool true
@@ -166,6 +176,7 @@ sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate CriticalUpdate
 **Why it matters**: A screen lock without a password requirement provides no security. Physical access to an unlocked screen is equivalent to full account access.
 
 **Check**:
+
 ```bash
 defaults read com.apple.screensaver askForPassword
 # Expected: 1
@@ -174,6 +185,7 @@ defaults read com.apple.screensaver askForPasswordDelay
 ```
 
 **Remediation**:
+
 ```bash
 defaults write com.apple.screensaver askForPassword -bool true
 defaults write com.apple.screensaver askForPasswordDelay -int 5
@@ -187,12 +199,14 @@ defaults write com.apple.screensaver askForPasswordDelay -int 5
 **Why it matters**: SSH increases the network attack surface. If SSH is not actively needed for remote administration, it should be disabled to eliminate the exposure entirely.
 
 **Check**:
+
 ```bash
 sudo systemsetup -getremotelogin
 # Expected: "Remote Login: Off"
 ```
 
 **Remediation**:
+
 ```bash
 sudo systemsetup -setremotelogin off
 # If SSH is required, restrict it:
@@ -210,12 +224,14 @@ sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /usr/sbin/sshd
 **Why it matters**: AirDrop set to "Everyone" allows any nearby device to send files without prior approval, enabling social-engineering attacks or unwanted content delivery.
 
 **Check**:
+
 ```bash
 defaults read com.apple.sharingd DiscoverableMode
 # Expected: "Contacts Only" or "Off"
 ```
 
 **Remediation**:
+
 ```bash
 # Via GUI: Finder > AirDrop > Allow me to be discovered by: No One / Contacts Only
 # Via CLI:
@@ -229,12 +245,14 @@ defaults write com.apple.sharingd DiscoverableMode -string "Contacts Only"
 **Why it matters**: The Guest account grants unauthenticated local access to a Safari browser and temporary home directory. This can be abused for local privilege escalation research or data exfiltration.
 
 **Check**:
+
 ```bash
 defaults read /Library/Preferences/com.apple.loginwindow GuestEnabled
 # Expected: 0
 ```
 
 **Remediation**:
+
 ```bash
 sudo defaults write /Library/Preferences/com.apple.loginwindow GuestEnabled -bool false
 # Verify via: System Settings > Users & Groups > Guest User
@@ -247,12 +265,14 @@ sudo defaults write /Library/Preferences/com.apple.loginwindow GuestEnabled -boo
 **Why it matters**: macOS hides file extensions by default. Attackers exploit this by naming malicious executables `document.pdf.app` — users see only `document.pdf`. Showing extensions removes this deception vector.
 
 **Check**:
+
 ```bash
 defaults read NSGlobalDomain AppleShowAllExtensions
 # Expected: 1
 ```
 
 **Remediation**:
+
 ```bash
 defaults write NSGlobalDomain AppleShowAllExtensions -bool true
 # Restart Finder to apply:
@@ -268,11 +288,13 @@ killall Finder
 **Why it matters**: Weak passwords are the leading cause of account compromise. CIS recommends a minimum of 15 characters with uppercase, lowercase, number, and symbol requirements.
 
 **Check**:
+
 ```bash
 pwpolicy -getaccountpolicies
 ```
 
 **Remediation**:
+
 ```bash
 # Set minimum password length (requires admin):
 pwpolicy -setaccountpolicies /dev/stdin <<'EOF'
@@ -303,6 +325,7 @@ EOF
 **Why it matters**: The OpenBSM audit subsystem records privileged operations, authentication events, and file access. Without it, forensic investigation of incidents is severely limited.
 
 **Check**:
+
 ```bash
 launchctl list | grep auditd
 # Expected: com.apple.auditd appears in output
@@ -310,6 +333,7 @@ sudo audit -s && echo "auditd running"
 ```
 
 **Remediation**:
+
 ```bash
 sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.auditd.plist
 # Verify audit flags in /etc/security/audit_control:
@@ -317,6 +341,7 @@ cat /etc/security/audit_control
 ```
 
 **Recommended `/etc/security/audit_control` settings**:
+
 ```
 dir:/var/audit
 flags:lo,aa,ad,fd,fm,-all
@@ -334,12 +359,14 @@ expire-after:60d
 **Why it matters**: Without Secure Keyboard Entry, other applications on the system can intercept keystrokes entered in Terminal — including passwords and SSH passphrases.
 
 **Check**:
+
 ```bash
 defaults read -app Terminal SecureKeyboardEntry
 # Expected: 1
 ```
 
 **Remediation**:
+
 ```bash
 # Via Terminal menu: Terminal > Secure Keyboard Entry (toggle on)
 defaults write -app Terminal SecureKeyboardEntry -bool true
@@ -354,12 +381,14 @@ defaults write -app Terminal SecureKeyboardEntry -bool true
 **Why it matters**: World-writable files in `/System` allow any user to modify system components, enabling trivial privilege escalation or persistent malware installation.
 
 **Check**:
+
 ```bash
 sudo find /System -maxdepth 4 -perm -0002 -not -type l 2>/dev/null
 # Expected: no output
 ```
 
 **Remediation**:
+
 ```bash
 # Review each file found and remove world-write permission:
 sudo chmod o-w /path/to/file
@@ -373,12 +402,14 @@ sudo chmod o-w /path/to/file
 **Why it matters**: Outdated Homebrew packages frequently contain publicly-disclosed CVEs. Developers often install tools via Homebrew that run with elevated privileges during CI builds.
 
 **Check**:
+
 ```bash
 brew outdated
 brew audit --strict 2>/dev/null | head -20
 ```
 
 **Remediation**:
+
 ```bash
 brew update
 brew upgrade
@@ -387,6 +418,7 @@ brew doctor
 ```
 
 **Automation**: Add to weekly cron or a pre-commit hook:
+
 ```bash
 #!/usr/bin/env bash
 # ~/.config/periodic/weekly/brew-update
@@ -400,11 +432,13 @@ brew update && brew upgrade && brew cleanup
 **Why it matters**: Legacy SSH ciphers (arcfour/RC4, DES, CBC-mode AES) are vulnerable to attacks including BEAST, Sweet32, and padding oracle exploits. Modern equivalents have no known weaknesses.
 
 **Check**:
+
 ```bash
 grep -iE "^(Ciphers|KexAlgorithms|MACs)" ~/.ssh/config /etc/ssh/sshd_config 2>/dev/null
 ```
 
 **Recommended `~/.ssh/config` hardening**:
+
 ```
 Host *
   Ciphers aes256-gcm@openssh.com,chacha20-poly1305@openssh.com,aes128-gcm@openssh.com
@@ -423,6 +457,7 @@ Host *
 **Why it matters**: Core dump files capture the entire memory state of a crashed process, which may include encryption keys, credentials, and session tokens written in plaintext.
 
 **Check**:
+
 ```bash
 launchctl limit core
 # Expected: 0 0
@@ -431,6 +466,7 @@ sysctl kern.coredump
 ```
 
 **Remediation**:
+
 ```bash
 sudo launchctl limit core 0 0
 sudo sysctl -w kern.coredump=0
@@ -445,6 +481,7 @@ echo "kern.coredump=0" | sudo tee -a /etc/sysctl.conf
 **Why it matters**: Accurate system time is critical for TLS certificate validation, Kerberos authentication, and meaningful audit log timestamps. Time drift can cause authentication failures or create gaps in log correlation.
 
 **Check**:
+
 ```bash
 sudo systemsetup -getnetworktimeserver
 launchctl list | grep -E "timed|ntpd"
@@ -452,6 +489,7 @@ launchctl list | grep -E "timed|ntpd"
 ```
 
 **Remediation**:
+
 ```bash
 sudo systemsetup -setusingnetworktime on
 sudo systemsetup -setnetworktimeserver time.apple.com
@@ -466,12 +504,14 @@ sntp -t 1 time.apple.com
 **Why it matters**: Bluetooth is a short-range wireless protocol with a history of serious vulnerabilities (BlueBorne, BIAS, BLESA). Disabling it when not in use eliminates this attack surface.
 
 **Check**:
+
 ```bash
 defaults read /Library/Preferences/com.apple.Bluetooth ControllerPowerState
 # Expected: 0 (off)
 ```
 
 **Remediation**:
+
 ```bash
 # Via Control Center: click Bluetooth icon > Turn Bluetooth Off
 # Via CLI (requires restart of Bluetooth daemon):
@@ -486,12 +526,14 @@ sudo killall -HUP bluetoothd
 **Why it matters**: Content Caching stores copies of Apple software, app updates, and iCloud data for sharing with nearby devices. Unless explicitly needed for an enterprise lab network, it unnecessarily expands local data storage and network exposure.
 
 **Check**:
+
 ```bash
 AssetCacheManagerUtil status 2>/dev/null | grep Activated
 # Expected: "Activated" : false
 ```
 
 **Remediation**:
+
 ```bash
 # Via GUI: System Settings > General > Sharing > Content Caching > Off
 AssetCacheManagerUtil deactivate
@@ -518,6 +560,7 @@ Jamf Pro is the most widely deployed macOS MDM and can enforce all the controls 
 | Password policy (CIS-001) | Passcode payload: `minLength`, `requireAlphanumeric`, `minComplexChars` |
 
 **Example Jamf configuration profile snippet** (Passcode payload):
+
 ```xml
 <key>PayloadType</key>
 <string>com.apple.mobiledevicemanagement.PasscodePolicy</string>
@@ -536,11 +579,13 @@ Jamf Pro is the most widely deployed macOS MDM and can enforce all the controls 
 Intune manages macOS via its own MDM channel and supports many of the same profiles.
 
 **Key Intune policy types**:
+
 - **Endpoint Security > Disk Encryption**: FileVault key escrow to Intune
 - **Device Configuration > Settings Catalog**: Granular macOS preference domain controls
 - **Compliance Policies**: Report non-compliant devices and block conditional access
 
 **Compliance policy example** (targeting FileVault):
+
 ```json
 {
   "storageRequireEncryption": true,
@@ -554,6 +599,7 @@ Intune manages macOS via its own MDM channel and supports many of the same profi
 ### CIS Benchmarks via MDM
 
 Both Jamf and Intune support importing the CIS macOS Benchmark as a compliance baseline:
+
 - **Jamf**: Use the [CIS-CAT Pro](https://www.cisecurity.org/cybersecurity-tools/cis-cat-pro/) integration or community Jamf scripts
 - **Intune**: Import CIS benchmark settings via the Settings Catalog (search for "CIS")
 - **Third-party**: [Tenable.io](https://www.tenable.com/) and [Qualys](https://www.qualys.com/) offer agent-based CIS compliance scanning for macOS fleets

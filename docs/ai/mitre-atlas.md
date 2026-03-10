@@ -29,6 +29,7 @@ The October 2025 update added **14 new agentic AI techniques** targeting autonom
 ## Key Tactics and Techniques
 
 ### Reconnaissance
+
 | Technique | Description |
 |-----------|-------------|
 | Search for victim's ML artifacts | Find published models, datasets, API endpoints |
@@ -36,6 +37,7 @@ The October 2025 update added **14 new agentic AI techniques** targeting autonom
 | Search for technical blogs/publications | Gather model training details |
 
 ### ML Attack Staging
+
 | Technique | Description |
 |-----------|-------------|
 | Acquire public ML model | Download and analyze target model architecture |
@@ -44,6 +46,7 @@ The October 2025 update added **14 new agentic AI techniques** targeting autonom
 | Train proxy model | Build a substitute model for black-box attacks |
 
 ### Initial Access (ML-Specific)
+
 | Technique | Description |
 |-----------|-------------|
 | ML supply chain compromise | Poison pre-trained models or datasets |
@@ -51,6 +54,7 @@ The October 2025 update added **14 new agentic AI techniques** targeting autonom
 | Prompt injection | Manipulate LLM behavior via crafted input |
 
 ### ML Model Access
+
 | Technique | Description |
 |-----------|-------------|
 | Inference API access | Query the model to extract information |
@@ -58,6 +62,7 @@ The October 2025 update added **14 new agentic AI techniques** targeting autonom
 | Physical environment access | Manipulate sensors feeding ML models |
 
 ### Exfiltration
+
 | Technique | Description |
 |-----------|-------------|
 | Model extraction via API | Reconstruct model through query-response pairs |
@@ -65,12 +70,14 @@ The October 2025 update added **14 new agentic AI techniques** targeting autonom
 | Membership inference | Determine if specific data was in training set |
 
 ### Evasion
+
 | Technique | Description |
 |-----------|-------------|
 | Adversarial examples | Craft inputs that cause misclassification |
 | Prompt injection (evasion) | Bypass content filters via prompt manipulation |
 
 ### Impact
+
 | Technique | Description |
 |-----------|-------------|
 | Denial of ML service | Overwhelm model inference endpoints |

@@ -26,16 +26,19 @@ Thank you for your interest in contributing to ClaudeSec! This project aims to m
 ### Conventions
 
 #### File Naming
+
 - Use kebab-case: `threat-modeling.md`, not `ThreatModeling.md`
 - Group related files in appropriate directories
 
 #### Markdown Style
+
 - Use ATX headers (`#`, `##`, `###`)
 - Include a YAML frontmatter block with `title`, `description`, and `tags`
 - Add a table of contents for documents longer than 3 sections
 - Use fenced code blocks with language identifiers
 
 #### Content Guidelines
+
 - Be actionable: provide commands, configs, and examples
 - Reference official sources (OWASP, NIST, CIS)
 - Include "Why" context before "How" instructions

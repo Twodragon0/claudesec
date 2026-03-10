@@ -32,6 +32,7 @@ bash scripts/setup.sh /path/to/your/project
 ```
 
 Or manually:
+
 ```bash
 # Install Claude Code security hooks
 cp hooks/*.sh /path/to/your/project/.claude/hooks/
