@@ -174,46 +174,127 @@ has_azure_credentials() {
 
 # ── Kubernetes credential helpers ───────────────────────────────────────────
 
-# Check kubectl access (tries current context)
+# Build kubectl command with kubeconfig/context overrides
+_kubectl_cmd() {
+  local cmd=(kubectl)
+  [[ -n "${KUBECONFIG:-}" ]] && cmd+=(--kubeconfig "$KUBECONFIG")
+  [[ -n "${CLAUDESEC_KUBECONTEXT:-}" ]] && cmd+=(--context "$CLAUDESEC_KUBECONTEXT")
+  echo "${cmd[@]}"
+}
+
+# Check kubectl access (tries current context with overrides)
 has_kubectl_access() {
-  has_command kubectl && run_with_timeout 10 kubectl cluster-info &>/dev/null
+  has_command kubectl || return 1
+  local cmd
+  cmd=$(_kubectl_cmd)
+  run_with_timeout 10 $cmd cluster-info &>/dev/null
 }
 
 # List available kubeconfig contexts
 kubectl_list_contexts() {
   has_command kubectl || return 1
-  kubectl config get-contexts -o name 2>/dev/null || true
+  local cmd
+  cmd=$(_kubectl_cmd)
+  $cmd config get-contexts -o name 2>/dev/null || true
 }
 
 # Get current kubectl context name
 kubectl_current_context() {
   has_command kubectl || return 1
-  kubectl config current-context 2>/dev/null || echo ""
+  if [[ -n "${CLAUDESEC_KUBECONTEXT:-}" ]]; then
+    echo "$CLAUDESEC_KUBECONTEXT"
+    return 0
+  fi
+  local cmd
+  cmd=$(_kubectl_cmd)
+  $cmd config current-context 2>/dev/null || echo ""
+}
+
+# Detect kubeconfig files and list them
+kubectl_discover_kubeconfigs() {
+  local configs=()
+  local kube_dir="$HOME/.kube"
+
+  # Standard kubeconfig
+  [[ -f "$HOME/.kube/config" ]] && configs+=("$HOME/.kube/config")
+
+  # Split kubeconfig files
+  if [[ -d "$kube_dir" ]]; then
+    while IFS= read -r f; do
+      [[ "$f" == "$HOME/.kube/config" ]] && continue
+      configs+=("$f")
+    done < <(find "$kube_dir" \( -name '*.yaml' -o -name '*.yml' -o -name '*.conf' \) 2>/dev/null | sort)
+  fi
+
+  # KUBECONFIG env may have colon-separated paths
+  if [[ -n "${KUBECONFIG:-}" ]]; then
+    IFS=':' read -ra kc_paths <<< "$KUBECONFIG"
+    for p in "${kc_paths[@]}"; do
+      [[ -f "$p" ]] && configs+=("$p")
+    done
+  fi
+
+  # Rancher desktop
+  [[ -f "$HOME/.rd/kubeconfig" ]] && configs+=("$HOME/.rd/kubeconfig")
+  # Docker desktop
+  [[ -f "$HOME/.docker/contexts/meta" ]] && configs+=("(docker-desktop built-in)")
+
+  # De-duplicate
+  printf '%s\n' "${configs[@]}" | sort -u
+}
+
+# Detect cluster type from context name
+kubectl_detect_cluster_type() {
+  local ctx="$1"
+  case "$ctx" in
+    *eks*|*arn:aws*) echo "eks" ;;
+    gke_*) echo "gke" ;;
+    *aks*|*azure*|*azmk*) echo "aks" ;;
+    docker-desktop*) echo "docker-desktop" ;;
+    minikube*) echo "minikube" ;;
+    kind-*) echo "kind" ;;
+    rancher-desktop*|*rd*) echo "rancher-desktop" ;;
+    *) echo "generic" ;;
+  esac
 }
 
 # Ensure kubectl has a valid connection; attempt credential refresh if needed
 kubectl_ensure_access() {
   has_command kubectl || return 1
 
+  # Apply user-specified context if set via CLI
+  if [[ -n "${CLAUDESEC_KUBECONTEXT:-}" ]]; then
+    local cmd
+    cmd=$(_kubectl_cmd)
+    if run_with_timeout 10 $cmd cluster-info &>/dev/null; then
+      echo -e "  ${GREEN}✓${NC} Connected to cluster (context: ${CLAUDESEC_KUBECONTEXT})"
+      return 0
+    fi
+    echo -e "  ${YELLOW}⚠${NC} Specified context '${CLAUDESEC_KUBECONTEXT}' is not reachable"
+  fi
+
   # 1. Already connected
-  if run_with_timeout 10 kubectl cluster-info &>/dev/null; then
+  if run_with_timeout 10 $(_kubectl_cmd) cluster-info &>/dev/null; then
     return 0
   fi
 
   local current_ctx
   current_ctx=$(kubectl_current_context)
 
-  # 2. Discover available contexts from kubeconfig
-  local kubeconfig="${KUBECONFIG:-$HOME/.kube/config}"
-  if [[ ! -f "$kubeconfig" ]]; then
-    # Check for split kubeconfig files
-    local kube_dir="$HOME/.kube"
-    if [[ -d "$kube_dir" ]]; then
-      local kube_files
-      kube_files=$(find "$kube_dir" -name '*.yaml' -o -name '*.yml' -o -name 'config*' 2>/dev/null | head -10 || true)
-      if [[ -n "$kube_files" ]]; then
-        echo -e "  ${DIM}Found kubeconfig files in $kube_dir${NC}"
-      fi
+  # 2. Show kubeconfig discovery info
+  local kubeconfig_file="${KUBECONFIG:-$HOME/.kube/config}"
+  if [[ -f "$kubeconfig_file" ]]; then
+    echo -e "  ${DIM}Kubeconfig: $kubeconfig_file${NC}"
+  else
+    echo -e "  ${YELLOW}⚠${NC} Kubeconfig not found: $kubeconfig_file"
+    local discovered
+    discovered=$(kubectl_discover_kubeconfigs)
+    if [[ -n "$discovered" ]]; then
+      echo -e "  ${DIM}Discovered kubeconfig files:${NC}"
+      while IFS= read -r kf; do
+        echo -e "    ${CYAN}▸${NC} $kf"
+      done <<< "$discovered"
+      echo -e "  ${DIM}Use --kubeconfig <path> to specify${NC}"
     fi
   fi
 
@@ -228,15 +309,19 @@ kubectl_ensure_access() {
     ctx_count=$((ctx_count + 1))
     local marker="  "
     [[ "$ctx" == "$current_ctx" ]] && marker="→ "
-    echo -e "    ${CYAN}${marker}${NC}$ctx"
+    local cluster_type
+    cluster_type=$(kubectl_detect_cluster_type "$ctx")
+    echo -e "    ${CYAN}${marker}${NC}$ctx ${DIM}(${cluster_type})${NC}"
   done <<< "$contexts"
 
   # 3. Try current context first — refresh credentials
   if [[ -n "$current_ctx" ]]; then
     echo -e "  ${DIM}Attempting to connect to context: $current_ctx${NC}"
+    local ctype
+    ctype=$(kubectl_detect_cluster_type "$current_ctx")
 
-    # AWS EKS: refresh kubeconfig if context looks like EKS
-    if echo "$current_ctx" | grep -qiE 'eks|arn:aws'; then
+    # AWS EKS: refresh kubeconfig
+    if [[ "$ctype" == "eks" ]]; then
       local cluster_name region
       cluster_name=$(echo "$current_ctx" | sed 's/.*\///' | sed 's/arn:aws:eks:[^:]*:[^:]*:cluster\///' || true)
       region=$(echo "$current_ctx" | grep -oE '[a-z]+-[a-z]+-[0-9]+' | head -1 || true)
@@ -246,8 +331,8 @@ kubectl_ensure_access() {
       fi
     fi
 
-    # GKE: refresh if context looks like GKE
-    if echo "$current_ctx" | grep -qiE 'gke_'; then
+    # GKE: refresh credentials
+    if [[ "$ctype" == "gke" ]]; then
       local gke_project gke_zone gke_cluster
       IFS='_' read -r _ gke_project gke_zone gke_cluster <<< "$current_ctx"
       if [[ -n "$gke_cluster" ]]; then
@@ -257,8 +342,21 @@ kubectl_ensure_access() {
       fi
     fi
 
+    # AKS: refresh credentials
+    if [[ "$ctype" == "aks" ]]; then
+      local aks_rg aks_name
+      aks_name=$(echo "$current_ctx" | grep -oE '[a-zA-Z0-9_-]+' | tail -1 || true)
+      if [[ -n "$aks_name" ]] && has_command az; then
+        echo -e "  ${DIM}Refreshing AKS credentials: $aks_name${NC}"
+        aks_rg=$(az aks list --query "[?name=='$aks_name'].resourceGroup" -o tsv 2>/dev/null | head -1 || true)
+        if [[ -n "$aks_rg" ]]; then
+          az aks get-credentials --resource-group "$aks_rg" --name "$aks_name" --overwrite-existing &>/dev/null || true
+        fi
+      fi
+    fi
+
     # Test again after refresh
-    if run_with_timeout 10 kubectl cluster-info &>/dev/null; then
+    if run_with_timeout 10 $(_kubectl_cmd) cluster-info &>/dev/null; then
       echo -e "  ${GREEN}✓${NC} Connected to cluster (context: $current_ctx)"
       return 0
     fi
@@ -268,11 +366,35 @@ kubectl_ensure_access() {
   while IFS= read -r ctx; do
     [[ -z "$ctx" || "$ctx" == "$current_ctx" ]] && continue
     kubectl config use-context "$ctx" &>/dev/null || continue
-    if run_with_timeout 10 kubectl cluster-info &>/dev/null; then
+    if run_with_timeout 10 $(_kubectl_cmd) cluster-info &>/dev/null; then
       echo -e "  ${GREEN}✓${NC} Connected to cluster (context: $ctx)"
       return 0
     fi
   done <<< "$contexts"
+
+  # 5. Show authentication guide
+  echo ""
+  echo -e "  ${YELLOW}━━━ Kubernetes Authentication Guide ━━━${NC}"
+  echo -e "  ${DIM}No reachable cluster found. To connect:${NC}"
+  echo ""
+  echo -e "  ${BOLD}EKS (AWS):${NC}"
+  echo -e "    aws eks update-kubeconfig --name <cluster> --region <region>"
+  echo -e "    claudesec scan --aws-profile <profile> --kubecontext <ctx>"
+  echo ""
+  echo -e "  ${BOLD}GKE (GCP):${NC}"
+  echo -e "    gcloud container clusters get-credentials <cluster> --zone <zone>"
+  echo ""
+  echo -e "  ${BOLD}AKS (Azure):${NC}"
+  echo -e "    az aks get-credentials --resource-group <rg> --name <cluster>"
+  echo ""
+  echo -e "  ${BOLD}Custom kubeconfig:${NC}"
+  echo -e "    claudesec scan --kubeconfig /path/to/kubeconfig"
+  echo -e "    KUBECONFIG=/path/to/config claudesec scan"
+  echo ""
+  echo -e "  ${BOLD}Context selection:${NC}"
+  echo -e "    claudesec scan --kubecontext <context-name>"
+  echo -e "    kubectl config use-context <context-name>"
+  echo ""
 
   # Restore original context
   [[ -n "$current_ctx" ]] && kubectl config use-context "$current_ctx" &>/dev/null || true
@@ -281,10 +403,18 @@ kubectl_ensure_access() {
 
 # Get cluster info for display
 kubectl_cluster_info() {
-  local ctx server
+  local cmd ctx server
+  cmd=$(_kubectl_cmd)
   ctx=$(kubectl_current_context)
-  server=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || true)
+  server=$($cmd config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || true)
   echo "${ctx:-unknown}|${server:-unknown}"
+}
+
+# Get K8s cluster version
+kubectl_server_version() {
+  local cmd
+  cmd=$(_kubectl_cmd)
+  $cmd version -o json 2>/dev/null | grep -o '"gitVersion":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "unknown"
 }
 
 # Map check ID to compliance frameworks
