@@ -24,6 +24,7 @@ claudesec-dashboard.html
 docs/reports/scan-report*.md
 scanner/output/
 .claudesec-prowler/
+.claudesec-history/
 
 # Credentials & keys
 *.pem

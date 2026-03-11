@@ -306,6 +306,84 @@ print_json_summary() {
 EOF
 }
 
+# ── Scan History ─────────────────────────────────────────────────────────────
+
+HISTORY_MAX=30
+
+# Save current scan result to history
+save_scan_history() {
+  local HISTORY_DIR="${SCAN_DIR:-.}/.claudesec-history"
+  mkdir -p "$HISTORY_DIR" 2>/dev/null || return 0
+  local ts
+  ts=$(date -u +%Y%m%dT%H%M%SZ)
+  local active=$((TOTAL_CHECKS - SKIPPED))
+  local score=0
+  [[ $active -gt 0 ]] && score=$(( (PASSED * 100) / active ))
+  local n_crit=${#FINDINGS_CRITICAL[@]}
+  local n_high=${#FINDINGS_HIGH[@]}
+  local n_med=${#FINDINGS_MEDIUM[@]}
+  local n_low=${#FINDINGS_LOW[@]}
+  local n_warn=${#FINDINGS_WARN[@]}
+
+  cat > "${HISTORY_DIR}/scan-${ts}.json" <<HIST_EOF
+{"timestamp":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","score":${score},"passed":${PASSED},"failed":${FAILED},"warnings":${WARNINGS},"skipped":${SKIPPED},"total":${TOTAL_CHECKS},"critical":${n_crit},"high":${n_high},"medium":${n_med},"low":${n_low},"warn":${n_warn}}
+HIST_EOF
+
+  # Prune old entries beyond HISTORY_MAX
+  local count
+  count=$(find "$HISTORY_DIR" -name 'scan-*.json' 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$count" -gt "$HISTORY_MAX" ]]; then
+    find "$HISTORY_DIR" -name 'scan-*.json' 2>/dev/null | sort | head -n $(( count - HISTORY_MAX )) | xargs rm -f 2>/dev/null || true
+  fi
+}
+
+# Load history entries (newest last), output as JSON array
+load_scan_history() {
+  local HISTORY_DIR="${SCAN_DIR:-.}/.claudesec-history"
+  [[ -d "$HISTORY_DIR" ]] || { echo "[]"; return; }
+  local entries=""
+  while IFS= read -r f; do
+    [[ -f "$f" ]] || continue
+    local content
+    content=$(cat "$f" 2>/dev/null) || continue
+    [[ -z "$content" ]] && continue
+    if [[ -n "$entries" ]]; then
+      entries="${entries},${content}"
+    else
+      entries="$content"
+    fi
+  done < <(find "$HISTORY_DIR" -name 'scan-*.json' 2>/dev/null | sort)
+  echo "[${entries}]"
+}
+
+# Compute trend delta vs previous scan
+compute_trend() {
+  local HISTORY_DIR="${SCAN_DIR:-.}/.claudesec-history"
+  [[ -d "$HISTORY_DIR" ]] || return
+  local prev_file
+  prev_file=$(find "$HISTORY_DIR" -name 'scan-*.json' 2>/dev/null | sort | tail -1)
+  [[ -z "$prev_file" || ! -f "$prev_file" ]] && return
+
+  local prev_score prev_failed prev_crit prev_high
+  prev_score=$(grep -o '"score":[0-9]*' "$prev_file" | cut -d: -f2)
+  prev_failed=$(grep -o '"failed":[0-9]*' "$prev_file" | cut -d: -f2)
+  prev_crit=$(grep -o '"critical":[0-9]*' "$prev_file" | cut -d: -f2)
+  prev_high=$(grep -o '"high":[0-9]*' "$prev_file" | cut -d: -f2)
+
+  local active=$((TOTAL_CHECKS - SKIPPED))
+  local score=0
+  [[ $active -gt 0 ]] && score=$(( (PASSED * 100) / active ))
+  local n_crit=${#FINDINGS_CRITICAL[@]}
+  local n_high=${#FINDINGS_HIGH[@]}
+
+  export TREND_SCORE_DELTA=$(( score - ${prev_score:-0} ))
+  export TREND_FAILED_DELTA=$(( FAILED - ${prev_failed:-0} ))
+  export TREND_CRIT_DELTA=$(( n_crit - ${prev_crit:-0} ))
+  export TREND_HIGH_DELTA=$(( n_high - ${prev_high:-0} ))
+  export TREND_PREV_SCORE="${prev_score:-0}"
+  export TREND_HAS_PREV="true"
+}
+
 _html_findings_rows() {
   local -n arr=$1
   local sev_class="$2" badge_class="$3" badge_text="$4"
@@ -334,6 +412,13 @@ generate_html_dashboard() {
   local active=$((TOTAL_CHECKS - SKIPPED))
   local score=0
   [[ $active -gt 0 ]] && score=$(( (PASSED * 100) / active ))
+
+  # Compute trend vs previous scan
+  compute_trend 2>/dev/null || true
+
+  # Load history for chart
+  local history_json
+  history_json=$(load_scan_history 2>/dev/null)
 
   local grade="F" grade_color="#ef4444"
   if [[ $score -ge 90 ]]; then grade="A"; grade_color="#22c55e"
@@ -447,6 +532,22 @@ generate_html_dashboard() {
   .env-connected .env-icon { opacity: 1; }
   .env-disconnected .env-icon { opacity: 0.4; }
   .env-disconnected .env-title { color: var(--muted); }
+
+  .trend-section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; }
+  .trend-section h2 { font-size: 1rem; margin-bottom: 1rem; }
+  .trend-deltas { display: flex; gap: 1.5rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+  .trend-delta { display: flex; align-items: center; gap: 0.5rem; }
+  .trend-delta .arrow { font-size: 1.1rem; font-weight: 700; }
+  .trend-delta .arrow.up-good { color: #22c55e; }
+  .trend-delta .arrow.down-good { color: #22c55e; }
+  .trend-delta .arrow.up-bad { color: #ef4444; }
+  .trend-delta .arrow.down-bad { color: #ef4444; }
+  .trend-delta .arrow.neutral { color: var(--muted); }
+  .trend-delta .label { font-size: 0.82rem; color: var(--muted); }
+  .trend-delta .val { font-weight: 700; font-size: 0.9rem; }
+  .trend-chart { width: 100%; height: 120px; position: relative; }
+  .trend-chart canvas { width: 100% !important; height: 120px !important; }
+  .trend-no-history { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 1rem; }
 
   .empty { padding: 2rem; text-align: center; color: #22c55e; font-size: 1.1rem; }
 
@@ -565,6 +666,38 @@ generate_html_dashboard() {
     echo "<div class=\"findings\" style=\"margin-bottom:2rem\"><h2 style=\"padding:1rem 1.25rem;font-size:1rem;border-bottom:1px solid var(--border)\">Environment</h2><div class=\"env-grid\">${_env_items}</div></div>"
   )
 
+  <div class="trend-section">
+    <h2>Scan Trend</h2>
+    $(if [[ "${TREND_HAS_PREV:-}" == "true" ]]; then
+      # Score delta
+      local s_arrow="→" s_class="neutral" s_prefix=""
+      if [[ $TREND_SCORE_DELTA -gt 0 ]]; then s_arrow="▲"; s_class="up-good"; s_prefix="+"; fi
+      if [[ $TREND_SCORE_DELTA -lt 0 ]]; then s_arrow="▼"; s_class="down-bad"; s_prefix=""; fi
+      # Failed delta (lower is better)
+      local f_arrow="→" f_class="neutral" f_prefix=""
+      if [[ $TREND_FAILED_DELTA -gt 0 ]]; then f_arrow="▲"; f_class="up-bad"; f_prefix="+"; fi
+      if [[ $TREND_FAILED_DELTA -lt 0 ]]; then f_arrow="▼"; f_class="down-good"; f_prefix=""; fi
+      # Critical delta (lower is better)
+      local c_arrow="→" c_class="neutral" c_prefix=""
+      if [[ $TREND_CRIT_DELTA -gt 0 ]]; then c_arrow="▲"; c_class="up-bad"; c_prefix="+"; fi
+      if [[ $TREND_CRIT_DELTA -lt 0 ]]; then c_arrow="▼"; c_class="down-good"; c_prefix=""; fi
+      # High delta
+      local h_arrow="→" h_class="neutral" h_prefix=""
+      if [[ $TREND_HIGH_DELTA -gt 0 ]]; then h_arrow="▲"; h_class="up-bad"; h_prefix="+"; fi
+      if [[ $TREND_HIGH_DELTA -lt 0 ]]; then h_arrow="▼"; h_class="down-good"; h_prefix=""; fi
+
+      echo "<div class=\"trend-deltas\">"
+      echo "  <div class=\"trend-delta\"><span class=\"arrow ${s_class}\">${s_arrow}</span><span class=\"val\">${s_prefix}${TREND_SCORE_DELTA}</span><span class=\"label\">Score (prev: ${TREND_PREV_SCORE})</span></div>"
+      echo "  <div class=\"trend-delta\"><span class=\"arrow ${f_class}\">${f_arrow}</span><span class=\"val\">${f_prefix}${TREND_FAILED_DELTA}</span><span class=\"label\">Failures</span></div>"
+      echo "  <div class=\"trend-delta\"><span class=\"arrow ${c_class}\">${c_arrow}</span><span class=\"val\">${c_prefix}${TREND_CRIT_DELTA}</span><span class=\"label\">Critical</span></div>"
+      echo "  <div class=\"trend-delta\"><span class=\"arrow ${h_class}\">${h_arrow}</span><span class=\"val\">${h_prefix}${TREND_HIGH_DELTA}</span><span class=\"label\">High</span></div>"
+      echo "</div>"
+    else
+      echo "<div class=\"trend-no-history\">No previous scan data. Run dashboard again to start tracking trends.</div>"
+    fi)
+    <div class="trend-chart"><canvas id="trendChart"></canvas></div>
+  </div>
+
   <div class="findings">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid var(--border)">
       <h2 style="padding:0;border:none;margin:0">Findings ($(( n_crit + n_high + n_med + n_warn + n_low )))</h2>
@@ -619,6 +752,68 @@ function filterFindings() {
     }
   });
 }
+// Trend chart
+(function() {
+  var canvas = document.getElementById('trendChart');
+  if (!canvas) return;
+  var history = ${history_json:-[]};
+  // Append current scan
+  history.push({timestamp:"$(date -u +%Y-%m-%dT%H:%M:%SZ)",score:${score},failed:${FAILED},critical:${n_crit},high:${n_high}});
+  if (history.length < 2) { canvas.parentElement.innerHTML = '<div class="trend-no-history">Chart available after 2+ scans</div>'; return; }
+
+  var ctx = canvas.getContext('2d');
+  var W = canvas.parentElement.offsetWidth;
+  var H = 120;
+  canvas.width = W * 2; canvas.height = H * 2;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.scale(2, 2);
+
+  var pad = {t:10, r:10, b:25, l:35};
+  var cw = W - pad.l - pad.r;
+  var ch = H - pad.t - pad.b;
+  var n = history.length;
+
+  // Draw grid
+  ctx.strokeStyle = '#334155'; ctx.lineWidth = 0.5;
+  for (var g = 0; g <= 100; g += 25) {
+    var gy = pad.t + ch - (g / 100) * ch;
+    ctx.beginPath(); ctx.moveTo(pad.l, gy); ctx.lineTo(W - pad.r, gy); ctx.stroke();
+    ctx.fillStyle = '#94a3b8'; ctx.font = '9px system-ui'; ctx.textAlign = 'right';
+    ctx.fillText(g, pad.l - 4, gy + 3);
+  }
+
+  // X labels (dates)
+  ctx.fillStyle = '#94a3b8'; ctx.font = '8px system-ui'; ctx.textAlign = 'center';
+  var step = Math.max(1, Math.floor(n / 6));
+  for (var xi = 0; xi < n; xi += step) {
+    var xp = pad.l + (xi / (n - 1)) * cw;
+    var dt = history[xi].timestamp || '';
+    ctx.fillText(dt.substring(5, 10), xp, H - 5);
+  }
+
+  function drawLine(data, key, color, maxVal) {
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+    for (var i = 0; i < data.length; i++) {
+      var x = pad.l + (i / (n - 1)) * cw;
+      var v = data[i][key] || 0;
+      var y = pad.t + ch - (v / maxVal) * ch;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    // Dot on last point
+    var lx = pad.l + cw;
+    var lv = data[data.length - 1][key] || 0;
+    var ly = pad.t + ch - (lv / maxVal) * ch;
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(lx, ly, 3, 0, Math.PI * 2); ctx.fill();
+  }
+
+  drawLine(history, 'score', '#38bdf8', 100);
+
+  // Legend
+  ctx.fillStyle = '#38bdf8'; ctx.font = '9px system-ui'; ctx.textAlign = 'left';
+  ctx.fillText('● Score', pad.l + 5, pad.t + 10);
+})();
+
 function toggleAllDetails() {
   var rows = document.querySelectorAll('tbody tr.clickable');
   var anyCollapsed = false;
