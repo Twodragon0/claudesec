@@ -23,6 +23,13 @@ Thank you for your interest in contributing to ClaudeSec! This project aims to m
    - `chore:` maintenance tasks
 6. **Push** and open a **Pull Request**
 
+### Do not commit
+
+- **Company or internal paths**: Real folder paths (e.g. `~/Desktop/kubekube/`, internal drive paths) must not appear in the repo. Use placeholders like `~/.kube/config`, `/path/to/kubeconfig`, or `</path/to/your/config>` in examples and templates.
+- **Personal or identifying data**: No real names, emails, internal hostnames, **IP addresses**, **account IDs**, or org names in examples or configs.
+- **Local config with secrets/paths**: `.claudesec.yml` is gitignored; do not add it to the repo. Users copy from `templates/*.example.yml` and fill in paths locally only.
+- **Secrets and credentials**: No API keys, passwords, tokens, or kubeconfig contents. Use env vars or local-only files listed in `.gitignore`.
+
 ### Conventions
 
 #### File Naming
