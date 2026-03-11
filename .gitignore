@@ -17,6 +17,10 @@ package-lock.json
 .env.*
 .omc/
 
+# Local scanner config (may contain company paths, kubeconfig paths, profile names)
+.claudesec.yml
+.claudesec.local.yml
+
 # Scan results (never commit scan reports)
 claudesec-dashboard.html
 *.scan-report.html
@@ -33,3 +37,23 @@ scanner/output/
 *.pfx
 *.secret
 credentials.json
+
+# --- Do not upload to GitHub: internal data, PII, IPs, accounts ---
+# Local overrides (may contain paths, accounts, internal IPs)
+*.local.yml
+*.local.yaml
+# Kubeconfig and cluster access (paths, account IDs)
+kubeconfig
+.kube/
+*kubeconfig*
+# Directories that may hold secrets or internal data
+secrets/
+credentials/
+# Backup/temp (may contain pasted secrets or PII)
+*.bak
+*.backup
+*~
+# Common secret/config names
+*.secret.yml
+*.secret.yaml
+config.local.*
