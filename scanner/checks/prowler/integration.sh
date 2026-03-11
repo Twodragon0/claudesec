@@ -203,12 +203,26 @@ touch "$PROWLER_OUTPUT_DIR/.scan-marker" 2>/dev/null || true
 
 # ── AWS ────────────────────────────────────────────────────────────────────
 
+_aws_prowler_done=false
 if has_aws_credentials 2>/dev/null; then
   info "Prowler: Scanning AWS (profile: ${AWS_PROFILE:-default})"
   _aws_json=$(_prowler_scan "aws" ${AWS_PROFILE:+--profile "$AWS_PROFILE"})
   _prowler_report "AWS" "$_aws_json" "PROWLER-AWS"
+  _aws_prowler_done=true
 elif [[ -f "${AWS_CONFIG_FILE:-$HOME/.aws/config}" ]]; then
-  skip "PROWLER-AWS-001" "Prowler AWS scan" "AWS credentials not configured (use --aws-profile or --aws-sso)"
+  # Auto-attempt SSO login if AWS config exists but credentials expired
+  if [[ "${AWS_SSO_FORCE:-}" == "1" ]] || [[ -z "${_PROWLER_SKIP_SSO_RETRY:-}" ]]; then
+    info "Prowler: AWS credentials expired, attempting SSO login..."
+    if aws_sso_ensure_login 2>/dev/null; then
+      info "Prowler: Scanning AWS after SSO login (profile: ${AWS_PROFILE:-default})"
+      _aws_json=$(_prowler_scan "aws" ${AWS_PROFILE:+--profile "$AWS_PROFILE"})
+      _prowler_report "AWS" "$_aws_json" "PROWLER-AWS"
+      _aws_prowler_done=true
+    fi
+  fi
+  if [[ "$_aws_prowler_done" == "false" ]]; then
+    skip "PROWLER-AWS-001" "Prowler AWS scan" "AWS credentials not configured (use --aws-profile or --aws-sso)"
+  fi
 else
   skip "PROWLER-AWS-001" "Prowler AWS scan" "AWS not configured"
 fi
@@ -246,6 +260,19 @@ fi
 # Attempt credential refresh if not connected
 if ! has_kubectl_access 2>/dev/null; then
   kubectl_ensure_access 2>/dev/null || true
+
+  # If AWS is connected and kubectl still fails, try EKS kubeconfig auto-discovery
+  if ! has_kubectl_access 2>/dev/null && has_aws_credentials 2>/dev/null; then
+    _eks_clusters=$(aws eks list-clusters --query 'clusters[*]' --output text 2>/dev/null || true)
+    if [[ -n "$_eks_clusters" ]]; then
+      _first_cluster=$(echo "$_eks_clusters" | awk '{print $1}')
+      _eks_region="${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo 'ap-northeast-2')}"
+      info "Prowler: Auto-discovered EKS cluster '${_first_cluster}' in ${_eks_region}"
+      if aws eks update-kubeconfig --name "$_first_cluster" --region "$_eks_region" ${AWS_PROFILE:+--profile "$AWS_PROFILE"} 2>/dev/null; then
+        info "Prowler: EKS kubeconfig updated for ${_first_cluster}"
+      fi
+    fi
+  fi
 fi
 
 if has_kubectl_access 2>/dev/null; then
