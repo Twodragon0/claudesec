@@ -417,6 +417,59 @@ kubectl_server_version() {
   $cmd version -o json 2>/dev/null | grep -o '"gitVersion":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "unknown"
 }
 
+# ── Environment info collector (for dashboard) ────────────────────────────
+
+# Collect environment info into CLAUDESEC_ENV_* variables
+collect_environment_info() {
+  # Kubernetes
+  if has_kubectl_access 2>/dev/null; then
+    local kinfo ctx server ctype ver
+    kinfo=$(kubectl_cluster_info)
+    ctx=$(echo "$kinfo" | cut -d'|' -f1)
+    server=$(echo "$kinfo" | cut -d'|' -f2)
+    ctype=$(kubectl_detect_cluster_type "$ctx")
+    ver=$(kubectl_server_version 2>/dev/null)
+    export CLAUDESEC_ENV_K8S_CONNECTED="true"
+    export CLAUDESEC_ENV_K8S_CONTEXT="$ctx"
+    export CLAUDESEC_ENV_K8S_SERVER="$server"
+    export CLAUDESEC_ENV_K8S_TYPE="$ctype"
+    export CLAUDESEC_ENV_K8S_VERSION="$ver"
+    [[ -n "${KUBECONFIG:-}" ]] && export CLAUDESEC_ENV_K8S_KUBECONFIG="$KUBECONFIG"
+    [[ -n "${CLAUDESEC_KUBE_NAMESPACE:-}" ]] && export CLAUDESEC_ENV_K8S_NAMESPACE="$CLAUDESEC_KUBE_NAMESPACE"
+  else
+    export CLAUDESEC_ENV_K8S_CONNECTED="false"
+  fi
+
+  # AWS
+  if has_aws_credentials 2>/dev/null; then
+    local aws_info
+    aws_info=$(aws_identity_info 2>/dev/null)
+    export CLAUDESEC_ENV_AWS_CONNECTED="true"
+    export CLAUDESEC_ENV_AWS_ACCOUNT=$(echo "$aws_info" | cut -d'|' -f1)
+    export CLAUDESEC_ENV_AWS_ARN=$(echo "$aws_info" | cut -d'|' -f2)
+    [[ -n "${AWS_PROFILE:-}" ]] && export CLAUDESEC_ENV_AWS_PROFILE="$AWS_PROFILE"
+  else
+    export CLAUDESEC_ENV_AWS_CONNECTED="false"
+  fi
+
+  # GCP
+  if has_gcp_credentials 2>/dev/null; then
+    export CLAUDESEC_ENV_GCP_CONNECTED="true"
+    export CLAUDESEC_ENV_GCP_ACCOUNT=$(gcloud config get-value account 2>/dev/null || echo "unknown")
+    export CLAUDESEC_ENV_GCP_PROJECT=$(gcloud config get-value project 2>/dev/null || echo "unknown")
+  else
+    export CLAUDESEC_ENV_GCP_CONNECTED="false"
+  fi
+
+  # Azure
+  if has_command az && az account show &>/dev/null 2>&1; then
+    export CLAUDESEC_ENV_AZ_CONNECTED="true"
+    export CLAUDESEC_ENV_AZ_SUBSCRIPTION=$(az account show --query name -o tsv 2>/dev/null || echo "unknown")
+  else
+    export CLAUDESEC_ENV_AZ_CONNECTED="false"
+  fi
+}
+
 # Map check ID to compliance frameworks
 compliance_map() {
   local id="$1"

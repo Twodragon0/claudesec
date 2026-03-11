@@ -432,6 +432,22 @@ generate_html_dashboard() {
   .detail-content::-webkit-scrollbar-track { background: transparent; }
   .detail-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
+  .env-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0; }
+  .env-item { display: flex; align-items: flex-start; gap: 0.75rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); }
+  .env-item:nth-child(2n) { border-right: none; }
+  .env-item:nth-last-child(-n+2) { border-bottom: none; }
+  .env-icon { font-size: 1.4rem; line-height: 1; min-width: 1.5rem; text-align: center; }
+  .env-details { flex: 1; }
+  .env-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem; }
+  .env-meta { font-size: 0.78rem; color: var(--muted); line-height: 1.5; }
+  .env-status { font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+  .env-status.connected { color: #22c55e; }
+  .env-status.disconnected { color: var(--muted); }
+  .env-badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.65rem; font-weight: 700; background: var(--accent); color: var(--bg); letter-spacing: 0.04em; margin-left: 0.4rem; vertical-align: middle; }
+  .env-connected .env-icon { opacity: 1; }
+  .env-disconnected .env-icon { opacity: 0.4; }
+  .env-disconnected .env-title { color: var(--muted); }
+
   .empty { padding: 2rem; text-align: center; color: #22c55e; font-size: 1.1rem; }
 
   footer { text-align: center; padding: 2rem 0 1rem; color: var(--muted); font-size: 0.8rem; }
@@ -502,6 +518,52 @@ generate_html_dashboard() {
       </div>
     </div>
   </div>
+
+  $(
+    # Build Environment Info section
+    _env_items=""
+    if [[ "${CLAUDESEC_ENV_K8S_CONNECTED:-false}" == "true" ]]; then
+      _k8s_type_badge="${CLAUDESEC_ENV_K8S_TYPE:-generic}"
+      _k8s_type_upper=$(echo "$_k8s_type_badge" | tr '[:lower:]' '[:upper:]')
+      _env_items+="<div class=\"env-item env-connected\"><div class=\"env-icon\">☸</div><div class=\"env-details\"><div class=\"env-title\">Kubernetes <span class=\"env-badge\">${_k8s_type_upper}</span></div>"
+      _env_items+="<div class=\"env-meta\">Context: ${CLAUDESEC_ENV_K8S_CONTEXT:-unknown}</div>"
+      _env_items+="<div class=\"env-meta\">Server: ${CLAUDESEC_ENV_K8S_SERVER:-unknown}</div>"
+      _env_items+="<div class=\"env-meta\">Version: ${CLAUDESEC_ENV_K8S_VERSION:-unknown}</div>"
+      [[ -n "${CLAUDESEC_ENV_K8S_KUBECONFIG:-}" ]] && _env_items+="<div class=\"env-meta\">Kubeconfig: ${CLAUDESEC_ENV_K8S_KUBECONFIG}</div>"
+      [[ -n "${CLAUDESEC_ENV_K8S_NAMESPACE:-}" ]] && _env_items+="<div class=\"env-meta\">Namespace: ${CLAUDESEC_ENV_K8S_NAMESPACE}</div>"
+      _env_items+="</div><div class=\"env-status connected\">● Connected</div></div>"
+    else
+      _env_items+="<div class=\"env-item env-disconnected\"><div class=\"env-icon\">☸</div><div class=\"env-details\"><div class=\"env-title\">Kubernetes</div><div class=\"env-meta\">Not connected — use --kubeconfig or --kubecontext</div></div><div class=\"env-status disconnected\">○ Disconnected</div></div>"
+    fi
+
+    if [[ "${CLAUDESEC_ENV_AWS_CONNECTED:-false}" == "true" ]]; then
+      _env_items+="<div class=\"env-item env-connected\"><div class=\"env-icon\">☁</div><div class=\"env-details\"><div class=\"env-title\">AWS</div>"
+      _env_items+="<div class=\"env-meta\">Account: ${CLAUDESEC_ENV_AWS_ACCOUNT:-unknown}</div>"
+      [[ -n "${CLAUDESEC_ENV_AWS_PROFILE:-}" ]] && _env_items+="<div class=\"env-meta\">Profile: ${CLAUDESEC_ENV_AWS_PROFILE}</div>"
+      _env_items+="</div><div class=\"env-status connected\">● Connected</div></div>"
+    else
+      _env_items+="<div class=\"env-item env-disconnected\"><div class=\"env-icon\">☁</div><div class=\"env-details\"><div class=\"env-title\">AWS</div><div class=\"env-meta\">Not configured — use --aws-profile</div></div><div class=\"env-status disconnected\">○ Disconnected</div></div>"
+    fi
+
+    if [[ "${CLAUDESEC_ENV_GCP_CONNECTED:-false}" == "true" ]]; then
+      _env_items+="<div class=\"env-item env-connected\"><div class=\"env-icon\">◈</div><div class=\"env-details\"><div class=\"env-title\">GCP</div>"
+      _env_items+="<div class=\"env-meta\">Account: ${CLAUDESEC_ENV_GCP_ACCOUNT:-unknown}</div>"
+      _env_items+="<div class=\"env-meta\">Project: ${CLAUDESEC_ENV_GCP_PROJECT:-unknown}</div>"
+      _env_items+="</div><div class=\"env-status connected\">● Connected</div></div>"
+    else
+      _env_items+="<div class=\"env-item env-disconnected\"><div class=\"env-icon\">◈</div><div class=\"env-details\"><div class=\"env-title\">GCP</div><div class=\"env-meta\">Not configured — gcloud auth login</div></div><div class=\"env-status disconnected\">○ Disconnected</div></div>"
+    fi
+
+    if [[ "${CLAUDESEC_ENV_AZ_CONNECTED:-false}" == "true" ]]; then
+      _env_items+="<div class=\"env-item env-connected\"><div class=\"env-icon\">◇</div><div class=\"env-details\"><div class=\"env-title\">Azure</div>"
+      _env_items+="<div class=\"env-meta\">Subscription: ${CLAUDESEC_ENV_AZ_SUBSCRIPTION:-unknown}</div>"
+      _env_items+="</div><div class=\"env-status connected\">● Connected</div></div>"
+    else
+      _env_items+="<div class=\"env-item env-disconnected\"><div class=\"env-icon\">◇</div><div class=\"env-details\"><div class=\"env-title\">Azure</div><div class=\"env-meta\">Not configured — az login</div></div><div class=\"env-status disconnected\">○ Disconnected</div></div>"
+    fi
+
+    echo "<div class=\"findings\" style=\"margin-bottom:2rem\"><h2 style=\"padding:1rem 1.25rem;font-size:1rem;border-bottom:1px solid var(--border)\">Environment</h2><div class=\"env-grid\">${_env_items}</div></div>"
+  )
 
   <div class="findings">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid var(--border)">

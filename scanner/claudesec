@@ -320,6 +320,9 @@ run_scan_for_dashboard() {
   local start_time
   start_time=$(date +%s)
 
+  # Collect environment info for dashboard
+  collect_environment_info 2>/dev/null || true
+
   local categories=()
   if [[ "$CATEGORY" == "all" ]]; then
     categories=(infra ai network cloud access-control cicd code macos windows saas prowler)
