@@ -517,6 +517,35 @@ generate_html_dashboard() {
   .detail-content::-webkit-scrollbar-track { background: transparent; }
   .detail-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
+  .detail-summary { font-weight: 600; color: var(--text); margin-bottom: 0.75rem; font-size: 0.85rem; }
+  .detail-services { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+  .detail-svc-chip { background: var(--border); padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-family: 'SF Mono','Fira Code',monospace; }
+  .detail-findings-list { display: flex; flex-direction: column; gap: 0.5rem; max-height: 350px; overflow-y: auto; }
+  .detail-finding { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.8rem; }
+  .detail-finding .df-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
+  .detail-finding .df-sev { font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 3px; text-transform: uppercase; }
+  .detail-finding .df-sev.crit { background: #dc2626; color: #fff; }
+  .detail-finding .df-sev.hig { background: #991b1b; color: #fca5a5; }
+  .detail-finding .df-sev.med { background: #854d0e; color: #fde68a; }
+  .detail-finding .df-sev.low { background: #374151; color: #9ca3af; }
+  .detail-finding .df-code { font-family: 'SF Mono','Fira Code',monospace; color: var(--accent); font-size: 0.75rem; }
+  .detail-finding .df-msg { font-size: 0.82rem; color: var(--text); line-height: 1.4; }
+  .detail-finding .df-meta { margin-top: 0.35rem; border-top: 1px dashed var(--border); padding-top: 0.3rem; }
+  .detail-finding .df-meta div { font-size: 0.78rem; color: var(--muted); padding: 0.05rem 0; line-height: 1.4; }
+  .detail-finding .df-meta .ml { color: var(--accent); font-weight: 600; }
+  .detail-plain { font-size: 0.82rem; line-height: 1.6; color: var(--muted); }
+  .detail-plain .dp-line { padding: 0.1rem 0; }
+  .detail-plain .dp-kv { color: var(--text); }
+  .detail-plain .dp-kv .dp-key { color: var(--accent); font-weight: 600; }
+
+  .cat-summary { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border); }
+  .cat-chip { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: border-color 0.15s; }
+  .cat-chip:hover { border-color: var(--accent); }
+  .cat-chip.active { border-color: var(--accent); background: #38bdf810; }
+  .cat-chip .cc-icon { font-size: 0.9rem; }
+  .cat-chip .cc-name { font-size: 0.78rem; font-weight: 600; }
+  .cat-chip .cc-count { font-size: 0.85rem; font-weight: 800; color: var(--accent); }
+
   .env-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0; }
   .env-item { display: flex; align-items: flex-start; gap: 0.75rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); }
   .env-item:nth-child(2n) { border-right: none; }
@@ -714,8 +743,9 @@ generate_html_dashboard() {
         <button onclick="toggleAllDetails()" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:0.35rem 0.7rem;border-radius:6px;font-size:0.8rem;cursor:pointer">Expand All</button>
       </div>
     </div>
+    <div id="catSummary" class="cat-summary"></div>
     $(if [[ -n "$findings_html" ]]; then
-      echo "<div style=\"max-height:70vh;overflow-y:auto\"><table><thead><tr><th>Severity</th><th>ID</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>${findings_html}</tbody></table></div>"
+      echo "<div style=\"max-height:70vh;overflow-y:auto\"><table><thead><tr><th style=\"width:90px\">Severity</th><th style=\"width:140px\">ID</th><th>Finding</th><th style=\"width:280px\">Remediation</th></tr></thead><tbody>${findings_html}</tbody></table></div>"
     else
       echo "<div class=\"empty\">✓ No findings — all checks passed!</div>"
     fi)
@@ -833,6 +863,169 @@ function toggleAllDetails() {
     }
   });
 }
+
+// Build category summary chips from findings table
+(function buildCategorySummary() {
+  var container = document.getElementById('catSummary');
+  if (!container) return;
+  var rows = document.querySelectorAll('tbody tr:not(.detail-row)');
+  var cats = {};
+  var icons = {'PROWLER-AWS':'☁','PROWLER-GH':'⚙','PROWLER-K8S':'☸','PROWLER-AZ':'◇','PROWLER-GCP':'◈','PROWLER-IAC':'📄','INFRA':'🏗','NET':'🌐','CLOUD':'☁','CICD':'⚡','AI':'🤖','ACCESS':'🔑','CODE':'📝','SAAS':'🔌','PROWLER-M365':'📧','PROWLER-CF':'🌐','PROWLER-MONGO':'🍃','PROWLER-OCI':'☁','PROWLER-LLM':'🤖','PROWLER-IMG':'📦'};
+  rows.forEach(function(row) {
+    var idCell = row.querySelector('.mono');
+    if (!idCell) return;
+    var id = idCell.textContent.trim();
+    var prefix = id.replace(/-\d+$/, '');
+    if (!cats[prefix]) cats[prefix] = 0;
+    cats[prefix]++;
+  });
+  var keys = Object.keys(cats).sort();
+  if (keys.length === 0) { container.style.display = 'none'; return; }
+  keys.forEach(function(cat) {
+    var icon = icons[cat] || '●';
+    // Try shorter prefix match
+    if (!icons[cat]) { for (var k in icons) { if (cat.indexOf(k) === 0) { icon = icons[k]; break; } } }
+    var chip = document.createElement('div');
+    chip.className = 'cat-chip';
+    chip.setAttribute('data-cat', cat);
+    chip.innerHTML = '<span class="cc-icon">' + icon + '</span><span class="cc-name">' + cat + '</span><span class="cc-count">' + cats[cat] + '</span>';
+    chip.onclick = function() {
+      var isActive = this.classList.contains('active');
+      document.querySelectorAll('.cat-chip').forEach(function(c) { c.classList.remove('active'); });
+      if (!isActive) {
+        this.classList.add('active');
+        filterByCategory(cat);
+      } else {
+        filterByCategory(null);
+      }
+    };
+    container.appendChild(chip);
+  });
+})();
+
+function filterByCategory(cat) {
+  var rows = document.querySelectorAll('tbody tr');
+  rows.forEach(function(row) {
+    if (row.classList.contains('detail-row')) { row.style.display = 'none'; return; }
+    if (!cat) { row.style.display = ''; return; }
+    var idCell = row.querySelector('.mono');
+    if (!idCell) { row.style.display = ''; return; }
+    var id = idCell.textContent.trim();
+    var prefix = id.replace(/-\d+$/, '');
+    row.style.display = (prefix === cat) ? '' : 'none';
+    row.classList.remove('expanded');
+  });
+}
+
+// Transform raw detail-content text into structured HTML
+(function formatDetails() {
+  document.querySelectorAll('.detail-content').forEach(function(el) {
+    var raw = el.innerHTML;
+    var lines = raw.split(/<br\s*\/?>/).map(function(l) { return l.trim(); }).filter(Boolean);
+    if (lines.length < 2) {
+      // Simple non-Prowler detail: format as clean lines
+      if (lines.length === 1) {
+        el.innerHTML = '<div class="detail-plain"><div class="dp-line">' + lines[0] + '</div></div>';
+      }
+      return;
+    }
+
+    var result = '';
+    var summaryLine = lines[0];
+    var services = [];
+    var findings = [];
+    var currentFinding = null;
+    var plainLines = [];
+
+    for (var i = 1; i < lines.length; i++) {
+      var line = lines[i];
+      // Service grouping: "service: N finding(s)"
+      var svcMatch = line.match(/^([\w][\w\-]*): (\d+) finding/);
+      if (svcMatch) { services.push({name: svcMatch[1], count: parseInt(svcMatch[2])}); continue; }
+      // Finding header: "[Severity] (code) message"
+      var findMatch = line.match(/^\[(\w+)\]\s*\(([^)]+)\)\s*(.*)/);
+      if (findMatch) {
+        if (currentFinding) findings.push(currentFinding);
+        currentFinding = {sev: findMatch[1], code: findMatch[2], msg: findMatch[3], meta: []};
+        continue;
+      }
+      // Meta lines: "Risk:", "Fix:", "Ref:", "Resource:"
+      var metaMatch = line.match(/^(Risk|Fix|Ref|Reference|Resource|Remediation):\s*(.*)/);
+      if (metaMatch && currentFinding) {
+        currentFinding.meta.push({label: metaMatch[1], value: metaMatch[2]});
+        continue;
+      }
+      if (currentFinding) { currentFinding.meta.push({label: '', value: line}); }
+      else { plainLines.push(line); }
+    }
+    if (currentFinding) findings.push(currentFinding);
+
+    // If no structured data found, format as clean plain text
+    if (services.length === 0 && findings.length === 0) {
+      result = '<div class="detail-plain">';
+      result += '<div class="dp-line">' + summaryLine + '</div>';
+      for (var p = 0; p < plainLines.length; p++) {
+        var pl = plainLines[p];
+        var kvMatch = pl.match(/^([A-Za-z][\w\s]*?):\s+(.*)/);
+        if (kvMatch) {
+          result += '<div class="dp-kv"><span class="dp-key">' + kvMatch[1] + ':</span> ' + kvMatch[2] + '</div>';
+        } else {
+          result += '<div class="dp-line">' + pl + '</div>';
+        }
+      }
+      result += '</div>';
+      el.innerHTML = result;
+      return;
+    }
+
+    // Structured Prowler-style output
+    result += '<div class="detail-summary">' + summaryLine + '</div>';
+
+    if (services.length > 0) {
+      // Sort by count descending
+      services.sort(function(a,b) { return b.count - a.count; });
+      result += '<div class="detail-services">';
+      services.forEach(function(s) {
+        result += '<span class="detail-svc-chip">' + s.name + ': ' + s.count + '</span>';
+      });
+      result += '</div>';
+    }
+
+    if (findings.length > 0) {
+      result += '<div class="detail-findings-list">';
+      var maxShow = 20;
+      var shown = Math.min(findings.length, maxShow);
+      for (var fi = 0; fi < shown; fi++) {
+        var f = findings[fi];
+        var sl = f.sev.toLowerCase();
+        var sevClass = sl === 'critical' ? 'crit' : sl.substring(0,3);
+        result += '<div class="detail-finding">';
+        result += '<div class="df-header"><span class="df-sev ' + sevClass + '">' + f.sev + '</span><span class="df-code">' + f.code + '</span></div>';
+        result += '<div class="df-msg">' + f.msg + '</div>';
+        if (f.meta.length > 0) {
+          result += '<div class="df-meta">';
+          f.meta.forEach(function(m) {
+            if (m.label === 'Ref' || m.label === 'Reference') {
+              result += '<div><span class="ml">' + m.label + ':</span> <a href="' + m.value + '" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline">' + m.value.replace(/^https?:\/\//, '').substring(0,60) + '</a></div>';
+            } else if (m.label) {
+              result += '<div><span class="ml">' + m.label + ':</span> ' + m.value + '</div>';
+            } else {
+              result += '<div>' + m.value + '</div>';
+            }
+          });
+          result += '</div>';
+        }
+        result += '</div>';
+      }
+      if (findings.length > maxShow) {
+        result += '<div style="text-align:center;padding:0.5rem;color:var(--muted);font-size:0.8rem">... and ' + (findings.length - maxShow) + ' more findings</div>';
+      }
+      result += '</div>';
+    }
+
+    el.innerHTML = result;
+  });
+})();
 </script>
 </body>
 </html>
