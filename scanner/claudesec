@@ -172,7 +172,11 @@ parse_args() {
       fi
       run_scan_for_dashboard
       generate_html_dashboard "$html_output"
+      save_scan_history 2>/dev/null || true
       echo -e "  ${GREEN}✓${NC} Dashboard saved to ${BOLD}$html_output${NC}"
+      local history_count
+      history_count=$(find "${SCAN_DIR}/.claudesec-history" -name 'scan-*.json' 2>/dev/null | wc -l | tr -d ' ')
+      [[ "$history_count" -gt 0 ]] && echo -e "  ${DIM}Scan history: ${history_count} entries (${SCAN_DIR}/.claudesec-history/)${NC}"
       echo -e "  ${DIM}Open in browser: open $html_output${NC}"
       ;;
     version) echo "claudesec v$VERSION" ;;
