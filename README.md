@@ -91,7 +91,7 @@ ClaudeSec includes a zero-dependency bash scanner that checks your project for s
 | `code` | 24 | SQL/Command/XSS injection, SSRF, XXE, crypto, deserialization, SAST tools |
 | `macos` | 20 | FileVault, SIP, Gatekeeper, CIS Benchmark v4.0 |
 | `windows` | 20 | KISA W-series, UAC, Firewall, Defender, SMBv1 |
-| `saas` | 8+ | SaaS API scanning (GitHub, Datadog, Cloudflare, Vercel, Sentry, Okta, SendGrid) |
+| `saas` | 33 | SaaS API scanning (GitHub, Datadog, Cloudflare, Vercel, Sentry, Okta, SendGrid, Slack, PagerDuty, Jira, Grafana, New Relic, Splunk, Twilio, MongoDB Atlas, Elastic Cloud) |
 | `prowler` | 16 providers | Deep scan via Prowler: AWS, Azure, GCP, K8s, GitHub, M365, Google Workspace, Cloudflare, MongoDB Atlas, Oracle Cloud, Alibaba Cloud, OpenStack, NHN, IaC, LLM, Image |
 
 ## Project Structure
