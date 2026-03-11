@@ -259,8 +259,17 @@ kubectl_detect_cluster_type() {
 }
 
 # Ensure kubectl has a valid connection; attempt credential refresh if needed
+# Sets _KUBECTL_ENSURE_ACCESS_DONE=1 after first run to prevent duplicate output
 kubectl_ensure_access() {
   has_command kubectl || return 1
+
+  # Prevent duplicate auth guide output across categories
+  if [[ "${_KUBECTL_ENSURE_ACCESS_DONE:-}" == "1" ]]; then
+    # Already ran — just return cached result
+    has_kubectl_access 2>/dev/null
+    return $?
+  fi
+  export _KUBECTL_ENSURE_ACCESS_DONE=1
 
   # Apply user-specified context if set via CLI
   if [[ -n "${CLAUDESEC_KUBECONTEXT:-}" ]]; then
