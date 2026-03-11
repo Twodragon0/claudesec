@@ -88,6 +88,7 @@ ClaudeSec includes a zero-dependency bash scanner that checks your project for s
 | `cloud` | 13 | AWS, GCP, Azure (IAM, logging, storage, network) |
 | `access-control` | 6 | .env files, password hashing, JWT, sessions |
 | `cicd` | 8 | GHA permissions, SHA pinning, SAST, lockfiles |
+| `code` | 24 | SQL/Command/XSS injection, SSRF, XXE, crypto, deserialization, SAST tools |
 | `macos` | 20 | FileVault, SIP, Gatekeeper, CIS Benchmark v4.0 |
 | `windows` | 20 | KISA W-series, UAC, Firewall, Defender, SMBv1 |
 | `saas` | 8+ | SaaS API scanning (GitHub, Datadog, Cloudflare, Vercel, Sentry, Okta, SendGrid) |

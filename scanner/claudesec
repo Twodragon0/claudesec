@@ -193,7 +193,7 @@ run_scan() {
   # Determine which categories to scan
   local categories=()
   if [[ "$CATEGORY" == "all" ]]; then
-    categories=(infra ai network cloud access-control cicd macos windows saas prowler)
+    categories=(infra ai network cloud access-control cicd code macos windows saas prowler)
   else
     IFS=',' read -ra categories <<< "$CATEGORY"
   fi
@@ -314,7 +314,7 @@ run_scan_for_dashboard() {
 
   local categories=()
   if [[ "$CATEGORY" == "all" ]]; then
-    categories=(infra ai network cloud access-control cicd macos windows saas prowler)
+    categories=(infra ai network cloud access-control cicd code macos windows saas prowler)
   else
     IFS=',' read -ra categories <<< "$CATEGORY"
   fi

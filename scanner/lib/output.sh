@@ -52,6 +52,7 @@ category_label() {
     cloud)          echo "Cloud Security (AWS/GCP/Azure)" ;;
     access-control) echo "Access Control & IAM" ;;
     cicd)           echo "CI/CD Pipeline Security" ;;
+    code)           echo "Code Vulnerability Analysis (SAST)" ;;
     macos)          echo "macOS / CIS Benchmark Security" ;;
     saas)           echo "SaaS & Solutions Security" ;;
     windows)        echo "Windows Security (KISA)" ;;
