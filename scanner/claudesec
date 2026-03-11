@@ -93,6 +93,8 @@ Scan Options:
   --quiet, -q                 Only show failures
   --aws-profile <profile>     Use specific AWS profile (triggers SSO login)
   --kubecontext <context>     Use specific kubectl context
+  --kubeconfig <path>         Use specific kubeconfig file
+  --kube-namespace <ns>       Scan specific Kubernetes namespace
   --aws-sso                   Force AWS SSO login before scan
   --env-file <path>           Scan external .env file for leaked secrets
 
@@ -104,6 +106,8 @@ Examples:
   claudesec scan -c infra -c network      # Multiple categories
   claudesec scan --aws-profile prod       # Scan with AWS SSO profile
   claudesec scan --kubecontext staging    # Scan specific K8s context
+  claudesec scan --kubeconfig ~/.kube/prod  # Use specific kubeconfig
+  claudesec scan --kube-namespace default   # Scan specific namespace
   claudesec scan -c cloud --aws-sso       # Force SSO login for cloud scan
 EOF
 }
@@ -131,7 +135,9 @@ parse_args() {
           -q|--quiet) QUIET=1; shift ;;
           --all) CATEGORY="all"; shift ;;
           --aws-profile) export AWS_PROFILE="$2"; export AWS_DEFAULT_PROFILE="$2"; shift 2 ;;
-          --kubecontext) kubectl config use-context "$2" &>/dev/null; shift 2 ;;
+          --kubecontext) export CLAUDESEC_KUBECONTEXT="$2"; shift 2 ;;
+          --kubeconfig) export KUBECONFIG="$2"; shift 2 ;;
+          --kube-namespace) export CLAUDESEC_KUBE_NAMESPACE="$2"; shift 2 ;;
           --aws-sso) AWS_SSO_FORCE=1; shift ;;
           --env-file) ENV_SCAN_FILES+=("$2"); shift 2 ;;
           -V|--version) echo "claudesec v$VERSION"; exit 0 ;;
@@ -150,7 +156,9 @@ parse_args() {
         case "$1" in
           --aws-profile) export AWS_PROFILE="$2"; export AWS_DEFAULT_PROFILE="$2"; shift 2 ;;
           --aws-sso) AWS_SSO_FORCE=1; shift ;;
-          --kubecontext) kubectl config use-context "$2" &>/dev/null; shift 2 ;;
+          --kubecontext) export CLAUDESEC_KUBECONTEXT="$2"; shift 2 ;;
+          --kubeconfig) export KUBECONFIG="$2"; shift 2 ;;
+          --kube-namespace) export CLAUDESEC_KUBE_NAMESPACE="$2"; shift 2 ;;
           -c|--category) CATEGORY="$2"; shift 2 ;;
           -s|--severity) SEVERITY="$2"; shift 2 ;;
           -d|--dir) SCAN_DIR="$2"; shift 2 ;;

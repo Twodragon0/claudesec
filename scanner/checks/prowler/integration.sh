@@ -243,15 +243,62 @@ fi
 
 # ── Kubernetes ─────────────────────────────────────────────────────────────
 
+# Attempt credential refresh if not connected
+if ! has_kubectl_access 2>/dev/null; then
+  kubectl_ensure_access 2>/dev/null || true
+fi
+
 if has_kubectl_access 2>/dev/null; then
   _k8s_ctx=$(kubectl_current_context)
-  info "Prowler: Scanning Kubernetes (context: ${_k8s_ctx})"
+  _k8s_cluster_type=$(kubectl_detect_cluster_type "$_k8s_ctx")
+  _k8s_server_ver=$(kubectl_server_version 2>/dev/null)
+  _k8s_server=$($(_kubectl_cmd) config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || echo "unknown")
+
+  info "Prowler: Scanning Kubernetes"
+  info "  Context: ${_k8s_ctx} (${_k8s_cluster_type})"
+  info "  Server: ${_k8s_server}"
+  info "  Version: ${_k8s_server_ver}"
+
   _k8s_args=()
   [[ -n "$_k8s_ctx" ]] && _k8s_args+=(--context "$_k8s_ctx")
+
+  # Pass kubeconfig if custom path is set
+  if [[ -n "${KUBECONFIG:-}" && -f "${KUBECONFIG}" ]]; then
+    _k8s_args+=(--kubeconfig "$KUBECONFIG")
+    info "  Kubeconfig: ${KUBECONFIG}"
+  fi
+
+  # Namespace filter
+  if [[ -n "${CLAUDESEC_KUBE_NAMESPACE:-}" ]]; then
+    _k8s_args+=(--namespace "$CLAUDESEC_KUBE_NAMESPACE")
+    info "  Namespace: ${CLAUDESEC_KUBE_NAMESPACE}"
+  fi
+
   _k8s_json=$(_prowler_scan "kubernetes" "${_k8s_args[@]}")
   _prowler_report "Kubernetes" "$_k8s_json" "PROWLER-K8S"
 else
-  skip "PROWLER-K8S-001" "Prowler Kubernetes scan" "kubectl not connected"
+  # Detailed skip message with auth guidance
+  _k8s_skip_msg="kubectl not connected."
+
+  # Check if kubectl is installed
+  if ! has_command kubectl; then
+    _k8s_skip_msg="kubectl not installed. Install: brew install kubectl"
+  else
+    # Show available kubeconfigs
+    _k8s_configs=$(kubectl_discover_kubeconfigs 2>/dev/null || true)
+    _k8s_contexts=$(kubectl_list_contexts 2>/dev/null || true)
+
+    if [[ -n "$_k8s_contexts" ]]; then
+      _ctx_list=$(echo "$_k8s_contexts" | head -5 | tr '\n' ', ' | sed 's/,$//')
+      _k8s_skip_msg="kubectl not connected. Available contexts: ${_ctx_list}. Use --kubecontext <name>"
+    elif [[ -n "$_k8s_configs" ]]; then
+      _k8s_skip_msg="kubectl found but no contexts configured. Kubeconfig files found — use --kubeconfig <path>"
+    else
+      _k8s_skip_msg="kubectl found but no kubeconfig. Run: aws eks update-kubeconfig / gcloud container clusters get-credentials / az aks get-credentials"
+    fi
+  fi
+
+  skip "PROWLER-K8S-001" "Prowler Kubernetes scan" "$_k8s_skip_msg"
 fi
 
 # ── GitHub ─────────────────────────────────────────────────────────────────
@@ -456,7 +503,7 @@ if [[ "$FORMAT" == "text" && -z "${QUIET:-}" ]]; then
     "aws:AWS:AWS_PROFILE or aws credentials"
     "azure:Azure:AZURE_CLIENT_ID or az login"
     "gcp:GCP:gcloud auth or GOOGLE_APPLICATION_CREDENTIALS"
-    "kubernetes:K8s:kubectl context"
+    "kubernetes:K8s:kubectl context (--kubeconfig, --kubecontext)"
     "github:GitHub:GITHUB_PERSONAL_ACCESS_TOKEN or gh auth"
     "m365:M365:AZURE_CLIENT_ID + TENANT_ID + SECRET"
     "googleworkspace:G-Workspace:Google OAuth + GOOGLE_WORKSPACE_CUSTOMER_ID"
