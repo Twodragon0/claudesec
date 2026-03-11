@@ -425,8 +425,11 @@ generate_html_dashboard() {
   .expand-icon { color: var(--muted); font-size: 0.7rem; margin-left: 0.4rem; transition: transform 0.2s; display: inline-block; }
   .clickable.expanded .expand-icon { transform: rotate(90deg); }
   .detail-row td { padding: 0; border-left-width: 3px; border-left-style: solid; }
-  .detail-content { padding: 0.75rem 1rem 0.75rem 3.5rem; background: #0f172a; font-size: 0.82rem; line-height: 1.7; color: var(--muted); border-top: 1px dashed var(--border); }
+  .detail-content { padding: 0.75rem 1rem 0.75rem 3.5rem; background: #0f172a; font-size: 0.82rem; line-height: 1.7; color: var(--muted); border-top: 1px dashed var(--border); max-height: 400px; overflow-y: auto; }
   .detail-content br { margin-bottom: 0.15rem; }
+  .detail-content::-webkit-scrollbar { width: 6px; }
+  .detail-content::-webkit-scrollbar-track { background: transparent; }
+  .detail-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
   .empty { padding: 2rem; text-align: center; color: #22c55e; font-size: 1.1rem; }
 
@@ -500,9 +503,23 @@ generate_html_dashboard() {
   </div>
 
   <div class="findings">
-    <h2>Findings ($(( n_crit + n_high + n_med + n_warn + n_low )))</h2>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid var(--border)">
+      <h2 style="padding:0;border:none;margin:0">Findings ($(( n_crit + n_high + n_med + n_warn + n_low )))</h2>
+      <div style="display:flex;gap:0.5rem;align-items:center">
+        <input type="text" id="findingSearch" placeholder="Filter findings..." oninput="filterFindings()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:0.35rem 0.7rem;border-radius:6px;font-size:0.8rem;width:180px">
+        <select id="sevFilter" onchange="filterFindings()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:0.35rem 0.5rem;border-radius:6px;font-size:0.8rem">
+          <option value="all">All Severities</option>
+          <option value="sev-critical">Critical</option>
+          <option value="sev-high">High</option>
+          <option value="sev-medium">Medium</option>
+          <option value="sev-warn">Warning</option>
+          <option value="sev-low">Low</option>
+        </select>
+        <button onclick="toggleAllDetails()" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:0.35rem 0.7rem;border-radius:6px;font-size:0.8rem;cursor:pointer">Expand All</button>
+      </div>
+    </div>
     $(if [[ -n "$findings_html" ]]; then
-      echo "<table><thead><tr><th>Severity</th><th>ID</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>${findings_html}</tbody></table>"
+      echo "<div style=\"max-height:70vh;overflow-y:auto\"><table><thead><tr><th>Severity</th><th>ID</th><th>Finding</th><th>Remediation</th></tr></thead><tbody>${findings_html}</tbody></table></div>"
     else
       echo "<div class=\"empty\">✓ No findings — all checks passed!</div>"
     fi)
@@ -517,6 +534,46 @@ function toggleDetail(row) {
   var show = detail.style.display === 'none';
   detail.style.display = show ? 'table-row' : 'none';
   row.classList.toggle('expanded', show);
+}
+function filterFindings() {
+  var q = (document.getElementById('findingSearch').value || '').toLowerCase();
+  var sev = document.getElementById('sevFilter').value;
+  var rows = document.querySelectorAll('tbody tr');
+  rows.forEach(function(row) {
+    if (row.classList.contains('detail-row')) {
+      // detail rows follow their parent visibility
+      return;
+    }
+    var text = row.textContent.toLowerCase();
+    var matchQ = !q || text.indexOf(q) !== -1;
+    var matchSev = sev === 'all' || row.classList.contains(sev);
+    var visible = matchQ && matchSev;
+    row.style.display = visible ? '' : 'none';
+    var detail = row.nextElementSibling;
+    if (detail && detail.classList.contains('detail-row')) {
+      detail.style.display = 'none';
+      row.classList.remove('expanded');
+    }
+  });
+}
+function toggleAllDetails() {
+  var rows = document.querySelectorAll('tbody tr.clickable');
+  var anyCollapsed = false;
+  rows.forEach(function(row) {
+    if (row.style.display === 'none') return;
+    var detail = row.nextElementSibling;
+    if (detail && detail.classList.contains('detail-row') && detail.style.display === 'none') {
+      anyCollapsed = true;
+    }
+  });
+  rows.forEach(function(row) {
+    if (row.style.display === 'none') return;
+    var detail = row.nextElementSibling;
+    if (detail && detail.classList.contains('detail-row')) {
+      detail.style.display = anyCollapsed ? 'table-row' : 'none';
+      row.classList.toggle('expanded', anyCollapsed);
+    }
+  });
 }
 </script>
 </body>
