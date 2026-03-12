@@ -14,10 +14,18 @@ ClaudeSec uses the same shell lint scope in local development and CI to reduce m
 - Action: `ludeeus/action-shellcheck` pinned by commit SHA
 - ShellCheck engine version: `v0.11.0`
 - Failure threshold: `severity: warning` (warning and above fail)
+- Global options: `SHELLCHECK_OPTS=-x`
 - Scan scope:
   - `scandir: ./scripts`
   - `additional_files: run`
   - `check_together: 'yes'`
+
+### Option policy (`SHELLCHECK_OPTS`)
+
+- Default baseline is fixed at `-x` to resolve sourced file paths consistently.
+- Any future exception (for example, `-e SC1090`) must be added in both places:
+  1. `.github/workflows/lint.yml` (`SHELLCHECK_OPTS`)
+  2. this document (`Shell Lint Policy`)
 
 ## Local policy
 
