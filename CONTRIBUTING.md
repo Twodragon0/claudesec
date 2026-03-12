@@ -16,6 +16,9 @@ Thank you for your interest in contributing to ClaudeSec! This project aims to m
 2. **Create a branch** from `main`: `git checkout -b feat/your-feature`
 3. **Make changes** following our conventions below
 4. **Test** your changes locally
+   - Docs change checklist (required):
+     - `markdownlint "**/*.md"`
+     - `lychee "**/*.md"`
 5. **Commit** using [Conventional Commits](https://www.conventionalcommits.org/):
    - `feat:` new feature or guide
    - `fix:` correction to existing content
@@ -31,6 +34,12 @@ Thank you for your interest in contributing to ClaudeSec! This project aims to m
 - **Secrets and credentials**: No API keys, passwords, tokens, or kubeconfig contents. Use env vars or local-only files listed in `.gitignore`.
 
 ### Conventions
+
+### GitHub Actions and Dependabot Operations
+
+- Keep CodeQL in **default setup mode only**. Do not add additional repo-level CodeQL workflow files unless migration is explicitly planned.
+- If an action fails to download with `401 (Unauthorized)`, rerun the failed workflow up to **2 times** before manual triage.
+- If Dependabot action update PRs conflict with current `main`, apply the required action-version update directly to `main`, then close duplicate/conflicting Dependabot PRs with an explanation comment.
 
 #### File Naming
 
