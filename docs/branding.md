@@ -15,10 +15,11 @@ Visual identity and assets for the ClaudeSec project.
 
 | Asset | Path | Use |
 |-------|------|-----|
-| Primary logo | [assets/claudesec-logo.png](../assets/claudesec-logo.png) | README, docs, dashboard (optional) |
+| Primary logo (source) | [assets/claudesec-logo.png](../assets/claudesec-logo.png) | Source file, future exports |
+| Optimized docs logo | [assets/claudesec-logo-512.png](../assets/claudesec-logo-512.png) | README/docs embedding |
 
 - **Style**: Shield + lock motif, dark navy and cyan/teal accent.
-- **Format**: PNG, square aspect ratio; suitable for icons and headers.
+- **Format**: PNG (source + optimized variant for docs usage).
 
 ## Colors
 
