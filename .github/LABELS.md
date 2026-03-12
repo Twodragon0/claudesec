@@ -7,7 +7,7 @@ Create these labels in your repository so contributors can find suitable issues.
 | `good first issue` | `7057ff` | Good for newcomers; small scope, clear steps |
 | `help wanted`      | `008672` | Extra help welcome; may need domain knowledge |
 
-### One-time setup with GitHub CLI
+## One-time setup with GitHub CLI
 
 If you have [GitHub CLI](https://cli.github.com/) installed and authenticated:
 
