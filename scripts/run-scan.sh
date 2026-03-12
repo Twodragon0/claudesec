@@ -24,5 +24,5 @@ if [[ ! -f "$SCANNER" ]]; then
   exit 1
 fi
 
-cd "$CLAUDESEC_DIR"
+cd "$CLAUDESEC_DIR" || exit 1
 exec "$SCANNER" scan -d "${SCAN_DIR}" "$@"
