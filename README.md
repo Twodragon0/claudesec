@@ -1,7 +1,7 @@
 # ClaudeSec
 
 <p align="center">
-  <img src="assets/claudesec-logo.png" alt="ClaudeSec logo" width="120" />
+  <img src="assets/claudesec-logo-512.png" alt="ClaudeSec logo" width="120" loading="eager" decoding="async" />
   <span>&nbsp;&nbsp;</span>
   <img src="assets/claudesec-mascot.svg" alt="ClaudeSec mascot" width="140" />
 </p>
