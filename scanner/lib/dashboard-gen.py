@@ -2677,6 +2677,25 @@ def _infer_category(fid):
     }.get(prefix, "other")
 
 
+def _scanner_default_action(category):
+    return {
+        "access-control": "Enforce MFA/SSO, tighten session and token handling, and remove weak secrets from code/config.",
+        "infra": "Harden infrastructure defaults, reduce exposed services, and apply baseline controls for containers and IaC.",
+        "network": "Close unnecessary ports, enforce TLS hardening, and continuously validate security headers/certificate posture.",
+        "cicd": "Add security gates (SAST/SCA/secrets), require protected branches, and block unsafe workflow permissions.",
+        "code": "Prioritize injection/crypto findings, apply secure coding patterns, and enforce automated static analysis in CI.",
+        "ai": "Add prompt/data guardrails, tighten model/tool permissions, and monitor for sensitive output leakage.",
+        "cloud": "Apply least privilege IAM, disable public exposure by default, and enable audit logging with alerting.",
+        "macos": "Align host settings to CIS controls and remediate high-impact endpoint hardening gaps first.",
+        "saas": "Rotate and scope API tokens, enforce provider security baselines, and verify integration auth posture.",
+        "windows": "Remediate KISA high-risk findings first and enforce endpoint hardening/monitoring baselines.",
+        "prowler": "Fix critical/high cloud findings first, then medium findings with ownership and due dates.",
+        "other": "Review finding details and apply control owner-driven remediation with verification evidence.",
+    }.get(
+        category, "Review findings and apply prioritized remediation with verification."
+    )
+
+
 def _build_scanner_section(findings_list):
     SCANNER_TO_ARCH = {
         "network": [0],
@@ -2712,6 +2731,7 @@ def _build_scanner_section(findings_list):
         grouped[cat].append(f)
     scanner_rows = ""
     scanner_cat_summary = ""
+    scanner_insights_html = ""
     for cat in cat_order:
         items = grouped.get(cat, [])
         if not items:
@@ -2744,7 +2764,97 @@ def _build_scanner_section(findings_list):
         scanner_cat_summary += f'<div class="scat-chip"><span class="scat-icon">{meta["icon"]}</span><span class="scat-label">{meta["label"]}</span><span class="scat-cnt">{len(items)}</span></div>'
     if not scanner_rows:
         scanner_rows = '<tr><td colspan="5" class="scan-empty" style="padding:1.5rem;text-align:center;color:var(--muted);font-size:.9rem">No failed or warning findings from the local scanner. All reported checks passed or were skipped.</td></tr>'
-    return scanner_rows, scanner_cat_summary
+
+    sev_counts = {"critical": 0, "high": 0, "medium": 0, "warning": 0, "low": 0}
+    cat_counts = {}
+    for f in findings_list:
+        sev = str(f.get("severity") or "").lower()
+        if sev in sev_counts:
+            sev_counts[sev] += 1
+        cat = f.get("category") or _infer_category(f.get("id", ""))
+        cat_counts[cat] = cat_counts.get(cat, 0) + 1
+
+    top_categories = sorted(cat_counts.items(), key=lambda x: (-x[1], x[0]))[:3]
+    top_findings = sorted(
+        findings_list,
+        key=lambda x: (
+            SEV_ORDER.get((x.get("severity") or "").lower(), 9),
+            str(x.get("id") or ""),
+        ),
+    )[:6]
+
+    summary_parts = []
+    for k, lbl in (
+        ("critical", "critical"),
+        ("high", "high"),
+        ("medium", "medium"),
+        ("warning", "warning"),
+        ("low", "low"),
+    ):
+        if sev_counts[k] > 0:
+            summary_parts.append(f"{sev_counts[k]} {lbl}")
+    summary_line = (
+        ", ".join(summary_parts)
+        if summary_parts
+        else "No active failed/warning findings"
+    )
+
+    top_cat_line = (
+        " · ".join(
+            f"{h(CATEGORY_META.get(cat, CATEGORY_META['other'])['label'])} ({cnt})"
+            for cat, cnt in top_categories
+        )
+        if top_categories
+        else "No category hotspots detected"
+    )
+
+    detail_list = ""
+    for f in top_findings:
+        sev = (f.get("severity") or "medium").lower()
+        title = h(f.get("title") or "Untitled finding")
+        fid = h(f.get("id") or "N/A")
+        detail_list += f'<li><span class="si-sev si-{sev}">{sev}</span><span class="mono">{fid}</span> {title}</li>'
+    if not detail_list:
+        detail_list = "<li>No outstanding scanner findings.</li>"
+
+    action_items = []
+    seen_actions = set()
+    for f in top_findings:
+        cat = f.get("category") or _infer_category(f.get("id", ""))
+        raw_action = (f.get("details") or "").strip()
+        action = raw_action if raw_action else _scanner_default_action(cat)
+        action_norm = action.lower()
+        if action_norm in seen_actions:
+            continue
+        seen_actions.add(action_norm)
+        action_items.append(action)
+        if len(action_items) >= 5:
+            break
+    if not action_items:
+        action_items = [
+            "Continue running regular scans and keep remediation SLAs for any new critical/high findings."
+        ]
+
+    action_list = "".join(f"<li>{h(item)}</li>" for item in action_items)
+    scanner_insights_html = (
+        '<div class="scanner-insights-grid">'
+        '<div class="scanner-insight-card">'
+        '<div class="scanner-insight-title">Summary</div>'
+        f'<p class="scanner-insight-text">{h(summary_line)}</p>'
+        f'<p class="scanner-insight-sub">Hotspots: {top_cat_line}</p>'
+        "</div>"
+        '<div class="scanner-insight-card">'
+        '<div class="scanner-insight-title">Detail (Top findings)</div>'
+        f'<ul class="scanner-insight-list">{detail_list}</ul>'
+        "</div>"
+        '<div class="scanner-insight-card">'
+        '<div class="scanner-insight-title">Action plan</div>'
+        f'<ol class="scanner-insight-action-list">{action_list}</ol>'
+        "</div>"
+        "</div>"
+    )
+
+    return scanner_rows, scanner_cat_summary, scanner_insights_html
 
 
 def _build_overview_blocks(
@@ -3392,6 +3502,7 @@ _TEMPLATE_KEYS = [
     "PROV_TABLE",
     "SCANNER_ROWS",
     "SCANNER_CAT_SUMMARY",
+    "SCANNER_INSIGHTS_HTML",
     "SCANNER_TOTAL",
     "GH_TABLE",
     "GH_TOTAL",
@@ -3640,7 +3751,9 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         prov_table += f'<tr{onclick}><td>{label}</td><td class="r">{pdata["total_fail"] + pdata["total_pass"]}</td><td class="r" style="color:#dc2626">{pdata["critical"]}</td><td class="r" style="color:#ef4444">{pdata["high"]}</td><td class="r" style="color:#eab308">{pdata["medium"]}</td><td class="r">{pdata["low"]}</td><td class="r" style="color:#22c55e">{pdata["total_pass"]}</td></tr>'
 
     # Scanner findings — grouped by category with descriptions
-    scanner_rows, scanner_cat_summary = _build_scanner_section(findings_list)
+    scanner_rows, scanner_cat_summary, scanner_insights_html = _build_scanner_section(
+        findings_list
+    )
 
     # GitHub Security findings
     gh_by_check = defaultdict(list)
@@ -3819,6 +3932,17 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         scanner_cat_labels.append(meta["label"] if meta else cat)
     scanner_cat_count = len(scanner_cat_labels)
 
+    scanner_cat_links_html = ""
+    for cat in scanner_cats_seen:
+        meta = CATEGORY_META.get(cat)
+        label = meta["label"] if meta else cat
+        scanner_cat_links_html += f'<a href="#" class="scope-cat-link" onclick="switchTab(\'overview\',\'scanner-cat-{h(cat)}\');return false;">{h(label)}</a>'
+    cat_count_html = (
+        f'<a href="#" class="scope-cat-count" onclick="switchTab(\'overview\',\'scanner-cat-{h(scanner_cats_seen[0])}\');return false;">{scanner_cat_count} categories</a>'
+        if scanner_cats_seen
+        else f'<span class="scope-cat-count">{scanner_cat_count} categories</span>'
+    )
+
     def _middle_ellipsis(text, max_len=64):
         raw = str(text or "")
         if len(raw) <= max_len:
@@ -3851,14 +3975,52 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         else "No fail/warn categories in this run (checks may be pass/skip only)."
     )
     scan_root_short = _middle_ellipsis(scan_dir, 68)
+    scan_root_badge = (
+        '<span class="trust-badge trust-ms" style="margin-left:.35rem">Repo root</span>'
+        if os.path.abspath(scan_dir) == os.path.abspath(os.getcwd())
+        else ""
+    )
+
+    prowler_provider_options = [
+        ("aws", "AWS"),
+        ("gcp", "GCP"),
+        ("googleworkspace", "Google Workspace"),
+        ("kubernetes", "Kubernetes"),
+        ("azure", "Azure"),
+        ("m365", "Microsoft 365"),
+    ]
+    prowler_subtab_map = {
+        "aws": "aws",
+        "gcp": "gcp",
+        "googleworkspace": "gws",
+        "kubernetes": "k8s",
+        "azure": "azure",
+        "m365": "m365",
+    }
+    prowler_selector_options_html = '<option value="">Prowler summary</option>'
+    for key, label in prowler_provider_options:
+        pdata = prov_summary.get(key)
+        if not pdata:
+            continue
+        total_checks = int(pdata.get("total_fail", 0)) + int(pdata.get("total_pass", 0))
+        subtab = prowler_subtab_map.get(key)
+        if not subtab:
+            continue
+        prowler_selector_options_html += (
+            f'<option value="{h(subtab)}">{h(label)} ({total_checks})</option>'
+        )
     scan_scope_html = (
         '<div style="font-size:.8rem;color:var(--muted);margin-top:.5rem;padding:.55rem 0;border-top:1px solid var(--border)">'
         + '<strong style="color:var(--text)">Data in this view:</strong> '
         + " · ".join(scope_parts)
         + f'<div style="margin-top:.35rem"><strong style="color:var(--text)">Scanned locally:</strong> {h(local_targets)}</div>'
-        + f'<div style="margin-top:.25rem"><strong style="color:var(--text)">Local scanner categories detected:</strong> <span class="trust-badge trust-ms" style="margin-left:.35rem">{scanner_cat_count} categories</span> {h(scanner_cat_text)}</div>'
-        + f'<div style="margin-top:.25rem"><strong style="color:var(--text)">Scan root:</strong> <code class="scan-root-path" title="{h(scan_dir)}">{h(scan_root_short)}</code></div>'
-        + '<div style="margin-top:.4rem;display:flex;flex-wrap:wrap;gap:.75rem"><a href="#" onclick="switchTab(\'overview\',\'scanner-section\');return false;" style="color:var(--accent);text-decoration:underline;font-weight:600">Open local scanner results</a><a href="#" onclick="switchTab(\'prowler\');return false;" style="color:var(--accent);text-decoration:underline;font-weight:600">Open Prowler summary</a></div>'
+        + f'<div style="margin-top:.25rem"><strong style="color:var(--text)">Local scanner categories detected:</strong> {cat_count_html} '
+        + (scanner_cat_links_html if scanner_cat_links_html else h(scanner_cat_text))
+        + "</div>"
+        + f'<div style="margin-top:.25rem"><strong style="color:var(--text)">Scan root:</strong> <code class="scan-root-path" title="{h(scan_dir)}">{h(scan_root_short)}</code>{scan_root_badge}</div>'
+        + '<div style="margin-top:.4rem;display:flex;flex-wrap:wrap;gap:.75rem;align-items:center"><a href="#" onclick="switchTab(\'overview\',\'scanner-section\');return false;" style="color:var(--accent);text-decoration:underline;font-weight:600">Open local scanner results</a><label style="display:flex;align-items:center;gap:.35rem"><span style="color:var(--text);font-weight:600">Prowler summary</span><select class="scope-select" onchange="openProwlerFromOverview(this)">'
+        + prowler_selector_options_html
+        + "</select></label></div>"
         + "</div>"
     )
     auth_summary_html = build_auth_summary_html(envs, findings_list)
@@ -4071,6 +4233,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         prov_table,
         scanner_rows,
         scanner_cat_summary,
+        scanner_insights_html,
         total,
         gh_table,
         len(gh_finds),
@@ -4192,6 +4355,19 @@ tr:last-child td{border-bottom:none}
 .scanner-card-title>span:first-child{font-size:1.05rem}
 .scanner-subtitle{font-size:.76rem;color:var(--muted);font-weight:400;line-height:1.4}
 .scanner-summary-bar{display:flex;flex-wrap:wrap;gap:.5rem;padding:.6rem 1.25rem;border-bottom:1px solid var(--border);background:rgba(255,255,255,.015)}
+.scanner-insights-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.6rem;padding:.7rem 1.25rem;border-bottom:1px solid var(--border);background:rgba(56,189,248,.04)}
+.scanner-insight-card{border:1px solid var(--border);border-radius:10px;background:rgba(15,23,42,.35);padding:.6rem .7rem}
+.scanner-insight-title{font-size:.76rem;font-weight:700;color:var(--accent);margin-bottom:.35rem;text-transform:uppercase;letter-spacing:.03em}
+.scanner-insight-text,.scanner-insight-sub{font-size:.8rem;line-height:1.45;color:var(--text)}
+.scanner-insight-sub{color:var(--muted);margin-top:.3rem}
+.scanner-insight-list,.scanner-insight-action-list{margin:0;padding-left:1rem;display:grid;gap:.28rem}
+.scanner-insight-list li,.scanner-insight-action-list li{font-size:.78rem;line-height:1.4;color:var(--text)}
+.si-sev{display:inline-block;min-width:62px;text-transform:uppercase;font-size:.62rem;font-weight:700;border-radius:999px;padding:.12rem .38rem;margin-right:.35rem;text-align:center;vertical-align:middle;border:1px solid transparent}
+.si-critical{background:rgba(239,68,68,.18);color:#fecaca;border-color:rgba(239,68,68,.45)}
+.si-high{background:rgba(248,113,113,.16);color:#fecaca;border-color:rgba(248,113,113,.4)}
+.si-medium{background:rgba(234,179,8,.16);color:#fde68a;border-color:rgba(234,179,8,.42)}
+.si-warning{background:rgba(245,158,11,.15);color:#fcd34d;border-color:rgba(245,158,11,.4)}
+.si-low{background:rgba(56,189,248,.16);color:#bae6fd;border-color:rgba(56,189,248,.42)}
 .ssb-item{font-size:.78rem;padding:.3rem .65rem;border-radius:6px;border:1px solid var(--border)}
 .ssb-total{font-weight:700;color:var(--accent);border-color:var(--accent)}
 .ssb-pass{color:#22c55e;border-color:rgba(34,197,94,.25)}.ssb-fail{color:#ef4444;border-color:rgba(239,68,68,.25)}
@@ -4200,6 +4376,10 @@ tr:last-child td{border-bottom:none}
 .scat-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.25rem .55rem;border-radius:6px;font-size:.72rem;background:rgba(255,255,255,.04);border:1px solid var(--border);cursor:default}
 .scat-icon{font-size:.85rem}.scat-label{font-weight:600;color:var(--text)}.scat-cnt{font-weight:700;color:var(--accent);min-width:1.2rem;text-align:center;background:rgba(59,130,246,.12);border-radius:4px;padding:0 .3rem}
 .scan-root-path{display:inline-block;max-width:min(100%,520px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
+.scope-cat-count{display:inline-flex;align-items:center;margin-left:.35rem;margin-right:.35rem;padding:.08rem .42rem;border-radius:999px;background:rgba(56,189,248,.15);border:1px solid rgba(56,189,248,.35);color:#7dd3fc;font-size:.68rem;font-weight:700;text-decoration:none}
+.scope-cat-link{display:inline-flex;align-items:center;margin-right:.28rem;margin-top:.2rem;padding:.06rem .35rem;border-radius:999px;border:1px solid var(--border);color:var(--muted);font-size:.68rem;text-decoration:none}
+.scope-cat-link:hover{border-color:var(--accent);color:var(--accent)}
+.scope-select{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;padding:.2rem .45rem;font-size:.75rem}
 .scanner-table .cat-header td{background:rgba(59,130,246,.06);font-weight:700;font-size:.85rem;padding:.55rem 1rem;border-bottom:2px solid var(--accent);letter-spacing:.01em}
 .cat-hdr-icon{margin-right:.35rem;font-size:.95rem}
 .cat-hdr-desc{display:block;font-size:.72rem;font-weight:400;color:var(--muted);margin-top:.2rem;line-height:1.4}
@@ -4373,7 +4553,7 @@ tr.arch-highlight td{animation:archPulseTd 1.2s ease 2}
 .bp-panel.active{display:block}
 /* Footer */
 footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem}
-@media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr)}.score-section{flex-direction:column}.tabs{gap:0}}
+@media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr)}.score-section{flex-direction:column}.tabs{gap:0}.scanner-insights-grid{grid-template-columns:1fr;padding:.6rem .8rem}}
 </style>
 </head>
 <body>
@@ -4506,6 +4686,7 @@ footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem
       <div class="ssb-item ssb-skip">— {{SKIPPED}} skipped</div>
     </div>
     <div class="scanner-cats">{{SCANNER_CAT_SUMMARY}}</div>
+    {{SCANNER_INSIGHTS_HTML}}
     <div style="max-height:55vh;overflow-y:auto">
       <table class="scanner-table"><thead><tr><th style="width:68px">Severity</th><th style="width:62px">Status</th><th style="width:100px">Check ID</th><th>Finding</th><th style="width:280px">Details / Remediation</th></tr></thead>
       <tbody>{{SCANNER_ROWS}}</tbody></table>
@@ -4683,6 +4864,17 @@ function switchProvTab(id){
   if(panel)panel.classList.add('active');
   var tab=document.getElementById('provtab-'+id);
   if(tab)tab.classList.add('active');
+}
+function openProwlerFromOverview(sel){
+  var id=(sel&&sel.value)||'';
+  switchTab('prowler');
+  if(id){
+    switchProvTab(id);
+    setTimeout(function(){
+      var panel=document.getElementById('provpanel-'+id);
+      if(panel){panel.scrollIntoView({behavior:'smooth',block:'nearest'});}
+    },80);
+  }
 }
 /* Best Practices internal sub-tab switching */
 function switchBpTab(id){
