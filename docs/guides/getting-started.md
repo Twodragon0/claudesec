@@ -68,6 +68,7 @@ cp /path/to/claudesec/templates/dependabot.yml .github/
 2. Set up [Branch Protection](../github/branch-protection.md) for your repository
 3. Review the [LLM Security Checklist](../ai/llm-security-checklist.md) if using AI features
 4. Start a [Threat Modeling](../devsecops/threat-modeling.md) session for your application
+5. Align local and CI shell lint behavior with the [Shell Lint Policy](./shell-lint-policy.md)
 
 ## Common Use Cases
 
