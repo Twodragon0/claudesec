@@ -2,6 +2,8 @@
 
 <p align="center">
   <img src="assets/claudesec-logo.png" alt="ClaudeSec logo" width="120" />
+  <span>&nbsp;&nbsp;</span>
+  <img src="assets/claudesec-mascot.svg" alt="ClaudeSec mascot" width="140" />
 </p>
 
 > AI Security Best Practices toolkit for secure development with Claude Code
@@ -16,24 +18,16 @@ ClaudeSec integrates security best practices directly into your AI-powered devel
 
 **Zero config, one command.** Like [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) — clone, setup, run.
 
-## Branding
-
-- **Logo**: `assets/claudesec-logo.png` (shield + lock motif)
-- **Accent color**: `#38bdf8` (dashboard + docs highlight)
-- **Guides**: [BRANDING.md](BRANDING.md) (quick) · [docs/branding.md](docs/branding.md) (full) · [assets/README.md](assets/README.md)
-
----
-
 ## Quick Start
 
-**Step 1: Clone**
+**Install (clone)**
 
 ```bash
 git clone https://github.com/Twodragon0/claudesec.git
 cd claudesec
 ```
 
-**Step 2: Setup** (optional — for hooks and GitHub Actions in another project)
+**Setup** (optional — to apply hooks/workflows into another project)
 
 ```bash
 ./scripts/setup.sh                    # setup current dir (repo)
@@ -41,7 +35,7 @@ cd claudesec
 ./scripts/setup.sh --scan-only        # only scanner readiness (config + deps)
 ```
 
-**Step 3: Run**
+**Run**
 
 ```bash
 ./run
@@ -166,6 +160,7 @@ cp templates/claudesec-prowler-k8s.example.yml .claudesec.yml   # edit kubeconfi
 #                 CLAUDESEC_STRICT_OKTA_SCOPES,
 #                 CLAUDESEC_OKTA_REQUIRED_SCOPES,
 #                 CLAUDESEC_TOKEN_EXPIRY_PROVIDERS,
+#                 CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS,
 #                 CLAUDESEC_TOKEN_EXPIRY_WARNING_24H, CLAUDESEC_TOKEN_EXPIRY_WARNING_7D
 # Override path with: CLAUDESEC_ENV_FILE=/path/to/.env
 # Datadog CI tags used by workflow query standard:
@@ -181,9 +176,11 @@ cp templates/claudesec-prowler-k8s.example.yml .claudesec.yml   # edit kubeconfi
 #   vars.OKTA_OAUTH_TOKEN_EXPIRES_AT=2026-03-20T09:00:00Z
 #   vars.CLAUDESEC_TOKEN_EXPIRY_GATE_MODE=24h   # 24h(default) | 7d | off
 #   vars.CLAUDESEC_TOKEN_EXPIRY_PROVIDERS=github,okta,datadog,slack
+#   vars.CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS=true
 # Workflow fails when token is expired or inside selected gate window.
 # Same gate policy is also applied in templates/security-scan-suite.yml.
-# Both templates call shared script: scripts/token-expiry-gate.py
+# Both templates call reusable composite action: .github/actions/token-expiry-gate
+# Datadog CI collection step in templates/prowler.yml uses: .github/actions/datadog-ci-collect
 
 # SaaS API scanning
 ./scanner/claudesec scan -c saas
@@ -227,6 +224,8 @@ export CLAUDESEC_STRICT_OKTA_SCOPES=1
 export CLAUDESEC_OKTA_REQUIRED_SCOPES="okta.users.read,okta.policies.read,okta.logs.read"
 # Optional token-expiry providers for CI gate script
 export CLAUDESEC_TOKEN_EXPIRY_PROVIDERS="github,okta,datadog,slack"
+# Optional strict provider mode (fail if selected provider metadata is missing)
+export CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS=true
 ./scanner/claudesec scan -c saas
 
 # If OAuth token is not available yet, Okta API token fallback still works
@@ -252,7 +251,7 @@ CLAUDESEC_MS_INCLUDE_SCUBAGEAR=1 CLAUDESEC_MS_SOURCE_FILTER=official,gov ./scann
 # Datadog Cloud Security local auto-fetch (signals/cases + logs to .claudesec-datadog/)
 DD_API_KEY=<your-dd-api-key> DD_APP_KEY=<your-dd-app-key> DD_SITE=datadoghq.com ./scanner/claudesec dashboard
 # DD_SITE examples: datadoghq.eu, us3.datadoghq.com, ddog-gov.com
-# Debug options: CLAUDESEC_DEBUG=1, CLAUDESEC_DEBUG_VERBOSE=1, CLAUDESEC_DD_SOFT_THROTTLE_THRESHOLD=2 (recommended range: 1~5)
+# Debug options: CLAUDESEC_DEBUG=1, CLAUDESEC_DEBUG_VERBOSE=1, CLAUDESEC_DD_SOFT_THROTTLE_THRESHOLD=2 (recommended default: 2, range: 0~5; 0=disable soft-throttle, 1~5=proactive throttle; too high may reduce throughput)
 # Optional: disable local Datadog auto-fetch
 CLAUDESEC_DATADOG_FETCH_CLOUD_SECURITY=0 ./scanner/claudesec dashboard
 
@@ -261,7 +260,7 @@ CLAUDESEC_DATADOG_FETCH_CLOUD_SECURITY=0 ./scanner/claudesec dashboard
 | --- | --- | --- |
 | 401 | API key invalid | Check `DD_API_KEY` / `DATADOG_API_KEY` and site (`DD_SITE`) |
 | 403 | App key scope 부족 | Reissue `DD_APP_KEY` with security/cases read scopes |
-| 429 | Rate limit reached | Increase `CLAUDESEC_DD_SOFT_THROTTLE_THRESHOLD`, retry after reset |
+| 429 | Rate limit reached | Tune `CLAUDESEC_DD_SOFT_THROTTLE_THRESHOLD` (0 disables proactive throttle), retry after reset |
 | 5xx | Datadog server/transient | Retry (built-in backoff), rerun after short delay |
 
 # Generate + serve dashboard on localhost
@@ -406,6 +405,7 @@ claudesec/
 |-------|-------------|
 | [Getting Started](docs/guides/getting-started.md) | Quick setup guide |
 | [Compliance Mapping](docs/guides/compliance-mapping.md) | SOC 2, ISO 27001, NIST, PCI-DSS, KISA ISMS-P |
+| [Workflow Components](docs/guides/workflow-components.md) | Reusable composite actions and template integration contract |
 | [Hourly Operations](docs/guides/hourly-operations.md) | Hourly cron automation with OpenCode pull and continuous improvement loop |
 | [Compliance Scan Priority](docs/guides/compliance-scan-integration-priority.md) | Prowler, Lynis, tool priorities and frameworks |
 | [Claude Lead Agents](docs/guides/claude-lead-agents-and-best-practices.md) | Multi-agent roles and handoff format |
@@ -425,6 +425,13 @@ Ready-to-use GitHub Actions workflows:
 | [scorecard.yml](templates/scorecard.yml) | OpenSSF Scorecard health check |
 | [SECURITY.md](templates/SECURITY.md) | Security policy template |
 | [dependabot.yml](templates/dependabot.yml) | Dependabot configuration |
+
+## Reusable Workflow Components
+
+| Component | Path | Used by |
+|----------|------|---------|
+| Token Expiry Gate | `.github/actions/token-expiry-gate` | `templates/prowler.yml`, `templates/security-scan-suite.yml` |
+| Datadog CI Collect | `.github/actions/datadog-ci-collect` | `templates/prowler.yml` |
 
 ## Hooks
 

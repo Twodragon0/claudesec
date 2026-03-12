@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" role="img" aria-label="ClaudeSec mascot">
+  <defs>
+    <style>
+      :root{
+        --bg:#0f172a;
+        --surface:#1e293b;
+        --border:#334155;
+        --text:#e2e8f0;
+        --accent:#38bdf8;
+      }
+      .line{stroke:var(--border);stroke-width:10;stroke-linecap:round;stroke-linejoin:round}
+    </style>
+  </defs>
+
+  <!-- body -->
+  <path d="M215 505c-36-39-58-92-58-150 0-110 90-199 201-199 112 0 203 89 203 199 0 59-22 112-59 151-44 46-101 74-165 74-63 0-121-27-162-75z"
+        fill="var(--surface)" class="line"/>
+
+  <!-- hoodie -->
+  <path d="M213 500c38 42 92 68 152 68 61 0 116-26 155-69-18-24-38-44-63-60-28-18-60-28-95-28s-68 10-96 28c-24 16-40 36-53 61z"
+        fill="var(--bg)" class="line"/>
+
+  <!-- accent stripe -->
+  <path d="M262 516c30-29 66-45 105-45 39 0 74 16 104 45" fill="none"
+        stroke="var(--accent)" stroke-width="12" stroke-linecap="round"/>
+
+  <!-- face -->
+  <ellipse cx="318" cy="302" rx="86" ry="70" fill="var(--surface)" class="line"/>
+  <path d="M258 305c14 20 35 32 60 32 26 0 48-13 62-34" fill="none" class="line"/>
+  <circle cx="290" cy="292" r="9" fill="var(--text)"/>
+  <circle cx="343" cy="292" r="9" fill="var(--text)"/>
+
+  <!-- simple scales -->
+  <path d="M265 250l20-18 24 14 18-20 26 16 18-18 22 14" fill="none" class="line"/>
+
+  <!-- tiny shield with lock -->
+  <path d="M442 348c34 7 56 23 70 44-9 45-41 82-87 96-46-14-78-51-87-96 14-21 36-37 70-44 8-2 16-3 24-3 4 0 7 1 10 3z"
+        fill="var(--surface)" class="line"/>
+  <rect x="427" y="398" width="70" height="64" rx="14" fill="var(--bg)" class="line"/>
+  <path d="M448 398v-10c0-14 11-25 25-25s25 11 25 25v10" fill="none" class="line"/>
+  <circle cx="462" cy="432" r="7" fill="var(--accent)"/>
+  <path d="M462 438v16" stroke="var(--accent)" stroke-width="10" stroke-linecap="round"/>
+</svg>
