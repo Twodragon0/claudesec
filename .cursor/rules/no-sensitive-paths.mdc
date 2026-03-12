@@ -1,0 +1,18 @@
+---
+description: Do not commit company folder paths, local paths, or personal/identifying information
+alwaysApply: true
+---
+
+# No Sensitive Paths or PII in Repo
+
+## Never Commit
+
+- **Company or project-specific folder paths** (e.g. `~/Desktop/kubekube/`, `~/company/`, internal drive paths).
+- **Real kubeconfig paths** that reveal machine layout or org structure — use placeholders like `~/.kube/config` or `/path/to/your/kubeconfig` in examples.
+- **Personal data**: real names, emails, internal hostnames, IPs, account IDs in examples or configs.
+- **`.claudesec.yml`** in the repo — it is gitignored; users copy from `templates/*.example.yml` and fill in local paths locally only.
+
+## In Code and Docs
+
+- Use generic placeholders: `~/.kube/config`, `$HOME/.kube/config`, `/path/to/kubeconfig`, `<your-profile>`.
+- Example configs and README snippets must not contain real company names, real paths, or identifying strings.

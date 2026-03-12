@@ -84,7 +84,17 @@ jobs:
           role-to-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/prowler-role
           aws-region: us-east-1
 
+      - name: Validate IAM Identity Center list permissions
+        env:
+          STRICT_SSO: ${{ vars.CLAUDESEC_STRICT_SSO || '1' }}
+        run: |
+          INSTANCE_ARN=$(aws sso-admin list-instances --query 'Instances[0].InstanceArn' --output text)
+          aws sso-admin list-permission-sets --instance-arn "$INSTANCE_ARN" --max-results 1 >/dev/null
+
       - name: Run Prowler
+        env:
+          CI: "true"
+          CLAUDESEC_CI: 1
         run: |
           pip install prowler
           prowler aws \
@@ -92,11 +102,52 @@ jobs:
             --compliance cis_2.0_aws \
             --output-formats json-ocsf csv html
 
+      - name: Collect Datadog logs (optional)
+        if: ${{ secrets.DD_API_KEY != '' && secrets.DD_APP_KEY != '' }}
+        env:
+          DD_SERVICE: prowler
+          DD_ENV: ci
+          CI_PIPELINE_ID: ${{ github.run_id }}
+          DD_TAGS: service:prowler,env:ci,ci_pipeline_id:${{ github.run_id }}
+        run: |
+          mkdir -p .claudesec-datadog
+          curl -sS -X POST "https://http-intake.logs.datadoghq.com/v1/input?ddtags=${DD_TAGS}" \
+            -H "Content-Type: application/json" \
+            -H "DD-API-KEY: ${{ secrets.DD_API_KEY }}" \
+            -d "{\"message\":\"ClaudeSec Prowler CI workflow run\",\"service\":\"${DD_SERVICE}\",\"env\":\"${DD_ENV}\",\"ci_pipeline_id\":\"${CI_PIPELINE_ID}\",\"status\":\"info\",\"source\":\"claudesec-ci\"}" >/dev/null
+          DD_QUERY="service:${DD_SERVICE} env:${DD_ENV} ci_pipeline_id:${CI_PIPELINE_ID}"
+          curl -sS -X POST "https://api.datadoghq.com/api/v2/logs/events/search" \
+            -H "Content-Type: application/json" \
+            -H "DD-API-KEY: ${{ secrets.DD_API_KEY }}" \
+            -H "DD-APPLICATION-KEY: ${{ secrets.DD_APP_KEY }}" \
+            -d "{\"filter\":{\"from\":\"now-1h\",\"to\":\"now\",\"query\":\"${DD_QUERY}\"},\"sort\":\"timestamp\",\"page\":{\"limit\":200}}" \
+            > .claudesec-datadog/datadog-logs.json
+
+      - name: Sanitize Datadog log artifact
+        if: ${{ secrets.DD_API_KEY != '' && secrets.DD_APP_KEY != '' }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import re
+          src = ".claudesec-datadog/datadog-logs.json"
+          dst = ".claudesec-datadog/datadog-logs-sanitized.json"
+          with open(src, "r", encoding="utf-8") as f:
+            data = f.read()
+          data = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "<redacted-email>", data)
+          data = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "<redacted-ip>", data)
+          data = re.sub(r"\b\d{12}\b", "<redacted-account-id>", data)
+          with open(dst, "w", encoding="utf-8") as f:
+            f.write(data)
+          PY
+          rm -f .claudesec-datadog/datadog-logs.json
+
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
           name: prowler-report
-          path: output/
+          path: |
+            output/
+            .claudesec-datadog/datadog-logs-sanitized.json
 
       - name: Fail on critical findings
         run: |

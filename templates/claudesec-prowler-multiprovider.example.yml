@@ -1,0 +1,79 @@
+# ClaudeSec — Prowler Multi-Provider Example
+# Copy to project root as .claudesec.yml (gitignored) and set ONLY local paths / profiles.
+#
+# Usage:
+#   cp templates/claudesec-prowler-multiprovider.example.yml .claudesec.yml
+#   ./scanner/claudesec scan -c prowler
+#   ./scanner/claudesec dashboard -c prowler --serve
+#
+# Notes:
+# - Do NOT commit .claudesec.yml (it may contain company paths / local profile names).
+# - Providers run only when credentials exist. Use env vars (recommended) or CLI logins.
+# - Dashboard integrates all Prowler scan results with per-provider sub-tabs.
+
+version: "0.1"
+
+scan:
+  severity: medium
+
+# Optional local overrides (CLI --kubeconfig/--aws-profile override these)
+kubeconfig: ~/.kube/config
+aws_profile: default
+aws_sso: all
+aws_sso_login_timeout: 90
+
+# GCP project (optional — auto-detected from gcloud config if not set)
+# gcp_project: my-gcp-project-id
+
+# Google Workspace customer ID (required for Google Workspace scans)
+# Find at: Admin Console > Account > Account settings > Customer ID
+# google_workspace_customer_id: C01234567
+
+# Prowler tuning (optional)
+prowler_severity: "medium high critical"
+prowler_timeout: 600
+# CI recommendation:
+# AWS_SSO_LOGIN_TIMEOUT=20 CLAUDESEC_CI=1 ./scanner/claudesec scan -c prowler --aws-sso-all -f json
+
+# Restrict providers (optional). Default: aws,gcp,googleworkspace
+# All supported: aws,gcp,googleworkspace,azure,kubernetes,github,m365,cloudflare,
+#                mongodbatlas,oraclecloud,alibabacloud,openstack,nhn,iac,llm,image
+prowler_providers: aws,gcp,googleworkspace,kubernetes,m365,cloudflare,nhn
+
+# ── Credential hints ──────────────────────────────────────────────────────
+# Set as environment variables; do NOT hardcode secrets in this file.
+#
+# Optional env source file:
+#   CLAUDESEC_ENV_FILE=~/.claudesec.env ./scanner/claudesec scan -c prowler
+#
+# AWS:
+#   aws sso login --profile <PROFILE>
+#   or: export AWS_ACCESS_KEY_ID=... && export AWS_SECRET_ACCESS_KEY=...
+#
+# GCP:
+#   gcloud auth login && gcloud config set project <PROJECT_ID>
+#   or: export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
+#
+# Google Workspace (requires GCP auth + domain-wide delegation):
+#   export GOOGLE_WORKSPACE_CUSTOMER_ID=C01234567
+#   export GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa-key.json
+#   Admin Console > Security > API Controls > Domain-wide delegation
+#   Required scopes: Admin SDK, Gmail, Drive (read-only)
+#   Ref: https://docs.prowler.com/projects/prowler-open-source/en/latest/tutorials/googleworkspace/
+#
+# Kubernetes:
+#   kubectl context (auto-detected from ~/.kube/config or KUBECONFIG)
+#
+# Microsoft 365:
+#   export AZURE_CLIENT_ID=<APP_ID> && export AZURE_TENANT_ID=<TENANT_ID>
+#   export AZURE_CLIENT_SECRET=<SECRET>
+#
+# Cloudflare:
+#   export CLOUDFLARE_API_TOKEN=<TOKEN> (preferred) or CF_API_TOKEN
+#
+# NHN Cloud:
+#   export NHN_API_URL=<endpoint> or OS_AUTH_URL (NHN endpoint) / clouds.yaml
+#
+# LLM red-team:
+#   npm install -g promptfoo
+#   export OPENAI_API_KEY=... or ANTHROPIC_API_KEY=...

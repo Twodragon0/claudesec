@@ -349,54 +349,181 @@ fi
 
 # ── SAAS-API-007: Okta Live Check ────────────────────────────────────────
 
-if [[ -n "${OKTA_ORG_URL:-}" && -n "${OKTA_API_TOKEN:-}" ]]; then
+if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_TOKEN:-}" ) ]]; then
   info "Okta: Scanning via API"
 
-  _okta_users=$(_saas_api_header \
-    "${OKTA_ORG_URL}/api/v1/users?limit=1" \
-    "Authorization: SSWS ${OKTA_API_TOKEN}")
+  _okta_auth_header=""
+  _okta_auth_mode=""
+  _okta_auth_warning=""
+  _okta_missing_scopes=()
+  _okta_unchecked_scopes=()
+  _okta_required_scopes=()
+  _okta_users=""
+  _okta_pwd_policies=""
+  _okta_required_scope_csv="${CLAUDESEC_OKTA_REQUIRED_SCOPES:-okta.users.read,okta.policies.read,okta.logs.read}"
+  _strict_okta_scopes="${CLAUDESEC_STRICT_OKTA_SCOPES:-0}"
+  _strict_okta_scopes="$(printf '%s' "$_strict_okta_scopes" | tr '[:upper:]' '[:lower:]')"
+  _strict_okta_scopes_enabled=0
+  _require_users_scope=0
+  _require_policies_scope=0
+  _require_logs_scope=0
+  if [[ "$_strict_okta_scopes" == "1" || "$_strict_okta_scopes" == "true" || "$_strict_okta_scopes" == "yes" || "$_strict_okta_scopes" == "on" ]]; then
+    _strict_okta_scopes_enabled=1
+  fi
+
+  IFS=',' read -r -a _okta_scope_tokens <<< "$_okta_required_scope_csv"
+  for _raw_scope in "${_okta_scope_tokens[@]}"; do
+    _scope="${_raw_scope//[[:space:]]/}"
+    [[ -z "$_scope" ]] && continue
+    _already=0
+    for _existing in "${_okta_required_scopes[@]}"; do
+      if [[ "$_existing" == "$_scope" ]]; then
+        _already=1
+        break
+      fi
+    done
+    [[ $_already -eq 0 ]] && _okta_required_scopes+=("$_scope")
+  done
+  if [[ ${#_okta_required_scopes[@]} -eq 0 ]]; then
+    _okta_required_scopes=("okta.users.read" "okta.policies.read" "okta.logs.read")
+  fi
+  for _scope in "${_okta_required_scopes[@]}"; do
+    case "$_scope" in
+      okta.users.read) _require_users_scope=1 ;;
+      okta.policies.read) _require_policies_scope=1 ;;
+      okta.logs.read) _require_logs_scope=1 ;;
+      *) _okta_unchecked_scopes+=("$_scope") ;;
+    esac
+  done
+  if [[ -n "${OKTA_OAUTH_TOKEN:-}" ]]; then
+    _okta_auth_header="Authorization: Bearer ${OKTA_OAUTH_TOKEN}"
+    _okta_auth_mode="OAuth token"
+
+    _okta_users_probe=$(run_with_timeout 15 curl -sS -w "\n%{http_code}" \
+      -H "${_okta_auth_header}" \
+      -H "Accept: application/json" \
+      "${OKTA_ORG_URL}/api/v1/users?limit=1" 2>/dev/null || echo "")
+    _okta_users_code="${_okta_users_probe##*$'\n'}"
+    _okta_users_body="${_okta_users_probe%$'\n'*}"
+    if [[ "$_okta_users_code" == "403" || "$_okta_users_code" == "401" ]]; then
+      if [[ $_require_users_scope -eq 1 ]]; then
+        _okta_missing_scopes+=("okta.users.read")
+      fi
+    elif [[ "$_okta_users_code" =~ ^2 ]]; then
+      _okta_users="$_okta_users_body"
+    fi
+
+    _okta_policy_probe=$(run_with_timeout 15 curl -sS -w "\n%{http_code}" \
+      -H "${_okta_auth_header}" \
+      -H "Accept: application/json" \
+      "${OKTA_ORG_URL}/api/v1/policies?type=PASSWORD&limit=1" 2>/dev/null || echo "")
+    _okta_policy_code="${_okta_policy_probe##*$'\n'}"
+    _okta_policy_body="${_okta_policy_probe%$'\n'*}"
+    if [[ "$_okta_policy_code" == "403" || "$_okta_policy_code" == "401" ]]; then
+      if [[ $_require_policies_scope -eq 1 ]]; then
+        _okta_missing_scopes+=("okta.policies.read")
+      fi
+    elif [[ "$_okta_policy_code" =~ ^2 ]]; then
+      _okta_pwd_policies="$_okta_policy_body"
+    fi
+
+    if [[ $_require_logs_scope -eq 1 ]]; then
+      _okta_logs_probe=$(run_with_timeout 15 curl -sS -w "\n%{http_code}" \
+        -H "${_okta_auth_header}" \
+        -H "Accept: application/json" \
+        "${OKTA_ORG_URL}/api/v1/logs?limit=1" 2>/dev/null || echo "")
+      _okta_logs_code="${_okta_logs_probe##*$'\n'}"
+      if [[ "$_okta_logs_code" == "403" || "$_okta_logs_code" == "401" ]]; then
+        _okta_missing_scopes+=("okta.logs.read")
+      fi
+    fi
+
+    if [[ $_strict_okta_scopes_enabled -eq 1 && ( ${#_okta_missing_scopes[@]} -gt 0 || ${#_okta_unchecked_scopes[@]} -gt 0 ) ]]; then
+      _required_scope_list="$(IFS=', '; echo "${_okta_required_scopes[*]}")"
+      _missing_scope_list="$(IFS=', '; echo "${_okta_missing_scopes[*]}")"
+      _unchecked_scope_list="$(IFS=', '; echo "${_okta_unchecked_scopes[*]}")"
+      fail "SAAS-API-007" "Okta OAuth scope validation failed (strict mode)" "high" \
+        "Required scopes: ${_required_scope_list}${_missing_scope_list:+ | Missing: ${_missing_scope_list}}${_unchecked_scope_list:+ | Unmapped: ${_unchecked_scope_list}}" \
+        "Set CLAUDESEC_OKTA_REQUIRED_SCOPES with supported scopes and grant required OAuth scopes"
+      exit 1
+    fi
+  else
+    _okta_auth_header="Authorization: SSWS ${OKTA_API_TOKEN}"
+    _okta_auth_mode="API token"
+    _okta_auth_warning="\n    SSWS API token used (OAuth access token preferred for automation)"
+    _okta_users=$(_saas_api_header \
+      "${OKTA_ORG_URL}/api/v1/users?limit=1" \
+      "${_okta_auth_header}")
+  fi
 
   if echo "$_okta_users" | grep -q '"id"'; then
     _o_issues=0
-    _o_details=""
+    _o_details="${_okta_auth_warning}"
 
-    # Check for users without MFA
+    if [[ "$_okta_auth_mode" == "API token" ]]; then
+      if [[ ${#OKTA_API_TOKEN} -ne 42 ]]; then
+        _o_details="${_o_details}\n    Invalid SSWS token length (expected 42 chars)"
+      fi
+    fi
+
+    if [[ "$_okta_auth_mode" == "OAuth token" && ( ${#_okta_missing_scopes[@]} -gt 0 || ${#_okta_unchecked_scopes[@]} -gt 0 ) ]]; then
+      _o_issues=$((_o_issues + 1))
+      if [[ ${#_okta_missing_scopes[@]} -gt 0 ]]; then
+        _o_details="${_o_details}\n    Missing OAuth scopes: $(IFS=', '; echo "${_okta_missing_scopes[*]}")"
+      fi
+      if [[ ${#_okta_unchecked_scopes[@]} -gt 0 ]]; then
+        _o_details="${_o_details}\n    Unmapped required scopes (not validated by current checks): $(IFS=', '; echo "${_okta_unchecked_scopes[*]}")"
+      fi
+    fi
+
     _no_mfa=$(run_with_timeout 15 curl -sSf \
-      -H "Authorization: SSWS ${OKTA_API_TOKEN}" \
+      -H "${_okta_auth_header}" \
       -H "Accept: application/json" \
       "${OKTA_ORG_URL}/api/v1/users?filter=status+eq+%22ACTIVE%22&limit=200" 2>/dev/null | \
       grep -c '"status":"ACTIVE"' || echo "0")
 
     _mfa_enrolled=$(run_with_timeout 15 curl -sSf \
-      -H "Authorization: SSWS ${OKTA_API_TOKEN}" \
+      -H "${_okta_auth_header}" \
       -H "Accept: application/json" \
       "${OKTA_ORG_URL}/api/v1/users?search=profile.mfaEnabled+eq+true&limit=200" 2>/dev/null | \
       grep -c '"id"' || echo "0")
 
-    # Check password policy
-    _pwd_policies=$(_saas_api_header \
-      "${OKTA_ORG_URL}/api/v1/policies?type=PASSWORD" \
-      "Authorization: SSWS ${OKTA_API_TOKEN}")
-    if echo "$_pwd_policies" | grep -q '"minLength"'; then
-      _min_len=$(echo "$_pwd_policies" | grep -o '"minLength":[0-9]*' | head -1 | grep -oE '[0-9]+' || echo "0")
+    if [[ -z "$_okta_pwd_policies" ]]; then
+      _okta_pwd_policies=$(_saas_api_header \
+        "${OKTA_ORG_URL}/api/v1/policies?type=PASSWORD" \
+        "${_okta_auth_header}")
+    fi
+    if echo "$_okta_pwd_policies" | grep -q '"minLength"'; then
+      _min_len=$(echo "$_okta_pwd_policies" | grep -o '"minLength":[0-9]*' | head -1 | grep -oE '[0-9]+' || echo "0")
       if [[ "$_min_len" -lt 12 ]]; then
         _o_details="${_o_details}\n    Password minimum length is ${_min_len} (recommended: ≥12)"
       fi
     fi
 
     if [[ $_o_issues -eq 0 && -z "$_o_details" ]]; then
-      pass "SAAS-API-007" "Okta security configuration verified"
+      pass "SAAS-API-007" "Okta security configuration verified (${_okta_auth_mode})"
     else
       warn "SAAS-API-007" "Okta security issues${_o_details}" \
         "Enforce MFA for all users, set minimum password length to 12+"
     fi
   else
-    warn "SAAS-API-007" "Okta API connection failed" "Check OKTA_ORG_URL and OKTA_API_TOKEN"
+    if [[ "$_okta_auth_mode" == "OAuth token" && ( ${#_okta_missing_scopes[@]} -gt 0 || ${#_okta_unchecked_scopes[@]} -gt 0 ) ]]; then
+      _scope_warn=""
+      if [[ ${#_okta_missing_scopes[@]} -gt 0 ]]; then
+        _scope_warn="Missing: $(IFS=', '; echo "${_okta_missing_scopes[*]}")"
+      fi
+      if [[ ${#_okta_unchecked_scopes[@]} -gt 0 ]]; then
+        _scope_warn="${_scope_warn}${_scope_warn:+ | }Unmapped: $(IFS=', '; echo "${_okta_unchecked_scopes[*]}")"
+      fi
+      warn "SAAS-API-007" "Okta OAuth token is missing required scopes" \
+        "${_scope_warn}"
+    else
+      warn "SAAS-API-007" "Okta API connection failed" "Check OKTA_ORG_URL and OKTA_OAUTH_TOKEN (preferred) or OKTA_API_TOKEN"
+    fi
   fi
 else
-  skip "SAAS-API-007" "Okta live check" "Set OKTA_ORG_URL + OKTA_API_TOKEN for live scan"
+  skip "SAAS-API-007" "Okta live check" "Set OKTA_ORG_URL + OKTA_OAUTH_TOKEN (preferred) or OKTA_API_TOKEN"
 fi
-
 # ── SAAS-API-008: SendGrid Live Check ───────────────────────────────────
 
 if [[ -n "${SENDGRID_API_KEY:-}" ]]; then
@@ -436,6 +563,145 @@ if [[ -n "${SENDGRID_API_KEY:-}" ]]; then
   fi
 else
   skip "SAAS-API-008" "SendGrid live check" "Set SENDGRID_API_KEY for live scan"
+fi
+
+# ── SAAS-API-020: Harbor Live Check (Registry posture quick scan) ───────────
+#
+# Minimal, non-invasive checks (no listing of projects/repos by default).
+# Env:
+#   HARBOR_URL (e.g. https://harbor.example.com)
+#   HARBOR_USERNAME + HARBOR_PASSWORD  (basic auth) OR HARBOR_AUTH_HEADER (custom)
+#
+# References:
+# - Harbor API v2.0: https://goharbor.io/docs/
+
+if [[ -n "${HARBOR_URL:-}" ]]; then
+  if [[ "${HARBOR_URL}" != https://* ]]; then
+    warn "SAAS-API-020" "Harbor URL is not HTTPS" \
+      "Set HARBOR_URL to an https:// endpoint (TLS required for registry auth)"
+  fi
+
+  _harbor_auth_header=""
+  if [[ -n "${HARBOR_AUTH_HEADER:-}" ]]; then
+    _harbor_auth_header="${HARBOR_AUTH_HEADER}"
+  elif [[ -n "${HARBOR_USERNAME:-}" && -n "${HARBOR_PASSWORD:-}" ]]; then
+    _basic=$(printf "%s:%s" "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 2>/dev/null | tr -d '\n' || echo "")
+    [[ -n "$_basic" ]] && _harbor_auth_header="Authorization: Basic ${_basic}"
+  fi
+
+  info "Harbor: Scanning via API"
+
+  _ping=$(run_with_timeout 15 curl -sS -w "\n%{http_code}" \
+    -H "Accept: application/json" \
+    "${HARBOR_URL%/}/api/v2.0/ping" 2>/dev/null || echo "")
+  _ping_code="${_ping##*$'\n'}"
+
+  if [[ "$_ping_code" =~ ^2 ]]; then
+    _hb_issues=0
+    _hb_details=""
+
+    # Auth check (optional): request systeminfo (requires auth)
+    if [[ -n "$_harbor_auth_header" ]]; then
+      _sys=$(run_with_timeout 15 curl -sS -w "\n%{http_code}" \
+        -H "Accept: application/json" \
+        -H "${_harbor_auth_header}" \
+        "${HARBOR_URL%/}/api/v2.0/systeminfo" 2>/dev/null || echo "")
+      _sys_code="${_sys##*$'\n'}"
+      if [[ "$_sys_code" =~ ^2 ]]; then
+        pass "SAAS-API-020" "Harbor reachable and authenticated API access works"
+      else
+        warn "SAAS-API-020" "Harbor reachable but auth failed (${_sys_code})" \
+          "Provide HARBOR_USERNAME/HARBOR_PASSWORD or HARBOR_AUTH_HEADER with sufficient permissions"
+      fi
+    else
+      warn "SAAS-API-020" "Harbor reachable (ping ok) but no credentials provided" \
+        "Set HARBOR_USERNAME + HARBOR_PASSWORD (or HARBOR_AUTH_HEADER) for deeper checks"
+    fi
+  else
+    warn "SAAS-API-020" "Harbor API ping failed (${_ping_code})" \
+      "Check HARBOR_URL reachability and allow /api/v2.0/ping"
+  fi
+else
+  skip "SAAS-API-020" "Harbor live check" "Set HARBOR_URL (and credentials for deeper scan)"
+fi
+
+# ── SAAS-API-021: Jenkins Live Check (surface hardening signals) ────────────
+#
+# Env:
+#   JENKINS_URL (e.g. https://jenkins.example.com)
+#   Optional for authenticated checks: JENKINS_USER + JENKINS_API_TOKEN
+#
+# References:
+# - Jenkins security docs: https://www.jenkins.io/doc/book/security/
+
+if [[ -n "${JENKINS_URL:-}" ]]; then
+  info "Jenkins: Scanning via API"
+
+  _j_url="${JENKINS_URL%/}"
+  _auth_args=()
+  if [[ -n "${JENKINS_USER:-}" && -n "${JENKINS_API_TOKEN:-}" ]]; then
+    _auth_args=(-u "${JENKINS_USER}:${JENKINS_API_TOKEN}")
+  fi
+
+  _j_issues=0
+  _j_details=""
+
+  # 1) Anonymous surface: whoAmI without auth should not disclose user identity
+  _who=$(run_with_timeout 15 curl -sS -w "\n%{http_code}" \
+    -H "Accept: application/json" \
+    "${_j_url}/whoAmI/api/json" 2>/dev/null || echo "")
+  _who_code="${_who##*$'\n'}"
+  _who_body="${_who%$'\n'*}"
+  if [[ "$_who_code" =~ ^2 ]] && echo "$_who_body" | grep -q '"authenticated"[[:space:]]*:[[:space:]]*true'; then
+    _j_issues=$((_j_issues + 1))
+    _j_details="${_j_details}\n    whoAmI indicates authenticated=true without credentials (anonymous access too permissive?)"
+  fi
+
+  # 2) CSRF crumbs should be enabled (crumbIssuer endpoint should exist)
+  _crumb=$(run_with_timeout 15 curl -sS -w "\n%{http_code}" \
+    -H "Accept: application/json" \
+    "${_j_url}/crumbIssuer/api/json" 2>/dev/null || echo "")
+  _crumb_code="${_crumb##*$'\n'}"
+  if [[ "$_crumb_code" == "404" || "$_crumb_code" == "403" ]]; then
+    # 403 can be ok if auth required, but 404 suggests crumb issuer disabled/unavailable.
+    if [[ "$_crumb_code" == "404" ]]; then
+      _j_issues=$((_j_issues + 1))
+      _j_details="${_j_details}\n    crumbIssuer endpoint not found (CSRF protection may be disabled)"
+    else
+      _j_details="${_j_details}\n    crumbIssuer requires auth (good), provide JENKINS_USER/JENKINS_API_TOKEN for confirmation"
+    fi
+  fi
+
+  # 3) If authenticated creds provided, validate basic API access
+  if [[ ${#_auth_args[@]} -gt 0 ]]; then
+    _me=$(run_with_timeout 15 curl -sS -w "\n%{http_code}" \
+      "${_auth_args[@]}" \
+      -H "Accept: application/json" \
+      "${_j_url}/user/${JENKINS_USER}/api/json" 2>/dev/null || echo "")
+    _me_code="${_me##*$'\n'}"
+    if [[ "$_me_code" =~ ^2 ]]; then
+      : # ok
+    else
+      _j_details="${_j_details}\n    Authenticated API call failed (${_me_code})"
+    fi
+  else
+    _j_details="${_j_details}\n    No Jenkins credentials provided (set JENKINS_USER + JENKINS_API_TOKEN for deeper scan)"
+  fi
+
+  if [[ $_j_issues -eq 0 ]]; then
+    if [[ -z "$_j_details" ]]; then
+      pass "SAAS-API-021" "Jenkins basic hardening signals look OK"
+    else
+      warn "SAAS-API-021" "Jenkins recommendations${_j_details}" \
+        "Review anonymous access, confirm CSRF protection (crumb issuer), and scan with API token for deeper checks"
+    fi
+  else
+    fail "SAAS-API-021" "Jenkins security issues detected" "high" \
+      "${_j_issues} issue(s)${_j_details}" \
+      "Restrict anonymous access and ensure CSRF protection is enabled"
+  fi
+else
+  skip "SAAS-API-021" "Jenkins live check" "Set JENKINS_URL (and optionally JENKINS_USER + JENKINS_API_TOKEN)"
 fi
 
 # ── Summary: SaaS Authentication Status ──────────────────────────────────
@@ -489,10 +755,12 @@ if [[ "$FORMAT" == "text" && -z "${QUIET:-}" ]]; then
   fi
 
   # Okta
-  if [[ -n "${OKTA_API_TOKEN:-}" ]]; then
-    echo -e "  ${GREEN}●${NC} Okta        ${DIM}API token${NC}"
+  if [[ -n "${OKTA_OAUTH_TOKEN:-}" ]]; then
+    echo -e "  ${GREEN}●${NC} Okta        ${DIM}OAuth token${NC}"
+  elif [[ -n "${OKTA_API_TOKEN:-}" ]]; then
+    echo -e "  ${GREEN}●${NC} Okta        ${DIM}API token (fallback)${NC}"
   else
-    echo -e "  ${DIM}○${NC} Okta        ${DIM}Set: OKTA_ORG_URL + OKTA_API_TOKEN${NC}"
+    echo -e "  ${DIM}○${NC} Okta        ${DIM}Set: OKTA_ORG_URL + OKTA_OAUTH_TOKEN (or OKTA_API_TOKEN)${NC}"
   fi
 
   # SendGrid

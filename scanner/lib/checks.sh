@@ -16,6 +16,16 @@ run_with_timeout() {
     timeout "$timeout_sec" "$@" 2>/dev/null
   elif has_command gtimeout; then
     gtimeout "$timeout_sec" "$@" 2>/dev/null
+  elif has_command python3; then
+    python3 -c 'import subprocess, sys
+timeout=float(sys.argv[1])
+cmd=sys.argv[2:]
+try:
+  p=subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
+  raise SystemExit(p.returncode)
+except subprocess.TimeoutExpired:
+  raise SystemExit(124)
+' "$timeout_sec" "$@"
   else
     "$@" 2>/dev/null
   fi
@@ -72,9 +82,147 @@ git_remote_url() {
 
 # ── AWS credential helpers ──────────────────────────────────────────────────
 
+# List AWS profile names from ~/.aws/credentials ([default], [profile name])
+# Output: one profile name per line; "default" first if present.
+aws_list_profiles() {
+  local creds="${AWS_SHARED_CREDENTIALS_FILE:-$HOME/.aws/credentials}"
+  [[ ! -f "$creds" ]] && return 0
+  awk '
+    /^\[/ {
+      gsub(/^\[|\]$/, ""); gsub(/^profile +/, "", $0); name = $0
+      if (name == "default") def = 1; else others = others (others ? "\n" : "") name
+    }
+    END {
+      if (def) print "default"
+      if (others != "") print others
+    }
+  ' "$creds" 2>/dev/null || true
+}
+
+# List AWS SSO profile names from ~/.aws/config (profiles with sso_session or sso_start_url)
+# Output: one profile name per line.
+aws_list_sso_profiles() {
+  local config_file="${AWS_CONFIG_FILE:-$HOME/.aws/config}"
+  [[ -f "$config_file" ]] || return 0
+  awk '
+    /^\[profile / {
+      gsub(/^\[profile |\]$/, ""); current = $0; next
+    }
+    /^\[default\]/ { current = "default"; next }
+    /^\[/ { current = ""; next }
+    /sso_start_url|sso_session/ && current != "" {
+      if (!seen[current]++) print current
+    }
+  ' "$config_file" 2>/dev/null || true
+}
+
+aws_sso_login_with_timeout() {
+  local profile="${1:-}"
+  local timeout_sec="${AWS_SSO_LOGIN_TIMEOUT:-90}"
+  [[ -z "$profile" ]] && return 1
+
+  if has_command timeout; then
+    timeout "$timeout_sec" aws sso login --profile "$profile"
+    return $?
+  elif has_command gtimeout; then
+    gtimeout "$timeout_sec" aws sso login --profile "$profile"
+    return $?
+  fi
+
+  aws sso login --profile "$profile"
+}
+
+# Login to ALL SSO profiles from ~/.aws/config.
+# Returns 0 if at least one profile was successfully authenticated.
+# Skips profiles that already have valid sessions.
+# Usage: aws_sso_login_all_profiles   (interactive — opens browser)
+aws_sso_login_all_profiles() {
+  has_command aws || return 1
+
+  # Avoid interactive SSO flows in non-interactive modes
+  if [[ "${CLAUDESEC_NONINTERACTIVE:-}" == "1" ]]; then
+    return 1
+  fi
+
+  # Not a TTY: cannot open browser for SSO; print clear instructions
+  if [[ ! -t 0 ]]; then
+    echo -e "  ${YELLOW}AWS SSO login requires an interactive terminal (browser).${NC}"
+    echo -e "  ${DIM}Run in a terminal: claudesec scan --aws-sso-all${NC}"
+    echo -e "  ${DIM}Or: aws sso login --profile <profile> for each profile${NC}"
+    return 1
+  fi
+
+  local config_file="${AWS_CONFIG_FILE:-$HOME/.aws/config}"
+  [[ -f "$config_file" ]] || return 1
+
+  local sso_profiles
+  sso_profiles=$(aws_list_sso_profiles)
+  [[ -z "$sso_profiles" ]] && return 1
+
+  local any_success=false
+  local already_auth=0 newly_auth=0 failed_auth=0 timeout_skipped=0
+
+  while IFS= read -r profile; do
+    [[ -z "$profile" ]] && continue
+
+    # Check if already authenticated
+    if AWS_PROFILE="$profile" aws sts get-caller-identity &>/dev/null 2>&1; then
+      already_auth=$((already_auth + 1))
+      echo -e "  ${GREEN}✓${NC} ${profile}: already authenticated"
+      any_success=true
+      continue
+    fi
+
+    # Attempt SSO login
+    echo -e "  ${YELLOW}⟳${NC} ${profile}: logging in via SSO..."
+    if aws_sso_login_with_timeout "$profile" 2>/dev/null; then
+      newly_auth=$((newly_auth + 1))
+      echo -e "  ${GREEN}✓${NC} ${profile}: SSO login successful"
+      any_success=true
+    else
+      local rc=$?
+      if [[ "$rc" == "124" ]]; then
+        timeout_skipped=$((timeout_skipped + 1))
+        echo -e "  ${YELLOW}⚠${NC} ${profile}: login timed out (${AWS_SSO_LOGIN_TIMEOUT:-90}s), skipped"
+      else
+        failed_auth=$((failed_auth + 1))
+        echo -e "  ${RED}✗${NC} ${profile}: SSO login failed"
+      fi
+    fi
+  done <<< "$sso_profiles"
+
+  echo -e "  ${DIM}SSO summary: ${already_auth} already auth, ${newly_auth} newly auth, ${failed_auth} failed, ${timeout_skipped} timeout-skipped${NC}"
+  $any_success
+}
+
+# Print first available AWS profile (default or first from credentials)
+aws_default_or_first_profile() {
+  aws_list_profiles | head -1
+}
+
+# Ensure AWS_PROFILE is set from discovery when empty (from config/credentials)
+aws_ensure_profile_found() {
+  [[ -n "${AWS_PROFILE:-}" ]] && return 0
+  local first
+  first=$(aws_default_or_first_profile)
+  if [[ -n "$first" ]]; then
+    export AWS_PROFILE="$first"
+    export AWS_DEFAULT_PROFILE="$first"
+    return 0
+  fi
+  return 1
+}
+
 # Check AWS credentials availability (STS call)
 has_aws_credentials() {
   has_command aws && run_with_timeout 10 aws sts get-caller-identity &>/dev/null
+}
+
+# Check if an API key env var is set (non-empty); does not print the value
+api_key_found() {
+  local var_name="$1"
+  local val="${!var_name:-}"
+  [[ -n "$val" ]]
 }
 
 # Attempt AWS SSO login if configured but session expired
@@ -82,6 +230,19 @@ aws_sso_ensure_login() {
   has_command aws || return 1
 
   local profile="${AWS_PROFILE:-}"
+
+  # Avoid interactive SSO flows in non-interactive modes (e.g. dashboard generation).
+  if [[ "${CLAUDESEC_NONINTERACTIVE:-}" == "1" ]]; then
+    return 1
+  fi
+
+  # Not a TTY: cannot open browser for SSO; print clear instructions.
+  if [[ ! -t 0 ]]; then
+    echo -e "  ${YELLOW}AWS SSO requires an interactive terminal (browser login).${NC}"
+    echo -e "  ${DIM}Run in a terminal: aws sso login --profile <profile>${NC}"
+    echo -e "  ${DIM}Or: claudesec scan --aws-sso (or --aws-profile <name>)${NC}"
+    return 1
+  fi
 
   # 1. Already authenticated — nothing to do
   if aws sts get-caller-identity &>/dev/null; then
@@ -112,11 +273,14 @@ aws_sso_ensure_login() {
   # 3. If AWS_PROFILE is set and is an SSO profile, try login
   if [[ -n "$profile" ]]; then
     echo -e "  ${YELLOW}⟳${NC} AWS SSO session expired for profile ${BOLD}$profile${NC}"
-    echo -e "  ${DIM}Running: aws sso login --profile $profile${NC}"
-    if aws sso login --profile "$profile"; then
+    echo -e "  ${DIM}Running: aws sso login --profile $profile (timeout: ${AWS_SSO_LOGIN_TIMEOUT:-90}s)${NC}"
+    if aws_sso_login_with_timeout "$profile"; then
       export AWS_DEFAULT_PROFILE="$profile"
       echo -e "  ${GREEN}✓${NC} AWS SSO login successful (profile: $profile)"
       return 0
+    fi
+    if [[ "$?" == "124" ]]; then
+      echo -e "  ${YELLOW}⚠${NC} AWS SSO login timed out for profile ${BOLD}$profile${NC}; skipping"
     fi
     return 1
   fi
@@ -137,11 +301,14 @@ aws_sso_ensure_login() {
 
   # Auto-login with the first SSO profile
   if [[ -n "$first_profile" ]]; then
-    echo -e "  ${DIM}Running: aws sso login --profile $first_profile${NC}"
-    if aws sso login --profile "$first_profile" 2>/dev/null; then
+    echo -e "  ${DIM}Running: aws sso login --profile $first_profile (timeout: ${AWS_SSO_LOGIN_TIMEOUT:-90}s)${NC}"
+    if aws_sso_login_with_timeout "$first_profile" 2>/dev/null; then
       export AWS_PROFILE="$first_profile"
       echo -e "  ${GREEN}✓${NC} AWS SSO login successful (profile: $first_profile)"
       return 0
+    fi
+    if [[ "$?" == "124" ]]; then
+      echo -e "  ${YELLOW}⚠${NC} AWS SSO login timed out for profile ${BOLD}$first_profile${NC}; skipping"
     fi
   fi
 
@@ -158,11 +325,82 @@ aws_identity_info() {
   echo "${account:-unknown}|${arn:-unknown}"
 }
 
+# Determine whether a given AWS profile is configured for SSO.
+aws_profile_is_sso() {
+  local profile="${1:-}"
+  local config_file="${AWS_CONFIG_FILE:-$HOME/.aws/config}"
+  [[ -z "$profile" || ! -f "$config_file" ]] && return 1
+
+  if [[ "$profile" == "default" ]]; then
+    grep -A20 '^\[default\]' "$config_file" 2>/dev/null | grep -q 'sso_start_url\|sso_session'
+    return $?
+  fi
+  grep -A30 "^\[profile ${profile}\]" "$config_file" 2>/dev/null | grep -q 'sso_start_url\|sso_session'
+}
+
 # ── GCP credential helpers ─────────────────────────────────────────────────
 
-# Check GCP credentials
+# Check GCP credentials (gcloud CLI or ADC file)
 has_gcp_credentials() {
-  has_command gcloud && run_with_timeout 10 gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q .
+  if has_command gcloud && run_with_timeout 10 gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | grep -q .; then
+    return 0
+  fi
+  if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" && -f "${GOOGLE_APPLICATION_CREDENTIALS}" ]]; then
+    return 0
+  fi
+  return 1
+}
+
+# Ensure GCP credentials discoverable (GOOGLE_APPLICATION_CREDENTIALS file exists when set)
+gcp_ensure_credentials_found() {
+  has_gcp_credentials 2>/dev/null && return 0
+  if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]]; then
+    [[ -f "${GOOGLE_APPLICATION_CREDENTIALS}" ]] && return 0
+  fi
+  return 1
+}
+
+# ── Datadog API key helpers (best practices: scoped keys, env vars) ─────────
+
+# Check if Datadog API key is configured (DD_API_KEY or DATADOG_API_KEY)
+has_datadog_api_key() {
+  [[ -n "${DD_API_KEY:-}${DATADOG_API_KEY:-}" ]]
+}
+
+has_github_credentials() {
+  if [[ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]]; then
+    return 0
+  fi
+  if has_command gh && run_with_timeout 8 gh auth status >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+has_okta_credentials() {
+  [[ -n "${OKTA_API_TOKEN:-}${OKTA_OAUTH_TOKEN:-}" ]]
+}
+
+# Validate Datadog API key with a lightweight API call (optional)
+datadog_validate_api_key() {
+  local key="${DD_API_KEY:-${DATADOG_API_KEY:-}}"
+  local site="${DD_SITE:-datadoghq.com}"
+  local base_url="https://api.datadoghq.com"
+  [[ -z "$key" ]] && return 1
+  case "$site" in
+    datadoghq.eu) base_url="https://api.datadoghq.eu" ;;
+    us3.datadoghq.com) base_url="https://api.us3.datadoghq.com" ;;
+    us5.datadoghq.com) base_url="https://api.us5.datadoghq.com" ;;
+    ddog-gov.com) base_url="https://api.ddog-gov.com" ;;
+  esac
+  if has_command curl; then
+    run_with_timeout 8 curl -sS -f -o /dev/null -w "%{http_code}" \
+      -H "DD-API-KEY: $key" \
+      "${base_url}/api/v1/validate" 2>/dev/null | grep -q 200
+    return $?
+  fi
+  # No curl: consider key "found" only
+  return 0
 }
 
 # ── Azure credential helpers ───────────────────────────────────────────────
@@ -263,6 +501,14 @@ kubectl_detect_cluster_type() {
 kubectl_ensure_access() {
   has_command kubectl || return 1
 
+  # In non-interactive modes (e.g. dashboard generation), avoid slow auth refresh
+  # and context switching unless the user explicitly provided K8s settings.
+  if [[ "${CLAUDESEC_NONINTERACTIVE:-}" == "1" ]]; then
+    if [[ -z "${CLAUDESEC_KUBECONTEXT:-}" && -z "${KUBECONFIG:-}" ]]; then
+      return 1
+    fi
+  fi
+
   # Prevent duplicate auth guide output across categories
   if [[ "${_KUBECTL_ENSURE_ACCESS_DONE:-}" == "1" ]]; then
     # Already ran — just return cached result
@@ -336,7 +582,7 @@ kubectl_ensure_access() {
       region=$(echo "$current_ctx" | grep -oE '[a-z]+-[a-z]+-[0-9]+' | head -1 || true)
       if [[ -n "$cluster_name" ]]; then
         echo -e "  ${DIM}Refreshing EKS credentials: $cluster_name${NC}"
-        aws eks update-kubeconfig --name "$cluster_name" ${region:+--region "$region"} &>/dev/null || true
+        run_with_timeout 15 aws eks update-kubeconfig --name "$cluster_name" ${region:+--region "$region"} &>/dev/null || true
       fi
     fi
 
@@ -346,7 +592,7 @@ kubectl_ensure_access() {
       IFS='_' read -r _ gke_project gke_zone gke_cluster <<< "$current_ctx"
       if [[ -n "$gke_cluster" ]]; then
         echo -e "  ${DIM}Refreshing GKE credentials: $gke_cluster${NC}"
-        gcloud container clusters get-credentials "$gke_cluster" \
+        run_with_timeout 15 gcloud container clusters get-credentials "$gke_cluster" \
           --zone "$gke_zone" --project "$gke_project" &>/dev/null || true
       fi
     fi
@@ -357,9 +603,9 @@ kubectl_ensure_access() {
       aks_name=$(echo "$current_ctx" | grep -oE '[a-zA-Z0-9_-]+' | tail -1 || true)
       if [[ -n "$aks_name" ]] && has_command az; then
         echo -e "  ${DIM}Refreshing AKS credentials: $aks_name${NC}"
-        aks_rg=$(az aks list --query "[?name=='$aks_name'].resourceGroup" -o tsv 2>/dev/null | head -1 || true)
+        aks_rg=$(run_with_timeout 15 az aks list --query "[?name=='$aks_name'].resourceGroup" -o tsv 2>/dev/null | head -1 || true)
         if [[ -n "$aks_rg" ]]; then
-          az aks get-credentials --resource-group "$aks_rg" --name "$aks_name" --overwrite-existing &>/dev/null || true
+          run_with_timeout 15 az aks get-credentials --resource-group "$aks_rg" --name "$aks_name" --overwrite-existing &>/dev/null || true
         fi
       fi
     fi
@@ -430,6 +676,19 @@ kubectl_server_version() {
 
 # Collect environment info into CLAUDESEC_ENV_* variables
 collect_environment_info() {
+  # Whether the generated HTML dashboard should include potentially identifying
+  # information (cloud account, email, subscription names, kube server URL).
+  # Default is "false" to reduce accidental leakage when sharing/committing.
+  if [[ "${CLAUDESEC_DASHBOARD_SHOW_IDENTIFIERS:-0}" == "1" ]]; then
+    export CLAUDESEC_ENV_SHOW_IDENTIFIERS="true"
+  else
+    export CLAUDESEC_ENV_SHOW_IDENTIFIERS="false"
+  fi
+
+  # Discover and set profile/API key when not set (find and verify)
+  aws_ensure_profile_found 2>/dev/null || true
+  gcp_ensure_credentials_found 2>/dev/null || true
+
   # Kubernetes
   if has_kubectl_access 2>/dev/null; then
     local kinfo ctx server ctype ver
@@ -450,6 +709,12 @@ collect_environment_info() {
   fi
 
   # AWS
+  export CLAUDESEC_ENV_AWS_SSO_CONFIGURED="false"
+  export CLAUDESEC_ENV_AWS_SSO_SESSION="unknown"
+  if [[ -n "${AWS_PROFILE:-}" ]] && aws_profile_is_sso "${AWS_PROFILE}" 2>/dev/null; then
+    export CLAUDESEC_ENV_AWS_SSO_CONFIGURED="true"
+  fi
+
   if has_aws_credentials 2>/dev/null; then
     local aws_info
     aws_info=$(aws_identity_info 2>/dev/null)
@@ -457,8 +722,14 @@ collect_environment_info() {
     export CLAUDESEC_ENV_AWS_ACCOUNT=$(echo "$aws_info" | cut -d'|' -f1)
     export CLAUDESEC_ENV_AWS_ARN=$(echo "$aws_info" | cut -d'|' -f2)
     [[ -n "${AWS_PROFILE:-}" ]] && export CLAUDESEC_ENV_AWS_PROFILE="$AWS_PROFILE"
+    if [[ "${CLAUDESEC_ENV_AWS_SSO_CONFIGURED:-false}" == "true" ]]; then
+      export CLAUDESEC_ENV_AWS_SSO_SESSION="valid"
+    fi
   else
     export CLAUDESEC_ENV_AWS_CONNECTED="false"
+    if [[ "${CLAUDESEC_ENV_AWS_SSO_CONFIGURED:-false}" == "true" ]]; then
+      export CLAUDESEC_ENV_AWS_SSO_SESSION="expired"
+    fi
   fi
 
   # GCP
@@ -476,6 +747,73 @@ collect_environment_info() {
     export CLAUDESEC_ENV_AZ_SUBSCRIPTION=$(az account show --query name -o tsv 2>/dev/null || echo "unknown")
   else
     export CLAUDESEC_ENV_AZ_CONNECTED="false"
+  fi
+
+  # ── Prowler extended providers (for dashboard environment section) ─────────
+
+  # Microsoft 365 (Prowler m365): SP env auth OR Azure CLI auth
+  if [[ -n "${AZURE_CLIENT_ID:-}" && -n "${AZURE_TENANT_ID:-}" && -n "${AZURE_CLIENT_SECRET:-}" ]] || \
+     { has_command az && az account show &>/dev/null 2>&1; }; then
+    export CLAUDESEC_ENV_M365_CONNECTED="true"
+  else
+    export CLAUDESEC_ENV_M365_CONNECTED="false"
+  fi
+
+  # Google Workspace (Prowler googleworkspace): Google OAuth + customer id
+  if [[ -n "${GOOGLE_WORKSPACE_CUSTOMER_ID:-}" ]] && \
+     { has_gcp_credentials 2>/dev/null || [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]]; }; then
+    export CLAUDESEC_ENV_GWS_CONNECTED="true"
+    if [[ "${CLAUDESEC_ENV_SHOW_IDENTIFIERS:-false}" == "true" ]]; then
+      export CLAUDESEC_ENV_GWS_CUSTOMER_ID="${GOOGLE_WORKSPACE_CUSTOMER_ID}"
+    fi
+  else
+    export CLAUDESEC_ENV_GWS_CONNECTED="false"
+  fi
+
+  # Cloudflare (Prowler cloudflare): API token (preferred) or legacy key+email
+  if [[ -n "${CLOUDFLARE_API_TOKEN:-}${CF_API_TOKEN:-}" ]] || \
+     [[ -n "${CLOUDFLARE_API_KEY:-}" && -n "${CLOUDFLARE_API_EMAIL:-}" ]]; then
+    export CLAUDESEC_ENV_CF_CONNECTED="true"
+  else
+    export CLAUDESEC_ENV_CF_CONNECTED="false"
+  fi
+
+  # NHN Cloud (Prowler openstack provider): OS_AUTH_URL includes NHN/TOAST or NHN_API_URL
+  if [[ "${OS_AUTH_URL:-}" == *"nhncloud"* || "${OS_AUTH_URL:-}" == *"toast"* || -n "${NHN_API_URL:-}" ]]; then
+    export CLAUDESEC_ENV_NHN_CONNECTED="true"
+  else
+    export CLAUDESEC_ENV_NHN_CONNECTED="false"
+  fi
+
+  # LLM (Prowler llm): promptfoo + LLM API key
+  if has_command promptfoo && [[ -n "${OPENAI_API_KEY:-}${ANTHROPIC_API_KEY:-}" ]]; then
+    export CLAUDESEC_ENV_LLM_CONNECTED="true"
+  else
+    export CLAUDESEC_ENV_LLM_CONNECTED="false"
+  fi
+
+  # Datadog: API key (DD_API_KEY or DATADOG_API_KEY); validate when possible
+  if has_datadog_api_key 2>/dev/null; then
+    if datadog_validate_api_key 2>/dev/null; then
+      export CLAUDESEC_ENV_DATADOG_CONNECTED="true"
+    else
+      # Key present but validation failed (e.g. network or invalid key)
+      export CLAUDESEC_ENV_DATADOG_CONNECTED="true"
+    fi
+  else
+    export CLAUDESEC_ENV_DATADOG_CONNECTED="false"
+  fi
+
+  if has_github_credentials 2>/dev/null; then
+    export CLAUDESEC_ENV_GITHUB_CONNECTED="true"
+  else
+    export CLAUDESEC_ENV_GITHUB_CONNECTED="false"
+  fi
+
+  if has_okta_credentials 2>/dev/null; then
+    export CLAUDESEC_ENV_OKTA_CONNECTED="true"
+  else
+    export CLAUDESEC_ENV_OKTA_CONNECTED="false"
   fi
 }
 

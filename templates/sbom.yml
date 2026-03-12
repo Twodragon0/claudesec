@@ -13,6 +13,11 @@ permissions:
   packages: write
   id-token: write
 
+env:
+  DD_SERVICE: sbom
+  DD_ENV: ci
+  CI_PIPELINE_ID: ${{ github.run_id }}
+
 jobs:
   sbom:
     name: Generate SBOM & Scan

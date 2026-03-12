@@ -25,7 +25,7 @@ check_pattern() {
   local message="$2"
   local severity="$3"
 
-  if echo "$CONTENT" | grep -qiE "$pattern"; then
+  if echo "$CONTENT" | grep -qiE -- "$pattern"; then
     if [ "$severity" = "error" ]; then
       echo -e "${RED}[BLOCKED]${NC} $message"
       ISSUES=$((ISSUES + 1))
@@ -47,6 +47,9 @@ check_pattern "(AKIA|ASIA)[A-Z0-9]{16}" \
 
 check_pattern "-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----" \
   "Private key detected in source code" "error"
+
+check_pattern "(/Users/[A-Za-z0-9._-]+/|/home/[A-Za-z0-9._-]+/|[A-Za-z]:\\\\Users\\\\[A-Za-z0-9._-]+\\\\)" \
+  "Possible personal absolute path detected — use env vars/placeholders" "error"
 
 # High: Injection vulnerabilities
 check_pattern "eval\s*\(" \

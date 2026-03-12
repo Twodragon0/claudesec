@@ -15,6 +15,11 @@ permissions:
   contents: read
   security-events: write
 
+env:
+  DD_SERVICE: codeql
+  DD_ENV: ci
+  CI_PIPELINE_ID: ${{ github.run_id }}
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})

@@ -21,7 +21,7 @@
 
 set -uo pipefail
 
-VERSION="0.2.0"
+VERSION="0.4.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHECKS_DIR="$SCRIPT_DIR/checks"
 LIB_DIR="$SCRIPT_DIR/lib"
@@ -45,7 +45,7 @@ FAILED=0
 WARNINGS=0
 SKIPPED=0
 
-# ── Config Loading ───────────────────────────────────────────────────────────
+# -- Config Loading -----------------------------------------------------------
 
 load_config() {
   local config_file="$SCAN_DIR/.claudesec.yml"
@@ -62,10 +62,130 @@ load_config() {
     if [[ "$line" =~ ^[[:space:]]*severity:[[:space:]]*(.+) ]]; then
       SEVERITY="${BASH_REMATCH[1]// /}"
     fi
+    if [[ "$line" =~ ^[[:space:]]*kubeconfig:[[:space:]]*(.+) ]]; then
+      val="${BASH_REMATCH[1]// /}"
+      val="${val/#\~/$HOME}"
+      [[ -z "${KUBECONFIG:-}" && -n "$val" ]] && export KUBECONFIG="$val"
+    fi
+    if [[ "$line" =~ ^[[:space:]]*kubecontext:[[:space:]]*(.+) ]]; then
+      val="${BASH_REMATCH[1]// /}"
+      [[ -z "${CLAUDESEC_KUBECONTEXT:-}" && -n "$val" ]] && export CLAUDESEC_KUBECONTEXT="$val"
+    fi
+    if [[ "$line" =~ ^[[:space:]]*aws_profile:[[:space:]]*(.+) ]]; then
+      val="${BASH_REMATCH[1]// /}"
+      [[ -z "${AWS_PROFILE:-}" && -n "$val" ]] && export AWS_PROFILE="$val" && export AWS_DEFAULT_PROFILE="$val"
+    fi
+    if [[ "$line" =~ ^[[:space:]]*aws_sso:[[:space:]]*(.+) ]]; then
+      val="${BASH_REMATCH[1]}"
+      val="${val// /}"
+      val="${val//\"/}"
+      val="${val//\'/}"
+      if [[ "$val" == "all" ]]; then
+        AWS_SSO_FORCE=1
+        export AWS_SSO_SCAN_ALL=1
+      elif [[ "$val" == "true" || "$val" == "yes" || "$val" == "1" ]]; then
+        AWS_SSO_FORCE=1
+      fi
+    fi
+    if [[ "$line" =~ ^[[:space:]]*aws_sso_login_timeout:[[:space:]]*([0-9]+) ]]; then
+      val="${BASH_REMATCH[1]}"
+      [[ -n "$val" ]] && export AWS_SSO_LOGIN_TIMEOUT="$val"
+    fi
+    if [[ "$line" =~ ^[[:space:]]*prowler_providers:[[:space:]]*(.+) ]]; then
+      # Comma-separated provider list (e.g. aws,kubernetes,llm,googleworkspace,m365,cloudflare,nhn)
+      val="${BASH_REMATCH[1]}"
+      val="${val// /}"
+      [[ -n "$val" ]] && export CLAUDESEC_PROWLER_PROVIDERS="$val"
+    fi
+    if [[ "$line" =~ ^[[:space:]]*prowler_severity:[[:space:]]*(.+) ]]; then
+      # Space-separated severities passed to Prowler (default: "medium high critical")
+      val="${BASH_REMATCH[1]}"
+      val="${val//\"/}"
+      val="${val//\'/}"
+      [[ -n "$val" ]] && export PROWLER_SEVERITY="$val"
+    fi
+    if [[ "$line" =~ ^[[:space:]]*prowler_timeout:[[:space:]]*([0-9]+) ]]; then
+      val="${BASH_REMATCH[1]}"
+      [[ -n "$val" ]] && export PROWLER_TIMEOUT="$val"
+    fi
+    if [[ "$line" =~ ^[[:space:]]*compliance:[[:space:]]*(.+) ]]; then
+      val="${BASH_REMATCH[1]// /}"
+      val="${val//\"/}"; val="${val//\'/}"
+      [[ -z "${COMPLIANCE:-}" && -n "$val" ]] && COMPLIANCE="$val"
+    fi
+    if [[ "$line" =~ ^[[:space:]]*gcp_project:[[:space:]]*(.+) ]]; then
+      val="${BASH_REMATCH[1]// /}"
+      val="${val//\"/}"; val="${val//\'/}"
+      [[ -z "${GCP_PROJECT:-}" && -n "$val" ]] && export GCP_PROJECT="$val"
+    fi
+    if [[ "$line" =~ ^[[:space:]]*google_workspace_customer_id:[[:space:]]*(.+) ]]; then
+      val="${BASH_REMATCH[1]// /}"
+      val="${val//\"/}"; val="${val//\'/}"
+      [[ -z "${GOOGLE_WORKSPACE_CUSTOMER_ID:-}" && -n "$val" ]] && export GOOGLE_WORKSPACE_CUSTOMER_ID="$val"
+    fi
+    # Network & security tool scan (optional)
+    if [[ "$line" =~ ^[[:space:]]*network_scan_targets:[[:space:]]*(.+) ]]; then
+      val="${BASH_REMATCH[1]}"
+      val="${val//\"/}"; val="${val//\'/}"; val="${val// /}"
+      [[ -n "$val" ]] && export CLAUDESEC_NETWORK_SCAN_TARGETS="$val"
+    fi
+    if [[ "$line" =~ ^[[:space:]]*trivy_enabled:[[:space:]]*(.+) ]]; then
+      val="${BASH_REMATCH[1]}"; val="${val//\"/}"; val="${val//\'/}"
+      if [[ "$val" == "true" || "$val" == "yes" || "$val" == "1" ]]; then
+        export CLAUDESEC_TRIVY_ENABLED=1
+      elif [[ "$val" == "false" || "$val" == "no" || "$val" == "0" ]]; then
+        export CLAUDESEC_TRIVY_ENABLED=0
+      fi
+    fi
+    if [[ "$line" =~ ^[[:space:]]*network_scan_enabled:[[:space:]]*(.+) ]]; then
+      val="${BASH_REMATCH[1]}"; val="${val//\"/}"; val="${val//\'/}"
+      if [[ "$val" == "true" || "$val" == "yes" || "$val" == "1" ]]; then
+        export CLAUDESEC_NETWORK_SCAN_ENABLED=1
+      elif [[ "$val" == "false" || "$val" == "no" || "$val" == "0" ]]; then
+        export CLAUDESEC_NETWORK_SCAN_ENABLED=0
+      fi
+    fi
   done < "$config_file"
 }
 
-# ── CLI Parsing ──────────────────────────────────────────────────────────────
+load_external_env() {
+  # Default to a home-directory env file to avoid committing or referencing
+  # personal filesystem layouts (e.g., Desktop paths).
+  local env_file="${CLAUDESEC_ENV_FILE:-$HOME/.claudesec.env}"
+  [[ -f "$env_file" ]] || return 0
+
+  local line key val
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+    if [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=[[:space:]]*(.*)[[:space:]]*$ ]]; then
+      key="${BASH_REMATCH[1]}"
+      val="${BASH_REMATCH[2]}"
+      val="${val%%#*}"
+      val="${val%\"}"; val="${val#\"}"
+      val="${val%\'}"; val="${val#\'}"
+      case "$key" in
+        DD_API_KEY|DATADOG_API_KEY|DD_APP_KEY|DD_SITE|GOOGLE_WORKSPACE_CUSTOMER_ID|GOOGLE_APPLICATION_CREDENTIALS|GH_TOKEN|GITHUB_TOKEN|OKTA_OAUTH_TOKEN|OKTA_API_TOKEN|GITHUB_TOKEN_EXPIRES_AT|GH_TOKEN_EXPIRES_AT|OKTA_OAUTH_TOKEN_EXPIRES_AT|DATADOG_TOKEN_EXPIRES_AT|DD_TOKEN_EXPIRES_AT|DD_API_KEY_EXPIRES_AT|SLACK_TOKEN_EXPIRES_AT|SLACK_BOT_TOKEN_EXPIRES_AT|CLAUDESEC_STRICT_OKTA_SCOPES|CLAUDESEC_OKTA_REQUIRED_SCOPES|CLAUDESEC_TOKEN_EXPIRY_PROVIDERS|CLAUDESEC_TOKEN_EXPIRY_WARNING_24H|CLAUDESEC_TOKEN_EXPIRY_WARNING_7D)
+          if [[ -z "${!key:-}" && -n "$val" ]]; then
+            export "$key=$val"
+          fi
+          ;;
+        datadog_key_credential)
+          if [[ -z "${DD_API_KEY:-}" && -z "${DATADOG_API_KEY:-}" && -n "$val" ]]; then
+            export DD_API_KEY="$val"
+          fi
+          ;;
+        datadog_app_key_credential)
+          if [[ -z "${DD_APP_KEY:-}" && -n "$val" ]]; then
+            export DD_APP_KEY="$val"
+          fi
+          ;;
+      esac
+    fi
+  done < "$env_file"
+}
+
+# -- CLI Parsing --------------------------------------------------------------
 
 usage() {
   cat <<'EOF'
@@ -76,8 +196,9 @@ Usage:
   claudesec init                    Initialize .claudesec.yml config
   claudesec report [options]        Generate security report
   claudesec dashboard [file]         Generate HTML dashboard (default: claudesec-dashboard.html)
-  claudesec version                 Show version
-  claudesec help                    Show this help
+  claudesec diagrams [out_dir]       Generate draw.io architecture/flow/security-domains diagrams
+  claudesec version                  Show version
+  claudesec help                     Show this help
 
 Scan Options:
   --category, -c <category>   Scan specific category:
@@ -109,7 +230,94 @@ Examples:
   claudesec scan --kubeconfig ~/.kube/prod  # Use specific kubeconfig
   claudesec scan --kube-namespace default   # Scan specific namespace
   claudesec scan -c cloud --aws-sso       # Force SSO login for cloud scan
+  claudesec dashboard --serve             # Full scan + generate + serve on http://127.0.0.1:11777/
+  claudesec dashboard --all               # Full scan + generate dashboard (no server)
 EOF
+}
+
+open_url_best_effort() {
+  local url="$1"
+  if command -v open >/dev/null 2>&1; then
+    open "$url" >/dev/null 2>&1 || true
+    return 0
+  fi
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 || true
+    return 0
+  fi
+  return 0
+}
+
+serve_dashboard() {
+  local html_path="$1"
+  local host="${2:-127.0.0.1}"
+  local port="${3:-11777}"
+
+  if [[ ! -f "$html_path" ]]; then
+    error "Dashboard file not found: $html_path"
+    return 1
+  fi
+
+  # Fail fast if the port is already in use to avoid confusing "silent" hangs.
+  if command -v python3 >/dev/null 2>&1; then
+    if ! python3 - "$host" "$port" <<'PY' 2>/dev/null
+import socket
+import sys
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    s.bind((host, port))
+except OSError:
+    sys.exit(1)
+finally:
+    s.close()
+sys.exit(0)
+PY
+    then
+      error "Port ${host}:${port} is already in use. Choose another port with: claudesec dashboard --serve --port <port>"
+      return 1
+    fi
+  fi
+
+  local abs_dir abs_file url
+  abs_dir="$(cd "$(dirname "$html_path")" && pwd)"
+  abs_file="$(basename "$html_path")"
+  # Ensure "/" renders the dashboard by writing an index.html redirect.
+  # This keeps the generated dashboard filename stable while making localhost root convenient.
+  cat > "${abs_dir}/index.html" <<EOF
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="refresh" content="0; url=./${abs_file}" />
+    <meta name="referrer" content="no-referrer" />
+    <title>ClaudeSec Dashboard</title>
+  </head>
+  <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+    <p>Redirecting to <a href="./${abs_file}">${abs_file}</a>…</p>
+  </body>
+</html>
+EOF
+  url="http://${host}:${port}/"
+
+  echo -e "  ${DIM}Serving dashboard on: ${BOLD}${url}${NC}"
+  echo -e "  ${DIM}Press Ctrl+C to stop.${NC}"
+  open_url_best_effort "$url"
+
+  if command -v python3 >/dev/null 2>&1; then
+    (cd "$abs_dir" && python3 -m http.server "$port" --bind "$host")
+    return $?
+  fi
+  if command -v python >/dev/null 2>&1; then
+    (cd "$abs_dir" && python -m http.server "$port" --bind "$host")
+    return $?
+  fi
+
+  error "python3 not found — cannot serve dashboard. Open it directly: file://$abs_dir/$abs_file"
+  return 1
 }
 
 parse_args() {
@@ -139,6 +347,7 @@ parse_args() {
           --kubeconfig) export KUBECONFIG="$2"; shift 2 ;;
           --kube-namespace) export CLAUDESEC_KUBE_NAMESPACE="$2"; shift 2 ;;
           --aws-sso) AWS_SSO_FORCE=1; shift ;;
+          --aws-sso-all) AWS_SSO_FORCE=1; export AWS_SSO_SCAN_ALL=1; shift ;;
           --env-file) ENV_SCAN_FILES+=("$2"); shift 2 ;;
           -V|--version) echo "claudesec v$VERSION"; exit 0 ;;
           *) error "Unknown option: $1"; usage; exit 1 ;;
@@ -152,10 +361,13 @@ parse_args() {
       FORMAT="text"
       QUIET=1
       local html_output="claudesec-dashboard.html"
+      local serve=0 serve_host="127.0.0.1" serve_port="11777"
+      local dashboard_all=0
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --aws-profile) export AWS_PROFILE="$2"; export AWS_DEFAULT_PROFILE="$2"; shift 2 ;;
           --aws-sso) AWS_SSO_FORCE=1; shift ;;
+          --aws-sso-all) AWS_SSO_FORCE=1; export AWS_SSO_SCAN_ALL=1; shift ;;
           --kubecontext) export CLAUDESEC_KUBECONTEXT="$2"; shift 2 ;;
           --kubeconfig) export KUBECONFIG="$2"; shift 2 ;;
           --kube-namespace) export CLAUDESEC_KUBE_NAMESPACE="$2"; shift 2 ;;
@@ -163,14 +375,54 @@ parse_args() {
           -s|--severity) SEVERITY="$2"; shift 2 ;;
           -d|--dir) SCAN_DIR="$2"; shift 2 ;;
           --compliance) COMPLIANCE="$2"; shift 2 ;;
+          --serve) serve=1; shift ;;
+          --all) dashboard_all=1; shift ;;
+          --host) serve_host="$2"; shift 2 ;;
+          --port) serve_port="$2"; shift 2 ;;
           -*) shift ;;
           *) html_output="$1"; shift ;;
         esac
       done
-      if [[ "${AWS_SSO_FORCE:-}" == "1" ]]; then
-        aws_sso_ensure_login || true
+      # Load .claudesec.yml so kubeconfig and aws_profile apply (e.g. for Prowler dashboard).
+      load_config
+      [[ -n "${COMPLIANCE:-}" ]] && export CLAUDESEC_COMPLIANCE="$COMPLIANCE"
+      load_external_env
+      # When dashboard includes prowler, allow AWS/K8s connection (SSO, kubeconfig).
+      # Otherwise keep non-interactive for fast local-only dashboard.
+      if [[ ",${CATEGORY}," != *",prowler,"* ]]; then
+        export CLAUDESEC_NONINTERACTIVE=1
+      fi
+      # Avoid embedding identifiable cloud/user info into a shareable HTML file by default.
+      export CLAUDESEC_DASHBOARD_SHOW_IDENTIFIERS="${CLAUDESEC_DASHBOARD_SHOW_IDENTIFIERS:-0}"
+      # Default dashboard scope: local/static categories only (unless --serve or --all).
+      # With --serve or --all we run full categories so the dashboard reflects entire scan.
+      if [[ "${CATEGORY:-all}" == "all" && "$serve" != "1" && "$dashboard_all" != "1" ]]; then
+        CATEGORY="access-control,cicd,code"
+      fi
+      # For Prowler: if no AWS profile set, use first from ~/.aws/credentials
+      if [[ ",${CATEGORY}," == *",prowler,"* && -z "${AWS_PROFILE:-}" ]]; then
+        _first_profile=$(aws_default_or_first_profile 2>/dev/null || true)
+        [[ -n "$_first_profile" ]] && export AWS_PROFILE="$_first_profile" && export AWS_DEFAULT_PROFILE="$_first_profile"
+      fi
+      # AWS credentials for dashboard when cloud/prowler included
+      if [[ ",${CATEGORY}," == *",prowler,"* || ",${CATEGORY}," == *",cloud,"* ]]; then
+        if [[ "${AWS_SSO_SCAN_ALL:-}" == "1" ]]; then
+          info "Authenticating all AWS SSO profiles..."
+          aws_sso_login_all_profiles || true
+        elif [[ "${AWS_SSO_FORCE:-}" == "1" ]]; then
+          info "Checking AWS credentials (--aws-sso)..."
+          aws_sso_ensure_login || true
+        elif ! has_aws_credentials 2>/dev/null; then
+          if [[ -t 0 && "${CLAUDESEC_NONINTERACTIVE:-}" != "1" ]]; then
+            info "AWS credentials required for cloud/prowler. Attempting SSO login..."
+            aws_sso_ensure_login || true
+          else
+            info "AWS credentials required for cloud/prowler. Run in a terminal: aws sso login --profile <profile> or claudesec dashboard --aws-sso"
+          fi
+        fi
       fi
       run_scan_for_dashboard
+      collect_datadog_dashboard_artifacts
       generate_html_dashboard "$html_output"
       save_scan_history 2>/dev/null || true
       echo -e "  ${GREEN}✓${NC} Dashboard saved to ${BOLD}$html_output${NC}"
@@ -178,6 +430,23 @@ parse_args() {
       history_count=$(find "${SCAN_DIR}/.claudesec-history" -name 'scan-*.json' 2>/dev/null | wc -l | tr -d ' ')
       [[ "$history_count" -gt 0 ]] && echo -e "  ${DIM}Scan history: ${history_count} entries (${SCAN_DIR}/.claudesec-history/)${NC}"
       echo -e "  ${DIM}Open in browser: open $html_output${NC}"
+      if [[ "$serve" == "1" ]]; then
+        serve_dashboard "$html_output" "$serve_host" "$serve_port"
+      fi
+      ;;
+    diagrams)
+      SCAN_DIR="${SCAN_DIR:-$(pwd)}"
+      export SCAN_DIR
+      load_config
+      local diagram_out="${1:-}"
+      [[ -z "$diagram_out" ]] && diagram_out="${SCAN_DIR}/docs/architecture"
+      if command -v python3 >/dev/null 2>&1 && [[ -f "$LIB_DIR/diagram-gen.py" ]]; then
+        python3 "$LIB_DIR/diagram-gen.py" "$diagram_out"
+        echo -e "  ${GREEN}✓${NC} Draw.io diagrams written to ${BOLD}$diagram_out${NC}"
+      else
+        error "python3 and diagram-gen.py required (not found under $LIB_DIR)"
+        exit 1
+      fi
       ;;
     version) echo "claudesec v$VERSION" ;;
     help|--help|-h) usage ;;
@@ -185,30 +454,72 @@ parse_args() {
   esac
 }
 
-# ── Core Functions ───────────────────────────────────────────────────────────
+# -- Core Functions -----------------------------------------------------------
 
 run_scan() {
   local start_time
   start_time=$(date +%s)
 
+  # Ensure SCAN_DIR exists and is a directory
+  if [[ -z "${SCAN_DIR:-}" || ! -d "$SCAN_DIR" ]]; then
+    SCAN_DIR="$(pwd)"
+    export SCAN_DIR
+  fi
+
   load_config
+  [[ -n "${COMPLIANCE:-}" ]] && export CLAUDESEC_COMPLIANCE="$COMPLIANCE"
+  load_external_env
+
+  # Find profile/API key from config when not set (no slow network calls here)
+  aws_ensure_profile_found 2>/dev/null || true
+  gcp_ensure_credentials_found 2>/dev/null || true
 
   if [[ "$FORMAT" == "text" ]]; then
     print_banner
   fi
 
-  # Force AWS SSO login if requested
-  if [[ "${AWS_SSO_FORCE:-}" == "1" ]]; then
-    aws_sso_ensure_login || true
-  fi
-
-  # Determine which categories to scan
+  # Determine which categories to scan (dedupe and filter)
   local categories=()
   if [[ "$CATEGORY" == "all" ]]; then
     categories=(infra ai network cloud access-control cicd code macos windows saas prowler)
   else
-    IFS=',' read -ra categories <<< "$CATEGORY"
+    IFS=',' read -ra _raw <<< "$CATEGORY"
+    for c in "${_raw[@]}"; do
+      c="${c// /}"
+      [[ -z "$c" ]] && continue
+      # Avoid duplicates
+      if [[ " ${categories[*]} " != *" $c "* ]]; then
+        categories+=("$c")
+      fi
+    done
   fi
+
+  # AWS credentials: force SSO if requested, or prompt when cloud/prowler and no creds
+  local need_aws=0
+  for c in "${categories[@]}"; do [[ "$c" == "cloud" || "$c" == "prowler" ]] && need_aws=1 && break; done
+  if [[ "$need_aws" -eq 1 ]]; then
+    if [[ "${AWS_SSO_SCAN_ALL:-}" == "1" ]]; then
+      info "Authenticating all AWS SSO profiles..."
+      aws_sso_login_all_profiles || true
+    elif [[ "${AWS_SSO_FORCE:-}" == "1" ]]; then
+      info "Checking AWS credentials (--aws-sso)..."
+      aws_sso_ensure_login || true
+    elif ! has_aws_credentials 2>/dev/null; then
+      if [[ -t 0 && "${CLAUDESEC_NONINTERACTIVE:-}" != "1" ]]; then
+        info "AWS credentials required for cloud/prowler. Attempting SSO login..."
+        aws_sso_ensure_login || true
+      else
+        info "AWS credentials required for cloud/prowler. Run in a terminal: aws sso login --profile <profile> or claudesec scan --aws-sso (or --aws-profile <name>)"
+      fi
+    fi
+  fi
+
+  local categories_csv
+  categories_csv=$(IFS=,; echo "${categories[*]}")
+  configure_prowler_provider_defaults "$categories_csv"
+
+  # Reset per-scan state so each run is independent
+  unset _KUBECTL_ENSURE_ACCESS_DONE 2>/dev/null || true
 
   # Run checks for each category
   for cat in "${categories[@]}"; do
@@ -225,7 +536,7 @@ run_scan() {
     # Source and run each check file
     for check_file in "$check_dir"/*.sh; do
       [[ -f "$check_file" ]] || continue
-      if ! source "$check_file" 2>/dev/null; then
+      if ! source "$check_file" >/dev/null 2>&1; then
         warning "Check failed to load: $(basename "$check_file")"
       fi
     done
@@ -290,6 +601,13 @@ scan:
     - vendor/
     - dist/
 
+# Prowler / live scan (optional — CLI --kubeconfig/--aws-profile override these)
+# kubeconfig: ~/.kube/config
+# aws_profile: default
+# prowler_providers: aws,kubernetes,llm,googleworkspace,m365,cloudflare,nhn
+# prowler_severity: "medium high critical"
+# prowler_timeout: 600
+
 # Cloud provider settings
 cloud:
   aws:
@@ -320,6 +638,272 @@ run_report() {
   run_scan
 }
 
+configure_prowler_provider_defaults() {
+  local categories_csv="$1"
+  [[ ",${categories_csv}," == *",prowler,"* ]] || return 0
+
+  if [[ -z "${CLAUDESEC_PROWLER_PROVIDERS:-}" ]]; then
+    export CLAUDESEC_PROWLER_PROVIDERS="aws,gcp,googleworkspace"
+    if [[ "$FORMAT" == "text" && -z "${QUIET:-}" ]]; then
+      info "Prowler providers: defaulting to aws,gcp,googleworkspace (override with prowler_providers)"
+    fi
+  fi
+}
+
+datadog_api_base_url() {
+  local site="$1"
+  case "$site" in
+    datadoghq.com) echo "https://api.datadoghq.com" ;;
+    datadoghq.eu) echo "https://api.datadoghq.eu" ;;
+    us3.datadoghq.com) echo "https://api.us3.datadoghq.com" ;;
+    us5.datadoghq.com) echo "https://api.us5.datadoghq.com" ;;
+    ddog-gov.com) echo "https://api.ddog-gov.com" ;;
+    *) echo "https://api.${site}" ;;
+  esac
+}
+
+datadog_logs_intake_base_url() {
+  local site="$1"
+  case "$site" in
+    datadoghq.com|datadoghq.eu|us3.datadoghq.com|us5.datadoghq.com|ddog-gov.com)
+      echo "https://http-intake.logs.${site}"
+      ;;
+    *)
+      echo "https://http-intake.logs.${site}"
+      ;;
+  esac
+}
+
+datadog_api_request_with_retry() {
+  local method="$1"
+  local url="$2"
+  local output_file="$3"
+  local data_file="${4:-}"
+  local content_type="${5:-}"
+
+  local tmp_body tmp_headers http_code attempt reset_sec remaining reset_for_soft wait_sec
+  local last_http_code="000"
+  local debug_enabled="${CLAUDESEC_DEBUG:-0}"
+  local debug_verbose="${CLAUDESEC_DEBUG_VERBOSE:-0}"
+  local soft_throttle_threshold="${CLAUDESEC_DD_SOFT_THROTTLE_THRESHOLD:-2}"
+  local request_id="ddreq-$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
+  local dd_site_hint="${DD_SITE:-datadoghq.com}"
+  local api_key_set=0
+  local app_key_set=0
+  local auth_hint_printed=0
+
+  [[ -n "${DD_API_KEY:-${DATADOG_API_KEY:-}}" ]] && api_key_set=1
+  [[ -n "${DD_APP_KEY:-}" ]] && app_key_set=1
+
+  if [[ ! "$soft_throttle_threshold" =~ ^[0-9]+$ ]]; then
+    soft_throttle_threshold=2
+  fi
+  tmp_body=$(mktemp 2>/dev/null || echo "")
+  tmp_headers=$(mktemp 2>/dev/null || echo "")
+  [[ -n "$tmp_body" && -n "$tmp_headers" ]] || return 1
+
+  for attempt in 1 2 3; do
+    if [[ -n "$data_file" && -n "$content_type" ]]; then
+      http_code=$(run_with_timeout 20 curl -sS -X "$method" "$url" \
+        -H "DD-API-KEY: ${DD_API_KEY:-${DATADOG_API_KEY:-}}" \
+        -H "DD-APPLICATION-KEY: ${DD_APP_KEY:-}" \
+        -H "Accept: application/json" \
+        -H "Content-Type: ${content_type}" \
+        -d @"$data_file" \
+        -D "$tmp_headers" -o "$tmp_body" -w "%{http_code}" || echo "000")
+    else
+      http_code=$(run_with_timeout 20 curl -sS -X "$method" "$url" \
+        -H "DD-API-KEY: ${DD_API_KEY:-${DATADOG_API_KEY:-}}" \
+        -H "DD-APPLICATION-KEY: ${DD_APP_KEY:-}" \
+        -H "Accept: application/json" \
+        -D "$tmp_headers" -o "$tmp_body" -w "%{http_code}" || echo "000")
+    fi
+    last_http_code="$http_code"
+    if [[ "$debug_enabled" == "1" && "$debug_verbose" == "1" ]]; then
+      echo "[claudesec][debug] datadog request_id=${request_id} attempt=${attempt}/3 code=${http_code} url=${url}" >&2
+    fi
+    remaining=$(grep -i '^x-ratelimit-remaining:' "$tmp_headers" 2>/dev/null | head -1 | awk -F': ' '{print $2}' | tr -d '\r')
+    reset_for_soft=$(grep -i '^x-ratelimit-reset:' "$tmp_headers" 2>/dev/null | head -1 | awk -F': ' '{print $2}' | tr -d '\r')
+
+    if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
+      if [[ "$remaining" =~ ^[0-9]+$ && "$remaining" -le "$soft_throttle_threshold" ]]; then
+        wait_sec=1
+        if [[ "$reset_for_soft" =~ ^[0-9]+$ && "$reset_for_soft" -gt 0 && "$reset_for_soft" -le 10 ]]; then
+          wait_sec="$reset_for_soft"
+        fi
+        [[ "$debug_enabled" == "1" ]] && echo "[claudesec][debug] datadog soft-throttle remaining=${remaining} threshold=${soft_throttle_threshold} wait=${wait_sec}s url=${url}" >&2
+        sleep "$wait_sec"
+      fi
+      if [[ "$debug_enabled" == "1" && "$debug_verbose" == "1" ]]; then
+        echo "[claudesec][debug] datadog request_id=${request_id} success code=${http_code} url=${url}" >&2
+      fi
+      mv "$tmp_body" "$output_file" 2>/dev/null || cp "$tmp_body" "$output_file"
+      rm -f "$tmp_headers" "$tmp_body"
+      return 0
+    fi
+
+    if [[ ( "$http_code" == "401" || "$http_code" == "403" ) && "$auth_hint_printed" -eq 0 ]]; then
+      auth_hint_printed=1
+      echo "[claudesec][hint] datadog auth code=${http_code} site=${dd_site_hint} api_key_set=${api_key_set} app_key_set=${app_key_set} (check DD_SITE, key validity, and DD_APP_KEY scopes)" >&2
+    fi
+
+    if [[ "$http_code" == "429" && "$attempt" -lt 3 ]]; then
+      reset_sec=$(grep -i '^x-ratelimit-reset:' "$tmp_headers" 2>/dev/null | head -1 | awk -F': ' '{print $2}' | tr -d '\r')
+      if [[ "$reset_sec" =~ ^[0-9]+$ ]]; then
+        sleep "$reset_sec"
+      else
+        sleep $((attempt * 2))
+      fi
+      continue
+    fi
+
+    if [[ "$attempt" -lt 3 ]]; then
+      sleep $((attempt * 2))
+      continue
+    fi
+  done
+
+  [[ "$debug_enabled" == "1" ]] && echo "[claudesec][debug] datadog request_id=${request_id} failed code=${last_http_code} url=${url}" >&2
+  rm -f "$tmp_headers" "$tmp_body"
+  return 1
+}
+
+collect_datadog_dashboard_artifacts() {
+  local datadog_enabled="${CLAUDESEC_DATADOG_FETCH_CLOUD_SECURITY:-1}"
+  [[ "$datadog_enabled" == "0" ]] && return 0
+
+  local dd_api_key="${DD_API_KEY:-${DATADOG_API_KEY:-}}"
+  local dd_app_key="${DD_APP_KEY:-}"
+  [[ -n "$dd_api_key" && -n "$dd_app_key" ]] || return 0
+
+  local dd_site="${DD_SITE:-datadoghq.com}"
+  local dd_api_base
+  dd_api_base="$(datadog_api_base_url "$dd_site")"
+  local dd_intake_base
+  dd_intake_base="$(datadog_logs_intake_base_url "$dd_site")"
+  local dd_dir="${CLAUDESEC_DATADOG_DIR:-${SCAN_DIR}/.claudesec-datadog}"
+
+  mkdir -p "$dd_dir"
+
+  local to_ts from_1h_ts from_24h_ts
+  to_ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  from_1h_ts=$(date -u -v-1H +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d '1 hour ago' +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")
+  from_24h_ts=$(date -u -v-1d +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d '24 hours ago' +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")
+  [[ -n "$from_1h_ts" && -n "$from_24h_ts" ]] || return 0
+
+  local run_id
+  run_id="local-$(date +%s)"
+  local dd_service="${DD_SERVICE:-claudesec}"
+  local dd_env="${DD_ENV:-local}"
+  local dd_tags="service:${dd_service},env:${dd_env},ci_pipeline_id:${run_id}"
+  local dd_query="service:${dd_service} env:${dd_env} ci_pipeline_id:${run_id}"
+
+  cat > "$dd_dir/intake.json" <<JSON
+{
+  "message": "ClaudeSec local dashboard run",
+  "service": "${dd_service}",
+  "env": "${dd_env}",
+  "ci_pipeline_id": "${run_id}",
+  "status": "info",
+  "source": "claudesec-local"
+}
+JSON
+  run_with_timeout 15 curl -sS -X POST "${dd_intake_base}/v1/input?ddtags=${dd_tags}" \
+    -H "Content-Type: application/json" \
+    -H "DD-API-KEY: ${dd_api_key}" \
+    -d @"$dd_dir/intake.json" >/dev/null || true
+
+  cat > "$dd_dir/query.json" <<JSON
+{
+  "filter": {
+    "from": "${from_1h_ts}",
+    "to": "${to_ts}",
+    "query": "${dd_query}"
+  },
+  "sort": "timestamp",
+  "page": { "limit": 200 }
+}
+JSON
+  if ! datadog_api_request_with_retry "POST" "${dd_api_base}/api/v2/logs/events/search" "$dd_dir/datadog-logs.json" "$dd_dir/query.json" "application/json"; then
+    printf '{"data":[]}' > "$dd_dir/datadog-logs.json"
+  fi
+
+  cat > "$dd_dir/signals-query.json" <<JSON
+{
+  "filter": {
+    "from": "${from_24h_ts}",
+    "to": "${to_ts}",
+    "query": "security:cloud_security_management (severity:critical OR severity:high)"
+  },
+  "page": { "limit": 100 },
+  "sort": "timestamp"
+}
+JSON
+  if ! datadog_api_request_with_retry "POST" "${dd_api_base}/api/v2/security_monitoring/signals/search" "$dd_dir/datadog-cloud-signals.json" "$dd_dir/signals-query.json" "application/json"; then
+    printf '{"data":[]}' > "$dd_dir/datadog-cloud-signals.json"
+  fi
+
+  if ! datadog_api_request_with_retry "GET" "${dd_api_base}/api/v2/cases?page[size]=100" "$dd_dir/datadog-cases.json"; then
+    printf '{"data":[]}' > "$dd_dir/datadog-cases.json"
+  fi
+
+  python3 - "$dd_dir" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+base = Path(sys.argv[1])
+paths = {
+    base / "datadog-logs.json": base / "datadog-logs-sanitized.json",
+    base / "datadog-cloud-signals.json": base / "datadog-cloud-signals-sanitized.json",
+    base / "datadog-cases.json": base / "datadog-cases-sanitized.json",
+}
+
+def redact_text(text: str) -> str:
+    text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "<redacted-email>", text)
+    text = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "<redacted-ip>", text)
+    text = re.sub(r"\b\d{12}\b", "<redacted-account-id>", text)
+    return text
+
+def sanitize(obj):
+    if isinstance(obj, dict):
+        blocked = {
+            "email", "user_email", "ip", "ip_address", "host", "hostname",
+            "aws_account_id", "account_id", "principal_arn", "access_key_id",
+            "secret", "token", "authorization", "api_key",
+        }
+        out = {}
+        for k, v in obj.items():
+            if str(k).lower() in blocked:
+                out[k] = "<redacted>"
+            else:
+                out[k] = sanitize(v)
+        return out
+    if isinstance(obj, list):
+        return [sanitize(x) for x in obj]
+    if isinstance(obj, str):
+        return redact_text(obj)
+    return obj
+
+for src, dst in paths.items():
+    try:
+        with src.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = {"data": []}
+    with dst.open("w", encoding="utf-8") as f:
+        json.dump(sanitize(data), f, ensure_ascii=False)
+PY
+
+  rm -f "$dd_dir/intake.json" "$dd_dir/query.json" "$dd_dir/signals-query.json" \
+    "$dd_dir/datadog-logs.json" "$dd_dir/datadog-cloud-signals.json" "$dd_dir/datadog-cases.json"
+
+  if [[ "$FORMAT" == "text" && -z "${QUIET:-}" ]]; then
+    info "Datadog artifacts refreshed: ${dd_dir}/datadog-*-sanitized.json"
+  fi
+}
+
 run_scan_for_dashboard() {
   local start_time
   start_time=$(date +%s)
@@ -334,12 +918,16 @@ run_scan_for_dashboard() {
     IFS=',' read -ra categories <<< "$CATEGORY"
   fi
 
+  local categories_csv
+  categories_csv=$(IFS=,; echo "${categories[*]}")
+  configure_prowler_provider_defaults "$categories_csv"
+
   for cat in "${categories[@]}"; do
     local check_dir="$CHECKS_DIR/$cat"
     [[ -d "$check_dir" ]] || continue
     for check_file in "$check_dir"/*.sh; do
       [[ -f "$check_file" ]] || continue
-      if ! source "$check_file" 2>/dev/null; then
+      if ! source "$check_file" >/dev/null 2>&1; then
         warning "Check failed to load: $(basename "$check_file")"
       fi
     done
@@ -348,6 +936,6 @@ run_scan_for_dashboard() {
   SCAN_DURATION=$(( $(date +%s) - start_time ))
 }
 
-# ── Entry Point ──────────────────────────────────────────────────────────────
+# -- Entry Point --------------------------------------------------------------
 
 parse_args "$@"

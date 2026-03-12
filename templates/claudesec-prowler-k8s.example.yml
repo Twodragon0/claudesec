@@ -1,0 +1,33 @@
+# ClaudeSec — Prowler with Kubernetes scan
+# Copy to project root as .claudesec.yml to use a specific kubeconfig and AWS profile.
+# .claudesec.yml is gitignored — do not commit paths that contain company names,
+# personal folders, or other identifying information.
+#
+# AWS profile is read from aws_profile below; if unset, the first profile from
+# ~/.aws/credentials is used when running Prowler. Kubeconfig is used for
+# Prowler Kubernetes provider (and for kubectl access checks).
+#
+# Usage:
+#   cp templates/claudesec-prowler-k8s.example.yml .claudesec.yml
+#   Edit .claudesec.yml: set kubeconfig and aws_profile to your paths.
+#
+#   # Scan only (AWS + Kubernetes Prowler)
+#   ./scanner/claudesec scan -c prowler
+#
+#   # Dashboard with Prowler report (checks credentials + kubeconfig, runs Prowler, shows report)
+#   ./scanner/claudesec dashboard -c prowler
+#   ./scanner/claudesec dashboard -c prowler --serve
+#
+# CLI overrides: --kubeconfig / --aws-profile take precedence over this file.
+
+version: "0.1"
+
+scan:
+  severity: medium
+
+# Prowler / live scan — set to your local kubeconfig path (never commit real paths)
+kubeconfig: ~/.kube/config
+# AWS profile from ~/.aws/credentials (e.g. default, or a named profile)
+aws_profile: default
+aws_sso: all
+aws_sso_login_timeout: 90

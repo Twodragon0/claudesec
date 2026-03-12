@@ -14,8 +14,7 @@ If you discover a security vulnerability in ClaudeSec, please report it responsi
 
 ### How to Report
 
-- **Email**: [security@claudesec.dev](mailto:security@claudesec.dev)
-- **GitHub Security Advisory**: Use the [Report a Vulnerability](https://github.com/Twodragon0/claudesec/security/advisories/new) button on this repository
+- **GitHub Security Advisory**: Use the [Report a Vulnerability](https://github.com/Twodragon0/claudesec/security/advisories/new) page for this repository.
 
 ### Response Timeline
 

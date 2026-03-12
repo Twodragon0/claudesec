@@ -9,6 +9,7 @@ Thank you for your interest in contributing to ClaudeSec! This project aims to m
 - Use [GitHub Issues](https://github.com/Twodragon0/claudesec/issues) to report bugs or suggest features
 - Check existing issues before creating a new one
 - Use the provided issue templates
+- New contributors: look for issues labeled **`good first issue`** for smaller, guided tasks (see [.github/LABELS.md](.github/LABELS.md) for recommended labels and setup)
 
 ### Submitting Changes
 
@@ -72,7 +73,7 @@ Thank you for your interest in contributing to ClaudeSec! This project aims to m
 
 ## Code of Conduct
 
-Be respectful, constructive, and inclusive. We follow the [Contributor Covenant](https://www.contributor-covenant.org/).
+Be respectful, constructive, and inclusive. We follow the [Contributor Covenant](https://www.contributor-covenant.org/); see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for the full text and enforcement.
 
 ## Questions?
 
