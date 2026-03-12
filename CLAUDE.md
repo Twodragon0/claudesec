@@ -32,6 +32,13 @@ All documentation is in Markdown. No build system required.
 - Code blocks must specify language
 - Security claims must cite sources
 
+## GitHub Actions Policy
+
+- Keep a single CodeQL model: repository default setup only; do not add duplicate repo-level CodeQL workflow files.
+- Require local pre-PR validation for docs changes: `markdownlint "**/*.md"` and `lychee "**/*.md"`.
+- Treat external action download `401` as transient by default: rerun failed workflow up to 2 times before manual triage.
+- For Dependabot action PR conflicts: apply required action-version updates directly to `main`, then close duplicate/conflicting Dependabot PRs with rationale.
+
 ## Continuous Operations
 
 - Hourly automation entrypoint: `/Users/namyongkim/Desktop/.twodragon0/bin/hourly-opencode-git-pull.sh`
