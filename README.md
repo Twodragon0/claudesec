@@ -45,9 +45,10 @@ That’s it. Full scan runs, the HTML dashboard is generated, and a local server
 
 | Command | What it does |
 |--------|----------------|
-| `./run` | Full scan + dashboard + serve at `localhost:11777` |
+| `./run` | Full scan + dashboard + serve at `localhost:11777` (safe mode: `--kill-port`) |
 | `./run --no-serve` | Full scan + dashboard only (no server) |
 | `./run --quick` | Quick scan (3 categories) + dashboard + serve |
+| `./scripts/run-dashboard-safe.sh` | Full scan + serve with automatic port fallback/cleanup options |
 
 Or run the script directly:
 
@@ -55,6 +56,18 @@ Or run the script directly:
 ./scripts/run-full-dashboard.sh              # full + serve
 ./scripts/run-full-dashboard.sh --no-serve   # full, no server
 ./scripts/run-full-dashboard.sh --quick      # quick + serve
+./scripts/run-dashboard-safe.sh              # full + serve (auto fallback port when 11777 is busy)
+./scripts/run-dashboard-safe.sh --kill-port  # full + serve (terminate process occupying 11777)
+```
+
+Recommended day-to-day flow:
+
+```bash
+./scripts/run-dashboard-safe.sh --kill-port  # avoid port-conflict / stale-server issues
+./run --quick                                # fast smoke check
+./run --no-serve                             # final full scan artifact generation
+python3 -m http.server 11777 --bind 127.0.0.1 >/tmp/claudesec-dashboard-server.log 2>&1 &
+curl -fsS "http://127.0.0.1:11777/claudesec-dashboard.html" >/dev/null
 ```
 
 ### Not sure where to start?
@@ -118,6 +131,7 @@ AWS_SSO_LOGIN_TIMEOUT=20 CLAUDESEC_CI=1 CI=true ./scanner/claudesec scan -c prow
 # vars.CLAUDESEC_TOKEN_EXPIRY_GATE_MODE=24h
 # vars.CLAUDESEC_TOKEN_EXPIRY_PROVIDERS=github,okta,datadog,slack
 # vars.CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS=true
+# vars.CLAUDESEC_DD_ARTIFACT_RETENTION_DAYS=30   # valid range: 1-90
 ```
 
 Reusable workflow components:
@@ -156,8 +170,30 @@ export CLAUDESEC_TOKEN_EXPIRY_WARNING_24H="24h"
 export CLAUDESEC_TOKEN_EXPIRY_WARNING_7D="7d"
 ./scanner/claudesec dashboard --serve --host 127.0.0.1 --port 11665
 
+# Optional: populate OAuth readiness cards via ~/.claudesec.env (auto-loaded)
+cat > ~/.claudesec.env <<'EOF'
+GH_TOKEN=<github-token>
+GITHUB_TOKEN_EXPIRES_AT=2026-03-20T09:00:00Z
+OKTA_OAUTH_TOKEN=<okta-oauth-token>
+OKTA_OAUTH_TOKEN_EXPIRES_AT=2026-03-20T09:00:00Z
+EOF
+./run --no-serve
+
 # Datadog local auto-fetch
 DD_API_KEY=<your-dd-api-key> DD_APP_KEY=<your-dd-app-key> DD_SITE=datadoghq.com ./scanner/claudesec dashboard
+```
+
+### CI reproducibility check (dashboard regression gate)
+
+Use a deterministic check in CI to catch dashboard generation regressions:
+
+```bash
+./run --no-serve
+test -f claudesec-dashboard.html
+python3 -m http.server 11777 --bind 127.0.0.1 >/tmp/claudesec-dashboard-server.log 2>&1 &
+srv_pid=$!
+trap 'kill $srv_pid 2>/dev/null || true' EXIT
+curl -fsS "http://127.0.0.1:11777/claudesec-dashboard.html" >/dev/null
 ```
 
 Advanced scanner examples (AWS SSO role troubleshooting, kubeconfig/prowler, Microsoft source filter, Datadog troubleshooting) are kept in:

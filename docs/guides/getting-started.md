@@ -6,76 +6,139 @@ tags: [getting-started, setup, quickstart]
 
 # Getting Started with ClaudeSec
 
-## Prerequisites
+This guide follows the same scanner onboarding anchors as `README.md`.
+
+## Scanner Anchors
+
+- [Scanner Quick Start](#scanner-quick-start)
+- [Scanner CI Templates](#scanner-ci-templates)
+- [Scanner OAuth & Token Policy](#scanner-oauth--token-policy)
+- [Scanner SaaS Live Scan](#scanner-saas-live-scan)
+
+## Scanner Quick Start
+
+### Copy-paste minimal example
+
+```bash
+./scripts/run-scan.sh
+```
+
+Expected output: security scan starts and creates `scan-report.json` in the project root.
+
+### Prerequisites
 
 - Git
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
 - A project repository to secure
 
-## Step 1: Clone ClaudeSec
+### Clone and run
 
 ```bash
 git clone https://github.com/Twodragon0/claudesec.git
 cd claudesec
+
+./scripts/run-scan.sh
+./scanner/claudesec scan -d .
+./scanner/claudesec scan --category cloud
+./scanner/claudesec scan --severity high,critical
 ```
 
-## Step 2: Install Security Hooks
+## Scanner CI Templates
 
-Copy the Claude Code hooks to your project:
+### Copy-paste minimal example
 
 ```bash
-# From your project directory
-cp /path/to/claudesec/hooks/security-lint.sh .claude/hooks/
-cp /path/to/claudesec/hooks/secret-check.sh .claude/hooks/
-
-# Add hook configuration to your .claude/settings.json
-cat <<'EOF' >> .claude/settings.json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "command": "bash .claude/hooks/security-lint.sh"
-      }
-    ]
-  }
-}
-EOF
+./scripts/setup.sh /path/to/project
 ```
 
-## Step 3: Add GitHub Workflows
+Expected output: workflow templates and reusable actions are copied into the target repository.
+
+### Bootstrap a target repository
 
 ```bash
-cp /path/to/claudesec/templates/codeql.yml .github/workflows/
-cp /path/to/claudesec/templates/dependency-review.yml .github/workflows/
+./scripts/setup.sh /path/to/project
 ```
 
-## Step 4: Add Security Policy
+### Core templates
+
+- `templates/prowler.yml`
+- `templates/security-scan-suite.yml`
+- `templates/codeql.yml`
+- `templates/dependency-review.yml`
+
+### Reusable workflow components
+
+- `.github/actions/token-expiry-gate`
+- `.github/actions/datadog-ci-collect`
+
+### CI policy variables
+
+- `CLAUDESEC_STRICT_SSO`
+- `CLAUDESEC_TOKEN_EXPIRY_GATE_MODE`
+- `CLAUDESEC_TOKEN_EXPIRY_PROVIDERS`
+- `CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS`
+
+## Scanner OAuth & Token Policy
+
+### Copy-paste minimal example
 
 ```bash
-cp /path/to/claudesec/templates/SECURITY.md .github/
+export OKTA_OAUTH_TOKEN="<okta-oauth-access-token>"
+./scanner/claudesec scan -c saas
 ```
 
-## Step 5: Configure Dependabot
+Expected output: SaaS checks run with OAuth-first paths; strict mode (if enabled) fails on missing required scopes.
+
+Okta automation should prefer scoped OAuth tokens over SSWS tokens.
+
+- Preferred: `OKTA_OAUTH_TOKEN`
+- Fallback: `OKTA_API_TOKEN`
+- Strict scope mode: `CLAUDESEC_STRICT_OKTA_SCOPES=1`
+- Scope customization: `CLAUDESEC_OKTA_REQUIRED_SCOPES`
 
 ```bash
-cp /path/to/claudesec/templates/dependabot.yml .github/
+export OKTA_ORG_URL="https://dev-123456.okta.com"
+export OKTA_OAUTH_TOKEN="<okta-oauth-access-token>"
+export CLAUDESEC_OKTA_REQUIRED_SCOPES="okta.users.read,okta.policies.read,okta.logs.read"
+export CLAUDESEC_STRICT_OKTA_SCOPES=1
+./scanner/claudesec scan -c saas
+```
+
+See [Okta OAuth guidance](https://developer.okta.com/docs/guides/implement-oauth-for-okta/main/#about-oauth-2-0-for-okta-api-endpoints).
+
+## Scanner SaaS Live Scan
+
+### Copy-paste minimal example
+
+```bash
+./scanner/claudesec dashboard --serve --host 127.0.0.1 --port 11665
+```
+
+Expected output: dashboard is generated and served locally at `http://127.0.0.1:11665`.
+
+### SaaS scan + dashboard
+
+```bash
+./scanner/claudesec scan -c saas
+
+export GH_TOKEN_EXPIRES_AT="2026-03-13T08:30:00Z"
+export OKTA_OAUTH_TOKEN_EXPIRES_AT="2026-03-13T09:00:00Z"
+export CLAUDESEC_TOKEN_EXPIRY_WARNING_24H="24h"
+export CLAUDESEC_TOKEN_EXPIRY_WARNING_7D="7d"
+
+./scanner/claudesec dashboard --serve --host 127.0.0.1 --port 11665
+```
+
+### Optional Datadog local fetch
+
+```bash
+DD_API_KEY=<your-dd-api-key> DD_APP_KEY=<your-dd-app-key> DD_SITE=datadoghq.com ./scanner/claudesec dashboard
 ```
 
 ## What's Next?
 
-1. Read the [DevSecOps Pipeline Guide](../devsecops/pipeline.md) for full CI/CD security
-2. Set up [Branch Protection](../github/branch-protection.md) for your repository
-3. Review the [LLM Security Checklist](../ai/llm-security-checklist.md) if using AI features
-4. Start a [Threat Modeling](../devsecops/threat-modeling.md) session for your application
-5. Align local and CI shell lint behavior with the [Shell Lint Policy](./shell-lint-policy.md)
-
-## Common Use Cases
-
-| I want to... | Guide |
-|---------------|-------|
-| Secure my CI/CD pipeline | [Pipeline Guide](../devsecops/pipeline.md) |
-| Set up code scanning | [GitHub Security Features](../github/security-features.md) |
-| Review code for security | [AI Code Review](../ai/code-review.md) |
-| Protect against prompt injection | [Prompt Injection Defense](../ai/prompt-injection.md) |
-| Build a security culture | [Security Champions](../devsecops/security-champions.md) |
+1. [Workflow Components](./workflow-components.md)
+2. [DevSecOps Pipeline Guide](../devsecops/pipeline.md)
+3. [Branch Protection](../github/branch-protection.md)
+4. [SaaS Best Practices Scans](./saas-best-practices-scans.md)
+5. [Shell Lint Policy](./shell-lint-policy.md)
