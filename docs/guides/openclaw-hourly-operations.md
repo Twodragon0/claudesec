@@ -22,6 +22,16 @@ Run ClaudeSec hourly with cron so the repository stays synced and improvement ar
 ```bash
 bash /Users/REDACTED_USER/Desktop/.twodragon0/bin/install-system-cron.sh
 bash /Users/REDACTED_USER/Desktop/.twodragon0/bin/setup-openclaw-cron.sh
+bash /Users/REDACTED_USER/Desktop/.twodragon0/bin/setup-gws-cli.sh
+bash /Users/REDACTED_USER/Desktop/.twodragon0/bin/finalize-gws-auth-and-verify.sh
+```
+
+## Verification
+
+```bash
+crontab -l
+openclaw cron list --json --all
+tail -n 50 ~/.twodragon0-runtime/logs/hourly-opencode-git-pull.log
 ```
 
 ## Optional Runtime Variables
@@ -29,6 +39,8 @@ bash /Users/REDACTED_USER/Desktop/.twodragon0/bin/setup-openclaw-cron.sh
 - `repos.list`: central repository registry
 - `openclaw_ultrawork_prompt.md`: centralized improvement prompt
 - `logs/*`: centralized run logs
+- `GWS_ENABLED=true`: enable optional gws integration in hourly runner
+- `GWS_COMMAND='<gws command>'`: execute gws command per repository (with `REPO_PATH`)
 
 ## Improvement Operation Model
 
