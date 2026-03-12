@@ -631,6 +631,10 @@ SCAN_REPORT_EOF
 
   if command -v python3 >/dev/null 2>&1 && [[ -f "$py_script" ]]; then
     # Use Python v0.5.0 generator
+    # Ensure dashboard-gen can resolve artifacts under the scan directory,
+    # even when the HTML output is generated from another working directory
+    # or when Prowler artifacts are absent.
+    CLAUDESEC_SCAN_DIR="${SCAN_DIR:-.}" \
     CLAUDESEC_PASSED="$PASSED" \
     CLAUDESEC_FAILED="$FAILED" \
     CLAUDESEC_WARNINGS="$WARNINGS" \
