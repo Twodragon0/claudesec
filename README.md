@@ -161,8 +161,11 @@ cp templates/claudesec-prowler-k8s.example.yml .claudesec.yml   # edit kubeconfi
 #                 GH_TOKEN, GITHUB_TOKEN,
 #                 OKTA_OAUTH_TOKEN, OKTA_API_TOKEN,
 #                 GH_TOKEN_EXPIRES_AT, GITHUB_TOKEN_EXPIRES_AT, OKTA_OAUTH_TOKEN_EXPIRES_AT,
+#                 DATADOG_TOKEN_EXPIRES_AT, DD_TOKEN_EXPIRES_AT, DD_API_KEY_EXPIRES_AT,
+#                 SLACK_TOKEN_EXPIRES_AT, SLACK_BOT_TOKEN_EXPIRES_AT,
 #                 CLAUDESEC_STRICT_OKTA_SCOPES,
 #                 CLAUDESEC_OKTA_REQUIRED_SCOPES,
+#                 CLAUDESEC_TOKEN_EXPIRY_PROVIDERS,
 #                 CLAUDESEC_TOKEN_EXPIRY_WARNING_24H, CLAUDESEC_TOKEN_EXPIRY_WARNING_7D
 # Override path with: CLAUDESEC_ENV_FILE=/path/to/.env
 # Datadog CI tags used by workflow query standard:
@@ -177,6 +180,7 @@ cp templates/claudesec-prowler-k8s.example.yml .claudesec.yml   # edit kubeconfi
 #   vars.GH_TOKEN_EXPIRES_AT=2026-03-20T09:00:00Z
 #   vars.OKTA_OAUTH_TOKEN_EXPIRES_AT=2026-03-20T09:00:00Z
 #   vars.CLAUDESEC_TOKEN_EXPIRY_GATE_MODE=24h   # 24h(default) | 7d | off
+#   vars.CLAUDESEC_TOKEN_EXPIRY_PROVIDERS=github,okta,datadog,slack
 # Workflow fails when token is expired or inside selected gate window.
 # Same gate policy is also applied in templates/security-scan-suite.yml.
 # Both templates call shared script: scripts/token-expiry-gate.py
@@ -221,6 +225,8 @@ export CLAUDESEC_TOKEN_EXPIRY_WARNING_7D="7d"     # accepts: 7d, 168h, 604800, e
 export CLAUDESEC_STRICT_OKTA_SCOPES=1
 # Required scopes: okta.users.read, okta.policies.read, okta.logs.read
 export CLAUDESEC_OKTA_REQUIRED_SCOPES="okta.users.read,okta.policies.read,okta.logs.read"
+# Optional token-expiry providers for CI gate script
+export CLAUDESEC_TOKEN_EXPIRY_PROVIDERS="github,okta,datadog,slack"
 ./scanner/claudesec scan -c saas
 
 # If OAuth token is not available yet, Okta API token fallback still works
