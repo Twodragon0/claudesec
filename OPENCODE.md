@@ -28,3 +28,10 @@ Use OpenCode as an automation operator for repetitive repository maintenance, es
 - Pull latest security updates hourly.
 - Execute scanner checks and dashboard generation after each pull.
 - Review dashboard deltas and scanner failures to prioritize fixes.
+
+## Optional gws CLI Integration
+
+- Install helper: `/Users/REDACTED_USER/Desktop/.twodragon0/bin/setup-gws-cli.sh`
+- Enable in hourly runner: `GWS_ENABLED=true`
+- Provide per-repo command: `GWS_COMMAND='<gws command>'` (runner exports `REPO_PATH`)
+- Run auth and end-to-end check: `/Users/REDACTED_USER/Desktop/.twodragon0/bin/finalize-gws-auth-and-verify.sh`
