@@ -14,8 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - name: Run shellcheck (pinned fallback via Docker)
-        run: ./scripts/lint-shell.sh
+      - name: Run ShellCheck (pinned action + pinned engine version)
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38
+        with:
+          version: v0.11.0
+          scandir: ./scripts
+          additional_files: run
+          check_together: 'yes'
 
   scanner-unit-tests:
     runs-on: ubuntu-latest
