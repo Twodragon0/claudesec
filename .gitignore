@@ -21,14 +21,17 @@ package-lock.json
 .claudesec.yml
 .claudesec.local.yml
 
-# Scan results (never commit scan reports)
+# Scan results (never commit — may contain PII, internal paths, findings)
 claudesec-dashboard.html
+claudesec-dashboard.*.html
+index.html
 *.scan-report.html
 *.scan-report.json
 docs/reports/scan-report*.md
 scanner/output/
 .claudesec-prowler/
 .claudesec-history/
+.claudesec-network/
 
 # Credentials & keys
 *.pem
@@ -38,7 +41,12 @@ scanner/output/
 *.secret
 credentials.json
 
-# --- Do not upload to GitHub: internal data, PII, IPs, accounts ---
+# Python (no commit)
+__pycache__/
+*.pyc
+*.pyo
+
+# --- Do not upload to GitHub: 개인정보·회사정보·PII·IP·계정 (no PII, company info, IPs, accounts) ---
 # Local overrides (may contain paths, accounts, internal IPs)
 *.local.yml
 *.local.yaml
