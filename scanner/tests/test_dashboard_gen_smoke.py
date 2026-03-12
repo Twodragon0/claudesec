@@ -558,6 +558,9 @@ class DashboardGenSmokeTest(unittest.TestCase):
             self.assertIn("Datadog case management summary", html)
             self.assertIn("Cloud signal", html)
             self.assertIn("Case title", html)
+            self.assertIn("ClaudeSec local security scanner results", html)
+            self.assertIn("Detail (Top findings)", html)
+            self.assertIn("Action plan", html)
 
 
 if __name__ == "__main__":
