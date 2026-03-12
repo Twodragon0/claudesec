@@ -5,8 +5,10 @@ Generates a tabbed HTML security dashboard from scan results and Prowler OCSF da
 """
 
 import base64
+import hashlib
 import json
 import os
+import shutil
 import sys
 import glob
 import urllib.request
@@ -20,6 +22,7 @@ from typing import Any, TypedDict
 # QueryPie Audit Points repo (SaaS/DevSecOps audit checklists)
 AUDIT_POINTS_REPO = "querypie/audit-points"
 AUDIT_POINTS_CACHE_TTL_HOURS = 24
+CLAUDESEC_DASHBOARD_OFFLINE_ENV = "CLAUDESEC_DASHBOARD_OFFLINE"
 
 MS_BEST_PRACTICES_CACHE_TTL_HOURS = 24
 MS_INCLUDE_SCUBAGEAR_ENV = "CLAUDESEC_MS_INCLUDE_SCUBAGEAR"
@@ -176,6 +179,7 @@ class NetworkToolResult(TypedDict):
     trivy_vulns: list[TrivyVuln]
     nmap_scans: list[NmapScan]
     sslscan_results: list[SSLScanResult]
+    network_report: dict[str, Any] | None
 
 
 class DatadogLogEntry(TypedDict):
@@ -431,6 +435,8 @@ def load_audit_points(scan_dir: str) -> AuditPointsData:
                         return data
                 except (ValueError, TypeError):
                     pass
+        if _is_env_truthy(CLAUDESEC_DASHBOARD_OFFLINE_ENV):
+            return {"products": [], "fetched_at": ""}
         fresh = _fetch_audit_points_from_github()
         if fresh:
             os.makedirs(cache_dir, exist_ok=True)
@@ -685,6 +691,13 @@ def load_microsoft_best_practices(scan_dir: str) -> MicrosoftBestPracticesData:
                         return data
                 except (ValueError, TypeError):
                     pass
+        if _is_env_truthy(CLAUDESEC_DASHBOARD_OFFLINE_ENV) or expected_filter == "none":
+            return {
+                "fetched_at": "",
+                "source_filter": expected_filter,
+                "scubagear_enabled": expected_scubagear,
+                "sources": [],
+            }
         fresh = _fetch_microsoft_best_practices_from_github()
         os.makedirs(cache_dir, exist_ok=True)
         with open(cache_file, "w", encoding="utf-8") as f:
@@ -708,9 +721,21 @@ def load_network_tool_results(network_dir: str) -> NetworkToolResult:
         "trivy_vulns": [],
         "nmap_scans": [],
         "sslscan_results": [],
+        "network_report": None,
     }
     if not network_dir or not os.path.isdir(network_dir):
         return out
+
+    report_path = os.path.join(network_dir, "network-report.v1.json")
+    if os.path.isfile(report_path):
+        try:
+            with open(report_path, encoding="utf-8") as f:
+                obj = json.load(f)
+            if isinstance(obj, dict):
+                out["network_report"] = obj
+        except (OSError, json.JSONDecodeError):
+            pass  # invalid network-report.v1.json
+
     trivy_fs_path = os.path.join(network_dir, "trivy-fs.json")
     if os.path.isfile(trivy_fs_path):
         try:
@@ -2359,6 +2384,20 @@ def build_auth_summary_html(envs, findings_list):
     window_24_label = _duration_label(warning_24h_seconds)
     window_7_label = _duration_label(warning_7d_seconds)
     token_expiry_items = _collect_token_expiry_items()
+    policy_007_count = 0
+    policy_022_count = 0
+    for f in findings_list or []:
+        text = (
+            str(f.get("id", ""))
+            + " "
+            + str(f.get("title", ""))
+            + " "
+            + str(f.get("details", ""))
+        ).upper()
+        if "SAAS-API-007" in text:
+            policy_007_count += 1
+        if "SAAS-API-022" in text:
+            policy_022_count += 1
     expiring_24h = []
     expiring_7d = []
     expired = []
@@ -2493,6 +2532,11 @@ def build_auth_summary_html(envs, findings_list):
             else f'<div style="margin-top:.45rem;color:var(--muted);font-size:.8rem">No known tokens are expiring within {h(window_7_label)}.</div>'
         )
         + "</div>"
+        + '<div style="margin-bottom:.9rem"><strong>Policy Coverage</strong>'
+        + '<div style="margin-top:.35rem;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:.6rem">'
+        + f'<div class="stat-pill {("sp-warn" if policy_007_count > 0 else "sp-info")}" style="margin:0"><div class="sp-icon">🔒</div><div><div class="sp-num">{policy_007_count}</div><div class="sp-label">Permission gaps (SAAS-API-007)</div></div></div>'
+        + f'<div class="stat-pill {("sp-warn" if policy_022_count > 0 else "sp-info")}" style="margin:0"><div class="sp-icon">🧭</div><div><div class="sp-num">{policy_022_count}</div><div class="sp-label">Policy mapping gaps (SAAS-API-022)</div></div></div>'
+        + "</div></div>"
         + '<div><strong>Best-practice improvements</strong><ul style="margin:.5rem 0 0 1.1rem">'
         + practices_html
         + "</ul></div>"
@@ -2715,14 +2759,20 @@ def _build_overview_blocks(
     findings_list=None,
 ):
     findings_list = findings_list or []
+    datadog_data = datadog_data or {}
+    net_data = net_data or {}
     n_crit = sum(v["critical"] for v in prov_summary.values())
     n_high = sum(v["high"] for v in prov_summary.values())
     n_med = sum(v["medium"] for v in prov_summary.values())
     n_low = sum(v["low"] for v in prov_summary.values())
     n_info = sum(v.get("informational", 0) for v in prov_summary.values())
     # Merge scanner findings into severity counts for unified bar
+    policy_022_top = 0
     for f in findings_list:
         sev = (f.get("severity") or "").lower()
+        fid = str(f.get("id") or "").upper()
+        if "SAAS-API-022" in fid:
+            policy_022_top += 1
         if sev == "critical":
             n_crit += 1
         elif sev == "high":
@@ -2857,6 +2907,268 @@ def _build_overview_blocks(
         str(network_total) if network_total else ("✓" if has_network_artifacts else "—")
     )
     network_tools_html = ""
+
+    def _redact_target(value: str) -> str:
+        show = os.environ.get("CLAUDESEC_DASHBOARD_SHOW_IDENTIFIERS", "0") == "1"
+        v = (value or "").strip()
+        if show or not v:
+            return v
+        h10 = hashlib.sha256(v.encode("utf-8")).hexdigest()[:10]
+        return f"target-{h10}"
+
+    def _rel_link(path: str, label: str | None = None) -> str:
+        # Keep links relative so they work under `python -m http.server` and file://.
+        p = (path or "").lstrip("/")
+        text = label or p
+        return f'<a href="{h(p)}" class="mono" style="color:var(--accent);text-decoration:underline">{h(text)}</a>'
+
+    def _has_cmd(cmd: str) -> bool:
+        try:
+            return shutil.which(cmd) is not None
+        except Exception:
+            return False
+
+    def _cmd_pill(name: str, present: bool, note: str = "") -> str:
+        cls = "env-on" if present else "env-off"
+        dot = (
+            '<span class="ep-st on">●</span>'
+            if present
+            else '<span class="ep-st off">○</span>'
+        )
+        note_html = (
+            f'<div style="margin-top:.2rem;color:var(--muted);font-size:.72rem">{h(note)}</div>'
+            if note
+            else ""
+        )
+        return (
+            f'<div class="env-pill {cls}" style="display:block">'
+            f'<div style="display:flex;align-items:center;gap:.4rem">'
+            f'<span class="ep-name">{h(name)}</span>{dot}'
+            f"</div>{note_html}</div>"
+        )
+
+    # Always show a "cockpit" card so this tab is useful even without artifacts.
+    net_enabled = os.environ.get("CLAUDESEC_NETWORK_SCAN_ENABLED", "0")
+    net_targets = os.environ.get("CLAUDESEC_NETWORK_SCAN_TARGETS", "")
+    trivy_enabled = os.environ.get("CLAUDESEC_TRIVY_ENABLED", "1")
+    network_tools_html += '<div class="card"><div class="card-title">Network &amp; security tools — cockpit</div><div style="padding:1rem 1.25rem">'
+    network_tools_html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;margin-bottom:.9rem">'
+    network_tools_html += f'<div class="ssb-item"><strong>network_scan_enabled</strong><div class="mono" style="margin-top:.25rem">{h(net_enabled)}</div></div>'
+    network_tools_html += f'<div class="ssb-item"><strong>network_scan_targets</strong><div class="mono" style="margin-top:.25rem;word-break:break-all">{h(net_targets or "(empty)")}</div></div>'
+    network_tools_html += f'<div class="ssb-item"><strong>trivy_enabled</strong><div class="mono" style="margin-top:.25rem">{h(trivy_enabled)}</div></div>'
+    network_tools_html += "</div>"
+    network_tools_html += (
+        '<div style="color:var(--muted);font-size:.82rem;line-height:1.6">'
+    )
+    network_tools_html += "<div><strong>Quick start (safe defaults)</strong></div>"
+    network_tools_html += '<div class="mono" style="margin-top:.35rem;white-space:pre-wrap;border:1px solid var(--border);border-radius:10px;padding:.75rem;background:rgba(255,255,255,.02)">'
+    network_tools_html += "export CLAUDESEC_NETWORK_SCAN_ENABLED=1\n"
+    network_tools_html += (
+        'export CLAUDESEC_NETWORK_SCAN_TARGETS="example.com:443,https://example.com"\n'
+    )
+    network_tools_html += "./scanner/claudesec dashboard -d . --serve --all\n"
+    network_tools_html += "</div>"
+    network_tools_html += '<div style="margin-top:.6rem">Artifacts are written to <code>.claudesec-network/</code> and summarized into <code>network-report.v1.json</code>. Targets are redacted in the dashboard by default (set <code>CLAUDESEC_DASHBOARD_SHOW_IDENTIFIERS=1</code> to reveal).</div>'
+    network_tools_html += "</div>"
+    network_tools_html += "</div></div>"
+
+    # Tooling detection + guidance (why empty / how to fill).
+    has_targets = bool((net_targets or "").strip())
+    is_net_enabled = str(net_enabled).strip() in ("1", "true", "yes", "on")
+    is_trivy_enabled = str(trivy_enabled).strip() not in ("0", "false", "no", "off")
+
+    has_trivy = _has_cmd("trivy")
+    has_nmap = _has_cmd("nmap")
+    has_sslscan = _has_cmd("sslscan")
+    has_testssl = _has_cmd("testssl.sh") or _has_cmd("testssl")
+    has_curl = _has_cmd("curl")
+    has_python = _has_cmd("python3")
+
+    network_tools_html += '<div class="card"><div class="card-title">Tooling readiness (auto-detected)</div><div style="padding:1rem 1.25rem">'
+    network_tools_html += '<div class="env-grid" style="padding:0">'
+    network_tools_html += _cmd_pill(
+        "python3", has_python, "required for normalization + dashboard"
+    )
+    network_tools_html += _cmd_pill("curl", has_curl, "required for HTTP header scan")
+    network_tools_html += _cmd_pill(
+        "trivy", has_trivy, "filesystem/config scan (.claudesec-network/trivy-*.json)"
+    )
+    network_tools_html += _cmd_pill(
+        "nmap", has_nmap, "optional port scan (when enabled + targets set)"
+    )
+    network_tools_html += _cmd_pill(
+        "sslscan", has_sslscan, "optional TLS scan (when enabled + targets set)"
+    )
+    network_tools_html += _cmd_pill(
+        "testssl.sh", has_testssl, "optional TLS scan alternative"
+    )
+    network_tools_html += "</div>"
+
+    # Why sections are empty (explain with concrete next steps).
+    missing_notes: list[str] = []
+    if not is_net_enabled:
+        missing_notes.append(
+            "`CLAUDESEC_NETWORK_SCAN_ENABLED` is not enabled, so deep network checks (nmap/sslscan/http headers) won't run."
+        )
+    if is_net_enabled and not has_targets:
+        missing_notes.append(
+            "No targets configured: set `CLAUDESEC_NETWORK_SCAN_TARGETS` (comma-separated hosts/URLs)."
+        )
+    if is_net_enabled and has_targets and not has_curl:
+        missing_notes.append("`curl` not found: HTTP header scan can't run.")
+    if is_net_enabled and has_targets and not (has_sslscan or has_testssl):
+        missing_notes.append(
+            "Neither `sslscan` nor `testssl.sh` found: TLS grade section will be empty."
+        )
+    if is_trivy_enabled and not has_trivy:
+        missing_notes.append(
+            "`trivy` not found: Trivy section will be empty (install Trivy or disable with `CLAUDESEC_TRIVY_ENABLED=0`)."
+        )
+
+    # If artifacts still missing despite tooling, hint where to look.
+    report = net_data.get("network_report")
+    report_targets = report.get("targets", []) if isinstance(report, dict) else []
+    has_http_artifacts = bool(report_targets)
+    has_tls_artifacts = any(
+        isinstance(t, dict) and isinstance(t.get("tls"), dict)
+        for t in (report_targets or [])
+        if isinstance(report_targets, list)
+    )
+    has_header_artifacts = any(
+        isinstance(t, dict) and isinstance(t.get("http"), dict)
+        for t in (report_targets or [])
+        if isinstance(report_targets, list)
+    )
+    if is_net_enabled and has_targets and has_curl and not has_header_artifacts:
+        missing_notes.append(
+            "HTTP header artifacts not found yet. Re-run dashboard generation after enabling network scan; expected files: `.claudesec-network/http-headers-*.txt` and `network-report.v1.json`."
+        )
+    if (
+        is_net_enabled
+        and has_targets
+        and (has_sslscan or has_testssl)
+        and not has_tls_artifacts
+    ):
+        missing_notes.append(
+            "TLS artifacts not found yet. Expected files: `.claudesec-network/sslscan-*.json` and `network-report.v1.json`."
+        )
+
+    if missing_notes:
+        network_tools_html += '<div style="margin-top:.85rem;border-top:1px solid var(--border);padding-top:.85rem">'
+        network_tools_html += (
+            '<div style="font-weight:800;margin-bottom:.35rem">Why is it empty?</div>'
+        )
+        network_tools_html += (
+            '<ul style="margin-left:1.1rem;color:var(--muted);line-height:1.7">'
+        )
+        for m in missing_notes[:8]:
+            network_tools_html += f"<li>{h(m)}</li>"
+        network_tools_html += "</ul>"
+        network_tools_html += "</div>"
+
+    network_tools_html += '<div style="margin-top:.9rem;border-top:1px solid var(--border);padding-top:.85rem">'
+    network_tools_html += '<div style="font-weight:800;margin-bottom:.35rem">Recommended install commands</div>'
+    network_tools_html += '<div class="mono" style="white-space:pre-wrap;border:1px solid var(--border);border-radius:10px;padding:.75rem;background:rgba(255,255,255,.02)">'
+    network_tools_html += "# macOS (Homebrew)\n"
+    network_tools_html += "brew install curl nmap sslscan\n"
+    network_tools_html += "brew install aquasecurity/trivy/trivy\n"
+    network_tools_html += "\n# testssl.sh (optional)\n"
+    network_tools_html += "brew install testssl || true\n"
+    network_tools_html += "</div>"
+    network_tools_html += '<div style="margin-top:.5rem;color:var(--muted);font-size:.78rem;line-height:1.6">'
+    network_tools_html += "Tip: in CI, prefer pinned tool versions and run with least privilege. Only scan explicitly configured external targets."
+    network_tools_html += "</div></div>"
+    network_tools_html += "</div></div>"
+
+    # Artifact links (best-effort)
+    artifacts = [
+        ".claudesec-network/network-report.v1.json",
+        ".claudesec-network/trivy-fs.json",
+        ".claudesec-network/trivy-config.json",
+        ".claudesec-datadog/datadog-logs-sanitized.json",
+        ".claudesec-datadog/datadog-cloud-signals-sanitized.json",
+        ".claudesec-datadog/datadog-cases-sanitized.json",
+    ]
+    existing = []
+    for rel in artifacts:
+        try:
+            if os.path.isfile(rel):
+                existing.append(rel)
+        except Exception:
+            pass
+    if existing:
+        network_tools_html += '<div class="card"><div class="card-title">Artifacts (quick links)</div><div style="padding:1rem 1.25rem">'
+        network_tools_html += '<ul style="margin-left:1.2rem;line-height:1.7">'
+        for rel in existing:
+            network_tools_html += f"<li>{_rel_link(rel)}</li>"
+        network_tools_html += "</ul></div></div>"
+
+    # Target posture table from normalized network report (preferred)
+    report = net_data.get("network_report")
+    targets = report.get("targets", []) if isinstance(report, dict) else []
+    if isinstance(targets, list) and targets:
+        network_tools_html += '<div class="card"><div class="card-title">Target posture (HTTP/TLS/DNS summary)</div><div style="max-height:60vh;overflow-y:auto">'
+        network_tools_html += '<table><thead><tr><th style="width:170px">Target</th><th style="width:70px">DNS</th><th style="width:70px">TLS</th><th style="width:70px">HTTP</th><th style="width:80px">HSTS</th><th style="width:110px">CSP</th><th class="r" style="width:90px">Header issues</th></tr></thead><tbody>'
+        for t in targets[:50]:
+            if not isinstance(t, dict):
+                continue
+            raw_target = str(t.get("target") or t.get("host") or "")
+            label = _redact_target(raw_target)
+            dns_raw = t.get("dns")
+            dns = dns_raw if isinstance(dns_raw, dict) else {}
+            ips = dns.get("ips") if isinstance(dns, dict) else []
+            dns_cnt = len(ips) if isinstance(ips, list) else 0
+            tls_raw = t.get("tls")
+            tls = tls_raw if isinstance(tls_raw, dict) else {}
+            tls_grade = str(tls.get("grade") or "unknown")
+            http_raw = t.get("http")
+            http = http_raw if isinstance(http_raw, dict) else {}
+            http_status = http.get("status") or 0
+            hsts_raw = http.get("hsts")
+            hsts = hsts_raw if isinstance(hsts_raw, dict) else None
+            hsts_max = hsts.get("max_age") if isinstance(hsts, dict) else None
+            hsts_txt = str(hsts_max) if isinstance(hsts_max, int) else "—"
+            csp_raw = http.get("csp")
+            csp = csp_raw if isinstance(csp_raw, dict) else {}
+            csp_q = str(csp.get("quality") or "unknown")
+            issues_raw = http.get("issues")
+            issues = issues_raw if isinstance(issues_raw, list) else []
+            issue_cnt = len(issues)
+
+            detail = ""
+            chain_raw = http.get("redirect_chain")
+            chain = chain_raw if isinstance(chain_raw, list) else []
+            if chain or issues:
+                detail += '<div style="color:var(--muted);line-height:1.6">'
+                if chain:
+                    detail += '<div style="margin-bottom:.35rem"><strong>Redirect chain</strong></div><div class="mono" style="white-space:pre-wrap">'
+                    for hop in chain[:10]:
+                        if not isinstance(hop, dict):
+                            continue
+                        detail += f"{h(str(hop.get('status', '')))} → {h(str(hop.get('location') or ''))}\n"
+                    detail += "</div>"
+                if issues:
+                    detail += '<div style="margin-top:.65rem;margin-bottom:.35rem"><strong>Header issues</strong></div>'
+                    for it in issues[:20]:
+                        if not isinstance(it, dict):
+                            continue
+                        sev = (it.get("severity") or "low").lower()
+                        sev_cls = (
+                            "medium"
+                            if sev in ("medium", "warning")
+                            else ("high" if sev in ("high", "critical") else "low")
+                        )
+                        detail += f'<div style="margin:.2rem 0">{sev_badge(sev_cls)} <code>{h(str(it.get("id", "")))}</code> {h(str(it.get("title", "")))}</div>'
+                    if len(issues) > 20:
+                        detail += f'<div style="margin-top:.35rem">… and {len(issues) - 20} more</div>'
+                detail += "</div>"
+
+            onclick = ' onclick="toggleRow(this)"' if detail else ""
+            row_cls = ' class="expandable"' if detail else ""
+            network_tools_html += f'<tr{row_cls}{onclick}><td class="mono">{h(label)}</td><td>{dns_cnt}</td><td class="mono">{h(tls_grade)}</td><td class="mono">{h(str(http_status))}</td><td class="mono">{h(hsts_txt)}</td><td class="mono">{h(csp_q)}</td><td class="r">{issue_cnt}</td></tr>'
+            if detail:
+                network_tools_html += f'<tr class="row-detail"><td colspan="7"><div class="detail-panel">{detail}</div></td></tr>'
+        network_tools_html += "</tbody></table></div></div>"
     if (
         net_data["trivy_fs"] is not None
         or net_data["nmap_scans"]
@@ -2900,7 +3212,7 @@ def _build_overview_blocks(
                 network_tools_html += f'<div><strong>{h(s["name"])}</strong> <span style="color:var(--muted)">(JSON data available)</span></div>'
             network_tools_html += "</div></div>"
 
-    dd_summary = datadog_data["summary"]
+    dd_summary = datadog_data.get("summary") or {}
     if dd_summary.get("total", 0) > 0:
         network_tools_html += '<div class="card"><div class="card-title">Datadog CI log summary</div><div style="padding:1rem 1.25rem">'
         network_tools_html += '<table><thead><tr><th>Level</th><th class="r">Count</th></tr></thead><tbody>'
@@ -2911,7 +3223,7 @@ def _build_overview_blocks(
         network_tools_html += "</tbody></table></div></div>"
         network_tools_html += '<div class="card"><div class="card-title">Datadog CI logs (latest 100)</div><div style="max-height:50vh;overflow-y:auto">'
         network_tools_html += '<table><thead><tr><th style="width:160px">Timestamp</th><th style="width:100px">Level</th><th style="width:160px">Source</th><th>Message</th></tr></thead><tbody>'
-        for row in datadog_data["logs"][:100]:
+        for row in (datadog_data.get("logs") or [])[:100]:
             sev = row.get("severity", "unknown")
             sev_cls = (
                 "low"
@@ -2925,7 +3237,7 @@ def _build_overview_blocks(
             network_tools_html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("source", "-"))}</td><td>{h(row.get("message", ""))}</td></tr>'
         network_tools_html += "</tbody></table></div></div>"
 
-    dd_signal_summary = datadog_data["signal_summary"]
+    dd_signal_summary = datadog_data.get("signal_summary") or {}
     if dd_signal_summary.get("total", 0) > 0:
         network_tools_html += '<div class="card"><div class="card-title">Datadog Cloud Security signals summary</div><div style="padding:1rem 1.25rem">'
         network_tools_html += '<table><thead><tr><th>Severity</th><th class="r">Count</th></tr></thead><tbody>'
@@ -2936,7 +3248,7 @@ def _build_overview_blocks(
         network_tools_html += "</tbody></table></div></div>"
         network_tools_html += '<div class="card"><div class="card-title">Datadog Cloud Security signals (critical/high first)</div><div style="max-height:50vh;overflow-y:auto">'
         network_tools_html += '<table><thead><tr><th style="width:150px">Timestamp</th><th style="width:90px">Severity</th><th style="width:110px">Status</th><th style="width:180px">Rule</th><th>Title</th></tr></thead><tbody>'
-        for row in datadog_data["signals"][:100]:
+        for row in (datadog_data.get("signals") or [])[:100]:
             sev = row.get("severity", "unknown")
             sev_cls = {
                 "critical": "critical",
@@ -2948,7 +3260,7 @@ def _build_overview_blocks(
             network_tools_html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("status", ""))}</td><td class="mono">{h(row.get("rule", ""))}</td><td>{h(row.get("title", ""))}</td></tr>'
         network_tools_html += "</tbody></table></div></div>"
 
-    dd_case_summary = datadog_data["case_summary"]
+    dd_case_summary = datadog_data.get("case_summary") or {}
     if dd_case_summary.get("total", 0) > 0:
         network_tools_html += '<div class="card"><div class="card-title">Datadog case management summary</div><div style="padding:1rem 1.25rem">'
         network_tools_html += '<table><thead><tr><th>Priority/Severity</th><th class="r">Count</th></tr></thead><tbody>'
@@ -2971,14 +3283,14 @@ def _build_overview_blocks(
             network_tools_html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("status", ""))}</td><td class="mono">{h(row.get("rule", ""))}</td><td>{h(row.get("title", ""))}</td></tr>'
         network_tools_html += "</tbody></table></div></div>"
 
-    if not network_tools_html:
-        network_tools_html = '<div class="card"><div class="card-title">Network &amp; security tools</div><div style="padding:1rem 1.25rem;color:var(--muted)">Trivy, Nmap, SSLScan, Datadog CI logs/signals/cases appear here after scan artifacts are generated. Expected paths: <code>.claudesec-network/</code> and <code>.claudesec-datadog/</code>.</div></div>'
+    # network_tools_html always contains at least the cockpit card now.
     return {
         "n_crit": n_crit,
         "n_high": n_high,
         "n_med": n_med,
         "n_low": n_low,
         "n_info": n_info,
+        "policy_022_top": policy_022_top,
         "prov_cards": prov_cards,
         "bar_crit": bar_crit,
         "bar_high": bar_high,
@@ -3066,6 +3378,7 @@ _TEMPLATE_KEYS = [
     "N_MED",
     "N_LOW",
     "N_WARN",
+    "POLICY_022_TOP",
     "N_INFO",
     "TOTAL_PASSED",
     "TOTAL_PROWLER_FAIL",
@@ -3158,38 +3471,37 @@ def _get_architecture_diagram_html(output_file, scan_dir: str = ""):
     from a different working directory than the scan artifacts.
     """
     candidates = []
+    # Prefer the one-screen overview SVG when available.
+    preferred_names = [
+        "claudesec-overview.svg",
+        "claudesec-architecture.svg",
+    ]
     if scan_dir:
         try:
-            candidates.append(
-                os.path.join(
-                    os.path.abspath(scan_dir),
-                    "docs",
-                    "architecture",
-                    "claudesec-architecture.svg",
+            for name in preferred_names:
+                candidates.append(
+                    os.path.join(
+                        os.path.abspath(scan_dir),
+                        "docs",
+                        "architecture",
+                        name,
+                    )
                 )
-            )
         except Exception:
             pass
     if output_file:
         out_dir = os.path.dirname(os.path.abspath(output_file))
         if out_dir:
-            candidates.append(
-                os.path.join(
-                    out_dir, "docs", "architecture", "claudesec-architecture.svg"
-                )
-            )
+            for name in preferred_names:
+                candidates.append(os.path.join(out_dir, "docs", "architecture", name))
     cwd = os.getcwd()
-    candidates.append(
-        os.path.join(cwd, "docs", "architecture", "claudesec-architecture.svg")
-    )
+    for name in preferred_names:
+        candidates.append(os.path.join(cwd, "docs", "architecture", name))
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         repo_root = os.path.dirname(os.path.dirname(script_dir))
-        candidates.append(
-            os.path.join(
-                repo_root, "docs", "architecture", "claudesec-architecture.svg"
-            )
-        )
+        for name in preferred_names:
+            candidates.append(os.path.join(repo_root, "docs", "architecture", name))
     except Exception:
         pass
     for svg_path in candidates:
@@ -3198,7 +3510,12 @@ def _get_architecture_diagram_html(output_file, scan_dir: str = ""):
                 with open(svg_path, "r", encoding="utf-8") as f:
                     svg_content = f.read()
                 b64 = base64.b64encode(svg_content.encode("utf-8")).decode("ascii")
-                return f'<img src="data:image/svg+xml;base64,{b64}" alt="ClaudeSec Architecture" style="max-width:100%;height:auto;display:block;border-radius:8px" />'
+                label = (
+                    "ClaudeSec Overview Architecture"
+                    if svg_path.endswith("claudesec-overview.svg")
+                    else "ClaudeSec Architecture"
+                )
+                return f'<img src="data:image/svg+xml;base64,{b64}" alt="{label}" style="max-width:100%;height:auto;display:block;border-radius:8px" />'
             except Exception:
                 continue
     return f'<div class="arch-diagram-wrap">{_INLINE_ARCH_SVG}</div>'
@@ -3206,7 +3523,9 @@ def _get_architecture_diagram_html(output_file, scan_dir: str = ""):
 
 def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     network_dir = os.environ.get("CLAUDESEC_NETWORK_DIR", "")
-    scan_dir = os.environ.get("CLAUDESEC_SCAN_DIR", "") or os.environ.get("SCAN_DIR", "")
+    scan_dir = os.environ.get("CLAUDESEC_SCAN_DIR", "") or os.environ.get(
+        "SCAN_DIR", ""
+    )
     if scan_dir:
         scan_dir = os.path.abspath(scan_dir)
     if not scan_dir and prowler_dir and os.path.isdir(prowler_dir):
@@ -3487,6 +3806,28 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     prov_count = len(prov_summary)
     hist_count = len(history)
     scope_parts = [f"Scanner ({total} checks)"]
+    scanner_cat_labels = []
+    scanner_cats_seen = sorted(
+        {
+            str(f.get("category", "")).strip().lower()
+            for f in findings_list
+            if str(f.get("category", "")).strip()
+        }
+    )
+    for cat in scanner_cats_seen:
+        meta = CATEGORY_META.get(cat)
+        scanner_cat_labels.append(meta["label"] if meta else cat)
+    scanner_cat_count = len(scanner_cat_labels)
+
+    def _middle_ellipsis(text, max_len=64):
+        raw = str(text or "")
+        if len(raw) <= max_len:
+            return raw
+        keep = max_len - 3
+        left = keep // 2
+        right = keep - left
+        return raw[:left] + "..." + raw[-right:]
+
     if prov_count:
         scope_parts.append(
             f"Prowler ({prov_count} provider{'s' if prov_count != 1 else ''})"
@@ -3503,10 +3844,22 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         or (datadog_data.get("summary", {}).get("total", 0) > 0)
     ):
         scope_parts.append("Network / Datadog")
+    local_targets = "source code, config files, CI workflows, environment artifacts"
+    scanner_cat_text = (
+        ", ".join(scanner_cat_labels)
+        if scanner_cat_labels
+        else "No fail/warn categories in this run (checks may be pass/skip only)."
+    )
+    scan_root_short = _middle_ellipsis(scan_dir, 68)
     scan_scope_html = (
-        '<p style="font-size:.8rem;color:var(--muted);margin-top:.5rem;padding:.5rem 0;border-top:1px solid var(--border)"><strong style="color:var(--text)">Data in this view:</strong> '
+        '<div style="font-size:.8rem;color:var(--muted);margin-top:.5rem;padding:.55rem 0;border-top:1px solid var(--border)">'
+        + '<strong style="color:var(--text)">Data in this view:</strong> '
         + " · ".join(scope_parts)
-        + "</p>"
+        + f'<div style="margin-top:.35rem"><strong style="color:var(--text)">Scanned locally:</strong> {h(local_targets)}</div>'
+        + f'<div style="margin-top:.25rem"><strong style="color:var(--text)">Local scanner categories detected:</strong> <span class="trust-badge trust-ms" style="margin-left:.35rem">{scanner_cat_count} categories</span> {h(scanner_cat_text)}</div>'
+        + f'<div style="margin-top:.25rem"><strong style="color:var(--text)">Scan root:</strong> <code class="scan-root-path" title="{h(scan_dir)}">{h(scan_root_short)}</code></div>'
+        + '<div style="margin-top:.4rem;display:flex;flex-wrap:wrap;gap:.75rem"><a href="#" onclick="switchTab(\'overview\',\'scanner-section\');return false;" style="color:var(--accent);text-decoration:underline;font-weight:600">Open local scanner results</a><a href="#" onclick="switchTab(\'prowler\');return false;" style="color:var(--accent);text-decoration:underline;font-weight:600">Open Prowler summary</a></div>'
+        + "</div>"
     )
     auth_summary_html = build_auth_summary_html(envs, findings_list)
     repo_url = f"https://github.com/{AUDIT_POINTS_REPO}"
@@ -3669,6 +4022,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     n_med = overview["n_med"]
     n_low = overview["n_low"]
     n_info = overview["n_info"]
+    policy_022_top = overview["policy_022_top"]
     prov_cards = overview["prov_cards"]
     bar_crit = overview["bar_crit"]
     bar_high = overview["bar_high"]
@@ -3703,6 +4057,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         n_med,
         n_low,
         warnings,
+        policy_022_top,
         n_info,
         total_passed,
         total_prowler_fail,
@@ -3844,6 +4199,7 @@ tr:last-child td{border-bottom:none}
 .scanner-cats{display:flex;flex-wrap:wrap;gap:.4rem;padding:.6rem 1.25rem}
 .scat-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.25rem .55rem;border-radius:6px;font-size:.72rem;background:rgba(255,255,255,.04);border:1px solid var(--border);cursor:default}
 .scat-icon{font-size:.85rem}.scat-label{font-weight:600;color:var(--text)}.scat-cnt{font-weight:700;color:var(--accent);min-width:1.2rem;text-align:center;background:rgba(59,130,246,.12);border-radius:4px;padding:0 .3rem}
+.scan-root-path{display:inline-block;max-width:min(100%,520px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
 .scanner-table .cat-header td{background:rgba(59,130,246,.06);font-weight:700;font-size:.85rem;padding:.55rem 1rem;border-bottom:2px solid var(--accent);letter-spacing:.01em}
 .cat-hdr-icon{margin-right:.35rem;font-size:.95rem}
 .cat-hdr-desc{display:block;font-size:.72rem;font-weight:400;color:var(--muted);margin-top:.2rem;line-height:1.4}
@@ -4050,6 +4406,7 @@ footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem
   <div class="stats-row stats-etc">
     <div class="stat-pill sp-pass"><div class="sp-icon">✓</div><div><div class="sp-num">{{TOTAL_PASSED}}</div><div class="sp-label">Passed</div></div></div>
     <div class="stat-pill sp-warn"><div class="sp-icon">⚠</div><div><div class="sp-num">{{N_WARN}}</div><div class="sp-label">Warnings</div></div></div>
+    <div class="stat-pill sp-warn"><div class="sp-icon">🧭</div><div><div class="sp-num">{{POLICY_022_TOP}}</div><div class="sp-label">Policy gaps (022)</div></div></div>
     <div class="stat-pill sp-info"><div class="sp-icon">ℹ</div><div><div class="sp-num">{{N_INFO}}</div><div class="sp-label">Info</div></div></div>
     <div class="stat-pill sp-skip"><div class="sp-icon">—</div><div><div class="sp-num">{{SKIPPED}}</div><div class="sp-label">Skipped</div></div></div>
   </div>
@@ -4138,8 +4495,8 @@ footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem
   <!-- Scanner findings (categorized) -->
   <div class="card scanner-card" id="scanner-section">
     <div class="card-title scanner-card-title">
-      <span>🛡️ ClaudeSec local security scanner results</span>
-      <span class="scanner-subtitle">Security issues from static analysis of project source, config, and environment</span>
+      <span><a href="#" onclick="switchTab('overview','scanner-section');return false;" style="color:var(--text);text-decoration:underline;text-underline-offset:3px">🛡️ ClaudeSec local security scanner results</a></span>
+      <span class="scanner-subtitle">Security issues from static analysis of project source, config, CI workflows, and environment artifacts</span>
     </div>
     <div class="scanner-summary-bar">
       <div class="ssb-item ssb-total"><strong>{{SCANNER_TOTAL}}</strong> checks</div>

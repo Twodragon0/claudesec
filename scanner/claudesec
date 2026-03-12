@@ -165,7 +165,7 @@ load_external_env() {
       val="${val%\"}"; val="${val#\"}"
       val="${val%\'}"; val="${val#\'}"
       case "$key" in
-        DD_API_KEY|DATADOG_API_KEY|DD_APP_KEY|DD_SITE|GOOGLE_WORKSPACE_CUSTOMER_ID|GOOGLE_APPLICATION_CREDENTIALS|GH_TOKEN|GITHUB_TOKEN|OKTA_OAUTH_TOKEN|OKTA_API_TOKEN|GITHUB_TOKEN_EXPIRES_AT|GH_TOKEN_EXPIRES_AT|OKTA_OAUTH_TOKEN_EXPIRES_AT|DATADOG_TOKEN_EXPIRES_AT|DD_TOKEN_EXPIRES_AT|DD_API_KEY_EXPIRES_AT|SLACK_TOKEN_EXPIRES_AT|SLACK_BOT_TOKEN_EXPIRES_AT|CLAUDESEC_STRICT_OKTA_SCOPES|CLAUDESEC_OKTA_REQUIRED_SCOPES|CLAUDESEC_TOKEN_EXPIRY_PROVIDERS|CLAUDESEC_TOKEN_EXPIRY_WARNING_24H|CLAUDESEC_TOKEN_EXPIRY_WARNING_7D)
+        DD_API_KEY|DATADOG_API_KEY|DD_APP_KEY|DD_SITE|GOOGLE_WORKSPACE_CUSTOMER_ID|GOOGLE_APPLICATION_CREDENTIALS|GH_TOKEN|GITHUB_TOKEN|OKTA_OAUTH_TOKEN|OKTA_API_TOKEN|GITHUB_TOKEN_EXPIRES_AT|GH_TOKEN_EXPIRES_AT|OKTA_OAUTH_TOKEN_EXPIRES_AT|DATADOG_TOKEN_EXPIRES_AT|DD_TOKEN_EXPIRES_AT|DD_API_KEY_EXPIRES_AT|SLACK_TOKEN_EXPIRES_AT|SLACK_BOT_TOKEN_EXPIRES_AT|CLAUDESEC_STRICT_OKTA_SCOPES|CLAUDESEC_OKTA_REQUIRED_SCOPES|CLAUDESEC_TOKEN_EXPIRY_PROVIDERS|CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS|CLAUDESEC_TOKEN_EXPIRY_WARNING_24H|CLAUDESEC_TOKEN_EXPIRY_WARNING_7D)
           if [[ -z "${!key:-}" && -n "$val" ]]; then
             export "$key=$val"
           fi
@@ -252,11 +252,17 @@ serve_dashboard() {
   local html_path="$1"
   local host="${2:-127.0.0.1}"
   local port="${3:-11777}"
+  local abs_dir abs_file url direct_url
 
   if [[ ! -f "$html_path" ]]; then
     error "Dashboard file not found: $html_path"
     return 1
   fi
+
+  abs_dir="$(cd "$(dirname "$html_path")" && pwd)"
+  abs_file="$(basename "$html_path")"
+  url="http://${host}:${port}/"
+  direct_url="http://${host}:${port}/${abs_file}"
 
   # Fail fast if the port is already in use to avoid confusing "silent" hangs.
   if command -v python3 >/dev/null 2>&1; then
@@ -277,14 +283,31 @@ finally:
 sys.exit(0)
 PY
     then
+      if python3 - "$direct_url" <<'PY' 2>/dev/null
+import sys
+import urllib.request
+
+u = sys.argv[1]
+req = urllib.request.Request(u, headers={"User-Agent": "claudesec/serve-check"})
+with urllib.request.urlopen(req, timeout=3) as res:
+    body = res.read(8192).decode("utf-8", errors="ignore").lower()
+    if res.status >= 400:
+        sys.exit(1)
+    if "claudesec" not in body and "dashboard" not in body:
+        sys.exit(1)
+sys.exit(0)
+PY
+      then
+        warning "Port ${host}:${port} is already in use; detected reachable dashboard. Reusing existing server."
+        echo -e "  ${DIM}Dashboard URL: ${BOLD}${direct_url}${NC}"
+        open_url_best_effort "$direct_url"
+        return 0
+      fi
       error "Port ${host}:${port} is already in use. Choose another port with: claudesec dashboard --serve --port <port>"
       return 1
     fi
   fi
 
-  local abs_dir abs_file url
-  abs_dir="$(cd "$(dirname "$html_path")" && pwd)"
-  abs_file="$(basename "$html_path")"
   # Ensure "/" renders the dashboard by writing an index.html redirect.
   # This keeps the generated dashboard filename stable while making localhost root convenient.
   cat > "${abs_dir}/index.html" <<EOF
@@ -301,7 +324,6 @@ PY
   </body>
 </html>
 EOF
-  url="http://${host}:${port}/"
 
   echo -e "  ${DIM}Serving dashboard on: ${BOLD}${url}${NC}"
   echo -e "  ${DIM}Press Ctrl+C to stop.${NC}"
@@ -326,6 +348,7 @@ parse_args() {
 
   case "$cmd" in
     scan)
+      local aws_sso_cli=0 aws_sso_all_cli=0
       while [[ $# -gt 0 ]]; do
         case "$1" in
           -c|--category)
@@ -346,13 +369,15 @@ parse_args() {
           --kubecontext) export CLAUDESEC_KUBECONTEXT="$2"; shift 2 ;;
           --kubeconfig) export KUBECONFIG="$2"; shift 2 ;;
           --kube-namespace) export CLAUDESEC_KUBE_NAMESPACE="$2"; shift 2 ;;
-          --aws-sso) AWS_SSO_FORCE=1; shift ;;
-          --aws-sso-all) AWS_SSO_FORCE=1; export AWS_SSO_SCAN_ALL=1; shift ;;
+          --aws-sso) AWS_SSO_FORCE=1; aws_sso_cli=1; shift ;;
+          --aws-sso-all) AWS_SSO_FORCE=1; export AWS_SSO_SCAN_ALL=1; aws_sso_all_cli=1; shift ;;
           --env-file) ENV_SCAN_FILES+=("$2"); shift 2 ;;
           -V|--version) echo "claudesec v$VERSION"; exit 0 ;;
           *) error "Unknown option: $1"; usage; exit 1 ;;
         esac
       done
+      export CLAUDESEC_AWS_SSO_CLI="$aws_sso_cli"
+      export CLAUDESEC_AWS_SSO_ALL_CLI="$aws_sso_all_cli"
       run_scan
       ;;
     init) run_init ;;
@@ -363,11 +388,12 @@ parse_args() {
       local html_output="claudesec-dashboard.html"
       local serve=0 serve_host="127.0.0.1" serve_port="11777"
       local dashboard_all=0
+      local aws_sso_cli=0 aws_sso_all_cli=0
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --aws-profile) export AWS_PROFILE="$2"; export AWS_DEFAULT_PROFILE="$2"; shift 2 ;;
-          --aws-sso) AWS_SSO_FORCE=1; shift ;;
-          --aws-sso-all) AWS_SSO_FORCE=1; export AWS_SSO_SCAN_ALL=1; shift ;;
+          --aws-sso) AWS_SSO_FORCE=1; aws_sso_cli=1; shift ;;
+          --aws-sso-all) AWS_SSO_FORCE=1; export AWS_SSO_SCAN_ALL=1; aws_sso_all_cli=1; shift ;;
           --kubecontext) export CLAUDESEC_KUBECONTEXT="$2"; shift 2 ;;
           --kubeconfig) export KUBECONFIG="$2"; shift 2 ;;
           --kube-namespace) export CLAUDESEC_KUBE_NAMESPACE="$2"; shift 2 ;;
@@ -387,6 +413,9 @@ parse_args() {
       load_config
       [[ -n "${COMPLIANCE:-}" ]] && export CLAUDESEC_COMPLIANCE="$COMPLIANCE"
       load_external_env
+      if [[ ! -t 0 && "$aws_sso_cli" != "1" && "$aws_sso_all_cli" != "1" ]]; then
+        unset AWS_SSO_SCAN_ALL AWS_SSO_FORCE 2>/dev/null || true
+      fi
       # When dashboard includes prowler, allow AWS/K8s connection (SSO, kubeconfig).
       # Otherwise keep non-interactive for fast local-only dashboard.
       if [[ ",${CATEGORY}," != *",prowler,"* ]]; then
@@ -469,6 +498,9 @@ run_scan() {
   load_config
   [[ -n "${COMPLIANCE:-}" ]] && export CLAUDESEC_COMPLIANCE="$COMPLIANCE"
   load_external_env
+  if [[ ! -t 0 && "${CLAUDESEC_AWS_SSO_CLI:-0}" != "1" && "${CLAUDESEC_AWS_SSO_ALL_CLI:-0}" != "1" ]]; then
+    unset AWS_SSO_SCAN_ALL AWS_SSO_FORCE 2>/dev/null || true
+  fi
 
   # Find profile/API key from config when not set (no slow network calls here)
   aws_ensure_profile_found 2>/dev/null || true
@@ -688,15 +720,21 @@ datadog_api_request_with_retry() {
   local soft_throttle_threshold="${CLAUDESEC_DD_SOFT_THROTTLE_THRESHOLD:-2}"
   local request_id="ddreq-$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
   local dd_site_hint="${DD_SITE:-datadoghq.com}"
+  local dd_api_base_hint
+  dd_api_base_hint="$(datadog_api_base_url "$dd_site_hint")"
   local api_key_set=0
   local app_key_set=0
   local auth_hint_printed=0
+  local soft_throttle_enabled=1
 
   [[ -n "${DD_API_KEY:-${DATADOG_API_KEY:-}}" ]] && api_key_set=1
   [[ -n "${DD_APP_KEY:-}" ]] && app_key_set=1
 
   if [[ ! "$soft_throttle_threshold" =~ ^[0-9]+$ ]]; then
     soft_throttle_threshold=2
+  fi
+  if [[ "$soft_throttle_threshold" -eq 0 ]]; then
+    soft_throttle_enabled=0
   fi
   tmp_body=$(mktemp 2>/dev/null || echo "")
   tmp_headers=$(mktemp 2>/dev/null || echo "")
@@ -707,6 +745,7 @@ datadog_api_request_with_retry() {
       http_code=$(run_with_timeout 20 curl -sS -X "$method" "$url" \
         -H "DD-API-KEY: ${DD_API_KEY:-${DATADOG_API_KEY:-}}" \
         -H "DD-APPLICATION-KEY: ${DD_APP_KEY:-}" \
+        -H "X-Request-ID: ${request_id}" \
         -H "Accept: application/json" \
         -H "Content-Type: ${content_type}" \
         -d @"$data_file" \
@@ -715,6 +754,7 @@ datadog_api_request_with_retry() {
       http_code=$(run_with_timeout 20 curl -sS -X "$method" "$url" \
         -H "DD-API-KEY: ${DD_API_KEY:-${DATADOG_API_KEY:-}}" \
         -H "DD-APPLICATION-KEY: ${DD_APP_KEY:-}" \
+        -H "X-Request-ID: ${request_id}" \
         -H "Accept: application/json" \
         -D "$tmp_headers" -o "$tmp_body" -w "%{http_code}" || echo "000")
     fi
@@ -726,7 +766,7 @@ datadog_api_request_with_retry() {
     reset_for_soft=$(grep -i '^x-ratelimit-reset:' "$tmp_headers" 2>/dev/null | head -1 | awk -F': ' '{print $2}' | tr -d '\r')
 
     if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
-      if [[ "$remaining" =~ ^[0-9]+$ && "$remaining" -le "$soft_throttle_threshold" ]]; then
+      if [[ "$soft_throttle_enabled" -eq 1 && "$remaining" =~ ^[0-9]+$ && "$remaining" -le "$soft_throttle_threshold" ]]; then
         wait_sec=1
         if [[ "$reset_for_soft" =~ ^[0-9]+$ && "$reset_for_soft" -gt 0 && "$reset_for_soft" -le 10 ]]; then
           wait_sec="$reset_for_soft"
@@ -744,7 +784,7 @@ datadog_api_request_with_retry() {
 
     if [[ ( "$http_code" == "401" || "$http_code" == "403" ) && "$auth_hint_printed" -eq 0 ]]; then
       auth_hint_printed=1
-      echo "[claudesec][hint] datadog auth code=${http_code} site=${dd_site_hint} api_key_set=${api_key_set} app_key_set=${app_key_set} (check DD_SITE, key validity, and DD_APP_KEY scopes)" >&2
+      echo "[claudesec][hint] datadog auth code=${http_code} site=${dd_site_hint} base_url=${dd_api_base_hint} api_key_set=${api_key_set} app_key_set=${app_key_set} (check DD_SITE, key validity, and DD_APP_KEY scopes; recommended DD_SITE: datadoghq.com|datadoghq.eu|us3.datadoghq.com|ddog-gov.com)" >&2
     fi
 
     if [[ "$http_code" == "429" && "$attempt" -lt 3 ]]; then

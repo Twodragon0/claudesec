@@ -1,0 +1,172 @@
+name: Datadog CI Collect
+description: Collect and sanitize Datadog CI logs/signals/cases
+
+inputs:
+  dd-api-key:
+    description: Datadog API key
+    required: true
+  dd-app-key:
+    description: Datadog application key
+    required: true
+  dd-site:
+    description: Datadog site
+    required: false
+    default: datadoghq.com
+  dd-service:
+    description: Service tag value
+    required: false
+    default: prowler
+  dd-env:
+    description: Environment tag value
+    required: false
+    default: ci
+  ci-pipeline-id:
+    description: Pipeline identifier
+    required: true
+  dd-tags:
+    description: Optional custom Datadog tags
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Collect Datadog artifacts
+      shell: bash
+      env:
+        DD_API_KEY: ${{ inputs.dd-api-key }}
+        DD_APP_KEY: ${{ inputs.dd-app-key }}
+        DD_SITE: ${{ inputs.dd-site }}
+        DD_SERVICE: ${{ inputs.dd-service }}
+        DD_ENV: ${{ inputs.dd-env }}
+        CI_PIPELINE_ID: ${{ inputs.ci-pipeline-id }}
+        DD_TAGS: ${{ inputs.dd-tags }}
+      run: |
+        set -euo pipefail
+        mkdir -p .claudesec-datadog
+        DD_LOG_INTAKE_BASE="https://http-intake.logs.${DD_SITE}"
+        case "${DD_SITE}" in
+          datadoghq.com) DD_API_BASE="https://api.datadoghq.com" ;;
+          datadoghq.eu) DD_API_BASE="https://api.datadoghq.eu" ;;
+          us3.datadoghq.com) DD_API_BASE="https://api.us3.datadoghq.com" ;;
+          us5.datadoghq.com) DD_API_BASE="https://api.us5.datadoghq.com" ;;
+          ddog-gov.com) DD_API_BASE="https://api.ddog-gov.com" ;;
+          *) DD_API_BASE="https://api.${DD_SITE}" ;;
+        esac
+        if [[ -z "${DD_TAGS}" ]]; then
+          DD_TAGS="service:${DD_SERVICE},env:${DD_ENV},ci_pipeline_id:${CI_PIPELINE_ID}"
+        fi
+        DD_REQUEST_ID="ddreq-${CI_PIPELINE_ID}-$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
+        TO_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        FROM_TS=$(date -u -d '1 hour ago' +"%Y-%m-%dT%H:%M:%SZ")
+        FROM_24H_TS=$(date -u -d '24 hours ago' +"%Y-%m-%dT%H:%M:%SZ")
+        DD_QUERY="service:${DD_SERVICE} env:${DD_ENV} ci_pipeline_id:${CI_PIPELINE_ID}"
+        cat > .claudesec-datadog/intake.json <<JSON
+        {
+          "message": "ClaudeSec Prowler CI workflow run",
+          "service": "${DD_SERVICE}",
+          "env": "${DD_ENV}",
+          "ci_pipeline_id": "${CI_PIPELINE_ID}",
+          "status": "info",
+          "source": "claudesec-ci"
+        }
+        JSON
+        curl -sS -X POST "${DD_LOG_INTAKE_BASE}/v1/input?ddtags=${DD_TAGS}" \
+          -H "Content-Type: application/json" \
+          -H "DD-API-KEY: ${DD_API_KEY}" \
+          -H "X-Request-ID: ${DD_REQUEST_ID}" \
+          -d @.claudesec-datadog/intake.json >/dev/null
+        cat > .claudesec-datadog/query.json <<'JSON'
+        {
+          "filter": {
+            "from": "__FROM__",
+            "to": "__TO__",
+            "query": "__QUERY__"
+          },
+          "sort": "timestamp",
+          "page": { "limit": 200 }
+        }
+        JSON
+        sed -i "s/__FROM__/${FROM_TS}/g; s/__TO__/${TO_TS}/g; s/__QUERY__/${DD_QUERY//\//\\\/}/g" .claudesec-datadog/query.json
+        curl -sS -X POST "${DD_API_BASE}/api/v2/logs/events/search" \
+          -H "Content-Type: application/json" \
+          -H "DD-API-KEY: ${DD_API_KEY}" \
+          -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
+          -H "X-Request-ID: ${DD_REQUEST_ID}" \
+          -d @.claudesec-datadog/query.json \
+          > .claudesec-datadog/datadog-logs.json
+        cat > .claudesec-datadog/signals-query.json <<'JSON'
+        {
+          "filter": {
+            "from": "__FROM24H__",
+            "to": "__TO__",
+            "query": "security:cloud_security_management (severity:critical OR severity:high)"
+          },
+          "page": { "limit": 100 },
+          "sort": "timestamp"
+        }
+        JSON
+        sed -i "s/__FROM24H__/${FROM_24H_TS}/g; s/__TO__/${TO_TS}/g" .claudesec-datadog/signals-query.json
+        if ! curl -sS -X POST "${DD_API_BASE}/api/v2/security_monitoring/signals/search" \
+          -H "Content-Type: application/json" \
+          -H "DD-API-KEY: ${DD_API_KEY}" \
+          -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
+          -H "X-Request-ID: ${DD_REQUEST_ID}" \
+          -d @.claudesec-datadog/signals-query.json \
+          > .claudesec-datadog/datadog-cloud-signals.json; then
+          printf '{"data":[]}' > .claudesec-datadog/datadog-cloud-signals.json
+        fi
+        if ! curl -sS -X GET "${DD_API_BASE}/api/v2/cases?page[size]=100" \
+          -H "DD-API-KEY: ${DD_API_KEY}" \
+          -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
+          -H "X-Request-ID: ${DD_REQUEST_ID}" \
+          > .claudesec-datadog/datadog-cases.json; then
+          printf '{"data":[]}' > .claudesec-datadog/datadog-cases.json
+        fi
+        python3 - <<'PY'
+        import json
+        import re
+
+        paths = {
+            ".claudesec-datadog/datadog-logs.json": ".claudesec-datadog/datadog-logs-sanitized.json",
+            ".claudesec-datadog/datadog-cloud-signals.json": ".claudesec-datadog/datadog-cloud-signals-sanitized.json",
+            ".claudesec-datadog/datadog-cases.json": ".claudesec-datadog/datadog-cases-sanitized.json",
+        }
+
+        def redact_text(text: str) -> str:
+            text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "<redacted-email>", text)
+            text = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "<redacted-ip>", text)
+            text = re.sub(r"\b\d{12}\b", "<redacted-account-id>", text)
+            return text
+
+        def sanitize(obj):
+            if isinstance(obj, dict):
+                blocked = {
+                    "email", "user_email", "ip", "ip_address", "host", "hostname",
+                    "aws_account_id", "account_id", "principal_arn", "access_key_id",
+                    "secret", "token", "authorization", "api_key",
+                }
+                out = {}
+                for k, v in obj.items():
+                    if k.lower() in blocked:
+                        out[k] = "<redacted>"
+                    else:
+                        out[k] = sanitize(v)
+                return out
+            if isinstance(obj, list):
+                return [sanitize(x) for x in obj]
+            if isinstance(obj, str):
+                return redact_text(obj)
+            return obj
+
+        for src, dst in paths.items():
+            try:
+                with open(src, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {"data": []}
+            sanitized = sanitize(data)
+            with open(dst, "w", encoding="utf-8") as f:
+                json.dump(sanitized, f, ensure_ascii=False)
+        PY
+        rm -f .claudesec-datadog/datadog-logs.json .claudesec-datadog/datadog-cloud-signals.json .claudesec-datadog/datadog-cases.json .claudesec-datadog/query.json .claudesec-datadog/signals-query.json .claudesec-datadog/intake.json

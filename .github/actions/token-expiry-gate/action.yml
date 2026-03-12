@@ -1,0 +1,67 @@
+name: Token Expiry Gate
+description: Gate workflow based on token expiry metadata
+
+inputs:
+  providers:
+    description: Comma-separated providers to check
+    required: false
+    default: github,okta
+  strict-providers:
+    description: Fail when selected provider metadata is missing
+    required: false
+    default: "false"
+  gate-mode:
+    description: Expiry gate mode (24h, 7d, off)
+    required: false
+    default: 24h
+  gh-token-expires-at:
+    description: GH_TOKEN_EXPIRES_AT value
+    required: false
+    default: ""
+  github-token-expires-at:
+    description: GITHUB_TOKEN_EXPIRES_AT value
+    required: false
+    default: ""
+  okta-oauth-token-expires-at:
+    description: OKTA_OAUTH_TOKEN_EXPIRES_AT value
+    required: false
+    default: ""
+  datadog-token-expires-at:
+    description: DATADOG_TOKEN_EXPIRES_AT value
+    required: false
+    default: ""
+  dd-token-expires-at:
+    description: DD_TOKEN_EXPIRES_AT value
+    required: false
+    default: ""
+  dd-api-key-expires-at:
+    description: DD_API_KEY_EXPIRES_AT value
+    required: false
+    default: ""
+  slack-token-expires-at:
+    description: SLACK_TOKEN_EXPIRES_AT value
+    required: false
+    default: ""
+  slack-bot-token-expires-at:
+    description: SLACK_BOT_TOKEN_EXPIRES_AT value
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Run token expiry gate
+      shell: bash
+      env:
+        CLAUDESEC_TOKEN_EXPIRY_GATE_MODE: ${{ inputs.gate-mode }}
+        CLAUDESEC_TOKEN_EXPIRY_PROVIDERS: ${{ inputs.providers }}
+        CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS: ${{ inputs.strict-providers }}
+        GH_TOKEN_EXPIRES_AT: ${{ inputs.gh-token-expires-at }}
+        GITHUB_TOKEN_EXPIRES_AT: ${{ inputs.github-token-expires-at }}
+        OKTA_OAUTH_TOKEN_EXPIRES_AT: ${{ inputs.okta-oauth-token-expires-at }}
+        DATADOG_TOKEN_EXPIRES_AT: ${{ inputs.datadog-token-expires-at }}
+        DD_TOKEN_EXPIRES_AT: ${{ inputs.dd-token-expires-at }}
+        DD_API_KEY_EXPIRES_AT: ${{ inputs.dd-api-key-expires-at }}
+        SLACK_TOKEN_EXPIRES_AT: ${{ inputs.slack-token-expires-at }}
+        SLACK_BOT_TOKEN_EXPIRES_AT: ${{ inputs.slack-bot-token-expires-at }}
+      run: python3 scripts/token-expiry-gate.py --providers "${CLAUDESEC_TOKEN_EXPIRY_PROVIDERS}" --strict-providers "${CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS}"

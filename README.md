@@ -79,201 +79,89 @@ AI coding assistants accelerate development — but speed without security creat
 
 ClaudeSec includes a zero-dependency bash scanner that checks your project for security best practices across 10 categories (~120+ checks). Optionally integrates with [Prowler](https://github.com/prowler-cloud/prowler) for deep multi-cloud scanning.
 
-**스캔 실행 (Run scan)**
+**Scanner anchors**
+- [Quick Start](#scanner-quick-start)
+- [CI Templates](#scanner-ci-templates)
+- [OAuth & Token Policy](#scanner-oauth-token-policy)
+- [SaaS Live Scan](#scanner-saas-live-scan)
+
+### Scanner Quick Start
 
 ```bash
-# From repo root: run full scan
+# From repo root
 ./scripts/run-scan.sh
 
-# Or call the scanner directly (use -d for scan directory)
+# Direct CLI
 ./scanner/claudesec scan -d .
-
-# Run all checks
-./scanner/claudesec scan
-
-# Scan specific categories
 ./scanner/claudesec scan --category cloud
-./scanner/claudesec scan --category ai,cicd
-
-# Filter by severity
 ./scanner/claudesec scan --severity high,critical
-
-# Output formats
 ./scanner/claudesec scan --format json
-./scanner/claudesec scan --format markdown
+```
 
-# With compliance mapping
-./scanner/claudesec scan --compliance iso27001
-./scanner/claudesec scan --compliance isms-p
+### Scanner CI Templates
 
-# AWS SSO login + cloud scan
-./scanner/claudesec scan -c cloud --aws-profile audit --aws-sso
-
-# Prowler deep scan (requires prowler installed)
+```bash
+# Prowler deep scan (requires prowler)
 ./scanner/claudesec scan -c prowler --aws-profile audit
-# Default provider set for `scan -c prowler`: aws,gcp,googleworkspace
-# Override in .claudesec.yml with: prowler_providers: aws,gcp,googleworkspace
 
-# AWS SSO: login ALL profiles from ~/.aws/config and scan each account
+# AWS SSO all profiles
 ./scanner/claudesec scan -c prowler --aws-sso-all
-# .claudesec.yml default is aws_sso: all
-# Optional: skip profile login after timeout (seconds)
-AWS_SSO_LOGIN_TIMEOUT=90 ./scanner/claudesec scan -c prowler --aws-sso-all
-# CI recommendation: reduce waiting + quieter logs (set both CLAUDESEC_CI and CI)
 AWS_SSO_LOGIN_TIMEOUT=20 CLAUDESEC_CI=1 CI=true ./scanner/claudesec scan -c prowler --aws-sso-all -f json
 
-# If a profile frequently fails with ForbiddenException (e.g., dd-535),
-# check AWS IAM Identity Center role assignment for that account/profile.
-# Quick verify sequence (admin profile required):
-# Required actions: sso:ListPermissionSets, sso:ListAccountAssignments, sso:ListInstances
-# aws sso-admin list-instances --query 'Instances[0].[InstanceArn,IdentityStoreId]' --output text
-# aws sso-admin list-permission-sets --instance-arn <InstanceArn> --max-results 10
-# aws identitystore list-users --identity-store-id <IdentityStoreId> --filters AttributePath=UserName,AttributeValue=<UserName>
-# aws sso-admin list-account-assignments --instance-arn <InstanceArn> --account-id <AccountId> --permission-set-arn <PermissionSetArn>
-# To always validate list-account-assignments in templates/prowler.yml, set these GitHub Actions secrets:
-# AWS_SSO_ACCOUNT_ID=<12-digit-account-id>
-# AWS_SSO_PERMISSION_SET_ARN=arn:aws:sso:::permissionSet/ssoins-.../ps-...
+# Strict SSO mode for templates/prowler.yml
+# vars.CLAUDESEC_STRICT_SSO=1
 
-# Prowler with Kubernetes (use .claudesec.yml or CLI; do not commit paths with company/personal paths)
-./scanner/claudesec scan -c prowler --kubeconfig /path/to/your/kubeconfig
-# Or set kubeconfig/aws_profile in .claudesec.yml (gitignored) and run: ./scanner/claudesec scan -c prowler
+# Token-expiry gate vars for templates/prowler.yml / templates/security-scan-suite.yml
+# vars.GH_TOKEN_EXPIRES_AT=2026-03-20T09:00:00Z
+# vars.OKTA_OAUTH_TOKEN_EXPIRES_AT=2026-03-20T09:00:00Z
+# vars.CLAUDESEC_TOKEN_EXPIRY_GATE_MODE=24h
+# vars.CLAUDESEC_TOKEN_EXPIRY_PROVIDERS=github,okta,datadog,slack
+# vars.CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS=true
+```
 
-# Dashboard with Prowler (checks ~/.aws/credentials profile + kubeconfig, runs AWS + K8s Prowler, shows report)
-cp templates/claudesec-prowler-k8s.example.yml .claudesec.yml   # edit kubeconfig + aws_profile
-./scanner/claudesec dashboard -c prowler
-./scanner/claudesec dashboard -c prowler --serve   # open at http://127.0.0.1:11665
+Reusable workflow components:
+- `.github/actions/token-expiry-gate`
+- `.github/actions/datadog-ci-collect`
 
-# Prowler multi-provider (AWS/K8s/LLM/Google Workspace/M365/Cloudflare/NHN)
-# 1) Copy example to local config (gitignored)
-#    cp templates/claudesec-prowler-multiprovider.example.yml .claudesec.yml
-# 2) Export required env vars (tokens/keys) and run:
-#    ./scanner/claudesec scan -c prowler
+### Scanner OAuth & Token Policy
 
-# Auto-load Datadog / Google Workspace credentials from ~/.claudesec.env
-# Supported keys: DD_API_KEY, DATADOG_API_KEY, DD_APP_KEY, DD_SITE,
-#                 GOOGLE_WORKSPACE_CUSTOMER_ID, GOOGLE_APPLICATION_CREDENTIALS,
-#                 GH_TOKEN, GITHUB_TOKEN,
-#                 OKTA_OAUTH_TOKEN, OKTA_API_TOKEN,
-#                 GH_TOKEN_EXPIRES_AT, GITHUB_TOKEN_EXPIRES_AT, OKTA_OAUTH_TOKEN_EXPIRES_AT,
-#                 DATADOG_TOKEN_EXPIRES_AT, DD_TOKEN_EXPIRES_AT, DD_API_KEY_EXPIRES_AT,
-#                 SLACK_TOKEN_EXPIRES_AT, SLACK_BOT_TOKEN_EXPIRES_AT,
-#                 CLAUDESEC_STRICT_OKTA_SCOPES,
-#                 CLAUDESEC_OKTA_REQUIRED_SCOPES,
-#                 CLAUDESEC_TOKEN_EXPIRY_PROVIDERS,
-#                 CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS,
-#                 CLAUDESEC_TOKEN_EXPIRY_WARNING_24H, CLAUDESEC_TOKEN_EXPIRY_WARNING_7D
-# Override path with: CLAUDESEC_ENV_FILE=/path/to/.env
-# Datadog CI tags used by workflow query standard:
-#   service:prowler env:ci ci_pipeline_id:<github.run_id>
-# Keep CI logs sanitized before upload; avoid raw emails/IP/account IDs in artifacts.
+Okta recommends **scoped OAuth 2.0 access tokens** over SSWS API tokens for automation.
 
-# Strict SSO mode for templates/prowler.yml:
-#   vars.CLAUDESEC_STRICT_SSO=1
-# Default is strict (1). missing AWS_SSO_ACCOUNT_ID/AWS_SSO_PERMISSION_SET_ARN fails the workflow.
-# Set vars.CLAUDESEC_STRICT_SSO=0 only when you intentionally allow skip behavior.
-# Token-expiry gate for templates/prowler.yml (pre-deploy safety gate):
-#   vars.GH_TOKEN_EXPIRES_AT=2026-03-20T09:00:00Z
-#   vars.OKTA_OAUTH_TOKEN_EXPIRES_AT=2026-03-20T09:00:00Z
-#   vars.CLAUDESEC_TOKEN_EXPIRY_GATE_MODE=24h   # 24h(default) | 7d | off
-#   vars.CLAUDESEC_TOKEN_EXPIRY_PROVIDERS=github,okta,datadog,slack
-#   vars.CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS=true
-# Workflow fails when token is expired or inside selected gate window.
-# Same gate policy is also applied in templates/security-scan-suite.yml.
-# Both templates call reusable composite action: .github/actions/token-expiry-gate
-# Datadog CI collection step in templates/prowler.yml uses: .github/actions/datadog-ci-collect
+- Preferred: `OKTA_OAUTH_TOKEN`
+- Fallback: `OKTA_API_TOKEN`
+- Strict scope check: `CLAUDESEC_STRICT_OKTA_SCOPES=1`
+- Required scopes override: `CLAUDESEC_OKTA_REQUIRED_SCOPES`
 
-# SaaS API scanning
-./scanner/claudesec scan -c saas
-
-### Onboarding: Okta
-
-Okta recommends using **scoped OAuth 2.0 access tokens** over SSWS API tokens for automation.
-
-- **Preferred**: `OKTA_OAUTH_TOKEN` (Bearer token)
-- **Fallback**: `OKTA_API_TOKEN` (SSWS token)
-
-**Why OAuth?**
-- **Least Privilege**: Scopes like `okta.users.read` limit access.
-- **Short-lived**: Tokens expire in 1 hour, reducing risk if leaked.
-- **Auditing**: Better visibility into which app is making requests.
-
-**Setup**:
-1. Create an OIDC Service App in Okta.
-2. Grant required scopes (e.g., `okta.users.read`).
-3. Use Client Credentials flow to get an access token.
-
-See [Okta Official Guidance](https://developer.okta.com/docs/guides/implement-oauth-for-okta/main/#about-oauth-2-0-for-okta-api-endpoints) for details.
-
-# OAuth-first SaaS scan examples (GitHub + Okta)
+```bash
 export OKTA_ORG_URL="https://dev-123456.okta.com"
-export OKTA_OAUTH_TOKEN="<okta-oauth-access-token>"   # preferred
-export GH_TOKEN="<github-token>"                       # or GITHUB_TOKEN
+export OKTA_OAUTH_TOKEN="<okta-oauth-access-token>"
+export GH_TOKEN="<github-token>"
+export CLAUDESEC_OKTA_REQUIRED_SCOPES="okta.users.read,okta.policies.read,okta.logs.read"
+export CLAUDESEC_STRICT_OKTA_SCOPES=1
+./scanner/claudesec scan -c saas
+```
+
+### Scanner SaaS Live Scan
+
+```bash
+# SaaS API scan
 ./scanner/claudesec scan -c saas
 
-# Optional expiry metadata for dashboard readiness warning (<24h)
+# Dashboard with token expiry windows
 export OKTA_OAUTH_TOKEN_EXPIRES_AT="2026-03-13T09:00:00Z"
 export GH_TOKEN_EXPIRES_AT="2026-03-13T08:30:00Z"
-# Optional threshold overrides for dashboard tiers
-export CLAUDESEC_TOKEN_EXPIRY_WARNING_24H="24h"   # accepts: 24h, 1440m, 86400, etc.
-export CLAUDESEC_TOKEN_EXPIRY_WARNING_7D="7d"     # accepts: 7d, 168h, 604800, etc.
-./scanner/claudesec dashboard
-
-# Strict OAuth scope mode (CI fail-fast)
-export CLAUDESEC_STRICT_OKTA_SCOPES=1
-# Required scopes: okta.users.read, okta.policies.read, okta.logs.read
-export CLAUDESEC_OKTA_REQUIRED_SCOPES="okta.users.read,okta.policies.read,okta.logs.read"
-# Optional token-expiry providers for CI gate script
-export CLAUDESEC_TOKEN_EXPIRY_PROVIDERS="github,okta,datadog,slack"
-# Optional strict provider mode (fail if selected provider metadata is missing)
-export CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS=true
-./scanner/claudesec scan -c saas
-
-# If OAuth token is not available yet, Okta API token fallback still works
-export OKTA_API_TOKEN="<okta-api-token>"
-./scanner/claudesec scan -c saas
-
-# Generate HTML dashboard
-./scanner/claudesec dashboard
-
-# Microsoft best-practice source filter (Audit Points > Windows/Intune/M365)
-# all: show all trust levels (default)
-CLAUDESEC_MS_SOURCE_FILTER=all ./scanner/claudesec dashboard
-# official,gov: show only Microsoft Official + Government sources
-CLAUDESEC_MS_SOURCE_FILTER=official,gov ./scanner/claudesec dashboard
-# none: hide Microsoft source area for A/B comparison
-CLAUDESEC_MS_SOURCE_FILTER=none ./scanner/claudesec dashboard
-# none means complete hide mode (0 source shown in Microsoft section)
-# invalid tokens are ignored; only valid tokens (all/official/gov/community/none) are applied
-# migration window: legacy localStorage key `claudesec.msSourcePreset` will be removed after 1-2 releases (target: v0.7.0)
-# Optional: include ScubaGear when filter allows Government sources
-CLAUDESEC_MS_INCLUDE_SCUBAGEAR=1 CLAUDESEC_MS_SOURCE_FILTER=official,gov ./scanner/claudesec dashboard
-
-# Datadog Cloud Security local auto-fetch (signals/cases + logs to .claudesec-datadog/)
-DD_API_KEY=<your-dd-api-key> DD_APP_KEY=<your-dd-app-key> DD_SITE=datadoghq.com ./scanner/claudesec dashboard
-# DD_SITE examples: datadoghq.eu, us3.datadoghq.com, ddog-gov.com
-# Debug options: CLAUDESEC_DEBUG=1, CLAUDESEC_DEBUG_VERBOSE=1, CLAUDESEC_DD_SOFT_THROTTLE_THRESHOLD=2 (recommended default: 2, range: 0~5; 0=disable soft-throttle, 1~5=proactive throttle; too high may reduce throughput)
-# Optional: disable local Datadog auto-fetch
-CLAUDESEC_DATADOG_FETCH_CLOUD_SECURITY=0 ./scanner/claudesec dashboard
-
-# Datadog API troubleshooting (quick)
-| HTTP | Meaning | Action |
-| --- | --- | --- |
-| 401 | API key invalid | Check `DD_API_KEY` / `DATADOG_API_KEY` and site (`DD_SITE`) |
-| 403 | App key scope 부족 | Reissue `DD_APP_KEY` with security/cases read scopes |
-| 429 | Rate limit reached | Tune `CLAUDESEC_DD_SOFT_THROTTLE_THRESHOLD` (0 disables proactive throttle), retry after reset |
-| 5xx | Datadog server/transient | Retry (built-in backoff), rerun after short delay |
-
-# Generate + serve dashboard on localhost
-./scanner/claudesec dashboard --serve
-
-# Custom host/port
+export CLAUDESEC_TOKEN_EXPIRY_WARNING_24H="24h"
+export CLAUDESEC_TOKEN_EXPIRY_WARNING_7D="7d"
 ./scanner/claudesec dashboard --serve --host 127.0.0.1 --port 11665
 
-# Include additional categories (e.g., infra, cloud, prowler)
-./scanner/claudesec dashboard -c infra,ai,network,access-control,cicd,code
-./scanner/claudesec dashboard -c prowler --aws-profile <your-profile> --aws-sso
-./scanner/claudesec dashboard -c prowler --aws-sso-all    # scan all SSO profiles
+# Datadog local auto-fetch
+DD_API_KEY=<your-dd-api-key> DD_APP_KEY=<your-dd-app-key> DD_SITE=datadoghq.com ./scanner/claudesec dashboard
 ```
+
+Advanced scanner examples (AWS SSO role troubleshooting, kubeconfig/prowler, Microsoft source filter, Datadog troubleshooting) are kept in:
+- `docs/guides/getting-started.md`
+- `docs/guides/workflow-components.md`
+- `docs/guides/saas-best-practices-scans.md`
 
 ### Datadog Required Tag Contract
 
@@ -431,7 +319,7 @@ Ready-to-use GitHub Actions workflows:
 | Component | Path | Used by |
 |----------|------|---------|
 | Token Expiry Gate | `.github/actions/token-expiry-gate` | `templates/prowler.yml`, `templates/security-scan-suite.yml` |
-| Datadog CI Collect | `.github/actions/datadog-ci-collect` | `templates/prowler.yml` |
+| Datadog CI Collect | `.github/actions/datadog-ci-collect` | `templates/prowler.yml`, `templates/security-scan-suite.yml` |
 
 ## Hooks
 
