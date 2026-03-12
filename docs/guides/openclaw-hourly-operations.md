@@ -56,6 +56,6 @@ tail -n 50 ~/.twodragon0-runtime/logs/hourly-opencode-git-pull.log
 
 ## References
 
-- OWASP SAMM: https://owaspsamm.org/
-- NIST SP 800-92 (Guide to Computer Security Log Management): https://csrc.nist.gov/publications/detail/sp/800-92/final
-- CIS Controls v8: https://www.cisecurity.org/controls/v8
+- OWASP SAMM: [https://owaspsamm.org/](https://owaspsamm.org/)
+- NIST SP 800-92 (Guide to Computer Security Log Management): [https://csrc.nist.gov/publications/detail/sp/800-92/final](https://csrc.nist.gov/publications/detail/sp/800-92/final)
+- CIS Controls v8: [https://www.cisecurity.org/controls/v8](https://www.cisecurity.org/controls/v8)
