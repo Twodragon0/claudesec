@@ -1,0 +1,158 @@
+# .github/workflows/security-scan-suite.yml
+# ClaudeSec template — popular GitHub security scanners (SARIF → Security > Code scanning)
+#
+# Tools:
+# - CodeQL (SAST)
+# - Semgrep CE (SAST)
+# - Trivy (SCA + IaC + secrets (optional))
+# - Gitleaks (secrets scanning)
+# - OSV-Scanner (dependency vulnerability scanning)
+#
+# Notes:
+# - Keep `permissions.security-events: write` to upload SARIF.
+# - If you use GitHub Advanced Security features (secret scanning), you can disable Gitleaks.
+
+name: "Security Scan Suite"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 2" # Weekly Tue 06:17 UTC (change to a random time)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+
+env:
+  DD_SERVICE: security-scan-suite
+  DD_ENV: ci
+  CI_PIPELINE_ID: ${{ github.run_id }}
+  GH_TOKEN_EXPIRES_AT: ${{ vars.GH_TOKEN_EXPIRES_AT || '' }}
+  OKTA_OAUTH_TOKEN_EXPIRES_AT: ${{ vars.OKTA_OAUTH_TOKEN_EXPIRES_AT || '' }}
+  CLAUDESEC_TOKEN_EXPIRY_GATE_MODE: ${{ vars.CLAUDESEC_TOKEN_EXPIRY_GATE_MODE || '24h' }}
+
+jobs:
+  token_expiry_gate:
+    name: Token Expiry Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run OAuth token expiry gate script
+        run: |
+          python3 scripts/token-expiry-gate.py
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    needs: token_expiry_gate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: +security-extended,security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+
+  semgrep:
+    name: Semgrep CE (SARIF)
+    runs-on: ubuntu-latest
+    needs: token_expiry_gate
+    container:
+      image: semgrep/semgrep
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep (auto rules) → SARIF
+        run: semgrep scan --config auto --sarif --output semgrep.sarif
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  trivy:
+    name: Trivy (SCA + IaC) (SARIF)
+    runs-on: ubuntu-latest
+    needs: token_expiry_gate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Trivy filesystem scan → SARIF
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy.sarif
+          vuln-type: os,library
+          severity: CRITICAL,HIGH,MEDIUM
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+
+  gitleaks:
+    name: Gitleaks (secrets) (SARIF)
+    runs-on: ubuntu-latest
+    needs: token_expiry_gate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks → SARIF
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_REPORT_FORMAT: sarif
+          GITLEAKS_REPORT_PATH: gitleaks.sarif
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: gitleaks.sarif
+          category: gitleaks
+
+  osv_scanner_pr:
+    name: OSV-Scanner (PR diff)
+    needs: token_expiry_gate
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.3.3
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+
+  osv_scanner_scheduled:
+    name: OSV-Scanner (scheduled/full)
+    needs: token_expiry_gate
+    if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.3.3
+    permissions:
+      contents: read
+      actions: read
+      security-events: write

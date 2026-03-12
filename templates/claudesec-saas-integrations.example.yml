@@ -1,0 +1,37 @@
+# ClaudeSec — SaaS/DevSecOps integrations (optional)
+# Copy relevant sections into your project's .claudesec.yml OR export as env vars.
+#
+# IMPORTANT:
+# - Do NOT commit .claudesec.yml if it contains real URLs/tokens/usernames.
+# - Prefer environment variables or a secret manager for tokens.
+#
+# References:
+# - OWASP Secrets Management Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html
+
+# Okta (enables SAAS-API-007 / SAAS-API-019 when provided)
+# env:
+#   OKTA_ORG_URL: "https://your-org.okta.com"
+#   OKTA_OAUTH_TOKEN: "<oauth-access-token>"   # preferred
+#   # OR fallback:
+#   OKTA_API_TOKEN: "<ssws-token>"
+
+# Jenkins (enables SAAS-API-021 when provided)
+# env:
+#   JENKINS_URL: "https://jenkins.example.com"
+#   JENKINS_USER: "<username>"
+#   JENKINS_API_TOKEN: "<api-token>"
+
+# Harbor (enables SAAS-API-020 when provided)
+# env:
+#   HARBOR_URL: "https://harbor.example.com"
+#   HARBOR_USERNAME: "<username>"
+#   HARBOR_PASSWORD: "<password>"
+#   # OR:
+#   # HARBOR_AUTH_HEADER: "Authorization: Basic <base64(user:pass)>"
+
+# QueryPie
+# - Repo-local checks run automatically when QueryPie is detected in code/config (SAAS-014)
+# - Audit checklists auto-link via QueryPie audit-points (AUDIT-001)
+# env (if you later add QueryPie API checks):
+#   QUERYPIE_URL: "https://querypie.example.com"
+#   QUERYPIE_TOKEN: "<token>"

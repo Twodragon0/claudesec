@@ -32,6 +32,14 @@ scanner/output/
 .claudesec-prowler/
 .claudesec-history/
 .claudesec-network/
+.claudesec-datadog/
+.claudesec-datadog/*-sanitized.json
+.claudesec-datadog/datadog-logs-sanitized.json
+.claudesec-datadog/datadog-cloud-signals-sanitized.json
+.claudesec-datadog/datadog-cases-sanitized.json
+.claudesec-audit-points/
+.claudesec-ms-best-practices/
+scan-report.json
 
 # Credentials & keys
 *.pem

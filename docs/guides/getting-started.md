@@ -15,7 +15,7 @@ tags: [getting-started, setup, quickstart]
 ## Step 1: Clone ClaudeSec
 
 ```bash
-git clone https://github.com/your-username/claudesec.git
+git clone https://github.com/Twodragon0/claudesec.git
 cd claudesec
 ```
 

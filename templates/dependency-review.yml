@@ -11,6 +11,11 @@ permissions:
   contents: read
   pull-requests: write
 
+env:
+  DD_SERVICE: dependency-review
+  DD_ENV: ci
+  CI_PIPELINE_ID: ${{ github.run_id }}
+
 jobs:
   dependency-review:
     runs-on: ubuntu-latest

@@ -1,0 +1,23 @@
+---
+description: Security advice must cite OWASP, NIST, CIS; claims need sources
+globs: "docs/**/*.md,templates/**/*,scanner/**/*,hooks/**/*"
+alwaysApply: false
+---
+
+# Security Citations (ClaudeSec)
+
+## Authoritative Sources
+
+Security advice and controls must reference at least one of:
+
+- **OWASP** (e.g. OWASP Top 10, Cheat Sheet Series)
+- **NIST** (e.g. NIST SP 800-53, NIST CSF)
+- **CIS** (e.g. CIS Benchmarks, CIS Controls)
+
+## Rules
+
+- **Security claims** (e.g. “use parameterized queries”, “enable MFA”) must **cite a source** (document name or URL).
+- **Code examples** for security (scanner, hooks, templates) must be **tested and runnable**.
+- Prefer official docs over blog posts when citing.
+
+Example: “Use parameterized queries to prevent SQL injection (OWASP SQL Injection Prevention Cheat Sheet).”

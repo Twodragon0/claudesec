@@ -1,0 +1,22 @@
+# ClaudeSec — Network & security scan tools (Trivy, Nmap, SSLScan)
+# Copy relevant keys into your project .claudesec.yml (do not commit .claudesec.yml).
+#
+# Usage:
+#   Run scan with network category (Trivy runs by default when installed):
+#     ./scanner/claudesec scan -c network
+#   Optional: enable Nmap/SSLScan and set targets in .claudesec.yml:
+#     network_scan_enabled: true
+#     network_scan_targets: "localhost:443,example.com:443"
+#   Generate dashboard to see "네트워크·보안 툴" tab:
+#     ./scanner/claudesec dashboard
+#
+# Results are written to .claudesec-network/ and shown in the dashboard.
+
+# Trivy (vulnerability + misconfig) — default: run when trivy is installed
+trivy_enabled: true
+
+# Nmap / SSLScan — only when explicitly enabled and targets set
+# Use only for hosts you are authorized to scan.
+network_scan_enabled: false
+# Comma-separated: "host" or "host:port" (e.g. localhost:443,staging.example.com:443)
+# network_scan_targets: "localhost:443"

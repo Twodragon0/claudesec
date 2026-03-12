@@ -7,6 +7,16 @@
 # Falls back gracefully when tools are not installed.
 # ============================================================================
 
+# Dashboard/non-interactive mode should be fast and side-effect free.
+# Skip running external scanners (Semgrep/Bandit/gosec/audit tools) unless user runs `scan` explicitly.
+if [[ "${CLAUDESEC_NONINTERACTIVE:-}" == "1" ]]; then
+  skip "CODE-SAST-001" "Semgrep SAST scan" "Skipped in dashboard mode (set CLAUDESEC_NONINTERACTIVE=0 to run)"
+  skip "CODE-SAST-002" "Bandit Python SAST" "Skipped in dashboard mode"
+  skip "CODE-SAST-003" "gosec Go SAST" "Skipped in dashboard mode"
+  skip "CODE-SAST-004" "Dependency Audit (npm/pip/cargo)" "Skipped in dashboard mode"
+  return 0 2>/dev/null || true
+fi
+
 # ── CODE-SAST-001: Semgrep (Multi-language SAST) ────────────────────────────
 
 if has_command semgrep; then

@@ -549,13 +549,22 @@ fi
 
 # ── SAAS-API-019: Okta Deep Scan (Policies, Apps, System Log) ────────────
 
-if [[ -n "${OKTA_ORG_URL:-}" && -n "${OKTA_API_TOKEN:-}" ]]; then
+if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_TOKEN:-}" ) ]]; then
   _okta_deep_issues=0
   _okta_deep_details=""
+  _okta_auth_header=""
+  _okta_auth_mode=""
+  if [[ -n "${OKTA_OAUTH_TOKEN:-}" ]]; then
+    _okta_auth_header="Authorization: Bearer ${OKTA_OAUTH_TOKEN}"
+    _okta_auth_mode="OAuth token"
+  else
+    _okta_auth_header="Authorization: SSWS ${OKTA_API_TOKEN}"
+    _okta_auth_mode="API token"
+  fi
 
   # Check sign-on policies
   _okta_signon=$(run_with_timeout 15 curl -sSf \
-    -H "Authorization: SSWS ${OKTA_API_TOKEN}" \
+    -H "${_okta_auth_header}" \
     -H "Accept: application/json" \
     "${OKTA_ORG_URL}/api/v1/policies?type=OKTA_SIGN_ON" 2>/dev/null || echo "")
 
@@ -566,7 +575,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && -n "${OKTA_API_TOKEN:-}" ]]; then
 
   # Check MFA enrollment policy
   _okta_mfa=$(run_with_timeout 15 curl -sSf \
-    -H "Authorization: SSWS ${OKTA_API_TOKEN}" \
+    -H "${_okta_auth_header}" \
     -H "Accept: application/json" \
     "${OKTA_ORG_URL}/api/v1/policies?type=MFA_ENROLL" 2>/dev/null || echo "")
 
@@ -578,7 +587,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && -n "${OKTA_API_TOKEN:-}" ]]; then
 
   # Check applications (OAuth redirect URIs)
   _okta_apps=$(run_with_timeout 15 curl -sSf \
-    -H "Authorization: SSWS ${OKTA_API_TOKEN}" \
+    -H "${_okta_auth_header}" \
     -H "Accept: application/json" \
     "${OKTA_ORG_URL}/api/v1/apps?limit=50&filter=status+eq+%22ACTIVE%22" 2>/dev/null || echo "")
 
@@ -593,7 +602,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && -n "${OKTA_API_TOKEN:-}" ]]; then
   _yesterday=$(date -u -v-1d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '1 day ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
   if [[ -n "$_yesterday" ]]; then
     _okta_threats=$(run_with_timeout 15 curl -sSf \
-      -H "Authorization: SSWS ${OKTA_API_TOKEN}" \
+      -H "${_okta_auth_header}" \
       -H "Accept: application/json" \
       "${OKTA_ORG_URL}/api/v1/logs?since=${_yesterday}&filter=outcome.result+eq+%22FAILURE%22+and+severity+eq+%22WARN%22&limit=5" 2>/dev/null || echo "")
 
@@ -606,7 +615,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && -n "${OKTA_API_TOKEN:-}" ]]; then
   _okta_deep_details="\\n    Apps: ${_app_count}, Sign-on policies: ${_signon_count}, MFA policies: ${_mfa_policies}${_okta_deep_details}"
 
   if [[ $_okta_deep_issues -eq 0 ]]; then
-    pass "SAAS-API-019" "Okta deep scan: security posture verified${_okta_deep_details}"
+    pass "SAAS-API-019" "Okta deep scan: security posture verified (${_okta_auth_mode})${_okta_deep_details}"
   else
     fail "SAAS-API-019" "Okta security issues found" "high" \
       "${_okta_deep_issues} issue(s)${_okta_deep_details}" \

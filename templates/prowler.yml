@@ -1,6 +1,5 @@
 # .github/workflows/prowler.yml
 # ClaudeSec template — Cloud security posture scan with Prowler
-
 name: Cloud Security Scan (Prowler)
 
 on:
@@ -27,7 +26,40 @@ jobs:
       - name: Install Prowler
         run: pip install prowler
 
+      - name: Validate IAM Identity Center list permissions
+        env:
+          SSO_ACCOUNT_ID: ${{ secrets.AWS_SSO_ACCOUNT_ID }}
+          SSO_PERMISSION_SET_ARN: ${{ secrets.AWS_SSO_PERMISSION_SET_ARN }}
+          STRICT_SSO: ${{ vars.CLAUDESEC_STRICT_SSO || '1' }}
+        run: |
+          set -euo pipefail
+          INSTANCE_ARN=$(aws sso-admin list-instances --query 'Instances[0].InstanceArn' --output text)
+          if [ -z "${INSTANCE_ARN}" ] || [ "${INSTANCE_ARN}" = "None" ]; then
+            echo "::error::Unable to find IAM Identity Center instance."
+            exit 1
+          fi
+          aws sso-admin list-permission-sets --instance-arn "$INSTANCE_ARN" --max-results 1 >/dev/null
+          if [ -n "${SSO_ACCOUNT_ID:-}" ] && [ -n "${SSO_PERMISSION_SET_ARN:-}" ]; then
+            aws sso-admin list-account-assignments \
+              --instance-arn "$INSTANCE_ARN" \
+              --account-id "$SSO_ACCOUNT_ID" \
+              --permission-set-arn "$SSO_PERMISSION_SET_ARN" \
+              --max-results 1 >/dev/null
+          else
+            if [ "${STRICT_SSO:-0}" = "1" ]; then
+              echo "::error::Strict SSO mode enabled (CLAUDESEC_STRICT_SSO=1). Missing AWS_SSO_ACCOUNT_ID or AWS_SSO_PERMISSION_SET_ARN."
+              exit 1
+            fi
+            echo "::notice::Skip list-account-assignments check. Set AWS_SSO_ACCOUNT_ID and AWS_SSO_PERMISSION_SET_ARN, or enable strict mode via vars.CLAUDESEC_STRICT_SSO=1."
+          fi
+
       - name: Run Prowler scan
+        env:
+          CI: "true"
+          AWS_SSO_LOGIN_TIMEOUT: 20
+          CLAUDESEC_CI: 1
+          GH_TOKEN_EXPIRES_AT: ${{ vars.GH_TOKEN_EXPIRES_AT || '' }}
+          OKTA_OAUTH_TOKEN_EXPIRES_AT: ${{ vars.OKTA_OAUTH_TOKEN_EXPIRES_AT || '' }}
         run: |
           prowler aws \
             --severity critical high \
@@ -35,11 +67,151 @@ jobs:
             --output-formats json-ocsf csv html \
             --output-directory prowler-output
 
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run OAuth token expiry gate script
+        env:
+          GH_TOKEN_EXPIRES_AT: ${{ vars.GH_TOKEN_EXPIRES_AT || '' }}
+          OKTA_OAUTH_TOKEN_EXPIRES_AT: ${{ vars.OKTA_OAUTH_TOKEN_EXPIRES_AT || '' }}
+          CLAUDESEC_TOKEN_EXPIRY_GATE_MODE: ${{ vars.CLAUDESEC_TOKEN_EXPIRY_GATE_MODE || '24h' }}
+        run: |
+          python3 scripts/token-expiry-gate.py
+
+      - name: Collect Datadog CI logs/signals/cases for dashboard (optional)
+        if: ${{ secrets.DD_API_KEY != '' && secrets.DD_APP_KEY != '' }}
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
+          DD_SITE: ${{ vars.DD_SITE || 'datadoghq.com' }}
+          DD_SERVICE: prowler
+          DD_ENV: ci
+          CI_PIPELINE_ID: ${{ github.run_id }}
+          DD_TAGS: service:prowler,env:ci,ci_pipeline_id:${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p .claudesec-datadog
+          DD_LOG_INTAKE_BASE="https://http-intake.logs.${DD_SITE}"
+          DD_API_BASE="https://api.${DD_SITE}"
+          TO_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          FROM_TS=$(date -u -d '1 hour ago' +"%Y-%m-%dT%H:%M:%SZ")
+          FROM_24H_TS=$(date -u -d '24 hours ago' +"%Y-%m-%dT%H:%M:%SZ")
+          DD_QUERY="service:${DD_SERVICE} env:${DD_ENV} ci_pipeline_id:${CI_PIPELINE_ID}"
+          cat > .claudesec-datadog/intake.json <<JSON
+          {
+            "message": "ClaudeSec Prowler CI workflow run",
+            "service": "${DD_SERVICE}",
+            "env": "${DD_ENV}",
+            "ci_pipeline_id": "${CI_PIPELINE_ID}",
+            "status": "info",
+            "source": "claudesec-ci"
+          }
+          JSON
+          curl -sS -X POST "${DD_LOG_INTAKE_BASE}/v1/input?ddtags=${DD_TAGS}" \
+            -H "Content-Type: application/json" \
+            -H "DD-API-KEY: ${DD_API_KEY}" \
+            -d @.claudesec-datadog/intake.json >/dev/null
+          cat > .claudesec-datadog/query.json <<'JSON'
+          {
+            "filter": {
+              "from": "__FROM__",
+              "to": "__TO__",
+              "query": "__QUERY__"
+            },
+            "sort": "timestamp",
+            "page": { "limit": 200 }
+          }
+          JSON
+          sed -i "s/__FROM__/${FROM_TS}/g; s/__TO__/${TO_TS}/g; s/__QUERY__/${DD_QUERY//\//\\\/}/g" .claudesec-datadog/query.json
+          curl -sS -X POST "${DD_API_BASE}/api/v2/logs/events/search" \
+            -H "Content-Type: application/json" \
+            -H "DD-API-KEY: ${DD_API_KEY}" \
+            -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
+            -d @.claudesec-datadog/query.json \
+            > .claudesec-datadog/datadog-logs.json
+          cat > .claudesec-datadog/signals-query.json <<'JSON'
+          {
+            "filter": {
+              "from": "__FROM24H__",
+              "to": "__TO__",
+              "query": "security:cloud_security_management (severity:critical OR severity:high)"
+            },
+            "page": { "limit": 100 },
+            "sort": "timestamp"
+          }
+          JSON
+          sed -i "s/__FROM24H__/${FROM_24H_TS}/g; s/__TO__/${TO_TS}/g" .claudesec-datadog/signals-query.json
+          if ! curl -sS -X POST "${DD_API_BASE}/api/v2/security_monitoring/signals/search" \
+            -H "Content-Type: application/json" \
+            -H "DD-API-KEY: ${DD_API_KEY}" \
+            -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
+            -d @.claudesec-datadog/signals-query.json \
+            > .claudesec-datadog/datadog-cloud-signals.json; then
+            printf '{"data":[]}' > .claudesec-datadog/datadog-cloud-signals.json
+          fi
+          if ! curl -sS -X GET "${DD_API_BASE}/api/v2/cases?page[size]=100" \
+            -H "DD-API-KEY: ${DD_API_KEY}" \
+            -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
+            > .claudesec-datadog/datadog-cases.json; then
+            printf '{"data":[]}' > .claudesec-datadog/datadog-cases.json
+          fi
+          python3 - <<'PY'
+          import json
+          import re
+
+          paths = {
+              ".claudesec-datadog/datadog-logs.json": ".claudesec-datadog/datadog-logs-sanitized.json",
+              ".claudesec-datadog/datadog-cloud-signals.json": ".claudesec-datadog/datadog-cloud-signals-sanitized.json",
+              ".claudesec-datadog/datadog-cases.json": ".claudesec-datadog/datadog-cases-sanitized.json",
+          }
+
+          def redact_text(text: str) -> str:
+              text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "<redacted-email>", text)
+              text = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "<redacted-ip>", text)
+              text = re.sub(r"\b\d{12}\b", "<redacted-account-id>", text)
+              return text
+
+          def sanitize(obj):
+              if isinstance(obj, dict):
+                  blocked = {
+                      "email", "user_email", "ip", "ip_address", "host", "hostname",
+                      "aws_account_id", "account_id", "principal_arn", "access_key_id",
+                      "secret", "token", "authorization", "api_key",
+                  }
+                  out = {}
+                  for k, v in obj.items():
+                      if k.lower() in blocked:
+                          out[k] = "<redacted>"
+                      else:
+                          out[k] = sanitize(v)
+                  return out
+              if isinstance(obj, list):
+                  return [sanitize(x) for x in obj]
+              if isinstance(obj, str):
+                  return redact_text(obj)
+              return obj
+
+          for src, dst in paths.items():
+              try:
+                  with open(src, "r", encoding="utf-8") as f:
+                      data = json.load(f)
+              except Exception:
+                  data = {"data": []}
+              sanitized = sanitize(data)
+              with open(dst, "w", encoding="utf-8") as f:
+                  json.dump(sanitized, f, ensure_ascii=False)
+          PY
+          rm -f .claudesec-datadog/datadog-logs.json .claudesec-datadog/datadog-cloud-signals.json .claudesec-datadog/datadog-cases.json .claudesec-datadog/query.json .claudesec-datadog/signals-query.json .claudesec-datadog/intake.json
+
       - name: Upload report
         uses: actions/upload-artifact@v4
         with:
           name: prowler-aws-report
-          path: prowler-output/
+          path: |
+            prowler-output/
+            .claudesec-datadog/datadog-logs-sanitized.json
+            .claudesec-datadog/datadog-cloud-signals-sanitized.json
+            .claudesec-datadog/datadog-cases-sanitized.json
           retention-days: 90
 
       - name: Fail on critical findings

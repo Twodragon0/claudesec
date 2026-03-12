@@ -1,0 +1,39 @@
+---
+description: Lead agent roles, handoff format, and best practices for Claude/Cursor work in ClaudeSec
+alwaysApply: true
+---
+
+# Claude Lead Agents and Practices
+
+When doing Claude-related or multi-step work in ClaudeSec, follow these roles and practices.
+
+## Lead Agent Roles
+
+- **Lead Orchestrator (1)**: Decomposes tasks, assigns ownership, sets priorities, accepts completion. Resolves priority and design conflicts.
+- **Researcher (1..N)**: Gathers code evidence and external refs (OWASP, NIST, CIS). Evidence before edits.
+- **Implementer (1..N)**: Applies changes, runs verification (tests, scanner, markdownlint). One owner per task.
+- **Reviewer (1)**: Checks correctness, security risk, regression. Proposes options on design; Lead finalizes.
+
+## Handoff Format
+
+Use for inter-agent or context switches:
+
+```txt
+[Task] Goal: / Scope: / Constraints:
+[Done] Files Changed: / Key Changes: / Validation:
+[Open] Risks: / Next Actions:
+```
+
+## Best Practices
+
+1. **Security-first**: Cite OWASP/NIST/CIS for security advice. No company paths, PII, IPs, account IDs, or secrets in repo. Least privilege for agent/tool access.
+2. **Small increments**: One clear goal per task; verifiable (tests, scanner, lint). Prefer small commits.
+3. **Traceability**: Document handoffs and key decisions in repo (CONTRIBUTING, ADR, or comments).
+4. **Single owner per task**: Only one agent accountable for completion. Split file ownership by module to avoid conflicts.
+5. **Definition of done**: Behavior implemented; no unresolved diagnostics; tests/checks pass; Reviewer sign-off.
+6. **Conflict**: Priority → Lead decides. Design → Reviewer options, Lead finalizes. Deadlock → escalate with two options and tradeoffs.
+
+## Alignment
+
+- Follow **claudesec-project.mdc** (layout, conventions), **security-citations.mdc**, **no-sensitive-paths.mdc**, **markdown-quality.mdc**.
+- Full guide: `docs/guides/claude-lead-agents-and-best-practices.md`.

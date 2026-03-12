@@ -1,0 +1,11 @@
+# ClaudeSec — Scanner config (optional)
+# Copy to your project root as .claudesec.yml (do not commit; add to .gitignore).
+# See templates/claudesec-*.example.yml for network, Prowler, compliance.
+
+# severity: critical | high | medium | low | all
+# severity: all
+
+# Uncomment and set for cloud/Prowler scans:
+# aws_profile: default
+# kubeconfig: ~/.kube/config
+# compliance: iso27001   # or isms-p, soc2, pci-dss, nist-csf

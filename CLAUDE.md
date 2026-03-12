@@ -19,6 +19,8 @@ All documentation is in Markdown. No build system required.
 - docs/ai/ — AI and LLM security
 - docs/guides/ — Step-by-step tutorials
 - docs/compliance/ — NIST, ISO, ISMS-P compliance guides
+- docs/architecture/ — Architecture and flow diagrams
+- assets/ — Logo and branding assets
 - templates/ — Reusable config templates
 - scanner/ — Security scanner CLI
 - scripts/ — Automation scripts

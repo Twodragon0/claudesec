@@ -9,7 +9,7 @@ description: Security hooks for Claude Code integration
 
 | Hook | Trigger | Purpose |
 |------|---------|---------|
-| `security-lint.sh` | PreToolUse (Write/Edit) | Catches hardcoded secrets, injection patterns, insecure code |
+| `security-lint.sh` | PreToolUse (Write/Edit) | Catches hardcoded secrets, personal absolute paths, injection patterns, insecure code |
 | `secret-check.sh` | Pre-commit | Prevents committing files containing secrets |
 
 ## Installation

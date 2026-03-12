@@ -617,3 +617,135 @@ else
     skip "SAAS-016" "Secret rotation" "No SaaS integrations requiring rotation detected"
   fi
 fi
+
+# ── SAAS-017: Harbor (Container Registry) Configuration Security ─────────────
+#
+# Heuristic, repo-local checks. For live Harbor API checks, see saas/api-checks.sh.
+# References:
+# - Harbor docs (Security): https://goharbor.io/docs/
+# - OWASP Cheat Sheet Series (Secrets Management): https://cheatsheetseries.owasp.org/
+
+_harbor_detected=false
+if has_file "harbor.yml" || has_file "harbor.yaml" || has_dir ".harbor" || \
+   files_contain "*.yaml" "goharbor|harbor\\." 2>/dev/null || \
+   files_contain "*.yml" "goharbor|harbor\\." 2>/dev/null; then
+  _harbor_detected=true
+fi
+
+if [[ "$_harbor_detected" == "true" ]]; then
+  _harbor_issues=0
+  _harbor_details=""
+
+  # Check for embedded passwords/secrets in Harbor config files
+  if files_contain "harbor*.yml" "password:|secret:|harbor_admin_password" 2>/dev/null || \
+     files_contain "harbor*.yaml" "password:|secret:|harbor_admin_password" 2>/dev/null; then
+    _harbor_issues=$((_harbor_issues + 1))
+    _harbor_details="${_harbor_details}\n    Potential secrets found in Harbor config (use env vars / secret manager)"
+  fi
+
+  # If Harbor is referenced, ensure TLS is expected (https URLs)
+  if files_contain "*.yaml" "http://.*harbor" 2>/dev/null || files_contain "*.yml" "http://.*harbor" 2>/dev/null; then
+    _harbor_issues=$((_harbor_issues + 1))
+    _harbor_details="${_harbor_details}\n    Harbor referenced over HTTP (use HTTPS/TLS termination)"
+  fi
+
+  if [[ $_harbor_issues -eq 0 ]]; then
+    pass "SAAS-017" "Harbor detected — no obvious insecure config patterns found"
+  else
+    warn "SAAS-017" "Harbor security findings (${_harbor_issues})${_harbor_details}" \
+      "Avoid committing secrets; enforce HTTPS; prefer secret managers for Harbor credentials"
+  fi
+else
+  skip "SAAS-017" "Harbor security" "Harbor not detected"
+fi
+
+# ── SAAS-018: Jenkins (CI) Configuration & Pipeline Security ─────────────────
+#
+# Repo-local checks only. For live Jenkins endpoint checks, see saas/api-checks.sh.
+# References:
+# - OWASP CI/CD Security Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/CI_CD_Security_Cheat_Sheet.html
+# - Jenkins docs (Securing Jenkins): https://www.jenkins.io/doc/book/security/
+
+_jenkins_detected=false
+if has_file "Jenkinsfile" || has_dir ".jenkins" || has_file "jenkins.yml" || has_file "jenkins.yaml"; then
+  _jenkins_detected=true
+fi
+
+if [[ "$_jenkins_detected" == "true" ]]; then
+  _j_issues=0
+  _j_details=""
+
+  # Check for hardcoded credentials in Jenkinsfile
+  if files_contain "Jenkinsfile" "(password|token|secret)[[:space:]]*=[[:space:]]*['\"][^'\"]+['\"]" 2>/dev/null || \
+     files_contain "Jenkinsfile" "withCredentials\\(\\[[^\\]]*(string|usernamePassword|sshUserPrivateKey)" 2>/dev/null; then
+    # withCredentials is good; hardcoded is bad. We only fail on obvious literals.
+    if files_contain "Jenkinsfile" "(password|token|secret)[[:space:]]*=[[:space:]]*['\"][^'\"]+['\"]" 2>/dev/null; then
+      _j_issues=$((_j_issues + 1))
+      _j_details="${_j_details}\n    Possible hardcoded secret in Jenkinsfile (use credentials binding)"
+    fi
+  fi
+
+  # Check for permissive docker builds without pinning images (supply chain risk)
+  if files_contain "Jenkinsfile" "docker\\.image\\(['\"][^'\"]+:latest['\"]\\)" 2>/dev/null; then
+    _j_details="${_j_details}\n    Docker images use :latest tag (pin versions or digests)"
+  fi
+
+  # Check for downloading scripts and executing without integrity verification
+  if files_contain "Jenkinsfile" "(curl|wget).*(\\||;)[[:space:]]*(sh|bash)" 2>/dev/null; then
+    _j_details="${_j_details}\n    Downloads piped to shell (consider checksum/signature verification)"
+  fi
+
+  if [[ $_j_issues -eq 0 && -z "$_j_details" ]]; then
+    pass "SAAS-018" "Jenkins detected — pipeline follows basic security practices"
+  elif [[ $_j_issues -eq 0 ]]; then
+    warn "SAAS-018" "Jenkins pipeline recommendations${_j_details}" \
+      "Pin images, avoid curl|bash, and keep secrets in Jenkins Credentials"
+  else
+    fail "SAAS-018" "Jenkins pipeline security issues found" "high" \
+      "${_j_issues} issue(s)${_j_details}" \
+      "Remove hardcoded secrets; use Jenkins Credentials + withCredentials()"
+  fi
+else
+  skip "SAAS-018" "Jenkins security" "Jenkins not detected"
+fi
+
+# ── SAAS-019: IDE / Workspace Configuration Security ─────────────────────────
+#
+# Focus: common insecure workspace settings that weaken trust/verification.
+# References:
+# - OWASP Cheat Sheet Series (Secure Coding Practices): https://cheatsheetseries.owasp.org/
+
+_ide_detected=false
+if has_dir ".vscode" || has_dir ".idea"; then
+  _ide_detected=true
+fi
+
+if [[ "$_ide_detected" == "true" ]]; then
+  _ide_issues=0
+  _ide_details=""
+
+  # VS Code: workspace trust disabled is risky in shared repos
+  if has_file ".vscode/settings.json"; then
+    if file_contains ".vscode/settings.json" "\"security\\.workspace\\.trust\\.enabled\"[[:space:]]*:[[:space:]]*false" 2>/dev/null; then
+      _ide_issues=$((_ide_issues + 1))
+      _ide_details="${_ide_details}\n    VS Code workspace trust disabled (security.workspace.trust.enabled=false)"
+    fi
+    if file_contains ".vscode/settings.json" "\"http\\.proxyStrictSSL\"[[:space:]]*:[[:space:]]*false" 2>/dev/null; then
+      _ide_issues=$((_ide_issues + 1))
+      _ide_details="${_ide_details}\n    VS Code proxy strict SSL disabled (http.proxyStrictSSL=false)"
+    fi
+    if file_contains ".vscode/settings.json" "(password|token|secret)[^\n]*:" 2>/dev/null; then
+      _ide_issues=$((_ide_issues + 1))
+      _ide_details="${_ide_details}\n    Possible credentials stored in .vscode/settings.json"
+    fi
+  fi
+
+  if [[ $_ide_issues -eq 0 ]]; then
+    pass "SAAS-019" "IDE workspace files detected — no obvious insecure settings found"
+  else
+    warn "SAAS-019" "IDE/workspace security findings (${_ide_issues})${_ide_details}" \
+      "Avoid storing credentials in workspace files; keep TLS verification enabled; keep workspace trust enabled"
+  fi
+else
+  skip "SAAS-019" "IDE/workspace security" "No IDE workspace files detected"
+fi

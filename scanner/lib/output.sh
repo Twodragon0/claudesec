@@ -176,12 +176,34 @@ append_json() {
   fi
 }
 
+# Map check id prefix to category for "where" (location) in summary
+_finding_id_to_category() {
+  local prefix="${1%%-*}"
+  case "$prefix" in
+    IAM)      echo "access-control" ;;
+    INFRA)    echo "infra" ;;
+    NET|TLS)  echo "network" ;;
+    CICD)     echo "cicd" ;;
+    CODE|SAST) echo "code" ;;
+    AI|LLM)   echo "ai" ;;
+    CLOUD|AWS|GCP|AZURE) echo "cloud" ;;
+    MAC|CIS)  echo "macos" ;;
+    SAAS)     echo "saas" ;;
+    WIN|KISA) echo "windows" ;;
+    PROWLER)  echo "prowler" ;;
+    SECRETS|TRIVY) echo "code" ;;
+    DOCKER)   echo "infra" ;;
+    *)        echo "other" ;;
+  esac
+}
+
 _print_findings() {
   local -n arr=$1
   local label="$2" show_fix="${3:-true}"
   for entry in "${arr[@]+"${arr[@]}"}"; do
     IFS='|' read -r f_id f_title _ f_fix <<< "$entry"
-    echo -e "  ${label}${NC}  ${DIM}[$f_id]${NC} $f_title"
+    local f_cat; f_cat=$(_finding_id_to_category "$f_id")
+    echo -e "  ${label}${NC}  ${DIM}[$f_id]${NC} ${DIM}(${f_cat})${NC} $f_title"
     [[ "$show_fix" == "true" && -n "$f_fix" ]] && echo -e "          ${CYAN}→ $f_fix${NC}"
   done
 }
@@ -245,9 +267,9 @@ print_summary() {
     [[ $n_warn -gt 0 ]] && echo -e "  ${YELLOW}  WARNING   ${n_warn}${NC}  ░░░░  Best practice recommendations"
     echo ""
 
-    # Findings table — Critical and High first
+    # Findings table — Critical and High first (with category so user sees where each finding is from)
     if [[ $((n_crit + n_high)) -gt 0 ]]; then
-      echo -e "  ${RED}${BOLD}▸ Action Required${NC}"
+      echo -e "  ${RED}${BOLD}▸ Action Required (critical/high by category)${NC}"
       echo -e "  ──────────────────────────────────────────────────────"
       _print_findings FINDINGS_CRITICAL "${RED}${BOLD}■ CRIT" true
       _print_findings FINDINGS_HIGH "${RED}■ HIGH" true
@@ -384,6 +406,60 @@ compute_trend() {
   export TREND_HAS_PREV="true"
 }
 
+# Build Prowler report summary HTML from .claudesec-prowler/*.ocsf.json (for dashboard)
+_prowler_dashboard_summary() {
+  local prowler_dir="${SCAN_DIR:-.}/.claudesec-prowler"
+  [[ -d "$prowler_dir" ]] || return 0
+  local files
+  files=$(find "$prowler_dir" -maxdepth 1 -name "prowler-*.ocsf.json" 2>/dev/null | sort)
+  [[ -z "$files" ]] && return 0
+
+  echo "<div class=\"findings prowler-report\" style=\"margin-bottom:2rem\">"
+  echo "  <h2 style=\"padding:1rem 1.25rem;font-size:1rem;border-bottom:1px solid var(--border)\">☁ Prowler 클라우드 리포트 (프로바이더별 요약)</h2>"
+  echo "  <div style=\"padding:1rem 1.25rem\">"
+  echo "  <table style=\"width:100%;border-collapse:collapse\">"
+  echo "  <thead><tr><th style=\"text-align:left;padding:0.5rem 0.75rem;font-size:0.7rem;color:var(--muted);border-bottom:1px solid var(--border)\">프로바이더</th><th style=\"text-align:right;padding:0.5rem 0.75rem;font-size:0.7rem;color:var(--muted);border-bottom:1px solid var(--border)\">전체</th><th style=\"text-align:right;padding:0.5rem 0.75rem;font-size:0.7rem;color:var(--muted);border-bottom:1px solid var(--border)\">치명적</th><th style=\"text-align:right;padding:0.5rem 0.75rem;font-size:0.7rem;color:var(--muted);border-bottom:1px solid var(--border)\">높음</th><th style=\"text-align:right;padding:0.5rem 0.75rem;font-size:0.7rem;color:var(--muted);border-bottom:1px solid var(--border)\">중간</th><th style=\"text-align:right;padding:0.5rem 0.75rem;font-size:0.7rem;color:var(--muted);border-bottom:1px solid var(--border)\">낮음</th></tr></thead>"
+  echo "  <tbody>"
+  while IFS= read -r f; do
+    [[ -f "$f" ]] || continue
+    local provider label total c h m l
+    provider=$(basename "$f" .ocsf.json | sed 's/^prowler-//')
+    case "$provider" in
+      aws) label="AWS" ;;
+      kubernetes) label="Kubernetes" ;;
+      azure) label="Azure" ;;
+      gcp) label="GCP" ;;
+      github) label="GitHub" ;;
+      googleworkspace) label="Google Workspace" ;;
+      m365) label="Microsoft 365" ;;
+      cloudflare) label="Cloudflare" ;;
+      nhn) label="NHN Cloud" ;;
+      iac) label="IaC" ;;
+      llm) label="LLM" ;;
+      image) label="Container Image" ;;
+      oraclecloud) label="Oracle Cloud" ;;
+      alibabacloud) label="Alibaba Cloud" ;;
+      openstack) label="OpenStack" ;;
+      mongodbatlas) label="MongoDB Atlas" ;;
+      *) label="$provider" ;;
+    esac
+    total=$(grep -c '"status_code": *"FAIL"' "$f" 2>/dev/null || echo 0)
+    read c h m l <<< $(awk '
+      BEGIN { c=0; h=0; m=0; l=0 }
+      /"severity":/ { gsub(/.*"severity": *"/,""); gsub(/".*/, ""); sev=$0 }
+      /"status_code": *"FAIL"/ {
+        if (sev=="Critical") c++; else if (sev=="High") h++; else if (sev=="Medium") m++; else if (sev=="Low") l++
+      }
+      END { print c+0, h+0, m+0, l+0 }
+    ' "$f" 2>/dev/null)
+    c=${c:-0}; h=${h:-0}; m=${m:-0}; l=${l:-0}
+    echo "  <tr><td style=\"padding:0.5rem 0.75rem;border-bottom:1px solid var(--border)\">$label</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border)\">$total</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border);color:#dc2626\">$c</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border);color:#ef4444\">$h</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border);color:#eab308\">$m</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border);color:var(--muted)\">$l</td></tr>"
+  done <<< "$files"
+  echo "  </tbody></table>"
+  echo "  <p style=\"margin-top:0.75rem;font-size:0.78rem;color:var(--muted)\">원본 리포트 파일: <code>.claudesec-prowler/prowler-*.ocsf.json</code> (JSON-OCSF). 최신 상태로 갱신하려면 <code>claudesec scan -c prowler</code> 또는 <code>claudesec dashboard -c prowler</code>를 다시 실행하세요.</p>"
+  echo "  </div></div>"
+}
+
 _html_findings_rows() {
   local -n arr=$1
   local sev_class="$2" badge_class="$3" badge_text="$4"
@@ -407,24 +483,59 @@ _html_findings_rows() {
   done
 }
 
+_html_findings_rows_limited() {
+  local outvar="$1"
+  local -n arr=$2
+  local sev_class="$3" badge_class="$4" badge_text="$5"
+  local max="${6:-0}"
+
+  local count=0
+  local current="${!outvar}"
+
+  for entry in "${arr[@]+"${arr[@]}"}"; do
+    if [[ "$max" -gt 0 && "$count" -ge "$max" ]]; then
+      break
+    fi
+    IFS='|' read -r f_id f_title _ f_fix f_details <<< "$entry"
+    f_title="$(html_escape "$f_title")"
+    f_fix="$(html_escape "$f_fix")"
+    f_details="$(html_escape "$f_details")"
+    # Convert literal \n to <br> for HTML display
+    f_title="${f_title//\\n/<br>}"
+    f_fix="${f_fix//\\n/<br>}"
+    f_details="${f_details//\\n/<br>}"
+
+    local detail_html=""
+    if [[ -n "$f_details" ]]; then
+      detail_html="<tr class=\"detail-row ${sev_class}\" style=\"display:none\"><td colspan=\"4\"><div class=\"detail-content\">${f_details}</div></td></tr>"
+      current+="<tr class=\"${sev_class} clickable\" onclick=\"toggleDetail(this)\"><td><span class=\"badge ${badge_class}\">${badge_text}</span></td><td class=\"mono\">$f_id</td><td>$f_title <span class=\"expand-icon\">▸</span></td><td class=\"fix\">$f_fix</td></tr>${detail_html}"
+    else
+      current+="<tr class=\"${sev_class}\"><td><span class=\"badge ${badge_class}\">${badge_text}</span></td><td class=\"mono\">$f_id</td><td>$f_title</td><td class=\"fix\">$f_fix</td></tr>"
+    fi
+
+    count=$((count + 1))
+  done
+
+  printf -v "$outvar" '%s' "$current"
+}
+
+generate_html_dashboard_legacy() {
+  # Legacy bash-only generator kept as fallback (v0.2.0)
+  local output_file="$1"
+  echo "<html><body><h1>ClaudeSec Dashboard (fallback)</h1><p>Install Python 3 for the full v0.5.0 dashboard.</p></body></html>" > "$output_file"
+}
+
 generate_html_dashboard() {
   local output_file="$1"
   local active=$((TOTAL_CHECKS - SKIPPED))
   local score=0
   [[ $active -gt 0 ]] && score=$(( (PASSED * 100) / active ))
 
-  # Compute trend vs previous scan
-  compute_trend 2>/dev/null || true
-
-  # Load history for chart
-  local history_json
-  history_json=$(load_scan_history 2>/dev/null)
-
-  local grade="F" grade_color="#ef4444"
-  if [[ $score -ge 90 ]]; then grade="A"; grade_color="#22c55e"
-  elif [[ $score -ge 80 ]]; then grade="B"; grade_color="#22c55e"
-  elif [[ $score -ge 70 ]]; then grade="C"; grade_color="#eab308"
-  elif [[ $score -ge 60 ]]; then grade="D"; grade_color="#eab308"
+  local grade="F"
+  if [[ $score -ge 90 ]]; then grade="A"
+  elif [[ $score -ge 80 ]]; then grade="B"
+  elif [[ $score -ge 70 ]]; then grade="C"
+  elif [[ $score -ge 60 ]]; then grade="D"
   fi
 
   local n_crit=${#FINDINGS_CRITICAL[@]}
@@ -433,601 +544,112 @@ generate_html_dashboard() {
   local n_low=${#FINDINGS_LOW[@]}
   local n_warn=${#FINDINGS_WARN[@]}
 
-  # Build findings HTML
-  local findings_html=""
-  _html_findings_rows FINDINGS_CRITICAL "sev-critical" "critical" "CRITICAL"
-  _html_findings_rows FINDINGS_HIGH "sev-high" "high" "HIGH"
-  _html_findings_rows FINDINGS_MEDIUM "sev-medium" "medium" "MEDIUM"
-  _html_findings_rows FINDINGS_WARN "sev-warn" "warn" "WARN"
-  _html_findings_rows FINDINGS_LOW "sev-low" "low" "LOW"
-
-  cat > "$output_file" <<HTMLEOF
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="generator" content="ClaudeSec v${VERSION}">
-<title>ClaudeSec AI Security Dashboard</title>
-<style>
-  :root { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8; }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-  .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
-  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; }
-  header h1 { font-size: 1.5rem; font-weight: 700; }
-  header h1 span { color: var(--accent); }
-  .meta { color: var(--muted); font-size: 0.85rem; }
-
-  .score-section { display: flex; gap: 2rem; margin-bottom: 2rem; }
-  .score-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; flex: 1; text-align: center; }
-  .score-ring { width: 120px; height: 120px; margin: 0 auto 0.75rem; position: relative; }
-  .score-ring svg { transform: rotate(-90deg); }
-  .score-ring .value { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 2rem; font-weight: 800; }
-  .score-ring .grade { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
-
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
-  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; text-align: center; }
-  .stat .num { font-size: 2rem; font-weight: 800; line-height: 1; }
-  .stat .label { font-size: 0.8rem; color: var(--muted); margin-top: 0.35rem; text-transform: uppercase; letter-spacing: 0.05em; }
-  .stat.pass .num { color: #22c55e; }
-  .stat.fail .num { color: #ef4444; }
-  .stat.warn .num { color: #eab308; }
-  .stat.skip .num { color: var(--muted); }
-
-  .severity-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 2rem; background: var(--border); }
-  .severity-bar div { height: 100%; }
-  .sev-crit-bar { background: #dc2626; }
-  .sev-high-bar { background: #ef4444; }
-  .sev-med-bar { background: #eab308; }
-  .sev-warn-bar { background: #f59e0b; }
-  .sev-low-bar { background: #6b7280; }
-  .sev-pass-bar { background: #22c55e; }
-
-  .findings { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-  .findings h2 { padding: 1rem 1.25rem; font-size: 1rem; border-bottom: 1px solid var(--border); }
-  table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; padding: 0.6rem 1rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 1px solid var(--border); }
-  td { padding: 0.7rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.875rem; vertical-align: top; }
-  tr:last-child td { border-bottom: none; }
-  .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8rem; white-space: nowrap; }
-  .fix { color: var(--accent); font-size: 0.8rem; max-width: 350px; }
-
-  .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; }
-  .badge.critical { background: #dc2626; color: #fff; }
-  .badge.high { background: #991b1b; color: #fca5a5; }
-  .badge.medium { background: #854d0e; color: #fde68a; }
-  .badge.warn { background: #78350f; color: #fcd34d; }
-  .badge.low { background: #374151; color: #9ca3af; }
-
-  .sev-critical { border-left: 3px solid #dc2626; }
-  .sev-high { border-left: 3px solid #ef4444; }
-  .sev-medium { border-left: 3px solid #eab308; }
-  .sev-warn { border-left: 3px solid #f59e0b; }
-  .sev-low { border-left: 3px solid #6b7280; }
-
-  .clickable { cursor: pointer; transition: background 0.15s; }
-  .clickable:hover { background: #ffffff08; }
-  .expand-icon { color: var(--muted); font-size: 0.7rem; margin-left: 0.4rem; transition: transform 0.2s; display: inline-block; }
-  .clickable.expanded .expand-icon { transform: rotate(90deg); }
-  .detail-row td { padding: 0; border-left-width: 3px; border-left-style: solid; }
-  .detail-content { padding: 0.75rem 1rem 0.75rem 3.5rem; background: #0f172a; font-size: 0.82rem; line-height: 1.7; color: var(--muted); border-top: 1px dashed var(--border); max-height: 400px; overflow-y: auto; }
-  .detail-content br { margin-bottom: 0.15rem; }
-  .detail-content::-webkit-scrollbar { width: 6px; }
-  .detail-content::-webkit-scrollbar-track { background: transparent; }
-  .detail-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
-  .detail-summary { font-weight: 600; color: var(--text); margin-bottom: 0.75rem; font-size: 0.85rem; }
-  .detail-services { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
-  .detail-svc-chip { background: var(--border); padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-family: 'SF Mono','Fira Code',monospace; }
-  .detail-findings-list { display: flex; flex-direction: column; gap: 0.5rem; max-height: 350px; overflow-y: auto; }
-  .detail-finding { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.8rem; }
-  .detail-finding .df-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
-  .detail-finding .df-sev { font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 3px; text-transform: uppercase; }
-  .detail-finding .df-sev.crit { background: #dc2626; color: #fff; }
-  .detail-finding .df-sev.hig { background: #991b1b; color: #fca5a5; }
-  .detail-finding .df-sev.med { background: #854d0e; color: #fde68a; }
-  .detail-finding .df-sev.low { background: #374151; color: #9ca3af; }
-  .detail-finding .df-code { font-family: 'SF Mono','Fira Code',monospace; color: var(--accent); font-size: 0.75rem; }
-  .detail-finding .df-msg { font-size: 0.82rem; color: var(--text); line-height: 1.4; }
-  .detail-finding .df-meta { margin-top: 0.35rem; border-top: 1px dashed var(--border); padding-top: 0.3rem; }
-  .detail-finding .df-meta div { font-size: 0.78rem; color: var(--muted); padding: 0.05rem 0; line-height: 1.4; }
-  .detail-finding .df-meta .ml { color: var(--accent); font-weight: 600; }
-  .detail-plain { font-size: 0.82rem; line-height: 1.6; color: var(--muted); }
-  .detail-plain .dp-line { padding: 0.1rem 0; }
-  .detail-plain .dp-kv { color: var(--text); }
-  .detail-plain .dp-kv .dp-key { color: var(--accent); font-weight: 600; }
-
-  .cat-summary { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border); }
-  .cat-chip { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: border-color 0.15s; }
-  .cat-chip:hover { border-color: var(--accent); }
-  .cat-chip.active { border-color: var(--accent); background: #38bdf810; }
-  .cat-chip .cc-icon { font-size: 0.9rem; }
-  .cat-chip .cc-name { font-size: 0.78rem; font-weight: 600; }
-  .cat-chip .cc-count { font-size: 0.85rem; font-weight: 800; color: var(--accent); }
-
-  .env-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0; }
-  .env-item { display: flex; align-items: flex-start; gap: 0.75rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); }
-  .env-item:nth-child(2n) { border-right: none; }
-  .env-item:nth-last-child(-n+2) { border-bottom: none; }
-  .env-icon { font-size: 1.4rem; line-height: 1; min-width: 1.5rem; text-align: center; }
-  .env-details { flex: 1; }
-  .env-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem; }
-  .env-meta { font-size: 0.78rem; color: var(--muted); line-height: 1.5; }
-  .env-status { font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
-  .env-status.connected { color: #22c55e; }
-  .env-status.disconnected { color: var(--muted); }
-  .env-badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.65rem; font-weight: 700; background: var(--accent); color: var(--bg); letter-spacing: 0.04em; margin-left: 0.4rem; vertical-align: middle; }
-  .env-connected .env-icon { opacity: 1; }
-  .env-disconnected .env-icon { opacity: 0.4; }
-  .env-disconnected .env-title { color: var(--muted); }
-
-  .trend-section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; }
-  .trend-section h2 { font-size: 1rem; margin-bottom: 1rem; }
-  .trend-deltas { display: flex; gap: 1.5rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
-  .trend-delta { display: flex; align-items: center; gap: 0.5rem; }
-  .trend-delta .arrow { font-size: 1.1rem; font-weight: 700; }
-  .trend-delta .arrow.up-good { color: #22c55e; }
-  .trend-delta .arrow.down-good { color: #22c55e; }
-  .trend-delta .arrow.up-bad { color: #ef4444; }
-  .trend-delta .arrow.down-bad { color: #ef4444; }
-  .trend-delta .arrow.neutral { color: var(--muted); }
-  .trend-delta .label { font-size: 0.82rem; color: var(--muted); }
-  .trend-delta .val { font-weight: 700; font-size: 0.9rem; }
-  .trend-chart { width: 100%; height: 120px; position: relative; }
-  .trend-chart canvas { width: 100% !important; height: 120px !important; }
-  .trend-no-history { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 1rem; }
-
-  .empty { padding: 2rem; text-align: center; color: #22c55e; font-size: 1.1rem; }
-
-  footer { text-align: center; padding: 2rem 0 1rem; color: var(--muted); font-size: 0.8rem; }
-
-  @media (max-width: 768px) {
-    .stats { grid-template-columns: repeat(2, 1fr); }
-    .score-section { flex-direction: column; }
-    .fix { max-width: 200px; }
-  }
-</style>
-</head>
-<body>
-<div class="container">
-  <header>
-    <h1><span>◆</span> ClaudeSec Dashboard</h1>
-    <div class="meta">Scanned: $(date '+%Y-%m-%d %H:%M') · v${VERSION} · ${SCAN_DURATION:-0}s</div>
-  </header>
-
-  <div class="stats">
-    <div class="stat pass"><div class="num">${PASSED}</div><div class="label">Passed</div></div>
-    <div class="stat fail"><div class="num">${FAILED}</div><div class="label">Failed</div></div>
-    <div class="stat warn"><div class="num">${WARNINGS}</div><div class="label">Warnings</div></div>
-    <div class="stat skip"><div class="num">${SKIPPED}</div><div class="label">Skipped</div></div>
-  </div>
-
-  <div class="severity-bar">
-    <div class="sev-pass-bar" style="width:$(( active > 0 ? (PASSED * 100) / active : 0 ))%"></div>
-    <div class="sev-crit-bar" style="width:$(( active > 0 ? (n_crit * 100) / active : 0 ))%"></div>
-    <div class="sev-high-bar" style="width:$(( active > 0 ? (n_high * 100) / active : 0 ))%"></div>
-    <div class="sev-med-bar" style="width:$(( active > 0 ? (n_med * 100) / active : 0 ))%"></div>
-    <div class="sev-warn-bar" style="width:$(( active > 0 ? (n_warn * 100) / active : 0 ))%"></div>
-    <div class="sev-low-bar" style="width:$(( active > 0 ? (n_low * 100) / active : 0 ))%"></div>
-  </div>
-
-  <div class="score-section">
-    <div class="score-card">
-      <div class="score-ring">
-        <svg width="120" height="120" viewBox="0 0 120 120">
-          <circle cx="60" cy="60" r="52" fill="none" stroke="${grade_color}22" stroke-width="10"/>
-          <circle cx="60" cy="60" r="52" fill="none" stroke="${grade_color}" stroke-width="10"
-            stroke-dasharray="$(( score * 327 / 100 )) 327" stroke-linecap="round"/>
-        </svg>
-        <div class="value" style="color:${grade_color}">${score}</div>
-        <div class="grade">Grade ${grade}</div>
-      </div>
-      <div style="color:var(--muted);font-size:0.85rem">${active} active checks (${SKIPPED} skipped)</div>
-    </div>
-    <div class="score-card" style="display:flex;flex-direction:column;justify-content:center;gap:0.75rem">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="color:var(--muted);font-size:0.85rem">Critical</span>
-        <span style="font-weight:700;color:#dc2626">${n_crit}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="color:var(--muted);font-size:0.85rem">High</span>
-        <span style="font-weight:700;color:#ef4444">${n_high}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="color:var(--muted);font-size:0.85rem">Medium</span>
-        <span style="font-weight:700;color:#eab308">${n_med}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="color:var(--muted);font-size:0.85rem">Warnings</span>
-        <span style="font-weight:700;color:#f59e0b">${n_warn}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="color:var(--muted);font-size:0.85rem">Low</span>
-        <span style="font-weight:700;color:#6b7280">${n_low}</span>
-      </div>
-    </div>
-  </div>
-
-  $(
-    # Build Environment Info section
-    _env_items=""
-    if [[ "${CLAUDESEC_ENV_K8S_CONNECTED:-false}" == "true" ]]; then
-      _k8s_type_badge="${CLAUDESEC_ENV_K8S_TYPE:-generic}"
-      _k8s_type_upper=$(echo "$_k8s_type_badge" | tr '[:lower:]' '[:upper:]')
-      _env_items+="<div class=\"env-item env-connected\"><div class=\"env-icon\">☸</div><div class=\"env-details\"><div class=\"env-title\">Kubernetes <span class=\"env-badge\">${_k8s_type_upper}</span></div>"
-      _env_items+="<div class=\"env-meta\">Context: ${CLAUDESEC_ENV_K8S_CONTEXT:-unknown}</div>"
-      _env_items+="<div class=\"env-meta\">Server: ${CLAUDESEC_ENV_K8S_SERVER:-unknown}</div>"
-      _env_items+="<div class=\"env-meta\">Version: ${CLAUDESEC_ENV_K8S_VERSION:-unknown}</div>"
-      [[ -n "${CLAUDESEC_ENV_K8S_KUBECONFIG:-}" ]] && _env_items+="<div class=\"env-meta\">Kubeconfig: ${CLAUDESEC_ENV_K8S_KUBECONFIG}</div>"
-      [[ -n "${CLAUDESEC_ENV_K8S_NAMESPACE:-}" ]] && _env_items+="<div class=\"env-meta\">Namespace: ${CLAUDESEC_ENV_K8S_NAMESPACE}</div>"
-      _env_items+="</div><div class=\"env-status connected\">● Connected</div></div>"
-    else
-      _env_items+="<div class=\"env-item env-disconnected\"><div class=\"env-icon\">☸</div><div class=\"env-details\"><div class=\"env-title\">Kubernetes</div><div class=\"env-meta\">Not connected — use --kubeconfig or --kubecontext</div></div><div class=\"env-status disconnected\">○ Disconnected</div></div>"
-    fi
-
-    if [[ "${CLAUDESEC_ENV_AWS_CONNECTED:-false}" == "true" ]]; then
-      _env_items+="<div class=\"env-item env-connected\"><div class=\"env-icon\">☁</div><div class=\"env-details\"><div class=\"env-title\">AWS</div>"
-      _env_items+="<div class=\"env-meta\">Account: ${CLAUDESEC_ENV_AWS_ACCOUNT:-unknown}</div>"
-      [[ -n "${CLAUDESEC_ENV_AWS_PROFILE:-}" ]] && _env_items+="<div class=\"env-meta\">Profile: ${CLAUDESEC_ENV_AWS_PROFILE}</div>"
-      _env_items+="</div><div class=\"env-status connected\">● Connected</div></div>"
-    else
-      _env_items+="<div class=\"env-item env-disconnected\"><div class=\"env-icon\">☁</div><div class=\"env-details\"><div class=\"env-title\">AWS</div><div class=\"env-meta\">Not configured — use --aws-profile</div></div><div class=\"env-status disconnected\">○ Disconnected</div></div>"
-    fi
-
-    if [[ "${CLAUDESEC_ENV_GCP_CONNECTED:-false}" == "true" ]]; then
-      _env_items+="<div class=\"env-item env-connected\"><div class=\"env-icon\">◈</div><div class=\"env-details\"><div class=\"env-title\">GCP</div>"
-      _env_items+="<div class=\"env-meta\">Account: ${CLAUDESEC_ENV_GCP_ACCOUNT:-unknown}</div>"
-      _env_items+="<div class=\"env-meta\">Project: ${CLAUDESEC_ENV_GCP_PROJECT:-unknown}</div>"
-      _env_items+="</div><div class=\"env-status connected\">● Connected</div></div>"
-    else
-      _env_items+="<div class=\"env-item env-disconnected\"><div class=\"env-icon\">◈</div><div class=\"env-details\"><div class=\"env-title\">GCP</div><div class=\"env-meta\">Not configured — gcloud auth login</div></div><div class=\"env-status disconnected\">○ Disconnected</div></div>"
-    fi
-
-    if [[ "${CLAUDESEC_ENV_AZ_CONNECTED:-false}" == "true" ]]; then
-      _env_items+="<div class=\"env-item env-connected\"><div class=\"env-icon\">◇</div><div class=\"env-details\"><div class=\"env-title\">Azure</div>"
-      _env_items+="<div class=\"env-meta\">Subscription: ${CLAUDESEC_ENV_AZ_SUBSCRIPTION:-unknown}</div>"
-      _env_items+="</div><div class=\"env-status connected\">● Connected</div></div>"
-    else
-      _env_items+="<div class=\"env-item env-disconnected\"><div class=\"env-icon\">◇</div><div class=\"env-details\"><div class=\"env-title\">Azure</div><div class=\"env-meta\">Not configured — az login</div></div><div class=\"env-status disconnected\">○ Disconnected</div></div>"
-    fi
-
-    echo "<div class=\"findings\" style=\"margin-bottom:2rem\"><h2 style=\"padding:1rem 1.25rem;font-size:1rem;border-bottom:1px solid var(--border)\">Environment</h2><div class=\"env-grid\">${_env_items}</div></div>"
-  )
-
-  <div class="trend-section">
-    <h2>Scan Trend</h2>
-    $(if [[ "${TREND_HAS_PREV:-}" == "true" ]]; then
-      # Score delta
-      local s_arrow="→" s_class="neutral" s_prefix=""
-      if [[ $TREND_SCORE_DELTA -gt 0 ]]; then s_arrow="▲"; s_class="up-good"; s_prefix="+"; fi
-      if [[ $TREND_SCORE_DELTA -lt 0 ]]; then s_arrow="▼"; s_class="down-bad"; s_prefix=""; fi
-      # Failed delta (lower is better)
-      local f_arrow="→" f_class="neutral" f_prefix=""
-      if [[ $TREND_FAILED_DELTA -gt 0 ]]; then f_arrow="▲"; f_class="up-bad"; f_prefix="+"; fi
-      if [[ $TREND_FAILED_DELTA -lt 0 ]]; then f_arrow="▼"; f_class="down-good"; f_prefix=""; fi
-      # Critical delta (lower is better)
-      local c_arrow="→" c_class="neutral" c_prefix=""
-      if [[ $TREND_CRIT_DELTA -gt 0 ]]; then c_arrow="▲"; c_class="up-bad"; c_prefix="+"; fi
-      if [[ $TREND_CRIT_DELTA -lt 0 ]]; then c_arrow="▼"; c_class="down-good"; c_prefix=""; fi
-      # High delta
-      local h_arrow="→" h_class="neutral" h_prefix=""
-      if [[ $TREND_HIGH_DELTA -gt 0 ]]; then h_arrow="▲"; h_class="up-bad"; h_prefix="+"; fi
-      if [[ $TREND_HIGH_DELTA -lt 0 ]]; then h_arrow="▼"; h_class="down-good"; h_prefix=""; fi
-
-      echo "<div class=\"trend-deltas\">"
-      echo "  <div class=\"trend-delta\"><span class=\"arrow ${s_class}\">${s_arrow}</span><span class=\"val\">${s_prefix}${TREND_SCORE_DELTA}</span><span class=\"label\">Score (prev: ${TREND_PREV_SCORE})</span></div>"
-      echo "  <div class=\"trend-delta\"><span class=\"arrow ${f_class}\">${f_arrow}</span><span class=\"val\">${f_prefix}${TREND_FAILED_DELTA}</span><span class=\"label\">Failures</span></div>"
-      echo "  <div class=\"trend-delta\"><span class=\"arrow ${c_class}\">${c_arrow}</span><span class=\"val\">${c_prefix}${TREND_CRIT_DELTA}</span><span class=\"label\">Critical</span></div>"
-      echo "  <div class=\"trend-delta\"><span class=\"arrow ${h_class}\">${h_arrow}</span><span class=\"val\">${h_prefix}${TREND_HIGH_DELTA}</span><span class=\"label\">High</span></div>"
-      echo "</div>"
-    else
-      echo "<div class=\"trend-no-history\">No previous scan data. Run dashboard again to start tracking trends.</div>"
-    fi)
-    <div class="trend-chart"><canvas id="trendChart"></canvas></div>
-  </div>
-
-  <div class="findings">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid var(--border)">
-      <h2 style="padding:0;border:none;margin:0">Findings ($(( n_crit + n_high + n_med + n_warn + n_low )))</h2>
-      <div style="display:flex;gap:0.5rem;align-items:center">
-        <input type="text" id="findingSearch" placeholder="Filter findings..." oninput="filterFindings()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:0.35rem 0.7rem;border-radius:6px;font-size:0.8rem;width:180px">
-        <select id="sevFilter" onchange="filterFindings()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:0.35rem 0.5rem;border-radius:6px;font-size:0.8rem">
-          <option value="all">All Severities</option>
-          <option value="sev-critical">Critical</option>
-          <option value="sev-high">High</option>
-          <option value="sev-medium">Medium</option>
-          <option value="sev-warn">Warning</option>
-          <option value="sev-low">Low</option>
-        </select>
-        <button onclick="toggleAllDetails()" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:0.35rem 0.7rem;border-radius:6px;font-size:0.8rem;cursor:pointer">Expand All</button>
-      </div>
-    </div>
-    <div id="catSummary" class="cat-summary"></div>
-    $(if [[ -n "$findings_html" ]]; then
-      echo "<div style=\"max-height:70vh;overflow-y:auto\"><table><thead><tr><th style=\"width:90px\">Severity</th><th style=\"width:140px\">ID</th><th>Finding</th><th style=\"width:280px\">Remediation</th></tr></thead><tbody>${findings_html}</tbody></table></div>"
-    else
-      echo "<div class=\"empty\">✓ No findings — all checks passed!</div>"
-    fi)
-  </div>
-
-  <footer>Generated by ClaudeSec Scanner v${VERSION} · $(date '+%Y-%m-%d %H:%M:%S')</footer>
-</div>
-<script>
-function toggleDetail(row) {
-  var detail = row.nextElementSibling;
-  if (!detail || !detail.classList.contains('detail-row')) return;
-  var show = detail.style.display === 'none';
-  detail.style.display = show ? 'table-row' : 'none';
-  row.classList.toggle('expanded', show);
-}
-function filterFindings() {
-  var q = (document.getElementById('findingSearch').value || '').toLowerCase();
-  var sev = document.getElementById('sevFilter').value;
-  var rows = document.querySelectorAll('tbody tr');
-  rows.forEach(function(row) {
-    if (row.classList.contains('detail-row')) {
-      // detail rows follow their parent visibility
-      return;
-    }
-    var text = row.textContent.toLowerCase();
-    var matchQ = !q || text.indexOf(q) !== -1;
-    var matchSev = sev === 'all' || row.classList.contains(sev);
-    var visible = matchQ && matchSev;
-    row.style.display = visible ? '' : 'none';
-    var detail = row.nextElementSibling;
-    if (detail && detail.classList.contains('detail-row')) {
-      detail.style.display = 'none';
-      row.classList.remove('expanded');
-    }
-  });
-}
-// Trend chart
-(function() {
-  var canvas = document.getElementById('trendChart');
-  if (!canvas) return;
-  var history = ${history_json:-[]};
-  // Append current scan
-  history.push({timestamp:"$(date -u +%Y-%m-%dT%H:%M:%SZ)",score:${score},failed:${FAILED},critical:${n_crit},high:${n_high}});
-  if (history.length < 2) { canvas.parentElement.innerHTML = '<div class="trend-no-history">Chart available after 2+ scans</div>'; return; }
-
-  var ctx = canvas.getContext('2d');
-  var W = canvas.parentElement.offsetWidth;
-  var H = 120;
-  canvas.width = W * 2; canvas.height = H * 2;
-  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
-  ctx.scale(2, 2);
-
-  var pad = {t:10, r:10, b:25, l:35};
-  var cw = W - pad.l - pad.r;
-  var ch = H - pad.t - pad.b;
-  var n = history.length;
-
-  // Draw grid
-  ctx.strokeStyle = '#334155'; ctx.lineWidth = 0.5;
-  for (var g = 0; g <= 100; g += 25) {
-    var gy = pad.t + ch - (g / 100) * ch;
-    ctx.beginPath(); ctx.moveTo(pad.l, gy); ctx.lineTo(W - pad.r, gy); ctx.stroke();
-    ctx.fillStyle = '#94a3b8'; ctx.font = '9px system-ui'; ctx.textAlign = 'right';
-    ctx.fillText(g, pad.l - 4, gy + 3);
+  _id_to_category() {
+    local prefix="${1%%-*}"
+    case "$prefix" in
+      IAM)      echo "access-control" ;;
+      INFRA)    echo "infra" ;;
+      NET|TLS)  echo "network" ;;
+      CICD)     echo "cicd" ;;
+      CODE|SAST|SECRETS|TRIVY) echo "code" ;;
+      AI|LLM)   echo "ai" ;;
+      CLOUD|AWS|GCP|AZURE) echo "cloud" ;;
+      MAC|CIS)  echo "macos" ;;
+      SAAS)     echo "saas" ;;
+      WIN|KISA) echo "windows" ;;
+      PROWLER)  echo "prowler" ;;
+      DOCKER)   echo "infra" ;;
+      *)        echo "other" ;;
+    esac
   }
 
-  // X labels (dates)
-  ctx.fillStyle = '#94a3b8'; ctx.font = '8px system-ui'; ctx.textAlign = 'center';
-  var step = Math.max(1, Math.floor(n / 6));
-  for (var xi = 0; xi < n; xi += step) {
-    var xp = pad.l + (xi / (n - 1)) * cw;
-    var dt = history[xi].timestamp || '';
-    ctx.fillText(dt.substring(5, 10), xp, H - 5);
-  }
+  # Build findings JSON for Python generator
+  local findings_json="["
+  local first=true
+  for entry in "${FINDINGS_CRITICAL[@]+"${FINDINGS_CRITICAL[@]}"}"; do
+    IFS='|' read -r f_id f_title f_sev f_fix f_details <<< "$entry"
+    f_title="${f_title//\"/\\\"}"
+    f_fix="${f_fix//\"/\\\"}"
+    f_details="${f_details//\"/\\\"}"
+    local f_cat; f_cat=$(_id_to_category "$f_id")
+    [[ "$first" == "true" ]] && first=false || findings_json+=","
+    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"critical\",\"details\":\"$f_fix\",\"category\":\"$f_cat\"}"
+  done
+  for entry in "${FINDINGS_HIGH[@]+"${FINDINGS_HIGH[@]}"}"; do
+    IFS='|' read -r f_id f_title f_sev f_fix f_details <<< "$entry"
+    f_title="${f_title//\"/\\\"}"
+    f_fix="${f_fix//\"/\\\"}"
+    local f_cat; f_cat=$(_id_to_category "$f_id")
+    [[ "$first" == "true" ]] && first=false || findings_json+=","
+    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"high\",\"details\":\"$f_fix\",\"category\":\"$f_cat\"}"
+  done
+  for entry in "${FINDINGS_MEDIUM[@]+"${FINDINGS_MEDIUM[@]}"}"; do
+    IFS='|' read -r f_id f_title f_sev f_fix f_details <<< "$entry"
+    f_title="${f_title//\"/\\\"}"
+    f_fix="${f_fix//\"/\\\"}"
+    local f_cat; f_cat=$(_id_to_category "$f_id")
+    [[ "$first" == "true" ]] && first=false || findings_json+=","
+    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"medium\",\"details\":\"$f_fix\",\"category\":\"$f_cat\"}"
+  done
+  for entry in "${FINDINGS_WARN[@]+"${FINDINGS_WARN[@]}"}"; do
+    IFS='|' read -r f_id f_title f_sev f_fix f_details <<< "$entry"
+    f_title="${f_title//\"/\\\"}"
+    f_fix="${f_fix//\"/\\\"}"
+    local f_cat; f_cat=$(_id_to_category "$f_id")
+    [[ "$first" == "true" ]] && first=false || findings_json+=","
+    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"warning\",\"details\":\"$f_fix\",\"category\":\"$f_cat\"}"
+  done
+  for entry in "${FINDINGS_LOW[@]+"${FINDINGS_LOW[@]}"}"; do
+    IFS='|' read -r f_id f_title f_sev f_fix f_details <<< "$entry"
+    f_title="${f_title//\"/\\\"}"
+    f_fix="${f_fix//\"/\\\"}"
+    local f_cat; f_cat=$(_id_to_category "$f_id")
+    [[ "$first" == "true" ]] && first=false || findings_json+=","
+    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"low\",\"details\":\"$f_fix\",\"category\":\"$f_cat\"}"
+  done
+  findings_json+="]"
 
-  function drawLine(data, key, color, maxVal) {
-    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
-    for (var i = 0; i < data.length; i++) {
-      var x = pad.l + (i / (n - 1)) * cw;
-      var v = data[i][key] || 0;
-      var y = pad.t + ch - (v / maxVal) * ch;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-    // Dot on last point
-    var lx = pad.l + cw;
-    var lv = data[data.length - 1][key] || 0;
-    var ly = pad.t + ch - (lv / maxVal) * ch;
-    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(lx, ly, 3, 0, Math.PI * 2); ctx.fill();
-  }
+  # Persist scan summary for diagrams/docs (no identifiers by design).
+  # Consumers: scanner/lib/diagram-gen.py, docs/architecture assets, local dashboards.
+  local scan_report_path="${SCAN_DIR:-.}/scan-report.json"
+  cat > "$scan_report_path" <<SCAN_REPORT_EOF
+{"passed":${PASSED:-0},"failed":${FAILED:-0},"warnings":${WARNINGS:-0},"skipped":${SKIPPED:-0},"total":${TOTAL_CHECKS:-0},"score":${score:-0},"grade":"${grade:-F}","duration":${SCAN_DURATION:-0},"findings":${findings_json}}
+SCAN_REPORT_EOF
 
-  drawLine(history, 'score', '#38bdf8', 100);
+  # Generate draw.io + SVG architecture diagrams from scanned data (best-effort).
+  # Disable with: CLAUDESEC_GENERATE_DIAGRAMS=0
+  if [[ "${CLAUDESEC_GENERATE_DIAGRAMS:-1}" != "0" ]]; then
+    local diagram_script="$LIB_DIR/diagram-gen.py"
+    local diagram_out="${SCAN_DIR:-.}/docs/architecture"
+    if command -v python3 >/dev/null 2>&1 && [[ -f "$diagram_script" ]]; then
+      mkdir -p "$diagram_out" 2>/dev/null || true
+      CLAUDESEC_SCAN_DIR="${SCAN_DIR:-.}" python3 "$diagram_script" "$diagram_out" 2>/dev/null || true
+    fi
+  fi
 
-  // Legend
-  ctx.fillStyle = '#38bdf8'; ctx.font = '9px system-ui'; ctx.textAlign = 'left';
-  ctx.fillText('● Score', pad.l + 5, pad.t + 10);
-})();
+  local py_script="$LIB_DIR/dashboard-gen.py"
 
-function toggleAllDetails() {
-  var rows = document.querySelectorAll('tbody tr.clickable');
-  var anyCollapsed = false;
-  rows.forEach(function(row) {
-    if (row.style.display === 'none') return;
-    var detail = row.nextElementSibling;
-    if (detail && detail.classList.contains('detail-row') && detail.style.display === 'none') {
-      anyCollapsed = true;
-    }
-  });
-  rows.forEach(function(row) {
-    if (row.style.display === 'none') return;
-    var detail = row.nextElementSibling;
-    if (detail && detail.classList.contains('detail-row')) {
-      detail.style.display = anyCollapsed ? 'table-row' : 'none';
-      row.classList.toggle('expanded', anyCollapsed);
-    }
-  });
-}
+  if command -v python3 >/dev/null 2>&1 && [[ -f "$py_script" ]]; then
+    # Use Python v0.5.0 generator
+    CLAUDESEC_PASSED="$PASSED" \
+    CLAUDESEC_FAILED="$FAILED" \
+    CLAUDESEC_WARNINGS="$WARNINGS" \
+    CLAUDESEC_SKIPPED="$SKIPPED" \
+    CLAUDESEC_TOTAL="$TOTAL_CHECKS" \
+    CLAUDESEC_SCORE="$score" \
+    CLAUDESEC_GRADE="$grade" \
+    CLAUDESEC_DURATION="${SCAN_DURATION:-0}" \
+    CLAUDESEC_FINDINGS_JSON="$findings_json" \
+    CLAUDESEC_PROWLER_DIR="${SCAN_DIR:-.}/.claudesec-prowler" \
+    CLAUDESEC_HISTORY_DIR="${SCAN_DIR:-.}/.claudesec-history" \
+    CLAUDESEC_NETWORK_DIR="${SCAN_DIR:-.}/.claudesec-network" \
+    python3 "$py_script" "$output_file" 2>/dev/null
 
-// Build category summary chips from findings table
-(function buildCategorySummary() {
-  var container = document.getElementById('catSummary');
-  if (!container) return;
-  var rows = document.querySelectorAll('tbody tr:not(.detail-row)');
-  var cats = {};
-  var icons = {'PROWLER-AWS':'☁','PROWLER-GH':'⚙','PROWLER-K8S':'☸','PROWLER-AZ':'◇','PROWLER-GCP':'◈','PROWLER-IAC':'📄','INFRA':'🏗','NET':'🌐','CLOUD':'☁','CICD':'⚡','AI':'🤖','ACCESS':'🔑','CODE':'📝','SAAS':'🔌','PROWLER-M365':'📧','PROWLER-CF':'🌐','PROWLER-MONGO':'🍃','PROWLER-OCI':'☁','PROWLER-LLM':'🤖','PROWLER-IMG':'📦'};
-  rows.forEach(function(row) {
-    var idCell = row.querySelector('.mono');
-    if (!idCell) return;
-    var id = idCell.textContent.trim();
-    var prefix = id.replace(/-\d+$/, '');
-    if (!cats[prefix]) cats[prefix] = 0;
-    cats[prefix]++;
-  });
-  var keys = Object.keys(cats).sort();
-  if (keys.length === 0) { container.style.display = 'none'; return; }
-  keys.forEach(function(cat) {
-    var icon = icons[cat] || '●';
-    // Try shorter prefix match
-    if (!icons[cat]) { for (var k in icons) { if (cat.indexOf(k) === 0) { icon = icons[k]; break; } } }
-    var chip = document.createElement('div');
-    chip.className = 'cat-chip';
-    chip.setAttribute('data-cat', cat);
-    chip.innerHTML = '<span class="cc-icon">' + icon + '</span><span class="cc-name">' + cat + '</span><span class="cc-count">' + cats[cat] + '</span>';
-    chip.onclick = function() {
-      var isActive = this.classList.contains('active');
-      document.querySelectorAll('.cat-chip').forEach(function(c) { c.classList.remove('active'); });
-      if (!isActive) {
-        this.classList.add('active');
-        filterByCategory(cat);
-      } else {
-        filterByCategory(null);
-      }
-    };
-    container.appendChild(chip);
-  });
-})();
+    if [[ $? -eq 0 && -f "$output_file" ]]; then
+      return 0
+    fi
+  fi
 
-function filterByCategory(cat) {
-  var rows = document.querySelectorAll('tbody tr');
-  rows.forEach(function(row) {
-    if (row.classList.contains('detail-row')) { row.style.display = 'none'; return; }
-    if (!cat) { row.style.display = ''; return; }
-    var idCell = row.querySelector('.mono');
-    if (!idCell) { row.style.display = ''; return; }
-    var id = idCell.textContent.trim();
-    var prefix = id.replace(/-\d+$/, '');
-    row.style.display = (prefix === cat) ? '' : 'none';
-    row.classList.remove('expanded');
-  });
-}
-
-// Transform raw detail-content text into structured HTML
-(function formatDetails() {
-  document.querySelectorAll('.detail-content').forEach(function(el) {
-    var raw = el.innerHTML;
-    var lines = raw.split(/<br\s*\/?>/).map(function(l) { return l.trim(); }).filter(Boolean);
-    if (lines.length < 2) {
-      // Simple non-Prowler detail: format as clean lines
-      if (lines.length === 1) {
-        el.innerHTML = '<div class="detail-plain"><div class="dp-line">' + lines[0] + '</div></div>';
-      }
-      return;
-    }
-
-    var result = '';
-    var summaryLine = lines[0];
-    var services = [];
-    var findings = [];
-    var currentFinding = null;
-    var plainLines = [];
-
-    for (var i = 1; i < lines.length; i++) {
-      var line = lines[i];
-      // Service grouping: "service: N finding(s)"
-      var svcMatch = line.match(/^([\w][\w\-]*): (\d+) finding/);
-      if (svcMatch) { services.push({name: svcMatch[1], count: parseInt(svcMatch[2])}); continue; }
-      // Finding header: "[Severity] (code) message"
-      var findMatch = line.match(/^\[(\w+)\]\s*\(([^)]+)\)\s*(.*)/);
-      if (findMatch) {
-        if (currentFinding) findings.push(currentFinding);
-        currentFinding = {sev: findMatch[1], code: findMatch[2], msg: findMatch[3], meta: []};
-        continue;
-      }
-      // Meta lines: "Risk:", "Fix:", "Ref:", "Resource:"
-      var metaMatch = line.match(/^(Risk|Fix|Ref|Reference|Resource|Remediation):\s*(.*)/);
-      if (metaMatch && currentFinding) {
-        currentFinding.meta.push({label: metaMatch[1], value: metaMatch[2]});
-        continue;
-      }
-      if (currentFinding) { currentFinding.meta.push({label: '', value: line}); }
-      else { plainLines.push(line); }
-    }
-    if (currentFinding) findings.push(currentFinding);
-
-    // If no structured data found, format as clean plain text
-    if (services.length === 0 && findings.length === 0) {
-      result = '<div class="detail-plain">';
-      result += '<div class="dp-line">' + summaryLine + '</div>';
-      for (var p = 0; p < plainLines.length; p++) {
-        var pl = plainLines[p];
-        var kvMatch = pl.match(/^([A-Za-z][\w\s]*?):\s+(.*)/);
-        if (kvMatch) {
-          result += '<div class="dp-kv"><span class="dp-key">' + kvMatch[1] + ':</span> ' + kvMatch[2] + '</div>';
-        } else {
-          result += '<div class="dp-line">' + pl + '</div>';
-        }
-      }
-      result += '</div>';
-      el.innerHTML = result;
-      return;
-    }
-
-    // Structured Prowler-style output
-    result += '<div class="detail-summary">' + summaryLine + '</div>';
-
-    if (services.length > 0) {
-      // Sort by count descending
-      services.sort(function(a,b) { return b.count - a.count; });
-      result += '<div class="detail-services">';
-      services.forEach(function(s) {
-        result += '<span class="detail-svc-chip">' + s.name + ': ' + s.count + '</span>';
-      });
-      result += '</div>';
-    }
-
-    if (findings.length > 0) {
-      result += '<div class="detail-findings-list">';
-      var maxShow = 20;
-      var shown = Math.min(findings.length, maxShow);
-      for (var fi = 0; fi < shown; fi++) {
-        var f = findings[fi];
-        var sl = f.sev.toLowerCase();
-        var sevClass = sl === 'critical' ? 'crit' : sl.substring(0,3);
-        result += '<div class="detail-finding">';
-        result += '<div class="df-header"><span class="df-sev ' + sevClass + '">' + f.sev + '</span><span class="df-code">' + f.code + '</span></div>';
-        result += '<div class="df-msg">' + f.msg + '</div>';
-        if (f.meta.length > 0) {
-          result += '<div class="df-meta">';
-          f.meta.forEach(function(m) {
-            if (m.label === 'Ref' || m.label === 'Reference') {
-              result += '<div><span class="ml">' + m.label + ':</span> <a href="' + m.value + '" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline">' + m.value.replace(/^https?:\/\//, '').substring(0,60) + '</a></div>';
-            } else if (m.label) {
-              result += '<div><span class="ml">' + m.label + ':</span> ' + m.value + '</div>';
-            } else {
-              result += '<div>' + m.value + '</div>';
-            }
-          });
-          result += '</div>';
-        }
-        result += '</div>';
-      }
-      if (findings.length > maxShow) {
-        result += '<div style="text-align:center;padding:0.5rem;color:var(--muted);font-size:0.8rem">... and ' + (findings.length - maxShow) + ' more findings</div>';
-      }
-      result += '</div>';
-    }
-
-    el.innerHTML = result;
-  });
-})();
-</script>
-</body>
-</html>
-HTMLEOF
+  # Fallback to legacy bash generator
+  generate_html_dashboard_legacy "$output_file"
 }
