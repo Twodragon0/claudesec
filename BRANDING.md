@@ -4,9 +4,10 @@ Quick reference for logo and visual identity. Full guide: [docs/branding.md](doc
 
 ## Logo
 
-![ClaudeSec logo](assets/claudesec-logo.png)
+![ClaudeSec logo](assets/claudesec-logo-512.png)
 
-- **File**: `assets/claudesec-logo.png`
+- **Primary source**: `assets/claudesec-logo.png` (1376x768, high resolution)
+- **Optimized docs variant**: `assets/claudesec-logo-512.png` (512px max dimension)
 - **Style**: Shield + lock, dark navy + cyan accent (#38bdf8)
 
 ## Colors

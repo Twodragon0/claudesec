@@ -1,10 +1,10 @@
 ---
-title: OpenClaw Hourly Operations with OpenCode
+title: Hourly Operations with OpenCode
 description: Configure hourly cron automation for repository sync and continuous security improvement
 tags: [openclaw, opencode, cron, automation, devsecops]
 ---
 
-# OpenClaw Hourly Operations with OpenCode
+# Hourly Operations with OpenCode
 
 ## Goal
 
