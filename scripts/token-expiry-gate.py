@@ -2,9 +2,12 @@
 """CI gate for OAuth token expiry windows.
 
 Environment variables:
-- GH_TOKEN_EXPIRES_AT
+- GH_TOKEN_EXPIRES_AT / GITHUB_TOKEN_EXPIRES_AT
 - OKTA_OAUTH_TOKEN_EXPIRES_AT
+- DATADOG_TOKEN_EXPIRES_AT / DD_TOKEN_EXPIRES_AT / DD_API_KEY_EXPIRES_AT
+- SLACK_TOKEN_EXPIRES_AT / SLACK_BOT_TOKEN_EXPIRES_AT
 - CLAUDESEC_TOKEN_EXPIRY_GATE_MODE: 24h (default) | 7d | off
+- CLAUDESEC_TOKEN_EXPIRY_PROVIDERS: github,okta (default)
 """
 
 from __future__ import annotations
