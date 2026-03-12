@@ -18,6 +18,7 @@ jobs:
         uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38
         with:
           version: v0.11.0
+          severity: warning
           scandir: ./scripts
           additional_files: run
           check_together: 'yes'
