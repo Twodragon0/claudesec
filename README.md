@@ -149,6 +149,7 @@ claudesec/
 | [GitHub Security Features](docs/github/security-features.md) | Dependabot, CodeQL, secret scanning |
 | [Branch Protection](docs/github/branch-protection.md) | Rulesets, CODEOWNERS, environment protection |
 | [Actions Security](docs/github/actions-security.md) | Supply chain hardening for CI/CD |
+| [CI Operations Playbook](docs/github/ci-operations-playbook.md) | CodeQL default setup policy, docs prechecks, 401 retry, Dependabot conflict handling |
 
 ### Compliance
 
@@ -166,7 +167,7 @@ claudesec/
 |-------|-------------|
 | [Getting Started](docs/guides/getting-started.md) | Quick setup guide |
 | [Compliance Mapping](docs/guides/compliance-mapping.md) | SOC 2, ISO 27001, NIST, PCI-DSS, KISA ISMS-P |
-| [OpenClaw Hourly Operations](docs/guides/openclaw-hourly-operations.md) | Hourly cron automation with OpenCode pull and continuous improvement loop |
+| [Hourly Operations](docs/guides/hourly-operations.md) | Hourly cron automation with OpenCode pull and continuous improvement loop |
 
 ## Templates
 
