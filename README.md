@@ -295,6 +295,7 @@ claudesec/
 | Guide | Description |
 |-------|-------------|
 | [Getting Started](docs/guides/getting-started.md) | Quick setup guide |
+| [Shell Lint Policy](docs/guides/shell-lint-policy.md) | Fixed ShellCheck scope, severity, and options policy for local and CI |
 | [Compliance Mapping](docs/guides/compliance-mapping.md) | SOC 2, ISO 27001, NIST, PCI-DSS, KISA ISMS-P |
 | [Workflow Components](docs/guides/workflow-components.md) | Reusable composite actions and template integration contract |
 | [Hourly Operations](docs/guides/hourly-operations.md) | Hourly cron automation with OpenCode pull and continuous improvement loop |

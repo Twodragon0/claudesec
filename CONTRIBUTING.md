@@ -41,6 +41,8 @@ Thank you for your interest in contributing to ClaudeSec! This project aims to m
 - Keep CodeQL in **default setup mode only**. Do not add additional repo-level CodeQL workflow files unless migration is explicitly planned.
 - If an action fails to download with `401 (Unauthorized)`, rerun the failed workflow up to **2 times** before manual triage.
 - If Dependabot action update PRs conflict with current `main`, apply the required action-version update directly to `main`, then close duplicate/conflicting Dependabot PRs with an explanation comment.
+- If changing `SHELLCHECK_OPTS` in `.github/workflows/lint.yml`, update the same policy and rationale in `docs/guides/shell-lint-policy.md` in the same PR.
+- For PR review speed, post a checks snapshot comment using `.github/comment-templates/pr-checks-snapshot.md` and `gh pr checks <PR_NUMBER>`.
 
 #### File Naming
 
