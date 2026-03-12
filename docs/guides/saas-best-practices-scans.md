@@ -17,7 +17,7 @@ ClaudeSec includes two layers of checks:
 |--------|-------------------|----------------|
 | **Harbor** | `SAAS-017` | `SAAS-API-020` |
 | **Jenkins** | `SAAS-018` | `SAAS-API-021` |
-| **Okta** | `SAAS-008` | `SAAS-API-007`, `SAAS-API-019` |
+| **Okta** | `SAAS-008` | `SAAS-API-007`, `SAAS-API-019`, `SAAS-API-022` |
 | **QueryPie** | `SAAS-014` + `AUDIT-001` | (not implemented yet) |
 | **IDEs** | `SAAS-019` | — |
 
