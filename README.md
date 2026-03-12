@@ -41,11 +41,11 @@ cd claudesec
 ./run
 ```
 
-That’s it. Full scan runs, the HTML dashboard is generated, and a local server starts at **http://localhost:11777**. Open the link to view the dashboard.
+That’s it. Full scan runs, the HTML dashboard is generated, and a local server starts at **`localhost:11777`**. Open the dashboard in your browser.
 
 | Command | What it does |
 |--------|----------------|
-| `./run` | Full scan + dashboard + serve at http://localhost:11777 |
+| `./run` | Full scan + dashboard + serve at `localhost:11777` |
 | `./run --no-serve` | Full scan + dashboard only (no server) |
 | `./run --quick` | Quick scan (3 categories) + dashboard + serve |
 
@@ -59,7 +59,7 @@ Or run the script directly:
 
 ### Not sure where to start?
 
-From the repo root, run `./run`. The first run may take a few minutes (full scan); use `./run --quick` for a faster try with 3 categories. The dashboard opens at **http://localhost:11777**.
+From the repo root, run `./run`. The first run may take a few minutes (full scan); use `./run --quick` for a faster try with 3 categories. The dashboard opens at **`localhost:11777`**.
 
 ---
 
@@ -80,10 +80,12 @@ AI coding assistants accelerate development — but speed without security creat
 ClaudeSec includes a zero-dependency bash scanner that checks your project for security best practices across 10 categories (~120+ checks). Optionally integrates with [Prowler](https://github.com/prowler-cloud/prowler) for deep multi-cloud scanning.
 
 **Scanner anchors**
+
 - [Quick Start](#scanner-quick-start)
 - [CI Templates](#scanner-ci-templates)
-- [OAuth & Token Policy](#scanner-oauth-token-policy)
+- [OAuth and Token Policy](#scanner-oauth-and-token-policy)
 - [SaaS Live Scan](#scanner-saas-live-scan)
+
 
 ### Scanner Quick Start
 
@@ -120,10 +122,11 @@ AWS_SSO_LOGIN_TIMEOUT=20 CLAUDESEC_CI=1 CI=true ./scanner/claudesec scan -c prow
 ```
 
 Reusable workflow components:
+
 - `.github/actions/token-expiry-gate`
 - `.github/actions/datadog-ci-collect`
 
-### Scanner OAuth & Token Policy
+### Scanner OAuth and Token Policy
 
 Okta recommends **scoped OAuth 2.0 access tokens** over SSWS API tokens for automation.
 
@@ -159,6 +162,7 @@ DD_API_KEY=<your-dd-api-key> DD_APP_KEY=<your-dd-app-key> DD_SITE=datadoghq.com 
 ```
 
 Advanced scanner examples (AWS SSO role troubleshooting, kubeconfig/prowler, Microsoft source filter, Datadog troubleshooting) are kept in:
+
 - `docs/guides/getting-started.md`
 - `docs/guides/workflow-components.md`
 - `docs/guides/saas-best-practices-scans.md`
