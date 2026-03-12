@@ -3151,9 +3151,25 @@ _INLINE_ARCH_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 2
 </svg>"""
 
 
-def _get_architecture_diagram_html(output_file):
-    """Load architecture SVG from docs/architecture or return built-in inline SVG."""
+def _get_architecture_diagram_html(output_file, scan_dir: str = ""):
+    """Load architecture SVG from docs/architecture or return built-in inline SVG.
+
+    Prefer `scan_dir` when provided, because the HTML output may be generated
+    from a different working directory than the scan artifacts.
+    """
     candidates = []
+    if scan_dir:
+        try:
+            candidates.append(
+                os.path.join(
+                    os.path.abspath(scan_dir),
+                    "docs",
+                    "architecture",
+                    "claudesec-architecture.svg",
+                )
+            )
+        except Exception:
+            pass
     if output_file:
         out_dir = os.path.dirname(os.path.abspath(output_file))
         if out_dir:
@@ -3190,17 +3206,18 @@ def _get_architecture_diagram_html(output_file):
 
 def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     network_dir = os.environ.get("CLAUDESEC_NETWORK_DIR", "")
-    scan_dir = ""
-    if prowler_dir and os.path.isdir(prowler_dir):
+    scan_dir = os.environ.get("CLAUDESEC_SCAN_DIR", "") or os.environ.get("SCAN_DIR", "")
+    if scan_dir:
+        scan_dir = os.path.abspath(scan_dir)
+    if not scan_dir and prowler_dir and os.path.isdir(prowler_dir):
         scan_dir = os.path.dirname(os.path.abspath(prowler_dir))
     if not scan_dir and output_file:
         scan_dir = os.path.dirname(os.path.abspath(output_file))
     if not scan_dir:
         scan_dir = os.getcwd()
-    if not network_dir and prowler_dir:
-        network_dir = os.path.join(
-            os.path.dirname(os.path.normpath(prowler_dir)), ".claudesec-network"
-        )
+
+    if not network_dir:
+        network_dir = os.path.join(scan_dir, ".claudesec-network")
     datadog_dir = os.environ.get("CLAUDESEC_DATADOG_DIR", "")
     if not datadog_dir:
         datadog_dir = os.path.join(scan_dir, ".claudesec-datadog")
@@ -3665,7 +3682,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     network_tools_badge = overview["network_tools_badge"]
 
     # Architecture diagram: embed SVG from docs/architecture, or use built-in inline SVG
-    arch_img = _get_architecture_diagram_html(output_file)
+    arch_img = _get_architecture_diagram_html(output_file, scan_dir)
 
     # ── Assemble Full HTML ───────────────────────────────────────────────
     reps = _build_replacements(
