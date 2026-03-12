@@ -17,6 +17,8 @@ for file in "${files[@]}"; do
   args+=("$file")
 done
 
+echo "[claudesec] Shell lint targets: scripts/*.sh and run"
+
 if [[ "${#args[@]}" -le 1 ]]; then
   echo "No shell files found to lint."
   exit 0
