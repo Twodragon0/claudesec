@@ -156,6 +156,7 @@ class DashboardGenSmokeTest(unittest.TestCase):
             self.assertIn("Tokens expiring &lt;12h", html)
             self.assertIn("Tokens expiring 12h-2d", html)
             self.assertIn("Active windows: &lt;12h and 12h-2d", html)
+            self.assertIn("Threshold source: &lt;12h=env, 2d=env", html)
             self.assertIn("Known token expiries", html)
             self.assertIn("Expiring 12h-2d: 1", html)
 

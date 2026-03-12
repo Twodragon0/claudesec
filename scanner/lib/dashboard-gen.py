@@ -2286,17 +2286,17 @@ def _collect_token_expiry_items():
 def _parse_duration_seconds(raw_value, default_seconds, default_unit):
     raw = (raw_value or "").strip().lower()
     if not raw:
-        return default_seconds
+        return default_seconds, "default"
     unit_map = {"s": 1, "m": 60, "h": 3600, "d": 86400}
     if raw[-1:] in unit_map:
         num = raw[:-1]
         if num.isdigit() and int(num) > 0:
-            return int(num) * unit_map[raw[-1]]
-        return default_seconds
+            return int(num) * unit_map[raw[-1]], "env"
+        return default_seconds, "default"
     if raw.isdigit() and int(raw) > 0:
         factor = 3600 if default_unit == "h" else 86400
-        return int(raw) * factor
-    return default_seconds
+        return int(raw) * factor, "env"
+    return default_seconds, "default"
 
 
 def _duration_label(seconds):
@@ -2346,10 +2346,10 @@ def build_auth_summary_html(envs, findings_list):
             auth_finding_count += 1
 
     now_utc = datetime.now(timezone.utc)
-    warning_24h_seconds = _parse_duration_seconds(
+    warning_24h_seconds, warning_24h_source = _parse_duration_seconds(
         os.environ.get("CLAUDESEC_TOKEN_EXPIRY_WARNING_24H", ""), 86400, "h"
     )
-    warning_7d_seconds = _parse_duration_seconds(
+    warning_7d_seconds, warning_7d_source = _parse_duration_seconds(
         os.environ.get("CLAUDESEC_TOKEN_EXPIRY_WARNING_7D", ""), 7 * 86400, "d"
     )
     if warning_7d_seconds < warning_24h_seconds:
@@ -2455,6 +2455,9 @@ def build_auth_summary_html(envs, findings_list):
     threshold_badges_html = (
         '<span class="trust-badge trust-ms" style="margin-left:.5rem">'
         + f"Active windows: &lt;{h(window_24_label)} and {h(window_24_label)}-{h(window_7_label)}"
+        + "</span>"
+        + '<span class="trust-badge trust-gov" style="margin-left:.35rem">'
+        + f"Threshold source: &lt;{h(window_24_label)}={h(warning_24h_source)}, {h(window_7_label)}={h(warning_7d_source)}"
         + "</span>"
     )
 
