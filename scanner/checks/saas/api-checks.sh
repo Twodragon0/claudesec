@@ -395,6 +395,19 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
       *) _okta_unchecked_scopes+=("$_scope") ;;
     esac
   done
+
+  if [[ ${#_okta_unchecked_scopes[@]} -gt 0 ]]; then
+    _unchecked_scope_list="$(IFS=', '; echo "${_okta_unchecked_scopes[*]}")"
+    if [[ $_strict_okta_scopes_enabled -eq 1 ]]; then
+      fail "SAAS-API-022" "Okta required scope mapping is incomplete (strict mode)" "medium" \
+        "Unmapped scopes in CLAUDESEC_OKTA_REQUIRED_SCOPES: ${_unchecked_scope_list}" \
+        "Map these scopes to concrete API checks or remove them from CLAUDESEC_OKTA_REQUIRED_SCOPES"
+      exit 1
+    fi
+    warn "SAAS-API-022" "Okta required scope mapping is incomplete" \
+      "Unmapped scopes: ${_unchecked_scope_list}" \
+      "Map scopes to API checks to track policy coverage"
+  fi
   if [[ -n "${OKTA_OAUTH_TOKEN:-}" ]]; then
     _okta_auth_header="Authorization: Bearer ${OKTA_OAUTH_TOKEN}"
     _okta_auth_mode="OAuth token"
@@ -438,13 +451,11 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
       fi
     fi
 
-    if [[ $_strict_okta_scopes_enabled -eq 1 && ( ${#_okta_missing_scopes[@]} -gt 0 || ${#_okta_unchecked_scopes[@]} -gt 0 ) ]]; then
-      _required_scope_list="$(IFS=', '; echo "${_okta_required_scopes[*]}")"
+    if [[ $_strict_okta_scopes_enabled -eq 1 && ${#_okta_missing_scopes[@]} -gt 0 ]]; then
       _missing_scope_list="$(IFS=', '; echo "${_okta_missing_scopes[*]}")"
-      _unchecked_scope_list="$(IFS=', '; echo "${_okta_unchecked_scopes[*]}")"
       fail "SAAS-API-007" "Okta OAuth scope validation failed (strict mode)" "high" \
-        "Required scopes: ${_required_scope_list}${_missing_scope_list:+ | Missing: ${_missing_scope_list}}${_unchecked_scope_list:+ | Unmapped: ${_unchecked_scope_list}}" \
-        "Set CLAUDESEC_OKTA_REQUIRED_SCOPES with supported scopes and grant required OAuth scopes"
+        "Missing required scopes: ${_missing_scope_list}" \
+        "Grant required OAuth scopes to the service app"
       exit 1
     fi
   else
@@ -466,14 +477,9 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
       fi
     fi
 
-    if [[ "$_okta_auth_mode" == "OAuth token" && ( ${#_okta_missing_scopes[@]} -gt 0 || ${#_okta_unchecked_scopes[@]} -gt 0 ) ]]; then
+    if [[ "$_okta_auth_mode" == "OAuth token" && ${#_okta_missing_scopes[@]} -gt 0 ]]; then
       _o_issues=$((_o_issues + 1))
-      if [[ ${#_okta_missing_scopes[@]} -gt 0 ]]; then
-        _o_details="${_o_details}\n    Missing OAuth scopes: $(IFS=', '; echo "${_okta_missing_scopes[*]}")"
-      fi
-      if [[ ${#_okta_unchecked_scopes[@]} -gt 0 ]]; then
-        _o_details="${_o_details}\n    Unmapped required scopes (not validated by current checks): $(IFS=', '; echo "${_okta_unchecked_scopes[*]}")"
-      fi
+      _o_details="${_o_details}\n    Missing OAuth scopes: $(IFS=', '; echo "${_okta_missing_scopes[*]}")"
     fi
 
     _no_mfa=$(run_with_timeout 15 curl -sSf \
@@ -507,16 +513,9 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
         "Enforce MFA for all users, set minimum password length to 12+"
     fi
   else
-    if [[ "$_okta_auth_mode" == "OAuth token" && ( ${#_okta_missing_scopes[@]} -gt 0 || ${#_okta_unchecked_scopes[@]} -gt 0 ) ]]; then
-      _scope_warn=""
-      if [[ ${#_okta_missing_scopes[@]} -gt 0 ]]; then
-        _scope_warn="Missing: $(IFS=', '; echo "${_okta_missing_scopes[*]}")"
-      fi
-      if [[ ${#_okta_unchecked_scopes[@]} -gt 0 ]]; then
-        _scope_warn="${_scope_warn}${_scope_warn:+ | }Unmapped: $(IFS=', '; echo "${_okta_unchecked_scopes[*]}")"
-      fi
+    if [[ "$_okta_auth_mode" == "OAuth token" && ${#_okta_missing_scopes[@]} -gt 0 ]]; then
       warn "SAAS-API-007" "Okta OAuth token is missing required scopes" \
-        "${_scope_warn}"
+        "Missing: $(IFS=', '; echo "${_okta_missing_scopes[*]}")"
     else
       warn "SAAS-API-007" "Okta API connection failed" "Check OKTA_ORG_URL and OKTA_OAUTH_TOKEN (preferred) or OKTA_API_TOKEN"
     fi

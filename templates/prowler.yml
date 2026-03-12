@@ -75,8 +75,9 @@ jobs:
           GH_TOKEN_EXPIRES_AT: ${{ vars.GH_TOKEN_EXPIRES_AT || '' }}
           OKTA_OAUTH_TOKEN_EXPIRES_AT: ${{ vars.OKTA_OAUTH_TOKEN_EXPIRES_AT || '' }}
           CLAUDESEC_TOKEN_EXPIRY_GATE_MODE: ${{ vars.CLAUDESEC_TOKEN_EXPIRY_GATE_MODE || '24h' }}
+          CLAUDESEC_TOKEN_EXPIRY_PROVIDERS: ${{ vars.CLAUDESEC_TOKEN_EXPIRY_PROVIDERS || 'github,okta' }}
         run: |
-          python3 scripts/token-expiry-gate.py
+          python3 scripts/token-expiry-gate.py --providers "${CLAUDESEC_TOKEN_EXPIRY_PROVIDERS}"
 
       - name: Collect Datadog CI logs/signals/cases for dashboard (optional)
         if: ${{ secrets.DD_API_KEY != '' && secrets.DD_APP_KEY != '' }}
