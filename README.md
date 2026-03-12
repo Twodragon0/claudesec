@@ -166,6 +166,7 @@ claudesec/
 |-------|-------------|
 | [Getting Started](docs/guides/getting-started.md) | Quick setup guide |
 | [Compliance Mapping](docs/guides/compliance-mapping.md) | SOC 2, ISO 27001, NIST, PCI-DSS, KISA ISMS-P |
+| [OpenClaw Hourly Operations](docs/guides/openclaw-hourly-operations.md) | Hourly cron automation with OpenCode pull and continuous improvement loop |
 
 ## Templates
 
