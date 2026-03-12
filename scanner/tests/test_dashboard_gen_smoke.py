@@ -159,6 +159,10 @@ class DashboardGenSmokeTest(unittest.TestCase):
             self.assertIn("Threshold source: &lt;12h=env, 2d=env", html)
             self.assertIn("Known token expiries", html)
             self.assertIn("Expiring 12h-2d: 1", html)
+            self.assertIn("Policy Coverage", html)
+            self.assertIn("Permission gaps (SAAS-API-007)", html)
+            self.assertIn("Policy mapping gaps (SAAS-API-022)", html)
+            self.assertIn("Policy gaps (022)", html)
 
     def test_fetch_ms_sources_scubagear_toggle_off_vs_on(self):
         fake_sources = [

@@ -63,7 +63,10 @@ echo ""
 
 # Create directories
 mkdir -p "$TARGET_DIR/.github/workflows"
+mkdir -p "$TARGET_DIR/.github/actions/datadog-ci-collect"
+mkdir -p "$TARGET_DIR/.github/actions/token-expiry-gate"
 mkdir -p "$TARGET_DIR/.claude/hooks"
+mkdir -p "$TARGET_DIR/scripts"
 
 # Copy hooks
 echo -e "${GREEN}[+]${NC} Installing Claude Code hooks..."
@@ -75,6 +78,9 @@ chmod +x "$TARGET_DIR/.claude/hooks/"*.sh
 echo -e "${GREEN}[+]${NC} Installing GitHub Actions workflows..."
 cp "$CLAUDESEC_DIR/templates/codeql.yml" "$TARGET_DIR/.github/workflows/"
 cp "$CLAUDESEC_DIR/templates/dependency-review.yml" "$TARGET_DIR/.github/workflows/"
+cp "$CLAUDESEC_DIR/.github/actions/datadog-ci-collect/action.yml" "$TARGET_DIR/.github/actions/datadog-ci-collect/"
+cp "$CLAUDESEC_DIR/.github/actions/token-expiry-gate/action.yml" "$TARGET_DIR/.github/actions/token-expiry-gate/"
+cp "$CLAUDESEC_DIR/scripts/token-expiry-gate.py" "$TARGET_DIR/scripts/"
 
 # Copy dependabot config
 if [ ! -f "$TARGET_DIR/.github/dependabot.yml" ]; then

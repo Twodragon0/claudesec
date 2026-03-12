@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 720" width="1100" height="720">
+<defs>
+<marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#334155"/></marker>
+</defs>
+<style>
+  .bg{fill:#0b1220}
+  .card{fill:#0f172a;stroke:#334155;stroke-width:1.5}
+  .boxA{fill:#0b2a4a;stroke:#38bdf8;stroke-width:1.5}
+  .boxB{fill:#3a2503;stroke:#eab308;stroke-width:1.5}
+  .boxC{fill:#2b1b57;stroke:#a78bfa;stroke-width:1.5}
+  .txt{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;fill:#e5e7eb}
+  .muted{fill:#94a3b8}
+  .title{font-size:16px;font-weight:700}
+  .h2{font-size:13px;font-weight:700;fill:#e2e8f0}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:11px}
+</style>
+<rect class="bg" x="0" y="0" width="1100" height="720"/>
+<text class="txt title" x="30" y="38">ClaudeSec Overview Architecture</text>
+<text class="txt muted" x="30" y="60">Scan: total 40, failed 2, warnings 3 · Score 83% (Grade B) · Prowler fail 6491 · Network targets 1 (header issues 6)</text>
+<rect class="card" x="20" y="90" width="520" height="290" rx="12"/>
+<rect class="card" x="560" y="90" width="520" height="290" rx="12"/>
+<rect class="card" x="20" y="400" width="1060" height="290" rx="12"/>
+<text class="txt h2" x="40" y="120">Architecture (artifacts &amp; data)</text>
+<text class="txt h2" x="580" y="120">Service flow (who calls what)</text>
+<text class="txt h2" x="40" y="430">Network flow (DNS → TLS → HTTP)</text>
+<rect x="50" y="150" width="150" height="60" rx="10" class="boxA"/>
+<text class="txt" x="125.0" y="172" text-anchor="middle">Scanner</text>
+<text class="txt muted mono" x="125.0" y="192" text-anchor="middle">claudesec (CLI)</text>
+<rect x="240" y="150" width="150" height="60" rx="10" class="boxA"/>
+<text class="txt" x="315.0" y="172" text-anchor="middle">Categories</text>
+<text class="txt muted mono" x="315.0" y="192" text-anchor="middle">infra/ai/network/…</text>
+<rect x="430" y="150" width="90" height="60" rx="10" class="boxB"/>
+<text class="txt" x="475.0" y="172" text-anchor="middle">JSON</text>
+<text class="txt muted mono" x="475.0" y="192" text-anchor="middle">scan-report.json</text>
+<rect x="50" y="240" width="180" height="60" rx="10" class="boxB"/>
+<text class="txt" x="140.0" y="262" text-anchor="middle">Prowler</text>
+<text class="txt muted mono" x="140.0" y="282" text-anchor="middle">fail:6491</text>
+<rect x="260" y="240" width="150" height="60" rx="10" class="boxC"/>
+<text class="txt" x="335.0" y="262" text-anchor="middle">Dashboard</text>
+<text class="txt muted mono" x="335.0" y="282" text-anchor="middle">claudesec-dashboard.html</text>
+<rect x="430" y="240" width="90" height="60" rx="10" class="boxC"/>
+<text class="txt" x="475.0" y="262" text-anchor="middle">History</text>
+<text class="txt muted mono" x="475.0" y="282" text-anchor="middle">30 entries</text>
+<line x1="200" y1="180" x2="240" y2="180" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="390" y1="180" x2="430" y2="180" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="295" y1="210" x2="295" y2="240" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="590" y="150" width="160" height="60" rx="10" class="boxA"/>
+<text class="txt" x="670.0" y="172" text-anchor="middle">Engineer / CI</text>
+<text class="txt muted mono" x="670.0" y="192" text-anchor="middle">runs scan/dashboard</text>
+<rect x="780" y="150" width="160" height="60" rx="10" class="boxA"/>
+<text class="txt" x="860.0" y="172" text-anchor="middle">claudesec</text>
+<text class="txt muted mono" x="860.0" y="192" text-anchor="middle">scan → aggregate</text>
+<rect x="970" y="150" width="90" height="60" rx="10" class="boxB"/>
+<text class="txt" x="1015.0" y="172" text-anchor="middle">Outputs</text>
+<text class="txt muted mono" x="1015.0" y="192" text-anchor="middle">HTML/SVG</text>
+<line x1="750" y1="180" x2="780" y2="180" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="940" y1="180" x2="970" y2="180" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="txt muted mono" x="590" y="245">Artifacts: docs/architecture/*.drawio + *.svg</text>
+<text class="txt muted mono" x="590" y="265">Logs/findings: scan-report.json (+ .claudesec-history)</text>
+<rect x="60" y="470" width="260" height="70" rx="10" class="boxA"/>
+<text class="txt" x="190.0" y="492" text-anchor="middle">DNS</text>
+<text class="txt muted mono" x="190.0" y="512" text-anchor="middle">resolve host → IPs</text>
+<rect x="370" y="470" width="260" height="70" rx="10" class="boxA"/>
+<text class="txt" x="500.0" y="492" text-anchor="middle">TLS</text>
+<text class="txt muted mono" x="500.0" y="512" text-anchor="middle">grade A/B/D/unknown</text>
+<rect x="680" y="470" width="380" height="70" rx="10" class="boxA"/>
+<text class="txt" x="870.0" y="492" text-anchor="middle">HTTP(S)</text>
+<text class="txt muted mono" x="870.0" y="512" text-anchor="middle">headers, redirects, HSTS, CSP</text>
+<line x1="320" y1="505" x2="370" y2="505" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="630" y1="505" x2="680" y2="505" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="txt muted mono" x="60" y="565">Source: .claudesec-network/network-report.v1.json (targets: 1)</text>
+<text class="txt muted mono" x="60" y="585">HTTP header issues (sum, top20 targets): 6</text>
+</svg>

@@ -69,6 +69,8 @@ credentials/
 *.bak
 *.backup
 *~
+tmp-*.svg
+tmp-*.png
 # Common secret/config names
 *.secret.yml
 *.secret.yaml

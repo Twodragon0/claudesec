@@ -32,10 +32,6 @@ env:
   DD_SERVICE: security-scan-suite
   DD_ENV: ci
   CI_PIPELINE_ID: ${{ github.run_id }}
-  GH_TOKEN_EXPIRES_AT: ${{ vars.GH_TOKEN_EXPIRES_AT || '' }}
-  OKTA_OAUTH_TOKEN_EXPIRES_AT: ${{ vars.OKTA_OAUTH_TOKEN_EXPIRES_AT || '' }}
-  CLAUDESEC_TOKEN_EXPIRY_GATE_MODE: ${{ vars.CLAUDESEC_TOKEN_EXPIRY_GATE_MODE || '24h' }}
-  CLAUDESEC_TOKEN_EXPIRY_PROVIDERS: ${{ vars.CLAUDESEC_TOKEN_EXPIRY_PROVIDERS || 'github,okta' }}
 
 jobs:
   token_expiry_gate:
@@ -46,8 +42,49 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run OAuth token expiry gate script
-        run: |
-          python3 scripts/token-expiry-gate.py --providers "${CLAUDESEC_TOKEN_EXPIRY_PROVIDERS}"
+        uses: ./.github/actions/token-expiry-gate
+        with:
+          providers: ${{ vars.CLAUDESEC_TOKEN_EXPIRY_PROVIDERS || 'github,okta' }}
+          strict-providers: ${{ vars.CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS || 'false' }}
+          gate-mode: ${{ vars.CLAUDESEC_TOKEN_EXPIRY_GATE_MODE || '24h' }}
+          gh-token-expires-at: ${{ vars.GH_TOKEN_EXPIRES_AT || '' }}
+          github-token-expires-at: ${{ vars.GITHUB_TOKEN_EXPIRES_AT || '' }}
+          okta-oauth-token-expires-at: ${{ vars.OKTA_OAUTH_TOKEN_EXPIRES_AT || '' }}
+          datadog-token-expires-at: ${{ vars.DATADOG_TOKEN_EXPIRES_AT || '' }}
+          dd-token-expires-at: ${{ vars.DD_TOKEN_EXPIRES_AT || '' }}
+          dd-api-key-expires-at: ${{ vars.DD_API_KEY_EXPIRES_AT || '' }}
+          slack-token-expires-at: ${{ vars.SLACK_TOKEN_EXPIRES_AT || '' }}
+          slack-bot-token-expires-at: ${{ vars.SLACK_BOT_TOKEN_EXPIRES_AT || '' }}
+
+  datadog_ci_collect:
+    name: Datadog CI Collect (optional)
+    runs-on: ubuntu-latest
+    needs: token_expiry_gate
+    if: ${{ secrets.DD_API_KEY != '' && secrets.DD_APP_KEY != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Collect Datadog CI logs/signals/cases for dashboard
+        uses: ./.github/actions/datadog-ci-collect
+        with:
+          dd-api-key: ${{ secrets.DD_API_KEY }}
+          dd-app-key: ${{ secrets.DD_APP_KEY }}
+          dd-site: ${{ vars.DD_SITE || 'datadoghq.com' }}
+          dd-service: security-scan-suite
+          dd-env: ci
+          ci-pipeline-id: ${{ github.run_id }}
+          dd-tags: service:security-scan-suite,env:ci,ci_pipeline_id:${{ github.run_id }}
+
+      - name: Upload Datadog sanitized artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-suite-datadog
+          path: |
+            .claudesec-datadog/datadog-logs-sanitized.json
+            .claudesec-datadog/datadog-cloud-signals-sanitized.json
+            .claudesec-datadog/datadog-cases-sanitized.json
+          retention-days: 30
 
   codeql:
     name: CodeQL
@@ -157,3 +194,83 @@ jobs:
       contents: read
       actions: read
       security-events: write
+
+  security_summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - codeql
+      - semgrep
+      - trivy
+      - gitleaks
+      - osv_scanner_pr
+      - osv_scanner_scheduled
+      - datadog_ci_collect
+    steps:
+      - name: Download Datadog artifact (optional)
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: security-scan-suite-datadog
+          path: .summary-artifacts/datadog
+
+      - name: Build summary and enforce required job success
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          needs = json.loads(os.getenv("NEEDS_JSON", "{}") or "{}")
+          required = [
+              "codeql",
+              "semgrep",
+              "trivy",
+              "gitleaks",
+              "osv_scanner_pr",
+              "osv_scanner_scheduled",
+          ]
+          optional = ["datadog_ci_collect"]
+
+          def state(job: str) -> str:
+              return str((needs.get(job) or {}).get("result", "unknown"))
+
+          required_failures = []
+          for job in required:
+              s = state(job)
+              if s not in ("success", "skipped"):
+                  required_failures.append((job, s))
+
+          datadog_dir = Path(".summary-artifacts/datadog")
+          datadog_files = []
+          if datadog_dir.exists():
+              datadog_files = sorted(
+                  p.name for p in datadog_dir.glob("*.json") if p.is_file()
+              )
+
+          print("## Security Scan Suite Summary")
+          print("### Required jobs")
+          for job in required:
+              print(f"- {job}: {state(job)}")
+          print("### Optional jobs")
+          for job in optional:
+              print(f"- {job}: {state(job)}")
+
+          if datadog_files:
+              print("### Datadog artifacts")
+              for name in datadog_files:
+                  print(f"- {name}")
+          else:
+              print("### Datadog artifacts")
+              print("- none (job skipped or artifact unavailable)")
+
+          if required_failures:
+              for job, s in required_failures:
+                  print(f"::error::{job} ended with {s}")
+              sys.exit(1)
+          PY

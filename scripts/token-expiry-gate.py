@@ -8,6 +8,7 @@ Environment variables:
 - SLACK_TOKEN_EXPIRES_AT / SLACK_BOT_TOKEN_EXPIRES_AT
 - CLAUDESEC_TOKEN_EXPIRY_GATE_MODE: 24h (default) | 7d | off
 - CLAUDESEC_TOKEN_EXPIRY_PROVIDERS: github,okta (default)
+- CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS: false (default)
 """
 
 from __future__ import annotations
@@ -71,6 +72,11 @@ def resolve_expiry_env(provider: str) -> str:
     return ""
 
 
+def parse_bool_flag(raw: str | None) -> bool:
+    value = (raw or "").strip().lower()
+    return value in ("1", "true", "yes", "on")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Gate CI by token expiry windows")
     parser.add_argument(
@@ -80,6 +86,14 @@ def main() -> int:
             "Comma-separated providers to check. "
             "Supported: github,okta,datadog,slack "
             "(default: CLAUDESEC_TOKEN_EXPIRY_PROVIDERS or github,okta)"
+        ),
+    )
+    parser.add_argument(
+        "--strict-providers",
+        default=None,
+        help=(
+            "Fail when selected provider expiry metadata is missing. "
+            "Values: true/false (default: CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS or false)"
         ),
     )
     args = parser.parse_args()
@@ -100,6 +114,11 @@ def main() -> int:
         if args.providers is not None
         else os.getenv("CLAUDESEC_TOKEN_EXPIRY_PROVIDERS", "github,okta")
     )
+    strict_providers = parse_bool_flag(
+        args.strict_providers
+        if args.strict_providers is not None
+        else os.getenv("CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS", "false")
+    )
     providers, unknown_providers = parse_provider_list(provider_raw)
     if unknown_providers:
         print(f"::warning::Unknown providers ignored: {', '.join(unknown_providers)}")
@@ -114,15 +133,21 @@ def main() -> int:
         try:
             expiry = parse_expiry(raw)
         except Exception:
-            print(
-                f"::warning::{provider} expiry metadata format invalid (skip gate for this token)"
-            )
+            if strict_providers:
+                violations.append(f"{provider} expiry metadata format is invalid")
+            else:
+                print(
+                    f"::warning::{provider} expiry metadata format invalid (skip gate for this token)"
+                )
             continue
 
         if expiry is None:
-            print(
-                f"::warning::{provider} expiry metadata not set (skip gate for this token)"
-            )
+            if strict_providers:
+                violations.append(f"{provider} expiry metadata is required but missing")
+            else:
+                print(
+                    f"::warning::{provider} expiry metadata not set (skip gate for this token)"
+                )
             continue
 
         remaining = int((expiry - now).total_seconds())
@@ -140,7 +165,7 @@ def main() -> int:
 
     print(
         "Token expiry gate passed "
-        f"(mode={mode}, window={threshold_hours}h, providers={','.join(providers)})"
+        f"(mode={mode}, window={threshold_hours}h, providers={','.join(providers)}, strict_providers={str(strict_providers).lower()})"
     )
     return 0
 
