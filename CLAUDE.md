@@ -31,3 +31,18 @@ All documentation is in Markdown. No build system required.
 - Links must be valid (no broken references)
 - Code blocks must specify language
 - Security claims must cite sources
+
+## Continuous Operations
+
+- Hourly automation entrypoint: `/Users/namyongkim/Desktop/.twodragon0/bin/hourly-opencode-git-pull.sh`
+- Cron installer: `/Users/namyongkim/Desktop/.twodragon0/bin/install-system-cron.sh`
+- gws CLI installer: `/Users/namyongkim/Desktop/.twodragon0/bin/setup-gws-cli.sh`
+- gws auth verifier: `/Users/namyongkim/Desktop/.twodragon0/bin/finalize-gws-auth-and-verify.sh`
+- OpenCode profile: `OPENCODE.md`
+- Improvement memory: `MEMORY.md`
+
+## Continuous Improvement Workflow
+
+- Use hourly automation for repository synchronization, scanner execution, and dashboard refresh.
+- Use `MEMORY.md` to keep a persistent backlog across security, performance, operations, quality, and UX.
+- Use `/ralph-loop` for autonomous iteration and `/ulw-loop` for deep-focus execution on highest-priority items.

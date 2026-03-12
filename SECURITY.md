@@ -14,8 +14,8 @@ If you discover a security vulnerability in ClaudeSec, please report it responsi
 
 ### How to Report
 
-- **Email**: security@claudesec.dev
-- **GitHub Security Advisory**: Use the [Report a Vulnerability](../../security/advisories/new) button on this repository
+- **Email**: [security@claudesec.dev](mailto:security@claudesec.dev)
+- **GitHub Security Advisory**: Use the [Report a Vulnerability](https://github.com/Twodragon0/claudesec/security/advisories/new) button on this repository
 
 ### Response Timeline
 
@@ -26,12 +26,14 @@ If you discover a security vulnerability in ClaudeSec, please report it responsi
 ### Scope
 
 **In scope:**
+
 - Security vulnerabilities in scanner code (`scanner/`)
 - Flaws in security configuration templates (`templates/`)
 - Issues in automation scripts (`scripts/`) and hooks (`hooks/`)
 - Documentation that gives incorrect or dangerous security advice
 
 **Out of scope:**
+
 - Vulnerabilities in third-party dependencies (report upstream)
 - Issues in example projects that are intentionally insecure for demonstration
 - Social engineering or phishing attacks
