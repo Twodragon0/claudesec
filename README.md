@@ -86,7 +86,6 @@ ClaudeSec includes a zero-dependency bash scanner that checks your project for s
 - [OAuth and Token Policy](#scanner-oauth-and-token-policy)
 - [SaaS Live Scan](#scanner-saas-live-scan)
 
-
 ### Scanner Quick Start
 
 ```bash
