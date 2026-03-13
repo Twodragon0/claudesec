@@ -137,6 +137,7 @@ jobs:
             --exclude 'github.com/Twodragon0/claudesec/discussions'
             --exclude 'scorecard.dev'
             --exclude 'securityscorecards.dev'
+            --exclude 'in-toto.io'
             --accept '100..=599'
             --timeout 20
             '**/*.md'
