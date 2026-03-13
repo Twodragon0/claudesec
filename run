@@ -6,12 +6,23 @@
 #   ./run              → full scan, generate dashboard, serve safely at http://localhost:11777
 #   ./run --no-serve   → full scan + dashboard only (no server)
 #   ./run --quick      → quick scan (3 categories) + dashboard + serve
+#   ./run --docker     → run dashboard workflow inside Docker
 # ============================================================================
 
 set -uo pipefail
 
 CLAUDESEC_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$CLAUDESEC_DIR/scripts/run-dashboard-safe.sh"
+DOCKER_SCRIPT="$CLAUDESEC_DIR/scripts/run-dashboard-docker.sh"
+
+if [[ "${1:-}" == "--docker" ]]; then
+  shift
+  if [[ ! -f "$DOCKER_SCRIPT" ]]; then
+    echo "ClaudeSec: docker run script not found at $DOCKER_SCRIPT" >&2
+    exit 1
+  fi
+  exec "$DOCKER_SCRIPT" "$@"
+fi
 
 if [[ ! -f "$SCRIPT" ]]; then
   echo "ClaudeSec: run script not found at $SCRIPT" >&2

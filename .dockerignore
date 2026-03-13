@@ -1,0 +1,12 @@
+.git
+.github
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+node_modules
+claudesec-dashboard.html
+claudesec-dashboard.*.html
+scan-report.json
+scanner/output
+test-reports
