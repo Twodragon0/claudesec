@@ -1944,7 +1944,170 @@ COMPLIANCE_CONTROL_MAP = {
             "status": "",
         },
     ],
+    "NIST 800-53 Rev5": [
+        {
+            "control": "AC-2",
+            "name": "Account management",
+            "desc": "Manage system accounts, including establishing, activating, modifying, reviewing, disabling, and removing accounts",
+            "action": "Enforce account lifecycle management; periodic access review; disable inactive accounts.",
+            "checks": ["account", "user", "admin", "permission", "iam"],
+            "status": "",
+        },
+        {
+            "control": "AC-6",
+            "name": "Least privilege",
+            "desc": "Employ the principle of least privilege, allowing only authorized accesses necessary for organizational missions",
+            "action": "Implement RBAC; restrict admin privileges; review and minimize permissions regularly.",
+            "checks": ["least_privilege", "rbac", "restrict", "permission", "branch_protection", "admin"],
+            "status": "",
+        },
+        {
+            "control": "AU-2",
+            "name": "Event logging",
+            "desc": "Identify events that the system is capable of logging in support of the audit function",
+            "action": "Enable audit logging for all critical events; configure log retention and integrity checks.",
+            "checks": ["logging", "audit", "log_maxage", "event_log", "monitoring"],
+            "status": "",
+        },
+        {
+            "control": "CA-7",
+            "name": "Continuous monitoring",
+            "desc": "Develop a continuous monitoring strategy and implement a continuous monitoring program",
+            "action": "Deploy SIEM/monitoring tools; continuous vulnerability scanning; automated alerts.",
+            "checks": ["monitoring", "alert", "scan", "vulnerability", "continuous"],
+            "status": "",
+        },
+        {
+            "control": "CM-6",
+            "name": "Configuration settings",
+            "desc": "Establish and document configuration settings for components using security configuration checklists",
+            "action": "Apply CIS benchmarks; enforce secure defaults; automate configuration drift detection.",
+            "checks": ["configuration", "benchmark", "hardening", "default", "baseline"],
+            "status": "",
+        },
+        {
+            "control": "IA-2",
+            "name": "Identification and authentication",
+            "desc": "Uniquely identify and authenticate organizational users and processes",
+            "action": "Enforce MFA for all users; implement SSO; strong password and session policies.",
+            "checks": ["mfa", "authentication", "two_factor", "sso", "identity"],
+            "status": "",
+        },
+        {
+            "control": "RA-5",
+            "name": "Vulnerability monitoring and scanning",
+            "desc": "Monitor and scan for vulnerabilities in the system and hosted applications",
+            "action": "Run SAST/DAST scans; dependency vulnerability checks; prioritize by CVSS severity.",
+            "checks": ["vulnerability", "code_scanning", "sast", "dependency", "cve"],
+            "status": "",
+        },
+        {
+            "control": "SC-8",
+            "name": "Transmission confidentiality and integrity",
+            "desc": "Protect the confidentiality and integrity of transmitted information",
+            "action": "Enforce TLS 1.2+; certificate management; HSTS and secure transport headers.",
+            "checks": ["tls", "ssl", "https", "certificate", "encrypt"],
+            "status": "",
+        },
+        {
+            "control": "SC-28",
+            "name": "Protection of information at rest",
+            "desc": "Protect the confidentiality and integrity of information at rest",
+            "action": "Encrypt data at rest; KMS key management and rotation; secure backup storage.",
+            "checks": ["encrypt", "kms", "key_rotation", "storage", "secret"],
+            "status": "",
+        },
+        {
+            "control": "SI-4",
+            "name": "System monitoring",
+            "desc": "Monitor the system to detect attacks, indicators of potential attacks, and unauthorized connections",
+            "action": "Deploy IDS/IPS; network monitoring; real-time alerting and incident correlation.",
+            "checks": ["monitoring", "detection", "alert", "intrusion", "anomaly"],
+            "status": "",
+        },
+    ],
+    "CIS Benchmarks": [
+        {
+            "control": "CIS-1.1",
+            "name": "Inventory of authorized and unauthorized devices",
+            "desc": "Maintain an accurate and up-to-date inventory of all technology assets",
+            "action": "Automate asset discovery; tag and classify resources; remove unauthorized assets.",
+            "checks": ["inventory", "asset", "resource", "discovery"],
+            "status": "",
+        },
+        {
+            "control": "CIS-4.1",
+            "name": "Secure configuration for network infrastructure",
+            "desc": "Establish and maintain secure network device configurations",
+            "action": "Apply firewall rules; enforce network segmentation; disable unused ports and services.",
+            "checks": ["firewall", "network", "segmentation", "port"],
+            "status": "",
+        },
+        {
+            "control": "CIS-5.1",
+            "name": "Account management policies",
+            "desc": "Establish and maintain an account management process",
+            "action": "Enforce MFA; regular access reviews; promptly disable departed user accounts.",
+            "checks": ["mfa", "account", "authentication", "access", "admin"],
+            "status": "",
+        },
+        {
+            "control": "CIS-6.1",
+            "name": "Audit log management",
+            "desc": "Establish and maintain an audit log management process",
+            "action": "Enable logging on all critical systems; define retention policies; protect log integrity.",
+            "checks": ["logging", "audit", "log_maxage", "retention"],
+            "status": "",
+        },
+        {
+            "control": "CIS-7.1",
+            "name": "Vulnerability management process",
+            "desc": "Establish and maintain a vulnerability management process",
+            "action": "Automate vulnerability scanning; track remediation SLAs; prioritize critical CVEs.",
+            "checks": ["vulnerability", "scan", "patch", "cve", "remediation"],
+            "status": "",
+        },
+        {
+            "control": "CIS-8.1",
+            "name": "Data protection",
+            "desc": "Establish and maintain a data management process including encryption requirements",
+            "action": "Classify data sensitivity; encrypt in transit and at rest; secret scanning enabled.",
+            "checks": ["encrypt", "secret", "kms", "tls", "data_protection"],
+            "status": "",
+        },
+        {
+            "control": "CIS-K8s-1.1",
+            "name": "API server secure configuration",
+            "desc": "Ensure the API server is configured securely per CIS Kubernetes Benchmark",
+            "action": "Enable audit logging; restrict anonymous auth; enforce RBAC; TLS for API server.",
+            "checks": ["apiserver", "kube", "rbac", "anonymous", "kubelet"],
+            "status": "",
+        },
+        {
+            "control": "CIS-K8s-4.1",
+            "name": "Worker node security",
+            "desc": "Ensure worker node components are configured securely",
+            "action": "Restrict kubelet permissions; enable read-only port protection; enforce TLS certificates.",
+            "checks": ["kubelet", "worker", "node", "tls_cert", "readonly"],
+            "status": "",
+        },
+    ],
 }
+
+
+def _match_prowler_compliance(finding, framework_key):
+    """Check if a prowler finding's native compliance data references a framework."""
+    comp = finding.get("compliance", {})
+    if not comp:
+        return False
+    fk = framework_key.lower()
+    for key, val in comp.items():
+        k = key.lower()
+        if fk in k or k in fk:
+            return True
+        if isinstance(val, (list, str)) and any(fk in str(v).lower() for v in (val if isinstance(val, list) else [val])):
+            return True
+    return False
 
 
 def map_compliance(all_findings):
@@ -1955,7 +2118,9 @@ def map_compliance(all_findings):
             matching = []
             for f in all_findings:
                 text = f"{f['check']} {f['title']} {f['message']}".lower()
-                if any(kw in text for kw in ctrl["checks"]):
+                keyword_match = any(kw in text for kw in ctrl["checks"])
+                native_match = _match_prowler_compliance(f, framework)
+                if keyword_match or native_match:
                     matching.append(f)
             status = "PASS" if len(matching) == 0 else "FAIL"
             mapped.append(
@@ -3739,6 +3904,13 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     total_prowler_fail = sum(v["total_fail"] for v in prov_summary.values())
     total_prowler_pass = sum(v["total_pass"] for v in prov_summary.values())
 
+    # Compliance summary for history tracking
+    compliance_summary = {}
+    for fw, controls in compliance_map.items():
+        fw_pass = sum(1 for c in controls if c["status"] == "PASS")
+        fw_fail = sum(1 for c in controls if c["status"] == "FAIL")
+        compliance_summary[fw] = {"pass": fw_pass, "fail": fw_fail, "total": fw_pass + fw_fail}
+
     history_json = json.dumps(
         history
         + [
@@ -3748,6 +3920,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                 "failed": failed,
                 "critical": sum(v["critical"] for v in prov_summary.values()),
                 "high": sum(v["high"] for v in prov_summary.values()),
+                "compliance": compliance_summary,
             }
         ]
     )
@@ -5167,11 +5340,13 @@ function toggleComp(el){el.closest('.comp-section').classList.toggle('expanded')
     var idx=Math.round(((mx-pad.l)/cw)*(n-1));
     if(idx<0||idx>=n){tooltip.style.display='none';return}
     var d=history[idx];var ts=(d.timestamp||'').replace('T',' ').substring(0,16);
-    tooltip.innerHTML='<div style="font-weight:700;margin-bottom:3px">'+ts+'</div>'
+    var htm='<div style="font-weight:700;margin-bottom:3px">'+ts+'</div>'
       +'<div style="color:#38bdf8">Score: <b>'+d.score+'</b></div>'
       +'<div style="color:#ef4444">Failed: <b>'+(d.failed||0)+'</b> | Critical: <b>'+(d.critical||0)+'</b> | High: <b>'+(d.high||0)+'</b></div>'
       +'<div style="color:#f59e0b">Warnings: <b>'+(d.warnings||d.warn||0)+'</b></div>'
       +'<div style="color:#64748b">Passed: '+(d.passed||0)+' / Total: '+(d.total||0)+'</div>';
+    if(d.compliance){var ckeys=Object.keys(d.compliance);if(ckeys.length>0){htm+='<div style="border-top:1px solid #334155;margin-top:4px;padding-top:4px;font-size:11px">';for(var ci=0;ci<ckeys.length;ci++){var ck=ckeys[ci],cv=d.compliance[ck];htm+='<div style="color:'+(cv.fail>0?'#ef4444':'#22c55e')+'">'+ck+': <b>'+cv.pass+'</b>P / <b>'+cv.fail+'</b>F</div>'}htm+='</div>'}}
+    tooltip.innerHTML=htm;
     tooltip.style.display='block';
     var tx=mx+12;if(tx+tooltip.offsetWidth>rect.width)tx=mx-tooltip.offsetWidth-12;
     var iy=pad.t+ch-((d.score||0)/100)*ch;
