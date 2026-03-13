@@ -65,6 +65,10 @@ load_config() {
     if [[ "$line" =~ ^[[:space:]]*kubeconfig:[[:space:]]*(.+) ]]; then
       val="${BASH_REMATCH[1]// /}"
       val="${val/#\~/$HOME}"
+      # Resolve relative to SCAN_DIR when path does not start with /
+      if [[ -n "$val" && "$val" != /* ]] && [[ -n "${SCAN_DIR:-}" && -d "${SCAN_DIR:-}" ]]; then
+        val="${SCAN_DIR}/${val}"
+      fi
       [[ -z "${KUBECONFIG:-}" && -n "$val" ]] && export KUBECONFIG="$val"
     fi
     if [[ "$line" =~ ^[[:space:]]*kubecontext:[[:space:]]*(.+) ]]; then
@@ -95,7 +99,8 @@ load_config() {
       # Comma-separated provider list (e.g. aws,kubernetes,llm,googleworkspace,m365,cloudflare,nhn)
       val="${BASH_REMATCH[1]}"
       val="${val// /}"
-      [[ -n "$val" ]] && export CLAUDESEC_PROWLER_PROVIDERS="$val"
+      # Only set from file when not already set (env/CLI takes precedence)
+      [[ -z "${CLAUDESEC_PROWLER_PROVIDERS:-}" && -n "$val" ]] && export CLAUDESEC_PROWLER_PROVIDERS="$val"
     fi
     if [[ "$line" =~ ^[[:space:]]*prowler_severity:[[:space:]]*(.+) ]]; then
       # Space-separated severities passed to Prowler (default: "medium high critical")
@@ -146,6 +151,26 @@ load_config() {
       fi
     fi
   done < "$config_file"
+
+  # Auto-discover kubeconfig from conventional paths when not set (no hardcoded absolute paths)
+  if [[ -z "${KUBECONFIG:-}" ]]; then
+    local base="${SCAN_DIR:-.}"
+    if [[ -f "$base/configs/dev/kubeconfig" ]]; then
+      export KUBECONFIG="$base/configs/dev/kubeconfig"
+    elif [[ -f "$base/configs/staging/kubeconfig" ]]; then
+      export KUBECONFIG="$base/configs/staging/kubeconfig"
+    elif [[ -f "$base/configs/prod/kubeconfig" ]]; then
+      export KUBECONFIG="$base/configs/prod/kubeconfig"
+    elif [[ -f "$base/kubeconfig" ]]; then
+      export KUBECONFIG="$base/kubeconfig"
+    elif [[ -f "$base/config/kubeconfig" ]]; then
+      export KUBECONFIG="$base/config/kubeconfig"
+    elif [[ -d "$base/configs" ]]; then
+      local first
+      first=$(find "$base/configs" -maxdepth 2 -name 'kubeconfig' -type f 2>/dev/null | head -1)
+      [[ -n "$first" && -f "$first" ]] && export KUBECONFIG="$first"
+    fi
+  fi
 }
 
 load_external_env() {
@@ -675,9 +700,9 @@ configure_prowler_provider_defaults() {
   [[ ",${categories_csv}," == *",prowler,"* ]] || return 0
 
   if [[ -z "${CLAUDESEC_PROWLER_PROVIDERS:-}" ]]; then
-    export CLAUDESEC_PROWLER_PROVIDERS="aws,gcp,googleworkspace"
+    export CLAUDESEC_PROWLER_PROVIDERS="aws,gcp,googleworkspace,kubernetes"
     if [[ "$FORMAT" == "text" && -z "${QUIET:-}" ]]; then
-      info "Prowler providers: defaulting to aws,gcp,googleworkspace (override with prowler_providers)"
+      info "Prowler providers: defaulting to aws,gcp,googleworkspace,kubernetes (override with prowler_providers in .claudesec.yml)"
     fi
   fi
 }
