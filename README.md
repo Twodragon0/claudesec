@@ -64,7 +64,7 @@ Or run the script directly:
 
 ### Docker Run
 
-The default image runs **local scanner** categories (code, access-control, infra, cicd, saas, etc.). Prowler and kubectl are not in the image, so `-c prowler` / Kubernetes scan is skipped inside Docker; for full cloud/K8s scanning run on the host with `--kubeconfig` or use a custom image that adds prowler and kubectl.
+The default image runs **local scanner** categories (code, access-control, infra, cicd, saas, etc.) and now includes **kubectl + prowler CLI** so `-c prowler` / Kubernetes scans can also run inside Docker (assuming you mount credentials/kubeconfig). For production-grade cloud/K8s scanning, prefer running on the host with `--kubeconfig` and AWS/GCP/Azure SSO profiles, or use a hardened custom image that adds your org-specific tooling.
 
 ```bash
 # Build image once (or let wrappers auto-build)

@@ -17,7 +17,7 @@
 </style>
 <rect class="bg" x="0" y="0" width="1100" height="720"/>
 <text class="txt title" x="30" y="38">ClaudeSec Overview Architecture</text>
-<text class="txt muted" x="30" y="60">Scan: total 176, failed 7, warnings 13 · Score 69% (Grade D) · Prowler fail 6491 · Network targets 1 (header issues 6)</text>
+<text class="txt muted" x="30" y="60">Scan: total 177, failed 2, warnings 5 · Score 83% (Grade B) · Prowler fail 6955 · Network targets 1 (header issues 6)</text>
 <rect class="card" x="20" y="90" width="520" height="290" rx="12"/>
 <rect class="card" x="560" y="90" width="520" height="290" rx="12"/>
 <rect class="card" x="20" y="400" width="1060" height="290" rx="12"/>
@@ -35,7 +35,7 @@
 <text class="txt muted mono" x="475.0" y="192" text-anchor="middle">scan-report.json</text>
 <rect x="50" y="240" width="180" height="60" rx="10" class="boxB"/>
 <text class="txt" x="140.0" y="262" text-anchor="middle">Prowler</text>
-<text class="txt muted mono" x="140.0" y="282" text-anchor="middle">fail:6491</text>
+<text class="txt muted mono" x="140.0" y="282" text-anchor="middle">fail:6955</text>
 <rect x="260" y="240" width="150" height="60" rx="10" class="boxC"/>
 <text class="txt" x="335.0" y="262" text-anchor="middle">Dashboard</text>
 <text class="txt muted mono" x="335.0" y="282" text-anchor="middle">claudesec-dashboard.html</text>
