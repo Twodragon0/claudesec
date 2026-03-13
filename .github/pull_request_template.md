@@ -3,6 +3,7 @@
 
 ## Validation
 - Commands run and key outputs
+- [ ] `./scripts/lint-shell.sh`
 
 ## Checks Snapshot
 Paste a standardized checks snapshot from:

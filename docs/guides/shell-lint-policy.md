@@ -42,3 +42,5 @@ ClaudeSec uses the same shell lint scope in local development and CI to reduce m
 ```bash
 ./scripts/lint-shell.sh
 ```
+
+See also: [CI Operations Playbook](../github/ci-operations-playbook.md)
