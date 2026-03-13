@@ -533,7 +533,7 @@ kubectl_current_context_uses_oidc_exec() {
   local cmd json
   cmd=$(_kubectl_cmd)
   json=$($cmd config view --minify -o json 2>/dev/null) || return 1
-  echo "$json" | grep -q 'oidc-login' && return 0
+  echo "$json" | grep -qE '"command"[[:space:]]*:[[:space:]]*"[^"]*oidc-login' && return 0
   return 1
 }
 
