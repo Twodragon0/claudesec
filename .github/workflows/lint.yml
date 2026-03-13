@@ -138,6 +138,7 @@ jobs:
             --exclude 'scorecard.dev'
             --exclude 'securityscorecards.dev'
             --exclude 'in-toto.io'
+            --exclude 'sigstore.dev'
             --accept '100..=599'
             --timeout 20
             '**/*.md'
