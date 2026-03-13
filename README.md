@@ -48,6 +48,7 @@ That’s it. Full scan runs, the HTML dashboard is generated, and a local server
 | `./run` | Full scan + dashboard + serve at `localhost:11777` (safe mode: `--kill-port`) |
 | `./run --no-serve` | Full scan + dashboard only (no server) |
 | `./run --quick` | Quick scan (3 categories) + dashboard + serve |
+| `./run --docker` | Full scan + dashboard in Docker (publishes `localhost:11777`) |
 | `./scripts/run-dashboard-safe.sh` | Full scan + serve with automatic port fallback/cleanup options |
 
 Or run the script directly:
@@ -58,6 +59,27 @@ Or run the script directly:
 ./scripts/run-full-dashboard.sh --quick      # quick + serve
 ./scripts/run-dashboard-safe.sh              # full + serve (auto fallback port when 11777 is busy)
 ./scripts/run-dashboard-safe.sh --kill-port  # full + serve (terminate process occupying 11777)
+./scripts/run-dashboard-safe.sh --docker     # run dashboard workflow in Docker
+```
+
+### Docker Run
+
+The default image runs **local scanner** categories (code, access-control, infra, cicd, saas, etc.). Prowler and kubectl are not in the image, so `-c prowler` / Kubernetes scan is skipped inside Docker; for full cloud/K8s scanning run on the host with `--kubeconfig` or use a custom image that adds prowler and kubectl.
+
+```bash
+# Build image once (or let wrappers auto-build)
+docker build -t claudesec:local .
+
+# Dashboard flow in Docker
+./run --docker
+./run --docker --no-serve
+./run --docker --quick
+
+# Scanner flow in Docker
+./scripts/run-scan-docker.sh
+./scripts/run-scan-docker.sh -c code
+./scripts/run-scan-docker.sh -c infra
+./scripts/run-scan-docker.sh -c access-control
 ```
 
 Recommended day-to-day flow:
@@ -66,13 +88,12 @@ Recommended day-to-day flow:
 ./scripts/run-dashboard-safe.sh --kill-port  # avoid port-conflict / stale-server issues
 ./run --quick                                # fast smoke check
 ./run --no-serve                             # final full scan artifact generation
-python3 -m http.server 11777 --bind 127.0.0.1 >/tmp/claudesec-dashboard-server.log 2>&1 &
-curl -fsS "http://127.0.0.1:11777/claudesec-dashboard.html" >/dev/null
+grep -q "ClaudeSec local security scanner results" claudesec-dashboard.html
 ```
 
 ### Not sure where to start?
 
-From the repo root, run `./run`. The first run may take a few minutes (full scan); use `./run --quick` for a faster try with 3 categories. The dashboard opens at **`localhost:11777`**.
+From the repo root, run `./run`. The first run may take a few minutes (full scan); use `./run --quick` for a faster try with 3 categories. For container-first validation, run `./run --docker --no-serve` and check `claudesec-dashboard.html`.
 
 ---
 
@@ -104,6 +125,7 @@ ClaudeSec includes a zero-dependency bash scanner that checks your project for s
 ```bash
 # From repo root
 ./scripts/run-scan.sh
+./scripts/run-scan.sh --docker
 
 # Direct CLI
 ./scanner/claudesec scan -d .
@@ -188,12 +210,10 @@ DD_API_KEY=<your-dd-api-key> DD_APP_KEY=<your-dd-app-key> DD_SITE=datadoghq.com 
 Use a deterministic check in CI to catch dashboard generation regressions:
 
 ```bash
-./run --no-serve
+./scripts/run-dashboard-docker.sh --quick --no-serve --build
+./scripts/run-dashboard-docker.sh --no-serve
 test -f claudesec-dashboard.html
-python3 -m http.server 11777 --bind 127.0.0.1 >/tmp/claudesec-dashboard-server.log 2>&1 &
-srv_pid=$!
-trap 'kill $srv_pid 2>/dev/null || true' EXIT
-curl -fsS "http://127.0.0.1:11777/claudesec-dashboard.html" >/dev/null
+grep -q "ClaudeSec local security scanner results" claudesec-dashboard.html
 ```
 
 Advanced scanner examples (AWS SSO role troubleshooting, kubeconfig/prowler, Microsoft source filter, Datadog troubleshooting) are kept in:
