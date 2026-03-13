@@ -1,4 +1,6 @@
-GitHub Checks snapshot before merge (`gh pr checks <PR_NUMBER>`):
+# GitHub Checks Snapshot
+
+GitHub checks snapshot before merge (`gh pr checks <PR_NUMBER>`):
 
 ```text
 shell-lint                  <pass|fail>   <duration>
