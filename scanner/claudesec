@@ -152,24 +152,12 @@ load_config() {
     fi
   done < "$config_file"
 
-  # Auto-discover kubeconfig from conventional paths when not set (no hardcoded absolute paths)
+  # Auto-discover kubeconfig from conventional paths when not set.
+  # Reuses kubectl_auto_find_kubeconfig() from checks.sh (sourced above).
   if [[ -z "${KUBECONFIG:-}" ]]; then
-    local base="${SCAN_DIR:-.}"
-    if [[ -f "$base/configs/dev/kubeconfig" ]]; then
-      export KUBECONFIG="$base/configs/dev/kubeconfig"
-    elif [[ -f "$base/configs/staging/kubeconfig" ]]; then
-      export KUBECONFIG="$base/configs/staging/kubeconfig"
-    elif [[ -f "$base/configs/prod/kubeconfig" ]]; then
-      export KUBECONFIG="$base/configs/prod/kubeconfig"
-    elif [[ -f "$base/kubeconfig" ]]; then
-      export KUBECONFIG="$base/kubeconfig"
-    elif [[ -f "$base/config/kubeconfig" ]]; then
-      export KUBECONFIG="$base/config/kubeconfig"
-    elif [[ -d "$base/configs" ]]; then
-      local first
-      first=$(find "$base/configs" -maxdepth 2 -name 'kubeconfig' -type f 2>/dev/null | head -1)
-      [[ -n "$first" && -f "$first" ]] && export KUBECONFIG="$first"
-    fi
+    local auto_kube
+    auto_kube=$(kubectl_auto_find_kubeconfig "${SCAN_DIR:-.}" 2>/dev/null) || true
+    [[ -n "$auto_kube" && -f "$auto_kube" ]] && export KUBECONFIG="$auto_kube"
   fi
 }
 
