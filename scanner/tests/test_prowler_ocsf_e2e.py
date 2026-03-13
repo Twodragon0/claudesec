@@ -362,6 +362,98 @@ class TestOcsfDashboardE2E(unittest.TestCase):
             html = self._generate_dashboard(tmpdir, {})
             self.assertIn("ClaudeSec local security scanner results", html)
 
+    def test_compliance_history_in_trend_tooltip(self):
+        """Trend chart tooltip should include compliance pass/fail data."""
+        findings = [
+            _make_ocsf_finding(
+                check="mfa_disabled",
+                title="MFA not enabled",
+                message="Enable multi-factor authentication",
+            ),
+        ]
+
+        # Create a prior history entry with compliance data
+        history_entry = {
+            "timestamp": "2026-03-12T10:00:00Z",
+            "score": 60,
+            "passed": 6,
+            "failed": 4,
+            "warnings": 1,
+            "skipped": 0,
+            "total": 11,
+            "critical": 1,
+            "high": 2,
+            "compliance": {
+                "NIST 800-53 Rev5": {"pass": 8, "fail": 2, "total": 10},
+                "CIS Benchmarks": {"pass": 6, "fail": 2, "total": 8},
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Write a history file so trend chart renders
+            history_dir = Path(tmpdir)
+            (history_dir / "scan-20260312T100000Z.json").write_text(
+                json.dumps(history_entry), encoding="utf-8"
+            )
+
+            html = self._generate_dashboard(
+                tmpdir, {"prowler-kubernetes.ocsf.json": findings}
+            )
+
+            # The JS tooltip code should reference d.compliance
+            self.assertIn("d.compliance", html)
+            # Compliance section separator in tooltip
+            self.assertIn("border-top:1px solid #334155", html)
+            # Framework pass/fail format markers
+            self.assertIn("P / <b>", html)
+            self.assertIn("F</div>", html)
+
+    def test_compliance_summary_in_history_json(self):
+        """History JSON should contain compliance summary with pass/fail counts."""
+        findings = [
+            _make_ocsf_finding(
+                check="encryption_disabled",
+                title="Encryption at rest not enabled",
+                message="Enable encryption for data at rest",
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            html = self._generate_dashboard(
+                tmpdir, {"prowler-kubernetes.ocsf.json": findings}
+            )
+
+            # Extract HIST_DATA from the generated HTML
+            import re
+
+            match = re.search(r"var HIST_DATA\s*=\s*(\[.*?\]);", html, re.DOTALL)
+            self.assertIsNotNone(match, "HIST_DATA not found in dashboard HTML")
+
+            hist_data = json.loads(match.group(1))
+            self.assertGreater(len(hist_data), 0)
+
+            # The latest entry (current scan) should have compliance
+            latest = hist_data[-1]
+            self.assertIn("compliance", latest)
+            compliance = latest["compliance"]
+
+            # All 5 frameworks should be present
+            for fw in [
+                "ISO 27001:2022",
+                "KISA ISMS-P",
+                "PCI-DSS v4.0.1",
+                "NIST 800-53 Rev5",
+                "CIS Benchmarks",
+            ]:
+                self.assertIn(fw, compliance, f"Missing framework: {fw}")
+                self.assertIn("pass", compliance[fw])
+                self.assertIn("fail", compliance[fw])
+                self.assertIn("total", compliance[fw])
+                self.assertEqual(
+                    compliance[fw]["total"],
+                    compliance[fw]["pass"] + compliance[fw]["fail"],
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
