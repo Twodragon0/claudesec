@@ -2593,7 +2593,8 @@ def _fetch_markdown_preview(raw_url: str, max_chars: int = 1200, max_lines: int 
                 f'<div class="bp-audit-heading">{h(stripped.lstrip("# ").strip())}</div>'
             )
         elif stripped.startswith(("- [ ]", "- [x]", "- [X]")):
-            label = stripped.split("]", 1)[1].strip()
+            split = stripped.split("]", 1)
+            label = split[1].strip() if len(split) > 1 else ""
             parts.append(f'<div class="bp-audit-item">• {h(label)}</div>')
         elif stripped.startswith("- "):
             parts.append(
@@ -3764,7 +3765,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             env_connected += 1
             env_html += (
                 f'<button class="env-pill env-on" '
-                f'onclick="openSetup(\'{e["setup_id"]}\')">'
+                f'onclick="openSetup(\'{h(e["setup_id"])}\')">'
                 f'<span class="ep-icon">{e["icon"]}</span>'
                 f'<span class="ep-name">{h(e["name"])}</span>'
                 f'<span class="ep-st on">●</span>'
@@ -3773,7 +3774,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         else:
             env_html += (
                 f'<button class="env-pill env-off" '
-                f'onclick="openSetup(\'{e["setup_id"]}\')">'
+                f'onclick="openSetup(\'{h(e["setup_id"])}\')">'
                 f'<span class="ep-icon">{e["icon"]}</span>'
                 f'<span class="ep-name">{h(e["name"])}</span>'
                 f'<span class="ep-st off">○</span>'
@@ -3833,7 +3834,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         label = _prov_labels.get(pname, pname)
         subtab = _subtab_map.get(pname)
         onclick = (
-            f' onclick="switchProvTab(\'{subtab}\')" style="cursor:pointer"'
+            f' onclick="switchProvTab(\'{h(subtab)}\')" style="cursor:pointer"'
             if subtab
             else ""
         )
@@ -3849,7 +3850,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         label = _prov_labels.get(pname, pname)
         subtab = _subtab_map.get(pname)
         onclick = (
-            f' onclick="switchProvTab(\'{subtab}\')" style="cursor:pointer"'
+            f' onclick="switchProvTab(\'{h(subtab)}\')" style="cursor:pointer"'
             if subtab
             else ""
         )
