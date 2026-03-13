@@ -254,6 +254,104 @@ class TestOcsfDashboardE2E(unittest.TestCase):
             self.assertIn("ndjson_check_1", html)
             self.assertIn("ndjson_check_2", html)
 
+    def test_compliance_frameworks_rendered_in_dashboard(self):
+        """All compliance frameworks (ISO, ISMS-P, PCI-DSS, NIST, CIS) appear in HTML."""
+        findings = [
+            _make_ocsf_finding(
+                check="apiserver_audit_log_maxage",
+                title="API server audit log max age",
+                message="Audit logging not configured",
+            ),
+            _make_ocsf_finding(
+                check="rbac_wildcard_permissions",
+                title="RBAC wildcard permissions detected",
+                message="Restrict admin wildcard access",
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            html = self._generate_dashboard(
+                tmpdir, {"prowler-kubernetes.ocsf.json": findings}
+            )
+
+            # All five frameworks should be rendered
+            self.assertIn("ISO 27001:2022", html)
+            self.assertIn("KISA ISMS-P", html)
+            self.assertIn("PCI-DSS v4.0.1", html)
+            self.assertIn("NIST 800-53 Rev5", html)
+            self.assertIn("CIS Benchmarks", html)
+
+    def test_compliance_keyword_matching(self):
+        """Findings matching compliance keywords should trigger FAIL status."""
+        findings = [
+            _make_ocsf_finding(
+                check="mfa_disabled",
+                title="MFA not enabled for admin accounts",
+                message="Enable multi-factor authentication",
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Write OCSF file
+            Path(tmpdir, "prowler-kubernetes.ocsf.json").write_text(
+                json.dumps([
+                    {
+                        "status_code": "FAIL",
+                        "severity": "High",
+                        "metadata": {"event_code": "mfa_disabled"},
+                        "finding_info": {"title": "MFA not enabled", "desc": "desc"},
+                        "resources": [{"data": {"metadata": {"name": "admin"}}, "region": "us-east-1"}],
+                        "message": "Enable multi-factor authentication",
+                        "unmapped": {"related_url": "", "compliance": {}},
+                    }
+                ]),
+                encoding="utf-8",
+            )
+
+            # Load and analyze
+            providers = dashboard_gen.load_prowler_files(tmpdir)
+            _, all_findings = dashboard_gen.analyze_prowler(providers)
+            compliance_result = dashboard_gen.map_compliance(all_findings)
+
+            # NIST IA-2 should match (has "mfa", "authentication" keywords)
+            nist_controls = {c["control"]: c for c in compliance_result["NIST 800-53 Rev5"]}
+            self.assertEqual(nist_controls["IA-2"]["status"], "FAIL")
+            self.assertGreater(nist_controls["IA-2"]["count"], 0)
+
+            # CIS-5.1 should also match (has "mfa" keyword)
+            cis_controls = {c["control"]: c for c in compliance_result["CIS Benchmarks"]}
+            self.assertEqual(cis_controls["CIS-5.1"]["status"], "FAIL")
+
+    def test_native_prowler_compliance_data_used(self):
+        """When prowler provides native compliance mapping, it enhances matching."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "prowler-aws.ocsf.json").write_text(
+                json.dumps([
+                    {
+                        "status_code": "FAIL",
+                        "severity": "Medium",
+                        "metadata": {"event_code": "custom_check_xyz"},
+                        "finding_info": {"title": "Custom check", "desc": "desc"},
+                        "resources": [{"data": {"metadata": {"name": "res"}}, "region": "us-east-1"}],
+                        "message": "Some custom message without keywords",
+                        "unmapped": {
+                            "related_url": "",
+                            "compliance": {"CIS Benchmarks": ["1.1", "4.1"]},
+                        },
+                    }
+                ]),
+                encoding="utf-8",
+            )
+
+            providers = dashboard_gen.load_prowler_files(tmpdir)
+            _, all_findings = dashboard_gen.analyze_prowler(providers)
+            compliance_result = dashboard_gen.map_compliance(all_findings)
+
+            # CIS should match via native compliance data even without keyword match
+            cis_controls = compliance_result.get("CIS Benchmarks", [])
+            cis_fail_count = sum(1 for c in cis_controls if c["status"] == "FAIL")
+            self.assertGreater(cis_fail_count, 0)
+
     def test_corrupt_ocsf_file_does_not_crash(self):
         """Dashboard generation should succeed even with corrupt OCSF files."""
         with tempfile.TemporaryDirectory() as tmpdir:
