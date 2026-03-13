@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCANNER="$ROOT_DIR/scanner/claudesec"
+DOCKER_SCRIPT="$ROOT_DIR/scripts/run-dashboard-docker.sh"
 SCAN_DIR="${CLAUDESEC_SCAN_DIR:-$ROOT_DIR}"
 
 MODE="full"
@@ -11,6 +12,7 @@ PORT="11777"
 FALLBACK_MAX="20"
 KILL_PORT=0
 REUSE_EXISTING=0
+DOCKER_MODE=0
 
 usage() {
   cat <<'EOF'
@@ -20,6 +22,7 @@ Usage:
 Options:
   --quick            Quick scan categories only (access-control,cicd,code)
   --no-serve         Generate dashboard only (no local server)
+  --docker           Run dashboard workflow in Docker
   --host <host>      Host for serving (default: 127.0.0.1)
   --port <port>      Preferred serve port (default: 11777)
   --kill-port        Kill process occupying target port before start
@@ -47,6 +50,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --quick) MODE="quick"; shift ;;
     --no-serve) MODE="no-serve"; shift ;;
+    --docker) DOCKER_MODE=1; shift ;;
     --host) HOST="$2"; shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
     --kill-port) KILL_PORT=1; shift ;;
@@ -60,6 +64,21 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$DOCKER_MODE" == "1" ]]; then
+  if [[ ! -f "$DOCKER_SCRIPT" ]]; then
+    echo "Error: docker dashboard script not found at $DOCKER_SCRIPT" >&2
+    exit 1
+  fi
+  docker_args=()
+  if [[ "$MODE" == "quick" ]]; then
+    docker_args+=("--quick")
+  elif [[ "$MODE" == "no-serve" ]]; then
+    docker_args+=("--no-serve")
+  fi
+  docker_args+=("--host" "$HOST" "--port" "$PORT")
+  exec "$DOCKER_SCRIPT" "${docker_args[@]}"
+fi
 
 if [[ ! -x "$SCANNER" ]]; then
   chmod +x "$SCANNER" 2>/dev/null || true
