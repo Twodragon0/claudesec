@@ -42,7 +42,7 @@ jobs:
         env:
           PYTHONPATH: .
         run: |
-          python3 -m py_compile scanner/lib/dashboard-gen.py scanner/tests/test_dashboard_gen_smoke.py scanner/tests/test_markdown_preview.py scanner/tests/test_prowler_ocsf.py
+          python3 -m py_compile scanner/lib/dashboard-gen.py scanner/tests/test_dashboard_gen_smoke.py scanner/tests/test_markdown_preview.py scanner/tests/test_prowler_ocsf.py scanner/tests/test_prowler_ocsf_e2e.py
           set +e
           python3 -m xmlrunner discover -s scanner/tests -p "test_*.py" -o test-reports
           test_exit_code=$?
