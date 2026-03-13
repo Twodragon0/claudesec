@@ -86,10 +86,10 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Verify container tooling (kubectl, prowler)
         run: |
-          docker run --rm claudesec:ci sh -c 'kubectl version --client && prowler -v'
+          docker run --rm --entrypoint sh claudesec:ci -c 'kubectl version --client && prowler -v'
       - name: Verify non-root user
         run: |
-          docker run --rm claudesec:ci sh -c 'test "$(id -u)" -ne 0'
+          docker run --rm --entrypoint sh claudesec:ci -c 'test "$(id -u)" -ne 0'
       - name: Prepare isolated scan workspace
         run: |
           tmp_scan="$RUNNER_TEMP/claudesec-scan"
