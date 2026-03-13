@@ -21,14 +21,14 @@
 <text x="340.0" y="168" text-anchor="middle" class="">...</text>
 <rect x="520" y="50" width="220" height="64" rx="6" fill="#fff2cc" stroke="#d6b656" stroke-width="1.5"/>
 <text x="630.0" y="66" text-anchor="middle" class="title">Scan Results</text>
-<text x="630.0" y="80" text-anchor="middle" class="">Total:176 Failed:7 Warn:13</text>
-<text x="630.0" y="94" text-anchor="middle" class="">Score:69% Grade:D  Crit:0 High:6</text>
+<text x="630.0" y="80" text-anchor="middle" class="">Total:177 Failed:2 Warn:5</text>
+<text x="630.0" y="94" text-anchor="middle" class="">Score:83% Grade:B  Crit:0 High:2</text>
 <rect x="520" y="120" width="140" height="40" rx="6" fill="#fff2cc" stroke="#d6b656" stroke-width="1.5"/>
 <text x="590.0" y="136" text-anchor="middle" class="title">scan-report.json</text>
 <text x="590.0" y="150" text-anchor="middle" class="">(results)</text>
 <rect x="520" y="190" width="200" height="56" rx="6" fill="#fff2cc" stroke="#d6b656" stroke-width="1.5"/>
 <text x="620.0" y="206" text-anchor="middle" class="title">Prowler OCSF</text>
-<text x="620.0" y="220" text-anchor="middle" class="">Fail:6491 (aws, github, iac)</text>
+<text x="620.0" y="220" text-anchor="middle" class="">Fail:6955 (aws, github, iac, kubernetes)</text>
 <rect x="720" y="80" width="120" height="50" rx="6" fill="#e1d5e7" stroke="#9673a6" stroke-width="1.5"/>
 <text x="780.0" y="96" text-anchor="middle" class="title">Dashboard</text>
 <text x="780.0" y="110" text-anchor="middle" class="">(HTML)</text>
@@ -36,5 +36,5 @@
 <text x="800.0" y="166" text-anchor="middle" class="title">History</text>
 <text x="800.0" y="180" text-anchor="middle" class="">(30 entries)</text>
 <rect x="40" y="10" width="840" height="26" rx="6" fill="#111827" stroke="#111827" stroke-width="1.5"/>
-<text x="460.0" y="26" text-anchor="middle" class="banner">Top categories: macos:8, saas:4, cicd:2, code:2</text>
+<text x="460.0" y="26" text-anchor="middle" class="banner">Top categories: cicd:2, code:2, saas:2, access-control:1</text>
 </svg>

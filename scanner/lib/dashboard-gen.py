@@ -2557,6 +2557,53 @@ def h(s):
     )
 
 
+def _fetch_markdown_preview(raw_url: str, max_chars: int = 1200, max_lines: int = 20) -> str:
+    """
+    Fetch a small markdown preview for an Audit Points checklist file.
+    Returns sanitized HTML with light formatting for headings and bullet items.
+    Network failures are silently ignored; caller should handle empty string.
+    """
+    if not raw_url or _is_env_truthy(CLAUDESEC_DASHBOARD_OFFLINE_ENV):
+        return ""
+    try:
+        req = urllib.request.Request(
+            raw_url,
+            headers={"Accept": "application/vnd.github.v3.raw"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            text = resp.read().decode("utf-8", "ignore")
+    except Exception:
+        return ""
+    lines: list[str] = []
+    total = 0
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        lines.append(line.rstrip())
+        total += len(line)
+        if len(lines) >= max_lines or total >= max_chars:
+            break
+    if not lines:
+        return ""
+    parts: list[str] = []
+    for ln in lines:
+        stripped = ln.lstrip()
+        if stripped.startswith(("# ", "## ", "### ")):
+            parts.append(
+                f'<div class="bp-audit-heading">{h(stripped.lstrip("# ").strip())}</div>'
+            )
+        elif stripped.startswith(("- [ ]", "- [x]", "- [X]")):
+            label = stripped.split("]", 1)[1].strip()
+            parts.append(f'<div class="bp-audit-item">• {h(label)}</div>')
+        elif stripped.startswith("- "):
+            parts.append(
+                f'<div class="bp-audit-item">• {h(stripped[2:].strip())}</div>'
+            )
+        else:
+            parts.append(f'<div class="bp-audit-text">{h(stripped)}</div>')
+    return '<div class="bp-audit-preview">' + "".join(parts) + "</div>"
+
+
 def comp_slug(fw):
     return (
         "comp-"
@@ -3706,46 +3753,104 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
 
     # ── Build HTML sections ──────────────────────────────────────────────
 
-    # Environment items — compact pill layout
+    # Environment items — compact pill layout with a stable connected/total
+    # counter for the Overview header. Both connected and disconnected
+    # providers are clickable and open the setup modal for quick fixes.
     env_html = ""
+    env_connected = 0
+    env_total = len(envs)
     for e in envs:
         if e["connected"]:
-            env_html += f'<div class="env-pill env-on"><span class="ep-icon">{e["icon"]}</span><span class="ep-name">{h(e["name"])}</span><span class="ep-st on">●</span></div>'
+            env_connected += 1
+            env_html += (
+                f'<button class="env-pill env-on" '
+                f'onclick="openSetup(\'{e["setup_id"]}\')">'
+                f'<span class="ep-icon">{e["icon"]}</span>'
+                f'<span class="ep-name">{h(e["name"])}</span>'
+                f'<span class="ep-st on">●</span>'
+                f'</button>'
+            )
         else:
-            env_html += f'<button class="env-pill env-off" onclick="openSetup(\'{e["setup_id"]}\')"><span class="ep-icon">{e["icon"]}</span><span class="ep-name">{h(e["name"])}</span><span class="ep-st off">○</span></button>'
+            env_html += (
+                f'<button class="env-pill env-off" '
+                f'onclick="openSetup(\'{e["setup_id"]}\')">'
+                f'<span class="ep-icon">{e["icon"]}</span>'
+                f'<span class="ep-name">{h(e["name"])}</span>'
+                f'<span class="ep-st off">○</span>'
+                f'</button>'
+            )
 
-    # Prowler summary table
+    # Prowler summary table: show fixed set (K8s, Google Workspace, etc.) even when no OCSF data
+    _prov_labels = {
+        "aws": "AWS",
+        "github": "GitHub",
+        "iac": "IaC",
+        "kubernetes": "K8s",
+        "azure": "Azure",
+        "gcp": "GCP",
+        "googleworkspace": "Google Workspace",
+        "m365": "Microsoft 365",
+        "cloudflare": "Cloudflare",
+        "nhn": "NHN Cloud",
+        "llm": "LLM",
+        "image": "Container Image",
+        "oraclecloud": "Oracle Cloud",
+        "alibabacloud": "Alibaba Cloud",
+        "openstack": "OpenStack",
+        "mongodbatlas": "MongoDB Atlas",
+    }
+    _subtab_map = {
+        "aws": "aws",
+        "gcp": "gcp",
+        "googleworkspace": "gws",
+        "kubernetes": "k8s",
+        "azure": "azure",
+        "m365": "m365",
+    }
+    _display_order = [
+        "aws",
+        "gcp",
+        "googleworkspace",
+        "kubernetes",
+        "azure",
+        "m365",
+        "github",
+    ]
     prov_table = ""
-    for pname, pdata in sorted(prov_summary.items()):
-        label = {
-            "aws": "AWS",
-            "github": "GitHub",
-            "iac": "IaC",
-            "kubernetes": "K8s",
-            "azure": "Azure",
-            "gcp": "GCP",
-            "googleworkspace": "Google Workspace",
-            "m365": "Microsoft 365",
-            "cloudflare": "Cloudflare",
-            "nhn": "NHN Cloud",
-            "llm": "LLM",
-            "image": "Container Image",
-            "oraclecloud": "Oracle Cloud",
-            "alibabacloud": "Alibaba Cloud",
-            "openstack": "OpenStack",
-            "mongodbatlas": "MongoDB Atlas",
-        }.get(pname, pname)
-        subtab_map = {
-            "aws": "aws",
-            "gcp": "gcp",
-            "googleworkspace": "gws",
-            "kubernetes": "k8s",
-            "azure": "azure",
-            "m365": "m365",
-        }
+    seen = set()
+    for pname in _display_order:
+        pdata = prov_summary.get(pname)
+        if pdata is None:
+            pdata = {
+                "total_fail": 0,
+                "total_pass": 0,
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+            }
+        seen.add(pname)
+        label = _prov_labels.get(pname, pname)
+        subtab = _subtab_map.get(pname)
         onclick = (
-            f' onclick="switchProvTab(\'{subtab_map[pname]}\')" style="cursor:pointer"'
-            if pname in subtab_map
+            f' onclick="switchProvTab(\'{subtab}\')" style="cursor:pointer"'
+            if subtab
+            else ""
+        )
+        total_cells = pdata["total_fail"] + pdata["total_pass"]
+        no_data = total_cells == 0 and pname in ("kubernetes", "googleworkspace")
+        if no_data:
+            prov_table += f'<tr class="prov-row-no-data"{onclick}><td>{label} <span style="font-size:.7rem;color:var(--muted);font-weight:400" title="Add to prowler_providers in .claudesec.yml and configure credentials (kubeconfig / GOOGLE_WORKSPACE_CUSTOMER_ID)">— not run</span></td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td></tr>'
+        else:
+            prov_table += f'<tr{onclick}><td>{label}</td><td class="r">{total_cells}</td><td class="r" style="color:#dc2626">{pdata["critical"]}</td><td class="r" style="color:#ef4444">{pdata["high"]}</td><td class="r" style="color:#eab308">{pdata["medium"]}</td><td class="r">{pdata["low"]}</td><td class="r" style="color:#22c55e">{pdata["total_pass"]}</td></tr>'
+    for pname, pdata in sorted(prov_summary.items()):
+        if pname in seen:
+            continue
+        label = _prov_labels.get(pname, pname)
+        subtab = _subtab_map.get(pname)
+        onclick = (
+            f' onclick="switchProvTab(\'{subtab}\')" style="cursor:pointer"'
+            if subtab
             else ""
         )
         prov_table += f'<tr{onclick}><td>{label}</td><td class="r">{pdata["total_fail"] + pdata["total_pass"]}</td><td class="r" style="color:#dc2626">{pdata["critical"]}</td><td class="r" style="color:#ef4444">{pdata["high"]}</td><td class="r" style="color:#eab308">{pdata["medium"]}</td><td class="r">{pdata["low"]}</td><td class="r" style="color:#22c55e">{pdata["total_pass"]}</td></tr>'
@@ -4000,14 +4105,17 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     prowler_selector_options_html = '<option value="">Prowler summary</option>'
     for key, label in prowler_provider_options:
         pdata = prov_summary.get(key)
-        if not pdata:
-            continue
-        total_checks = int(pdata.get("total_fail", 0)) + int(pdata.get("total_pass", 0))
+        total_checks = (
+            int(pdata.get("total_fail", 0)) + int(pdata.get("total_pass", 0))
+            if pdata
+            else 0
+        )
         subtab = prowler_subtab_map.get(key)
         if not subtab:
             continue
+        suffix = " (not run)" if total_checks == 0 and pdata is None else ""
         prowler_selector_options_html += (
-            f'<option value="{h(subtab)}">{h(label)} ({total_checks})</option>'
+            f'<option value="{h(subtab)}">{h(label)} ({total_checks}){suffix}</option>'
         )
     scan_scope_html = (
         '<div style="font-size:.8rem;color:var(--muted);margin-top:.5rem;padding:.55rem 0;border-top:1px solid var(--border)">'
@@ -4025,32 +4133,42 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     )
     auth_summary_html = build_auth_summary_html(envs, findings_list)
     repo_url = f"https://github.com/{AUDIT_POINTS_REPO}"
-    # QueryPie Audit Points tab content
+    # QueryPie Audit Points tab content — structured for Best Practices hub UI/UX
+    _bp_intro = (
+        '<p class="bp-audit-intro" style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;line-height:1.5">'
+        "SaaS/DevSecOps audit checklists (QueryPie) and Microsoft platform best-practice sources. Use the sections below to review project-relevant checklists and open official guidance.</p>"
+    )
     audit_points_html = ""
-    if audit_points_detected.get("detected_products") and audit_points_detected.get(
-        "items"
-    ):
-        audit_points_html = '<div class="card"><div class="card-title">Relevant to this project</div><div style="padding:1rem 1.25rem"><p style="color:var(--muted);margin-bottom:.75rem">Products detected in this repo; review the checklist items below (from <code>claudesec scan -c saas</code>).</p>'
-        by_product = defaultdict(list)
-        for it in audit_points_detected.get("items", []):
-            by_product[it.get("product", "")].append(it)
-        for pname in audit_points_detected.get("detected_products", []):
-            items = by_product.get(pname, [])
-            audit_points_html += f'<div style="margin-bottom:1rem"><strong style="color:var(--accent)">{h(pname)}</strong> <span style="font-size:.8rem;color:var(--muted)">({len(items)} items)</span><div style="margin-top:.35rem">'
-            for it in items[:30]:
-                url = it.get("url") or "#"
-                audit_points_html += f'<div style="margin-left:.5rem"><a href="{h(url)}" target="_blank" rel="noopener" style="font-size:.82rem;color:var(--text)">{h(it.get("file_name", ""))}</a></div>'
-            if len(items) > 30:
-                audit_points_html += f'<div style="font-size:.8rem;color:var(--muted);margin-left:.5rem">… +{len(items) - 30} more</div>'
+    detected_products = audit_points_detected.get("detected_products") or []
+    products_by_name = {
+        p.get("name"): p for p in audit_points_data.get("products", []) if p.get("name")
+    }
+    if detected_products and products_by_name:
+        audit_points_html = _bp_intro + '<div class="card bp-audit-section" style="margin-bottom:1rem"><div class="card-title">Relevant to this project</div><div style="padding:1rem 1.25rem"><p style="color:var(--muted);margin-bottom:.75rem">Products detected in this repo; review the checklist items below (from <code>claudesec scan -c saas</code>).</p>'
+        for pname in detected_products:
+            prod = products_by_name.get(pname)
+            if not prod:
+                continue
+            files = prod.get("files", [])
+            audit_points_html += f'<div style="margin-bottom:1rem"><strong style="color:var(--accent)">{h(pname)}</strong> <span style="font-size:.8rem;color:var(--muted)">({len(files)} items)</span><div style="margin-top:.35rem">'
+            for idx, f in enumerate(files, start=1):
+                url = f.get("url") or f.get("raw_url") or "#"
+                num = f"{idx:02d}"
+                audit_points_html += '<div class="bp-audit-item-row">'
+                audit_points_html += f'<span class="bp-audit-index">{h(num)}</span>'
+                audit_points_html += f'<a href="{h(url)}" target="_blank" rel="noopener" class="bp-audit-link">{h(f.get("name", ""))}</a>'
+                audit_points_html += "</div>"
             audit_points_html += "</div></div>"
         audit_points_html += "</div></div>"
     if audit_points_data.get("products"):
+        if not audit_points_html:
+            audit_points_html = _bp_intro
         title = (
             "All products (querypie/audit-points)"
-            if audit_points_html
+            if "Relevant to this project" in audit_points_html
             else "QueryPie Audit Points"
         )
-        audit_points_html += f'<div class="card"><div class="card-title">{h(title)}</div><div style="padding:1rem 1.25rem"><p style="color:var(--muted);margin-bottom:1rem">SaaS/DevSecOps audit checklists from <a href="{h(repo_url)}" target="_blank" rel="noopener">querypie/audit-points</a>. Click a product to open the folder; click a file to open the checklist.</p>'
+        audit_points_html += f'<div class="card bp-audit-section" style="margin-bottom:1rem"><div class="card-title">{h(title)}</div><div style="padding:1rem 1.25rem"><p style="color:var(--muted);margin-bottom:1rem">SaaS/DevSecOps audit checklists from <a href="{h(repo_url)}" target="_blank" rel="noopener">querypie/audit-points</a>. Click a product to open the folder; click a file to open the checklist.</p>'
         for prod in audit_points_data["products"]:
             tree_url = (
                 prod.get("tree_url")
@@ -4069,14 +4187,17 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             audit_points_html += f'<p style="font-size:.72rem;color:var(--muted);margin-top:1rem">Cache updated: {h(audit_points_data["fetched_at"][:19])}</p>'
         audit_points_html += "</div></div>"
     if not audit_points_html:
-        audit_points_html = '<div class="card"><div class="card-title">QueryPie Audit Points</div><div style="padding:1rem 1.25rem;color:var(--muted)">SaaS/DevSecOps audit checklists from <a href="https://github.com/querypie/audit-points" target="_blank" rel="noopener">querypie/audit-points</a>. Run <code>claudesec scan -c saas</code> to detect products and populate the checklist for this project.</div></div>'
+        audit_points_html = (
+            _bp_intro
+            + '<div class="card bp-audit-section"><div class="card-title">QueryPie Audit Points</div><div style="padding:1rem 1.25rem"><p style="color:var(--muted);margin-bottom:.5rem">SaaS/DevSecOps audit checklists from <a href="https://github.com/querypie/audit-points" target="_blank" rel="noopener">querypie/audit-points</a>.</p><p style="color:var(--muted);font-size:.85rem">Run <code>claudesec scan -c saas</code> to detect products (Jenkins, Harbor, Nexus, Okta, etc.) and populate the checklist for this project.</p></div></div>'
+        )
 
     ms_sources = ms_best_practices_data.get("sources", [])
     scubagear_enabled = _is_env_truthy(MS_INCLUDE_SCUBAGEAR_ENV)
     source_filter = (
         ms_best_practices_data.get("source_filter") or _normalized_source_filter()
     )
-    audit_points_html += '<div class="card ms-source-root"><div class="card-title">Windows / Intune / Office 365 best-practice sources</div>'
+    audit_points_html += '<div class="card bp-audit-section ms-source-root"><div class="card-title">Windows / Intune / Office 365 best-practice sources</div>'
     if source_filter == "none":
         preset_default = "none"
     elif source_filter == "official,gov":
@@ -4549,6 +4670,15 @@ tr.arch-highlight td{animation:archPulseTd 1.2s ease 2}
 .bp-subtab{padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s}
 .bp-subtab:hover{border-color:var(--accent);transform:translateY(-1px)}
 .bp-subtab.active{border-color:var(--accent);box-shadow:0 0 0 3px rgba(56,189,248,.12) inset}
+.bp-audit-section{margin-bottom:1rem}
+.bp-audit-preview{margin:.35rem 0 .75rem 0;font-size:.8rem;color:var(--muted);line-height:1.5}
+.bp-audit-heading{font-weight:600;color:var(--text);margin-top:.4rem;margin-bottom:.2rem}
+.bp-audit-item{margin-left:.9rem;margin-bottom:.1rem}
+.bp-audit-text{margin-bottom:.25rem}
+.bp-audit-item-row{display:flex;align-items:center;gap:.4rem;margin:.25rem 0}
+.bp-audit-index{display:inline-flex;align-items:center;justify-content:center;width:1.8rem;font-size:.75rem;font-weight:700;color:var(--muted)}
+.bp-audit-link{font-size:.82rem;color:var(--text);text-decoration:none}
+.bp-audit-link:hover{color:var(--accent);text-decoration:underline}
 .bp-panel{display:none}
 .bp-panel.active{display:block}
 /* Footer */
@@ -4814,7 +4944,12 @@ footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem
       </div>
 
       <div class="bp-panel" id="bppanel-auditpoints">
-        {{AUDIT_POINTS_HTML}}
+        <div class="card" style="margin:0 0 1rem 0">
+          <div class="card-title">Audit Points <span class="card-subtitle" style="font-size:.75rem;color:var(--muted);font-weight:400;margin-left:.5rem">SaaS/DevSecOps checklists + Microsoft platform guidance</span></div>
+          <div style="padding:1rem 1.25rem">
+            {{AUDIT_POINTS_HTML}}
+          </div>
+        </div>
       </div>
     </div>
   </div>
