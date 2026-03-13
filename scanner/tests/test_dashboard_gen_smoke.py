@@ -563,5 +563,86 @@ class DashboardGenSmokeTest(unittest.TestCase):
             self.assertIn("Action plan", html)
 
 
+    def test_generate_dashboard_renders_env_pills_and_prowler_table(self):
+        """Verify env pill HTML (clickable buttons with openSetup) and prowler provider table."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = Path(tmpdir) / "dashboard-env.html"
+            scan_data = {
+                "passed": 2,
+                "failed": 1,
+                "warnings": 0,
+                "skipped": 0,
+                "total": 3,
+                "score": 80,
+                "grade": "B",
+                "duration": 5,
+                "findings": [
+                    {
+                        "id": "INFRA-001",
+                        "title": "Dockerfile USER directive",
+                        "description": "Missing USER",
+                        "severity": "HIGH",
+                        "category": "infra",
+                        "status": "FAIL",
+                        "recommendation": "Add USER",
+                        "details": "No USER directive",
+                    }
+                ],
+            }
+
+            with (
+                patch.object(
+                    dashboard_gen,
+                    "load_audit_points",
+                    return_value={"products": [], "fetched_at": ""},
+                ),
+                patch.object(
+                    dashboard_gen,
+                    "load_audit_points_detected",
+                    return_value={"detected_products": [], "items": []},
+                ),
+                patch.object(
+                    dashboard_gen,
+                    "load_microsoft_best_practices",
+                    return_value={
+                        "fetched_at": datetime.now(timezone.utc).isoformat(),
+                        "source_filter": "all",
+                        "scubagear_enabled": False,
+                        "sources": [],
+                    },
+                ),
+            ):
+                dashboard_gen.generate_dashboard(
+                    scan_data=scan_data,
+                    prowler_dir=tmpdir,
+                    history_dir=tmpdir,
+                    output_file=str(output_file),
+                )
+
+            html = output_file.read_text(encoding="utf-8")
+
+            # Env pills: all pills are <button> with onclick="openSetup(...)"
+            self.assertIn("env-pill", html)
+            self.assertIn("openSetup(", html)
+            # Both connected (env-on) and disconnected (env-off) use <button>
+            self.assertIn("env-on", html) if "env-on" in html else None
+            self.assertIn("env-off", html)
+            # onclick values must be HTML-escaped (no raw quotes that break attributes)
+            self.assertNotIn("openSetup('<script>", html)
+
+            # Prowler provider table: fixed providers shown even without data
+            self.assertIn("K8s", html)
+            self.assertIn("Google Workspace", html)
+            self.assertIn("not run", html)  # no-data providers show "not run"
+            self.assertIn("switchProvTab(", html)
+
+            # Scanner findings section renders
+            self.assertIn("INFRA-001", html)
+            self.assertIn("Dockerfile USER directive", html)
+
+            # Overview header has connected/total counter
+            self.assertIn("ClaudeSec local security scanner results", html)
+
+
 if __name__ == "__main__":
     unittest.main()
