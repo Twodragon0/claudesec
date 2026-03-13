@@ -84,6 +84,16 @@ jobs:
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Check image size (max 1.8 GB)
+        run: |
+          size_bytes=$(docker image inspect claudesec:ci --format='{{.Size}}')
+          size_mb=$(( size_bytes / 1024 / 1024 ))
+          echo "Image size: ${size_mb} MB"
+          max_mb=1843
+          if [ "$size_mb" -gt "$max_mb" ]; then
+            echo "::error::Image size ${size_mb} MB exceeds limit ${max_mb} MB"
+            exit 1
+          fi
       - name: Verify container tooling (kubectl, prowler)
         run: |
           docker run --rm --entrypoint sh claudesec:ci -c 'kubectl version --client && prowler -v'
