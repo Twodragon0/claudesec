@@ -347,8 +347,39 @@ save_scan_history() {
   local n_low=${#FINDINGS_LOW[@]}
   local n_warn=${#FINDINGS_WARN[@]}
 
+  # Build compliance summary from prowler OCSF results if available
+  local compliance_json=""
+  local prowler_dir="${SCAN_DIR:-.}/.claudesec-prowler"
+  if [[ -d "$prowler_dir" ]] && command -v python3 &>/dev/null; then
+    compliance_json=$(python3 -c "
+import sys, json, glob
+sys.path.insert(0, '$(dirname "$(dirname "${BASH_SOURCE[0]}")")/lib')
+try:
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('dg', '$(dirname "${BASH_SOURCE[0]}")/dashboard-gen.py')
+    dg = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(dg)
+    providers = dg.load_prowler_files('$prowler_dir')
+    _, findings = dg.analyze_prowler(providers)
+    cm = dg.map_compliance(findings)
+    summary = {}
+    for fw, ctrls in cm.items():
+        p = sum(1 for c in ctrls if c['status'] == 'PASS')
+        f = sum(1 for c in ctrls if c['status'] == 'FAIL')
+        summary[fw] = {'pass': p, 'fail': f, 'total': p + f}
+    print(json.dumps(summary, separators=(',', ':')))
+except Exception:
+    pass
+" 2>/dev/null) || compliance_json=""
+  fi
+
+  local comp_field=""
+  if [[ -n "$compliance_json" && "$compliance_json" != "{}" ]]; then
+    comp_field=",\"compliance\":${compliance_json}"
+  fi
+
   cat > "${HISTORY_DIR}/scan-${ts}.json" <<HIST_EOF
-{"timestamp":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","score":${score},"passed":${PASSED},"failed":${FAILED},"warnings":${WARNINGS},"skipped":${SKIPPED},"total":${TOTAL_CHECKS},"critical":${n_crit},"high":${n_high},"medium":${n_med},"low":${n_low},"warn":${n_warn}}
+{"timestamp":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","score":${score},"passed":${PASSED},"failed":${FAILED},"warnings":${WARNINGS},"skipped":${SKIPPED},"total":${TOTAL_CHECKS},"critical":${n_crit},"high":${n_high},"medium":${n_med},"low":${n_low},"warn":${n_warn}${comp_field}}
 HIST_EOF
 
   # Prune old entries beyond HISTORY_MAX

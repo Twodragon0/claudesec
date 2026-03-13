@@ -3904,6 +3904,13 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     total_prowler_fail = sum(v["total_fail"] for v in prov_summary.values())
     total_prowler_pass = sum(v["total_pass"] for v in prov_summary.values())
 
+    # Compliance summary for history tracking
+    compliance_summary = {}
+    for fw, controls in compliance_map.items():
+        fw_pass = sum(1 for c in controls if c["status"] == "PASS")
+        fw_fail = sum(1 for c in controls if c["status"] == "FAIL")
+        compliance_summary[fw] = {"pass": fw_pass, "fail": fw_fail, "total": fw_pass + fw_fail}
+
     history_json = json.dumps(
         history
         + [
@@ -3913,6 +3920,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                 "failed": failed,
                 "critical": sum(v["critical"] for v in prov_summary.values()),
                 "high": sum(v["high"] for v in prov_summary.values()),
+                "compliance": compliance_summary,
             }
         ]
     )
@@ -5332,11 +5340,13 @@ function toggleComp(el){el.closest('.comp-section').classList.toggle('expanded')
     var idx=Math.round(((mx-pad.l)/cw)*(n-1));
     if(idx<0||idx>=n){tooltip.style.display='none';return}
     var d=history[idx];var ts=(d.timestamp||'').replace('T',' ').substring(0,16);
-    tooltip.innerHTML='<div style="font-weight:700;margin-bottom:3px">'+ts+'</div>'
+    var htm='<div style="font-weight:700;margin-bottom:3px">'+ts+'</div>'
       +'<div style="color:#38bdf8">Score: <b>'+d.score+'</b></div>'
       +'<div style="color:#ef4444">Failed: <b>'+(d.failed||0)+'</b> | Critical: <b>'+(d.critical||0)+'</b> | High: <b>'+(d.high||0)+'</b></div>'
       +'<div style="color:#f59e0b">Warnings: <b>'+(d.warnings||d.warn||0)+'</b></div>'
       +'<div style="color:#64748b">Passed: '+(d.passed||0)+' / Total: '+(d.total||0)+'</div>';
+    if(d.compliance){var ckeys=Object.keys(d.compliance);if(ckeys.length>0){htm+='<div style="border-top:1px solid #334155;margin-top:4px;padding-top:4px;font-size:11px">';for(var ci=0;ci<ckeys.length;ci++){var ck=ckeys[ci],cv=d.compliance[ck];htm+='<div style="color:'+(cv.fail>0?'#ef4444':'#22c55e')+'">'+ck+': <b>'+cv.pass+'</b>P / <b>'+cv.fail+'</b>F</div>'}htm+='</div>'}}
+    tooltip.innerHTML=htm;
     tooltip.style.display='block';
     var tx=mx+12;if(tx+tooltip.offsetWidth>rect.width)tx=mx-tooltip.offsetWidth-12;
     var iy=pad.t+ch-((d.score||0)/100)*ch;
