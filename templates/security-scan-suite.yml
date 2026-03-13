@@ -84,7 +84,7 @@ jobs:
             .claudesec-datadog/datadog-logs-sanitized.json
             .claudesec-datadog/datadog-cloud-signals-sanitized.json
             .claudesec-datadog/datadog-cases-sanitized.json
-          retention-days: 30
+          retention-days: ${{ fromJSON(vars.CLAUDESEC_DD_ARTIFACT_RETENTION_DAYS || '30') }}
 
   codeql:
     name: CodeQL
@@ -219,6 +219,10 @@ jobs:
       - name: Build summary and enforce required job success
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
+          DD_RETENTION_RAW: ${{ vars.CLAUDESEC_DD_ARTIFACT_RETENTION_DAYS || '30' }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           python3 - <<'PY'
           import json
@@ -253,21 +257,69 @@ jobs:
                   p.name for p in datadog_dir.glob("*.json") if p.is_file()
               )
 
-          print("## Security Scan Suite Summary")
-          print("### Required jobs")
+          retention_raw = (os.getenv("DD_RETENTION_RAW", "30") or "30").strip()
+          retention_days = None
+          try:
+              retention_days = int(retention_raw)
+          except ValueError:
+              retention_days = None
+
+          if retention_days is None or retention_days < 1 or retention_days > 90:
+              print(
+                  f"::error::CLAUDESEC_DD_ARTIFACT_RETENTION_DAYS must be an integer between 1 and 90 (current: {retention_raw})"
+              )
+              sys.exit(1)
+
+          server = (os.getenv("GITHUB_SERVER_URL", "") or "").strip()
+          repo = (os.getenv("GITHUB_REPOSITORY", "") or "").strip()
+          run_id = (os.getenv("GITHUB_RUN_ID", "") or "").strip()
+          code_scanning_base = f"{server}/{repo}/security/code-scanning" if server and repo else ""
+          artifact_page = f"{server}/{repo}/actions/runs/{run_id}/artifacts" if server and repo and run_id else ""
+
+          sarif_entries = [
+              ("CodeQL", "CodeQL managed upload", "codeql"),
+              ("Semgrep", "semgrep.sarif", "semgrep"),
+              ("Trivy", "trivy.sarif", "trivy"),
+              ("Gitleaks", "gitleaks.sarif", "gitleaks"),
+              ("OSV Scanner", "osv-scanner (reusable workflow)", "osv"),
+          ]
+
+          lines = []
+          lines.append("## Security Scan Suite Summary")
+          lines.append(f"- Datadog artifact retention days: `{retention_days}`")
+          lines.append("### Required jobs")
           for job in required:
-              print(f"- {job}: {state(job)}")
-          print("### Optional jobs")
+              lines.append(f"- {job}: {state(job)}")
+          lines.append("### Optional jobs")
           for job in optional:
-              print(f"- {job}: {state(job)}")
+              lines.append(f"- {job}: {state(job)}")
+
+          lines.append("### SARIF categories")
+          for label, artifact_name, tool in sarif_entries:
+              if code_scanning_base:
+                  lines.append(
+                      f"- [{label} alerts]({code_scanning_base}?query=tool%3A{tool}) · artifact: `{artifact_name}`"
+                  )
+              else:
+                  lines.append(f"- {label} alerts · artifact: `{artifact_name}`")
 
           if datadog_files:
-              print("### Datadog artifacts")
+              lines.append("### Datadog artifacts")
               for name in datadog_files:
-                  print(f"- {name}")
+                  if artifact_page:
+                      lines.append(f"- [{name}]({artifact_page})")
+                  else:
+                      lines.append(f"- {name}")
           else:
-              print("### Datadog artifacts")
-              print("- none (job skipped or artifact unavailable)")
+              lines.append("### Datadog artifacts")
+              lines.append("- none (job skipped or artifact unavailable)")
+
+          summary_text = "\n".join(lines)
+          print(summary_text)
+          step_summary = os.getenv("GITHUB_STEP_SUMMARY", "")
+          if step_summary:
+              with open(step_summary, "a", encoding="utf-8") as f:
+                  f.write(summary_text + "\n")
 
           if required_failures:
               for job, s in required_failures:

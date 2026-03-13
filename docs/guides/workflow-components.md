@@ -28,6 +28,7 @@ ClaudeSec workflow templates share reusable composite actions to reduce duplicat
 - `OKTA_OAUTH_TOKEN_EXPIRES_AT`
 - `DATADOG_TOKEN_EXPIRES_AT`, `DD_TOKEN_EXPIRES_AT`, `DD_API_KEY_EXPIRES_AT`
 - `SLACK_TOKEN_EXPIRES_AT`, `SLACK_BOT_TOKEN_EXPIRES_AT`
+- `CLAUDESEC_DD_ARTIFACT_RETENTION_DAYS` (used by `templates/security-scan-suite.yml` Datadog artifact upload, valid range: 1-90)
 
 ## Datadog CI Collect Contract
 
