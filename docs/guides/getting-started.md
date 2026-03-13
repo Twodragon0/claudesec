@@ -135,6 +135,11 @@ export CLAUDESEC_TOKEN_EXPIRY_WARNING_7D="7d"
 DD_API_KEY=<your-dd-api-key> DD_APP_KEY=<your-dd-app-key> DD_SITE=datadoghq.com ./scanner/claudesec dashboard
 ```
 
+### Kubernetes and Prowler: kubeconfig and OIDC
+
+- **Kubeconfig**: If you do not set `KUBECONFIG` or `kubeconfig` in `.claudesec.yml`, the scanner auto-discovers from conventional paths: `configs/dev/kubeconfig`, `configs/staging/kubeconfig`, `./kubeconfig` (relative to the project). Prefer a relative path in `.claudesec.yml` (e.g. `kubeconfig: configs/dev/kubeconfig`) so the repo stays portable.
+- **OIDC / Okta**: If your kubeconfig uses `kubectl oidc-login` (exec auth), run `kubectl get nodes` once to complete browser sign-in, then run `claudesec scan -c prowler` or `claudesec dashboard -c prowler`. The scanner will wait up to 45s for OIDC login when it detects an oidc-login context.
+
 ## What's Next?
 
 1. [Workflow Components](./workflow-components.md)

@@ -448,10 +448,40 @@ kubectl_current_context() {
   $cmd config current-context 2>/dev/null || echo ""
 }
 
+# Try conventional paths relative to base_dir (default .) and return first existing path.
+# Use when KUBECONFIG is unset to discover project kubeconfig without hardcoding paths.
+kubectl_auto_find_kubeconfig() {
+  local base_dir="${1:-.}"
+  local tried=(
+    "$base_dir/configs/dev/kubeconfig"
+    "$base_dir/configs/staging/kubeconfig"
+    "$base_dir/configs/prod/kubeconfig"
+    "$base_dir/kubeconfig"
+    "$base_dir/config/kubeconfig"
+  )
+  local p
+  for p in "${tried[@]}"; do
+    [[ -f "$p" ]] && echo "$p" && return 0
+  done
+  # First match under configs/*/kubeconfig
+  if [[ -d "$base_dir/configs" ]]; then
+    while IFS= read -r p; do
+      [[ -f "$p" ]] && echo "$p" && return 0
+    done < <(find "$base_dir/configs" -maxdepth 2 -name 'kubeconfig' -type f 2>/dev/null | head -1)
+  fi
+  return 1
+}
+
 # Detect kubeconfig files and list them
 kubectl_discover_kubeconfigs() {
   local configs=()
   local kube_dir="$HOME/.kube"
+  local base_dir="${SCAN_DIR:-.}"
+
+  # Auto-discovered conventional paths (relative to CWD/SCAN_DIR)
+  local auto_path
+  auto_path=$(kubectl_auto_find_kubeconfig "$base_dir" 2>/dev/null)
+  [[ -n "$auto_path" && -f "$auto_path" ]] && configs+=("$auto_path")
 
   # Standard kubeconfig
   [[ -f "$HOME/.kube/config" ]] && configs+=("$HOME/.kube/config")
@@ -494,6 +524,17 @@ kubectl_detect_cluster_type() {
     rancher-desktop*|*rd*) echo "rancher-desktop" ;;
     *) echo "generic" ;;
   esac
+}
+
+# Detect if current context uses exec-based OIDC (e.g. kubectl oidc-login)
+# Used to trigger a longer-timeout kubectl run so the user can complete browser OAuth.
+kubectl_current_context_uses_oidc_exec() {
+  has_command kubectl || return 1
+  local cmd json
+  cmd=$(_kubectl_cmd)
+  json=$($cmd config view --minify -o json 2>/dev/null) || return 1
+  echo "$json" | grep -q 'oidc-login' && return 0
+  return 1
 }
 
 # Ensure kubectl has a valid connection; attempt credential refresh if needed
@@ -615,6 +656,15 @@ kubectl_ensure_access() {
       echo -e "  ${GREEN}✓${NC} Connected to cluster (context: $current_ctx)"
       return 0
     fi
+
+    # OIDC/exec auth (e.g. kubectl oidc-login): run once with longer timeout so user can complete browser sign-in
+    if kubectl_current_context_uses_oidc_exec 2>/dev/null; then
+      echo -e "  ${DIM}Context uses OIDC login; a browser may open for sign-in. Waiting up to 45s…${NC}"
+      if run_with_timeout 45 $(_kubectl_cmd) cluster-info &>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} Connected to cluster (context: $current_ctx)"
+        return 0
+      fi
+    fi
   fi
 
   # 4. Try other contexts
@@ -645,6 +695,10 @@ kubectl_ensure_access() {
   echo -e "  ${BOLD}Custom kubeconfig:${NC}"
   echo -e "    claudesec scan --kubeconfig /path/to/kubeconfig"
   echo -e "    KUBECONFIG=/path/to/config claudesec scan"
+  echo -e "    Or set kubeconfig in .claudesec.yml; conventional paths (configs/dev/kubeconfig, ./kubeconfig) are auto-discovered."
+  echo ""
+  echo -e "  ${BOLD}OIDC / Okta login:${NC}"
+  echo -e "    If your kubeconfig uses kubectl oidc-login, run \`kubectl get nodes\` once to complete browser sign-in, then re-run claudesec."
   echo ""
   echo -e "  ${BOLD}Context selection:${NC}"
   echo -e "    claudesec scan --kubecontext <context-name>"
