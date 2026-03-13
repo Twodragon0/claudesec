@@ -35,12 +35,14 @@ jobs:
           python-version: '3.11'
       - name: Install XML test reporter
         run: python3 -m pip install --upgrade unittest-xml-reporting
+      - name: Run bash unit tests (kubeconfig discovery, OIDC detection)
+        run: bash scanner/tests/test_kube_discovery.sh
       - name: Run scanner unittest baseline (JUnit XML)
         id: scanner_tests
         env:
           PYTHONPATH: .
         run: |
-          python3 -m py_compile scanner/lib/dashboard-gen.py scanner/tests/test_dashboard_gen_smoke.py
+          python3 -m py_compile scanner/lib/dashboard-gen.py scanner/tests/test_dashboard_gen_smoke.py scanner/tests/test_markdown_preview.py
           set +e
           python3 -m xmlrunner discover -s scanner/tests -p "test_*.py" -o test-reports
           test_exit_code=$?
@@ -82,6 +84,12 @@ jobs:
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Verify container tooling (kubectl, prowler)
+        run: |
+          docker run --rm claudesec:ci sh -c 'kubectl version --client && prowler -v'
+      - name: Verify non-root user
+        run: |
+          docker run --rm claudesec:ci sh -c 'test "$(id -u)" -ne 0'
       - name: Prepare isolated scan workspace
         run: |
           tmp_scan="$RUNNER_TEMP/claudesec-scan"
