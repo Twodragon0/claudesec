@@ -13,7 +13,17 @@ set -uo pipefail
 
 CLAUDESEC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCANNER="$CLAUDESEC_DIR/scanner/claudesec"
+DOCKER_SCANNER="$CLAUDESEC_DIR/scripts/run-scan-docker.sh"
 SCAN_DIR="${CLAUDESEC_SCAN_DIR:-$CLAUDESEC_DIR}"
+
+if [[ "${1:-}" == "--docker" ]]; then
+  shift
+  if [[ ! -f "$DOCKER_SCANNER" ]]; then
+    echo "Error: docker scanner script not found at $DOCKER_SCANNER" >&2
+    exit 1
+  fi
+  exec "$DOCKER_SCANNER" "$@"
+fi
 
 if [[ ! -x "$SCANNER" ]]; then
   chmod +x "$SCANNER" 2>/dev/null || true
