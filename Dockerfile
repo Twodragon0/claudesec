@@ -13,7 +13,10 @@ RUN apk add --no-cache \
     python3-dev \
     py3-pip
 
-RUN pip install --no-cache-dir --break-system-packages --prefix=/install prowler
+RUN pip install --no-cache-dir --no-compile --break-system-packages --prefix=/install prowler \
+    && find /install -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
+    && find /install -type d -name 'tests' -exec rm -rf {} + 2>/dev/null || true \
+    && find /install -name '*.dist-info' -type d -exec sh -c 'rm -rf "$1"/top_level.txt "$1"/RECORD' _ {} \; 2>/dev/null || true
 
 # ── Stage 2: runtime image ──────────────────────────────────────────────────
 FROM alpine:3.20
