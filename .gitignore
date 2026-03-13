@@ -53,6 +53,7 @@ credentials.json
 __pycache__/
 *.pyc
 *.pyo
+test-reports/
 
 # --- Do not upload to GitHub: 개인정보·회사정보·PII·IP·계정 (no PII, company info, IPs, accounts) ---
 # Local overrides (may contain paths, accounts, internal IPs)

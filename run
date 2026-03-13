@@ -3,7 +3,7 @@
 # ClaudeSec — One-command run: full scan + dashboard + serve
 # ============================================================================
 # Like oh-my-claudecode: zero config, one command.
-#   ./run              → full scan, generate dashboard, serve at http://localhost:11777
+#   ./run              → full scan, generate dashboard, serve safely at http://localhost:11777
 #   ./run --no-serve   → full scan + dashboard only (no server)
 #   ./run --quick      → quick scan (3 categories) + dashboard + serve
 # ============================================================================
@@ -11,11 +11,11 @@
 set -uo pipefail
 
 CLAUDESEC_DIR="$(cd "$(dirname "$0")" && pwd)"
-SCRIPT="$CLAUDESEC_DIR/scripts/run-full-dashboard.sh"
+SCRIPT="$CLAUDESEC_DIR/scripts/run-dashboard-safe.sh"
 
 if [[ ! -f "$SCRIPT" ]]; then
   echo "ClaudeSec: run script not found at $SCRIPT" >&2
   exit 1
 fi
 
-exec "$SCRIPT" "$@"
+exec "$SCRIPT" --kill-port "$@"
