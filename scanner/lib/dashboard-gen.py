@@ -4307,6 +4307,11 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     )
     auth_summary_html = build_auth_summary_html(envs, findings_list)
     repo_url = f"https://github.com/{AUDIT_POINTS_REPO}"
+    # Product icon mapping for visual differentiation
+    _ap_icons = {
+        "Jenkins": "🔧", "Harbor": "🐳", "Nexus": "📦", "Okta": "🔐",
+        "QueryPie": "🔎", "Scalr": "☁️", "IDEs": "💻",
+    }
     # QueryPie Audit Points tab content — structured for Best Practices hub UI/UX
     _bp_intro = (
         '<p class="bp-audit-intro" style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;line-height:1.5">'
@@ -4314,51 +4319,106 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     )
     audit_points_html = ""
     detected_products = audit_points_detected.get("detected_products") or []
+    all_products = audit_points_data.get("products", [])
     products_by_name = {
-        p.get("name"): p for p in audit_points_data.get("products", []) if p.get("name")
+        p.get("name"): p for p in all_products if p.get("name")
     }
+    total_items = sum(len(p.get("files", [])) for p in all_products)
+    detected_items = sum(
+        len(products_by_name.get(pn, {}).get("files", [])) for pn in detected_products
+    )
+
+    # Detected products summary strip
+    if detected_products or all_products:
+        audit_points_html = _bp_intro
+        # Detection summary
+        det_count = len(detected_products)
+        all_count = len(all_products)
+        audit_points_html += '<div class="ap-detected-strip">'
+        if detected_products:
+            for pn in detected_products:
+                icon = _ap_icons.get(pn, "📋")
+                audit_points_html += f'<span class="ap-detected-chip">{icon} {h(pn)}</span>'
+            audit_points_html += f'<span style="font-size:.72rem;color:var(--muted);align-self:center;margin-left:.5rem">{det_count} detected / {all_count} total · {detected_items} checklist items</span>'
+        else:
+            audit_points_html += f'<span style="font-size:.78rem;color:var(--muted)">No products detected in this repo · {all_count} products available · run <code>claudesec scan -c saas</code></span>'
+        audit_points_html += "</div>"
+        # Search bar
+        audit_points_html += '<input type="text" class="ap-search" placeholder="Search products or checklist items..." onkeyup="apFilterProducts(this.value)">'
+
+    # Detected products section
     if detected_products and products_by_name:
-        audit_points_html = _bp_intro + '<div class="card bp-audit-section" style="margin-bottom:1rem"><div class="card-title">Relevant to this project</div><div style="padding:1rem 1.25rem"><p style="color:var(--muted);margin-bottom:.75rem">Products detected in this repo; review the checklist items below (from <code>claudesec scan -c saas</code>).</p>'
+        audit_points_html += '<div class="card bp-audit-section" style="margin-bottom:1rem"><div class="card-title" style="display:flex;align-items:center;gap:.5rem">Relevant to this project <span class="badge" style="font-size:.65rem;background:rgba(34,197,94,.15);color:#22c55e">' + str(det_count) + ' detected</span></div><div style="padding:.75rem 1rem">'
         for pname in detected_products:
             prod = products_by_name.get(pname)
             if not prod:
                 continue
             files = prod.get("files", [])
-            audit_points_html += f'<div style="margin-bottom:1rem"><strong style="color:var(--accent)">{h(pname)}</strong> <span style="font-size:.8rem;color:var(--muted)">({len(files)} items)</span><div style="margin-top:.35rem">'
+            icon = _ap_icons.get(pname, "📋")
+            tree_url = prod.get("tree_url") or f"{repo_url}/tree/main/{urllib.parse.quote(pname)}"
+            audit_points_html += f'<div class="ap-product-card open" data-product="{h(pname.lower())}">'
+            audit_points_html += f'<div class="ap-product-header" onclick="this.parentElement.classList.toggle(\'open\')">'
+            audit_points_html += f'<span class="ap-product-icon">{icon}</span>'
+            audit_points_html += f'<span class="ap-product-name">{h(pname)}</span>'
+            audit_points_html += f'<span class="ap-product-count">{len(files)} items</span>'
+            audit_points_html += '<span class="ap-product-chevron">▶</span>'
+            audit_points_html += '</div>'
+            audit_points_html += '<div class="ap-product-body">'
+            audit_points_html += f'<a href="{h(tree_url)}" target="_blank" rel="noopener" class="ap-product-github-link">Open on GitHub ↗</a>'
             for idx, f in enumerate(files, start=1):
                 url = f.get("url") or f.get("raw_url") or "#"
-                num = f"{idx:02d}"
+                fname = f.get("name", "")
+                ext = fname.rsplit(".", 1)[-1] if "." in fname else ""
                 audit_points_html += '<div class="bp-audit-item-row">'
-                audit_points_html += f'<span class="bp-audit-index">{h(num)}</span>'
-                audit_points_html += f'<a href="{h(url)}" target="_blank" rel="noopener" class="bp-audit-link">{h(f.get("name", ""))}</a>'
+                audit_points_html += f'<span class="bp-audit-index">{idx}</span>'
+                audit_points_html += f'<a href="{h(url)}" target="_blank" rel="noopener" class="bp-audit-link">{h(fname)}</a>'
+                if ext:
+                    audit_points_html += f'<span class="bp-audit-ext">.{h(ext)}</span>'
                 audit_points_html += "</div>"
             audit_points_html += "</div></div>"
         audit_points_html += "</div></div>"
-    if audit_points_data.get("products"):
-        if not audit_points_html:
-            audit_points_html = _bp_intro
-        title = (
-            "All products (querypie/audit-points)"
-            if "Relevant to this project" in audit_points_html
-            else "QueryPie Audit Points"
-        )
-        audit_points_html += f'<div class="card bp-audit-section" style="margin-bottom:1rem"><div class="card-title">{h(title)}</div><div style="padding:1rem 1.25rem"><p style="color:var(--muted);margin-bottom:1rem">SaaS/DevSecOps audit checklists from <a href="{h(repo_url)}" target="_blank" rel="noopener">querypie/audit-points</a>. Click a product to open the folder; click a file to open the checklist.</p>'
-        for prod in audit_points_data["products"]:
-            tree_url = (
-                prod.get("tree_url")
-                or f"{repo_url}/tree/main/{urllib.parse.quote(prod['name'])}"
-            )
-            audit_points_html += f'<div class="card" style="margin-bottom:1rem;padding:0"><div class="card-title" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==\'none\'?\'\':\'none\'" style="cursor:pointer;user-select:none">▸ {h(prod["name"])} <span style="font-size:.75rem;color:var(--muted);font-weight:400">({len(prod.get("files", []))} items)</span></div>'
-            audit_points_html += '<div style="padding:.75rem 1rem">'
-            audit_points_html += f'<a href="{h(tree_url)}" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem">Open folder on GitHub</a>'
-            for f in prod.get("files", [])[:50]:
+
+    # All products catalog
+    if all_products:
+        if not detected_products:
+            audit_points_html = audit_points_html or _bp_intro
+        title = "All products" if detected_products else "QueryPie Audit Points"
+        audit_points_html += f'<div class="card bp-audit-section" style="margin-bottom:1rem"><div class="card-title" style="display:flex;align-items:center;gap:.5rem">{h(title)} <span class="badge" style="font-size:.65rem">{len(all_products)} products · {total_items} items</span></div><div style="padding:.75rem 1rem">'
+        audit_points_html += f'<p style="color:var(--muted);font-size:.82rem;margin-bottom:.75rem">SaaS/DevSecOps audit checklists from <a href="{h(repo_url)}" target="_blank" rel="noopener" style="color:var(--accent)">querypie/audit-points</a>. Click a product to expand.</p>'
+        for prod in all_products:
+            pname = prod.get("name", "")
+            is_detected = pname in detected_products
+            files = prod.get("files", [])
+            icon = _ap_icons.get(pname, "📋")
+            tree_url = prod.get("tree_url") or f"{repo_url}/tree/main/{urllib.parse.quote(pname)}"
+            open_cls = ""
+            audit_points_html += f'<div class="ap-product-card{open_cls}" data-product="{h(pname.lower())}">'
+            audit_points_html += f'<div class="ap-product-header" onclick="this.parentElement.classList.toggle(\'open\')">'
+            audit_points_html += f'<span class="ap-product-icon">{icon}</span>'
+            audit_points_html += f'<span class="ap-product-name">{h(pname)}'
+            if is_detected:
+                audit_points_html += ' <span style="font-size:.6rem;color:#22c55e;vertical-align:middle">● detected</span>'
+            audit_points_html += '</span>'
+            audit_points_html += f'<span class="ap-product-count">{len(files)} items</span>'
+            audit_points_html += '<span class="ap-product-chevron">▶</span>'
+            audit_points_html += '</div>'
+            audit_points_html += '<div class="ap-product-body">'
+            audit_points_html += f'<a href="{h(tree_url)}" target="_blank" rel="noopener" class="ap-product-github-link">Open on GitHub ↗</a>'
+            for idx, f in enumerate(files[:50], start=1):
                 url = f.get("url") or f.get("raw_url") or "#"
-                audit_points_html += f'<div style="margin-top:.5rem"><a href="{h(url)}" target="_blank" rel="noopener" class="mono" style="font-size:.82rem;color:var(--text)">{h(f.get("name", ""))}</a></div>'
-            if len(prod.get("files", [])) > 50:
-                audit_points_html += f'<div style="margin-top:.5rem;color:var(--muted);font-size:.8rem">… and {len(prod["files"]) - 50} more in <a href="{h(tree_url)}" target="_blank" rel="noopener">folder</a></div>'
+                fname = f.get("name", "")
+                ext = fname.rsplit(".", 1)[-1] if "." in fname else ""
+                audit_points_html += '<div class="bp-audit-item-row">'
+                audit_points_html += f'<span class="bp-audit-index">{idx}</span>'
+                audit_points_html += f'<a href="{h(url)}" target="_blank" rel="noopener" class="bp-audit-link">{h(fname)}</a>'
+                if ext:
+                    audit_points_html += f'<span class="bp-audit-ext">.{h(ext)}</span>'
+                audit_points_html += "</div>"
+            if len(files) > 50:
+                audit_points_html += f'<div style="padding:.3rem .5rem;font-size:.78rem;color:var(--muted)">… and {len(files) - 50} more in <a href="{h(tree_url)}" target="_blank" rel="noopener" style="color:var(--accent)">GitHub folder</a></div>'
             audit_points_html += "</div></div>"
         if audit_points_data.get("fetched_at"):
-            audit_points_html += f'<p style="font-size:.72rem;color:var(--muted);margin-top:1rem">Cache updated: {h(audit_points_data["fetched_at"][:19])}</p>'
+            audit_points_html += f'<p style="font-size:.72rem;color:var(--muted);margin-top:.75rem">Cache updated: {h(audit_points_data["fetched_at"][:19])}</p>'
         audit_points_html += "</div></div>"
     if not audit_points_html:
         audit_points_html = (
@@ -4849,10 +4909,34 @@ tr.arch-highlight td{animation:archPulseTd 1.2s ease 2}
 .bp-audit-heading{font-weight:600;color:var(--text);margin-top:.4rem;margin-bottom:.2rem}
 .bp-audit-item{margin-left:.9rem;margin-bottom:.1rem}
 .bp-audit-text{margin-bottom:.25rem}
-.bp-audit-item-row{display:flex;align-items:center;gap:.4rem;margin:.25rem 0}
-.bp-audit-index{display:inline-flex;align-items:center;justify-content:center;width:1.8rem;font-size:.75rem;font-weight:700;color:var(--muted)}
-.bp-audit-link{font-size:.82rem;color:var(--text);text-decoration:none}
+.bp-audit-item-row{display:flex;align-items:center;gap:.5rem;margin:.2rem 0;padding:.35rem .5rem;border-radius:6px;transition:background .15s}
+.bp-audit-item-row:hover{background:rgba(56,189,248,.06)}
+.bp-audit-index{display:inline-flex;align-items:center;justify-content:center;min-width:1.6rem;height:1.6rem;font-size:.7rem;font-weight:700;color:var(--accent);background:rgba(56,189,248,.1);border-radius:50%}
+.bp-audit-link{font-size:.82rem;color:var(--text);text-decoration:none;flex:1}
 .bp-audit-link:hover{color:var(--accent);text-decoration:underline}
+.bp-audit-ext{font-size:.65rem;color:var(--muted);background:var(--surface);padding:.1rem .35rem;border-radius:3px;white-space:nowrap}
+/* Audit Points product cards */
+.ap-product-card{border:1px solid var(--border);border-radius:8px;margin-bottom:.75rem;overflow:hidden;transition:border-color .15s}
+.ap-product-card:hover{border-color:var(--accent)}
+.ap-product-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1rem;cursor:pointer;user-select:none;background:var(--surface)}
+.ap-product-header:hover{background:rgba(56,189,248,.04)}
+.ap-product-icon{font-size:1.2rem;line-height:1}
+.ap-product-name{font-weight:600;color:var(--text);flex:1}
+.ap-product-count{font-size:.72rem;color:var(--muted);background:rgba(148,163,184,.1);padding:.15rem .5rem;border-radius:10px}
+.ap-product-chevron{color:var(--muted);transition:transform .2s;font-size:.75rem}
+.ap-product-card.open .ap-product-chevron{transform:rotate(90deg)}
+.ap-product-body{padding:0 1rem .75rem;display:none}
+.ap-product-card.open .ap-product-body{display:block}
+.ap-product-github-link{display:inline-flex;align-items:center;gap:.3rem;font-size:.78rem;color:var(--accent);margin-bottom:.5rem;text-decoration:none}
+.ap-product-github-link:hover{text-decoration:underline}
+/* Detected products summary strip */
+.ap-detected-strip{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:1rem;padding:.6rem .75rem;background:rgba(34,197,94,.04);border:1px solid rgba(34,197,94,.15);border-radius:8px}
+.ap-detected-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.2rem .55rem;font-size:.75rem;font-weight:600;border-radius:12px;background:rgba(34,197,94,.1);color:#22c55e}
+.ap-detected-chip.inactive{background:rgba(148,163,184,.08);color:var(--muted)}
+/* Search/filter bar */
+.ap-search{width:100%;padding:.45rem .75rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:.82rem;outline:none;margin-bottom:.75rem;transition:border-color .15s}
+.ap-search:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(56,189,248,.1)}
+.ap-search::placeholder{color:var(--muted)}
 .bp-panel{display:none}
 .bp-panel.active{display:block}
 /* Footer */
@@ -5184,6 +5268,18 @@ function openProwlerFromOverview(sel){
       if(panel){panel.scrollIntoView({behavior:'smooth',block:'nearest'});}
     },80);
   }
+}
+/* Audit Points product search/filter */
+function apFilterProducts(q){
+  q=q.toLowerCase().trim();
+  document.querySelectorAll('.ap-product-card').forEach(function(card){
+    var name=card.getAttribute('data-product')||'';
+    var items=card.querySelectorAll('.bp-audit-link');
+    var match=!q||name.indexOf(q)>=0;
+    if(!match){for(var i=0;i<items.length;i++){if((items[i].textContent||'').toLowerCase().indexOf(q)>=0){match=true;break}}}
+    card.style.display=match?'':'none';
+    if(match&&q)card.classList.add('open');
+  });
 }
 /* Best Practices internal sub-tab switching */
 function switchBpTab(id){
