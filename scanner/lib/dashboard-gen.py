@@ -3721,7 +3721,7 @@ def _build_overview_blocks(
 
 
 def _build_owasp_html(owasp_map):
-    out = '<h3 style="font-size:.95rem;margin-bottom:.75rem;display:flex;align-items:center;gap:.5rem"><span style="color:var(--accent)">🛡</span> OWASP Top 10:2025 — Web application security</h3>'
+    out = '<h2 style="font-size:.95rem;margin-bottom:.75rem;display:flex;align-items:center;gap:.5rem"><span style="color:var(--accent)">🛡</span> OWASP Top 10:2025 — Web application security</h2>'
     for ow in OWASP_2025:
         oid = ow["id"]
         findings = owasp_map.get(oid, [])
@@ -3757,7 +3757,7 @@ def _build_owasp_html(owasp_map):
             out += "</div>"
         out += "</div></div>"
     out += '<div style="margin-top:2rem;padding-top:1.5rem;border-top:1px solid var(--border)">'
-    out += '<h3 style="font-size:.95rem;margin-bottom:.75rem;display:flex;align-items:center;gap:.5rem"><span style="color:var(--accent)">🤖</span> OWASP Top 10 for LLM Applications 2025</h3>'
+    out += '<h2 style="font-size:.95rem;margin-bottom:.75rem;display:flex;align-items:center;gap:.5rem"><span style="color:var(--accent)">🤖</span> OWASP Top 10 for LLM Applications 2025</h2>'
     out += '<p style="font-size:.82rem;color:var(--muted);margin-bottom:1rem">AI/LLM application security risks — <a href="https://genai.owasp.org/resource/owasp-top-10-for-llm-applications-2025/" target="_blank" style="color:var(--accent)">Official docs</a></p>'
     for llm in OWASP_LLM_2025:
         out += f'<div class="owasp-item" style="border-left:3px solid var(--accent)">'
@@ -5083,7 +5083,7 @@ tr.arch-highlight td{animation:archPulseTd 1.2s ease 2}
 .comp-pass td{opacity:.7}.comp-fail td{}.comp-st-pass{color:#22c55e;font-weight:700}.comp-st-fail{color:#ef4444;font-weight:700}
 /* Trend */
 .trend-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1.5rem}
-.trend-section h3{font-size:.95rem;margin-bottom:.75rem}
+.trend-section h2{font-size:.95rem;margin-bottom:.75rem}
 .trend-chart{width:100%;height:220px;position:relative}
 .trend-chart canvas{width:100%!important;height:220px!important;cursor:crosshair}
 /* Severity bar */
@@ -5116,10 +5116,10 @@ tr.arch-highlight td{animation:archPulseTd 1.2s ease 2}
 .prov-card:hover{border-color:var(--accent);transform:translateY(-1px)}
 .prov-card-icon{font-size:1.4rem;margin-bottom:.3rem}
 .prov-card-name{font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.3rem}
-.prov-card-num{font-size:1.4rem;font-weight:800;color:#ef4444;line-height:1}
+.prov-card-num{font-size:1.4rem;font-weight:800;color:#fca5a5;line-height:1}
 .prov-card-num .prov-card-total{font-size:.8rem;color:var(--muted);font-weight:600}
 .prov-card-sev{display:flex;justify-content:center;gap:.3rem;margin-top:.35rem;font-size:.65rem;font-weight:700}
-.pcs-crit{color:#dc2626}.pcs-high{color:#ef4444}.pcs-med{color:#eab308}
+.pcs-crit{color:#fca5a5}.pcs-high{color:#fca5a5}.pcs-med{color:#fde68a}
 /* Severity bar */
 .sev-bar-wrap{margin-bottom:1.5rem}
 .sev-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--border)}
@@ -5221,7 +5221,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 </style>
 </head>
 <body>
-<div class="container">
+<div class="container" role="main">
 <header>
   <h1><span>◆</span> ClaudeSec Security Dashboard <span class="ver">v{{VERSION}}</span></h1>
   <div class="header-right">
@@ -5348,7 +5348,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 
   <!-- Trend -->
   <div class="trend-section">
-    <h3>📊 Scan trend <span style="font-size:.72rem;color:var(--muted);font-weight:400;margin-left:.5rem">Security score and fail/warn over time (hover for details)</span></h3>
+    <h2 style="font-size:.95rem;margin-bottom:.75rem">📊 Scan trend <span style="font-size:.72rem;color:var(--muted);font-weight:400;margin-left:.5rem">Security score and fail/warn over time (hover for details)</span></h2>
     <div class="trend-chart"><canvas id="trendChart"></canvas></div>
   </div>
 
