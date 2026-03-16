@@ -357,18 +357,15 @@ save_scan_history() {
     done
   fi
   if [[ "$_has_ocsf" == "1" ]] && command -v python3 &>/dev/null; then
-    compliance_json=$(timeout 15 python3 -c "
-import json, glob, os
+    compliance_json=$(timeout 10 python3 -c "
+import json, glob, os, importlib.util
 pdir = '$prowler_dir'
 findings = []
 for fp in glob.glob(os.path.join(pdir, 'prowler-*.ocsf.json')):
     try:
         with open(fp, encoding='utf-8') as f:
             raw = f.read().strip()
-        if raw.startswith('['):
-            data = json.loads(raw)
-        else:
-            data = [json.loads(line) for line in raw.splitlines() if line.strip()]
+        data = json.loads(raw) if raw.startswith('[') else [json.loads(l) for l in raw.splitlines() if l.strip()]
         for item in data:
             if item.get('status_code') != 'FAIL': continue
             findings.append({'check': item.get('metadata',{}).get('event_code',''),
@@ -377,17 +374,10 @@ for fp in glob.glob(os.path.join(pdir, 'prowler-*.ocsf.json')):
                 'compliance': item.get('unmapped',{}).get('compliance',{})})
     except Exception: pass
 if not findings: exit(0)
-import importlib.util
-spec = importlib.util.spec_from_file_location('dg', '$(dirname "${BASH_SOURCE[0]}")/dashboard-gen.py')
-dg = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(dg)
-cm = dg.map_compliance(findings)
-summary = {}
-for fw, ctrls in cm.items():
-    p = sum(1 for c in ctrls if c['status'] == 'PASS')
-    fl = sum(1 for c in ctrls if c['status'] == 'FAIL')
-    summary[fw] = {'pass': p, 'fail': fl, 'total': p + fl}
-print(json.dumps(summary, separators=(',', ':')))
+spec = importlib.util.spec_from_file_location('cm', '$(dirname "${BASH_SOURCE[0]}")/compliance-map.py')
+cm = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cm)
+print(json.dumps(cm.compliance_summary(cm.map_compliance(findings)), separators=(',', ':')))
 " 2>/dev/null) || compliance_json=""
   fi
 
