@@ -37,6 +37,8 @@ jobs:
         run: python3 -m pip install --upgrade unittest-xml-reporting
       - name: Run bash unit tests (kubeconfig discovery, OIDC detection)
         run: bash scanner/tests/test_kube_discovery.sh
+      - name: Run bash unit tests (output.sh functions)
+        run: bash scanner/tests/test_output_functions.sh
       - name: Run scanner unittest baseline (JUnit XML)
         id: scanner_tests
         env:

@@ -1,10 +1,13 @@
 import importlib.util
+import io
 import json
 import tempfile
 import unittest
+import urllib.error
 from datetime import datetime, timedelta, timezone
+from http.client import HTTPMessage
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "lib" / "dashboard-gen.py"
@@ -642,6 +645,158 @@ class DashboardGenSmokeTest(unittest.TestCase):
 
             # Overview header has connected/total counter
             self.assertIn("ClaudeSec local security scanner results", html)
+
+
+class GithubApiJsonTest(unittest.TestCase):
+    """Tests for _github_api_json exponential backoff and auth header injection."""
+
+    def _make_http_error(self, code: int, retry_after: str | None = None) -> urllib.error.HTTPError:
+        headers = HTTPMessage()
+        if retry_after is not None:
+            headers["Retry-After"] = retry_after
+        return urllib.error.HTTPError(
+            url="https://api.github.com/test",
+            code=code,
+            msg=f"HTTP {code}",
+            hdrs=headers,
+            fp=io.BytesIO(b""),
+        )
+
+    def test_retries_on_429_and_succeeds(self):
+        """429 on first attempt should trigger a retry and succeed on second."""
+        success_resp = MagicMock()
+        success_resp.__enter__ = lambda s: s
+        success_resp.__exit__ = MagicMock(return_value=False)
+        success_resp.read.return_value = json.dumps({"ok": True}).encode()
+
+        err_429 = self._make_http_error(429)
+
+        call_count = 0
+
+        def side_effect(req, timeout=15):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise err_429
+            return success_resp
+
+        with (
+            patch("urllib.request.urlopen", side_effect=side_effect),
+            patch("time.sleep") as mock_sleep,
+            patch.dict("os.environ", {}, clear=False),
+        ):
+            result = dashboard_gen._github_api_json("https://api.github.com/test", _max_retries=3)
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(call_count, 2)
+        mock_sleep.assert_called_once()
+        # Default backoff for attempt=0: min(2**0, 30) == 1
+        mock_sleep.assert_called_with(1)
+
+    def test_retry_after_header_respected(self):
+        """Retry-After header value should be used as sleep duration."""
+        success_resp = MagicMock()
+        success_resp.__enter__ = lambda s: s
+        success_resp.__exit__ = MagicMock(return_value=False)
+        success_resp.read.return_value = json.dumps({"ok": True}).encode()
+
+        err_429 = self._make_http_error(429, retry_after="5")
+
+        call_count = 0
+
+        def side_effect(req, timeout=15):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise err_429
+            return success_resp
+
+        with (
+            patch("urllib.request.urlopen", side_effect=side_effect),
+            patch("time.sleep") as mock_sleep,
+            patch.dict("os.environ", {}, clear=False),
+        ):
+            result = dashboard_gen._github_api_json("https://api.github.com/test", _max_retries=3)
+
+        self.assertEqual(result, {"ok": True})
+        mock_sleep.assert_called_with(5)
+
+    def test_github_token_sets_authorization_header(self):
+        """GITHUB_TOKEN env var should add Authorization header to request."""
+        captured_req: list = []
+
+        success_resp = MagicMock()
+        success_resp.__enter__ = lambda s: s
+        success_resp.__exit__ = MagicMock(return_value=False)
+        success_resp.read.return_value = json.dumps({"data": 1}).encode()
+
+        def side_effect(req, timeout=15):
+            captured_req.append(req)
+            return success_resp
+
+        with (
+            patch("urllib.request.urlopen", side_effect=side_effect),
+            patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_testtoken123"}, clear=False),
+        ):
+            result = dashboard_gen._github_api_json("https://api.github.com/repos/x/y")
+
+        self.assertEqual(result, {"data": 1})
+        self.assertEqual(len(captured_req), 1)
+        auth_header = captured_req[0].get_header("Authorization")
+        self.assertEqual(auth_header, "token ghp_testtoken123")
+
+    def test_gh_token_fallback(self):
+        """GH_TOKEN env var should be used when GITHUB_TOKEN is absent."""
+        captured_req: list = []
+
+        success_resp = MagicMock()
+        success_resp.__enter__ = lambda s: s
+        success_resp.__exit__ = MagicMock(return_value=False)
+        success_resp.read.return_value = json.dumps({}).encode()
+
+        def side_effect(req, timeout=15):
+            captured_req.append(req)
+            return success_resp
+
+        env = {"GH_TOKEN": "gh_fallback456"}
+        # Ensure GITHUB_TOKEN is not set
+        with (
+            patch("urllib.request.urlopen", side_effect=side_effect),
+            patch.dict("os.environ", env, clear=False),
+        ):
+            # Remove GITHUB_TOKEN if present in the test environment
+            import os as _os
+            original = _os.environ.pop("GITHUB_TOKEN", None)
+            try:
+                dashboard_gen._github_api_json("https://api.github.com/repos/a/b")
+            finally:
+                if original is not None:
+                    _os.environ["GITHUB_TOKEN"] = original
+
+        auth_header = captured_req[0].get_header("Authorization")
+        self.assertEqual(auth_header, "token gh_fallback456")
+
+    def test_non_rate_limit_http_error_raises_immediately(self):
+        """Non-403/429 HTTP errors should propagate without retry."""
+        err_404 = self._make_http_error(404)
+        call_count = 0
+
+        def side_effect(req, timeout=15):
+            nonlocal call_count
+            call_count += 1
+            raise err_404
+
+        with (
+            patch("urllib.request.urlopen", side_effect=side_effect),
+            patch("time.sleep") as mock_sleep,
+            patch.dict("os.environ", {}, clear=False),
+        ):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                dashboard_gen._github_api_json("https://api.github.com/test", _max_retries=3)
+
+        self.assertEqual(ctx.exception.code, 404)
+        self.assertEqual(call_count, 1)
+        mock_sleep.assert_not_called()
 
 
 if __name__ == "__main__":
