@@ -113,6 +113,33 @@ jobs:
         run: test -f "$RUNNER_TEMP/claudesec-scan/claudesec-dashboard.html"
       - name: Validate dashboard content
         run: grep -q "ClaudeSec local security scanner results" "$RUNNER_TEMP/claudesec-scan/claudesec-dashboard.html"
+      - name: Install Lighthouse CI
+        run: npm install -g @lhci/cli@0.14.x
+      - name: Run Lighthouse accessibility audit
+        run: |
+          cd "$RUNNER_TEMP/claudesec-scan"
+          lhci autorun --collect.staticDistDir=. \
+            --collect.url=claudesec-dashboard.html \
+            --assert.preset=lighthouse:no-pwa \
+            --assert.assertions.categories:accessibility=off \
+            --upload.target=temporary-public-storage || true
+      - name: Check Lighthouse accessibility score
+        run: |
+          cd "$RUNNER_TEMP/claudesec-scan"
+          if [ -d ".lighthouseci" ]; then
+            score=$(node -e "
+              const fs = require('fs');
+              const files = fs.readdirSync('.lighthouseci').filter(f => f.endsWith('.json') && f.startsWith('lhr-'));
+              if (files.length) {
+                const lhr = JSON.parse(fs.readFileSync('.lighthouseci/' + files[0]));
+                console.log(Math.round(lhr.categories.accessibility.score * 100));
+              } else { console.log(0); }
+            ")
+            echo "Accessibility score: $score"
+            if [ "$score" -lt 90 ]; then
+              echo "::warning::Lighthouse accessibility score $score is below 90"
+            fi
+          fi
 
   markdown-lint:
     runs-on: ubuntu-latest

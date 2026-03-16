@@ -779,6 +779,81 @@ def load_microsoft_best_practices(scan_dir: str) -> MicrosoftBestPracticesData:
         }
 
 
+SAAS_BEST_PRACTICES_CACHE_TTL_HOURS = 24
+
+
+def _fetch_saas_best_practices_from_github():
+    """Fetch SaaS best practice files from GitHub repos (Okta, QueryPie, ArgoCD, IDE)."""
+    sources = []
+    for src in SAAS_BEST_PRACTICES_SOURCES:
+        repo_raw = src.get("repo", "")
+        if not isinstance(repo_raw, str) or not repo_raw:
+            continue
+        focus_paths_raw = src.get("focus_paths", [])
+        focus_paths = (
+            [p for p in focus_paths_raw if isinstance(p, str)]
+            if isinstance(focus_paths_raw, list)
+            else []
+        )
+        repo_data = _fetch_repo_focus_files(repo_raw, focus_paths)
+        if repo_data.get("archived"):
+            continue
+        sources.append(
+            {
+                "product": str(src.get("product", "")),
+                "label": str(src.get("label", "")),
+                "trust_level": str(src.get("trust_level", "Community")),
+                "reason": str(src.get("reason", "")),
+                "repo": repo_data["repo"],
+                "repo_url": repo_data["repo_url"],
+                "default_branch": repo_data["default_branch"],
+                "updated_at": repo_data["updated_at"],
+                "archived": repo_data["archived"],
+                "files": repo_data["files"],
+                "focus_paths": focus_paths,
+            }
+        )
+    sources.sort(
+        key=lambda s: (
+            TRUST_LEVEL_ORDER.get(s.get("trust_level", "Community"), 9),
+            s.get("product", ""),
+            s.get("label", ""),
+        )
+    )
+    return {
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "sources": sources,
+    }
+
+
+def load_saas_best_practices(scan_dir):
+    """Load SaaS best practices with 24h cache (same pattern as MS best practices)."""
+    cache_dir = os.path.join(scan_dir, ".claudesec-saas-best-practices")
+    cache_file = os.path.join(cache_dir, "cache.json")
+    now = datetime.now(timezone.utc)
+    try:
+        if os.path.isfile(cache_file):
+            with open(cache_file, encoding="utf-8") as f:
+                data = json.load(f)
+            fetched = data.get("fetched_at", "")
+            if fetched:
+                try:
+                    dt = datetime.fromisoformat(fetched.replace("Z", "+00:00"))
+                    if (now - dt).total_seconds() < SAAS_BEST_PRACTICES_CACHE_TTL_HOURS * 3600:
+                        return data
+                except (ValueError, TypeError):
+                    pass
+        if _is_env_truthy(CLAUDESEC_DASHBOARD_OFFLINE_ENV):
+            return {"fetched_at": "", "sources": []}
+        fresh = _fetch_saas_best_practices_from_github()
+        os.makedirs(cache_dir, exist_ok=True)
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(fresh, f, ensure_ascii=False, indent=2)
+        return fresh
+    except (OSError, json.JSONDecodeError):
+        return {"fetched_at": "", "sources": []}
+
+
 def load_network_tool_results(network_dir: str) -> NetworkToolResult:
     """Load Trivy, nmap, sslscan results from .claudesec-network/ for dashboard."""
     out: NetworkToolResult = {
@@ -1226,7 +1301,33 @@ def analyze_prowler(providers):
             fi = f.get("finding_info", {})
             res = f.get("resources", [{}])
             res0 = res[0] if res else {}
+            res0_data = res0.get("data", {})
+            res0_meta = res0_data.get("metadata", {})
             comp = f.get("unmapped", {}).get("compliance", {})
+            unmapped = f.get("unmapped", {})
+            cloud = f.get("cloud", {})
+            remediation_obj = f.get("remediation", {})
+            # Resource name: prefer data.metadata.name, fallback to res0.name, then region
+            resource_name = (
+                res0_meta.get("name")
+                or res0.get("name")
+                or res0.get("region", "")
+            )
+            # Prowler native remediation (fallback when CHECK_EN_MAP has no entry)
+            native_remediation = (remediation_obj.get("desc") or "").strip()
+            native_refs = remediation_obj.get("references", [])
+            # Region and account for grouping
+            region = res0.get("region") or cloud.get("region", "")
+            account_uid = cloud.get("account", {}).get("uid", "")
+            account_name = cloud.get("account", {}).get("name", "")
+            # Resource type for display
+            resource_type = res0.get("type", "")
+            # K8s-specific: namespace
+            namespace = res0_meta.get("namespace", "")
+            # IaC-specific: code location
+            start_line = res0_meta.get("StartLine", "")
+            # Categories from unmapped
+            categories = unmapped.get("categories", [])
             all_findings.append(
                 {
                     "provider": prov,
@@ -1235,10 +1336,16 @@ def analyze_prowler(providers):
                     "title": fi.get("title", ""),
                     "message": f.get("message", ""),
                     "desc": fi.get("desc", ""),
-                    "resource": res0.get("data", {})
-                    .get("metadata", {})
-                    .get("name", res0.get("region", "")),
-                    "related_url": f.get("unmapped", {}).get("related_url", ""),
+                    "resource": resource_name,
+                    "resource_type": resource_type,
+                    "region": region,
+                    "account": account_name or account_uid,
+                    "namespace": namespace,
+                    "start_line": str(start_line) if start_line else "",
+                    "categories": categories,
+                    "native_remediation": native_remediation,
+                    "native_refs": native_refs if isinstance(native_refs, list) else [],
+                    "related_url": unmapped.get("related_url", ""),
                     "compliance": comp,
                 }
             )
@@ -4126,7 +4233,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         if no_data:
             prov_table += f'<tr class="prov-row-no-data"{onclick}><td>{label} <span style="font-size:.7rem;color:var(--muted);font-weight:400" title="Add to prowler_providers in .claudesec.yml and configure credentials (kubeconfig / GOOGLE_WORKSPACE_CUSTOMER_ID)">— not run</span></td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td></tr>'
         else:
-            prov_table += f'<tr{onclick}><td>{label}</td><td class="r">{total_cells}</td><td class="r" style="color:#dc2626">{pdata["critical"]}</td><td class="r" style="color:#ef4444">{pdata["high"]}</td><td class="r" style="color:#eab308">{pdata["medium"]}</td><td class="r">{pdata["low"]}</td><td class="r" style="color:#22c55e">{pdata["total_pass"]}</td></tr>'
+            prov_table += f'<tr{onclick}><td>{label}</td><td class="r">{total_cells}</td><td class="r" style="color:#f87171">{pdata["critical"]}</td><td class="r" style="color:#fca5a5">{pdata["high"]}</td><td class="r" style="color:#fde68a">{pdata["medium"]}</td><td class="r">{pdata["low"]}</td><td class="r" style="color:#22c55e">{pdata["total_pass"]}</td></tr>'
     for pname, pdata in sorted(prov_summary.items()):
         if pname in seen:
             continue
@@ -4137,7 +4244,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             if subtab
             else ""
         )
-        prov_table += f'<tr{onclick}><td>{label}</td><td class="r">{pdata["total_fail"] + pdata["total_pass"]}</td><td class="r" style="color:#dc2626">{pdata["critical"]}</td><td class="r" style="color:#ef4444">{pdata["high"]}</td><td class="r" style="color:#eab308">{pdata["medium"]}</td><td class="r">{pdata["low"]}</td><td class="r" style="color:#22c55e">{pdata["total_pass"]}</td></tr>'
+        prov_table += f'<tr{onclick}><td>{label}</td><td class="r">{pdata["total_fail"] + pdata["total_pass"]}</td><td class="r" style="color:#f87171">{pdata["critical"]}</td><td class="r" style="color:#fca5a5">{pdata["high"]}</td><td class="r" style="color:#fde68a">{pdata["medium"]}</td><td class="r">{pdata["low"]}</td><td class="r" style="color:#22c55e">{pdata["total_pass"]}</td></tr>'
 
     # Scanner findings — grouped by category with descriptions
     scanner_rows, scanner_cat_summary, scanner_insights_html = _build_scanner_section(
@@ -4158,13 +4265,21 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         gh_table += f'<tr class="expandable" onclick="toggleRow(this)"><td>{sev_badge(sev)}</td><td class="mono">{h(check)}</td><td>{h(items[0]["title"])} <span class="cnt">({len(items)})</span></td><td>{repos_html}</td></tr>'
         en = get_check_en(check)
         desc = items[0].get("desc") or items[0].get("title") or ""
+        native_rem = (items[0].get("native_remediation") or "").strip()
+        action_text = en["action"] if en["action"] != DEFAULT_ACTION else (native_rem or en["action"])
         gh_table += f'<tr class="row-detail"><td colspan="4"><div class="detail-panel">'
         if desc:
             gh_table += f"<p>{h(desc)}</p>"
         gh_table += f'<p class="detail-ko-summary"><strong>Summary</strong> {h(en["summary"])}</p>'
-        gh_table += f'<p class="detail-ko-action"><strong>Remediation</strong> {h(en["action"])}</p>'
+        gh_table += f'<p class="detail-ko-action"><strong>Remediation</strong> {h(action_text)}</p>'
+        ref_links = []
         if items[0].get("related_url"):
-            gh_table += f'<a href="{h(items[0]["related_url"])}" target="_blank" rel="noopener" class="ref-link">📖 Reference</a>'
+            ref_links.append(items[0]["related_url"])
+        for nr in (items[0].get("native_refs") or [])[:3]:
+            if nr and nr not in ref_links:
+                ref_links.append(nr)
+        for rl in ref_links:
+            gh_table += f'<a href="{h(rl)}" target="_blank" rel="noopener" class="ref-link">📖 Reference</a> '
         gh_table += "</div></td></tr>"
 
     def _build_provider_table(finds):
@@ -4177,28 +4292,53 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             table += f'<tr class="expandable" onclick="toggleRow(this)"><td>{sev_badge(sev)}</td><td class="mono">{h(check)}</td><td>{h(items[0]["title"])} <span class="cnt">({len(items)})</span></td></tr>'
             en = get_check_en(check)
             desc = items[0].get("desc") or items[0].get("title") or ""
+            # Use Prowler native remediation as fallback when CHECK_EN_MAP has no match
+            native_rem = (items[0].get("native_remediation") or "").strip()
+            action_text = en["action"] if en["action"] != DEFAULT_ACTION else (native_rem or en["action"])
+            summary_text = en["summary"]
             table += (
                 f'<tr class="row-detail"><td colspan="3"><div class="detail-panel">'
             )
             if desc:
                 table += f"<p>{h(desc)}</p>"
-            table += f'<p class="detail-ko-summary"><strong>Summary</strong> {h(en["summary"])}</p>'
-            table += f'<p class="detail-ko-action"><strong>Remediation</strong> {h(en["action"])}</p>'
-            # Affected resources list
+            table += f'<p class="detail-ko-summary"><strong>Summary</strong> {h(summary_text)}</p>'
+            table += f'<p class="detail-ko-action"><strong>Remediation</strong> {h(action_text)}</p>'
+            # Affected resources with type, region, namespace
             resources = []
             for it in items[:8]:
                 res = (it.get("resource") or "").strip()
-                if res and res not in resources:
-                    resources.append(res)
+                if res and res not in [r["name"] for r in resources]:
+                    r_type = (it.get("resource_type") or "").strip()
+                    r_region = (it.get("region") or "").strip()
+                    r_ns = (it.get("namespace") or "").strip()
+                    r_line = (it.get("start_line") or "").strip()
+                    resources.append({"name": res, "type": r_type, "region": r_region, "namespace": r_ns, "line": r_line})
             if resources:
                 table += '<div class="detail-resources"><strong>Affected resources</strong><ul class="resource-list">'
                 for r in resources:
-                    table += f"<li><code>{h(r)}</code></li>"
+                    extra = []
+                    if r["type"]:
+                        extra.append(r["type"])
+                    if r["region"]:
+                        extra.append(r["region"])
+                    if r["namespace"]:
+                        extra.append(f'ns:{r["namespace"]}')
+                    if r["line"]:
+                        extra.append(f'L{r["line"]}')
+                    extra_html = f' <span class="res-meta">{h(" · ".join(extra))}</span>' if extra else ""
+                    table += f'<li><code>{h(r["name"])}</code>{extra_html}</li>'
                 if len(items) > 8:
                     table += f"<li>... +{len(items) - 8} more</li>"
                 table += "</ul></div>"
+            # Reference links: primary + native refs
+            ref_links = []
             if items[0].get("related_url"):
-                table += f'<a href="{h(items[0]["related_url"])}" target="_blank" rel="noopener" class="ref-link">📖 Reference</a>'
+                ref_links.append(items[0]["related_url"])
+            for nr in (items[0].get("native_refs") or [])[:3]:
+                if nr and nr not in ref_links:
+                    ref_links.append(nr)
+            for rl in ref_links:
+                table += f'<a href="{h(rl)}" target="_blank" rel="noopener" class="ref-link">📖 Reference</a> '
             table += "</div></td></tr>"
         return table
 
@@ -4687,7 +4827,8 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             audit_points_html += '<div style="padding:1rem 1.25rem;color:var(--muted)">No Microsoft best-practice source metadata cached yet. Re-run dashboard generation to refresh GitHub source discovery.</div>'
     audit_points_html += "</div>"
     # ── SaaS / DevOps best-practice sources (Okta, QueryPie, ArgoCD, IDE) ──
-    saas_sources = SAAS_BEST_PRACTICES_SOURCES
+    saas_bp_data = load_saas_best_practices(scan_dir)
+    saas_sources = saas_bp_data.get("sources") or SAAS_BEST_PRACTICES_SOURCES
     audit_points_html += '<div class="card bp-audit-section ms-source-root"><div class="card-title">Okta / QueryPie / ArgoCD / IDE best-practice sources</div>'
     audit_points_html += '<div style="padding:.5rem 1.25rem 0"><div class="ap-progress-label"><span id="saas-progress-label">0 / 0 reviewed</span><span id="saas-progress-pct">0%</span></div>'
     audit_points_html += '<div class="ap-progress-bar"><div id="saas-progress-fill" class="ap-progress-fill" style="width:0%"></div></div></div>'
@@ -4966,7 +5107,7 @@ tr:last-child td{border-bottom:none}
 .ref-link{color:var(--accent);font-size:.8rem;text-decoration:underline;display:inline-block;margin-top:.5rem}
 /* Badges */
 .badge{display:inline-block;padding:.12rem .45rem;border-radius:4px;font-size:.68rem;font-weight:700;letter-spacing:.04em}
-.badge.critical{background:#dc2626;color:#fff}.badge.high{background:#991b1b;color:#fca5a5}
+.badge.critical{background:#dc2626;color:#fff}.badge.high{background:#7f1d1d;color:#fecaca}
 .badge.medium{background:#854d0e;color:#fde68a}.badge.warning{background:#92400e;color:#fcd34d}.badge.low{background:#374151;color:#9ca3af}
 .badge.info{background:#1e3a5f;color:#93c5fd}
 .trust-badge{display:inline-flex;align-items:center;margin-left:.45rem;padding:.08rem .42rem;border-radius:999px;font-size:.62rem;font-weight:700;letter-spacing:.03em;border:1px solid transparent;vertical-align:middle}
@@ -5000,7 +5141,7 @@ tr:last-child td{border-bottom:none}
 .si-low{background:rgba(56,189,248,.16);color:#bae6fd;border-color:rgba(56,189,248,.42)}
 .ssb-item{font-size:.78rem;padding:.3rem .65rem;border-radius:6px;border:1px solid var(--border)}
 .ssb-total{font-weight:700;color:var(--accent);border-color:var(--accent)}
-.ssb-pass{color:#22c55e;border-color:rgba(34,197,94,.25)}.ssb-fail{color:#ef4444;border-color:rgba(239,68,68,.25)}
+.ssb-pass{color:#22c55e;border-color:rgba(34,197,94,.25)}.ssb-fail{color:#fca5a5;border-color:rgba(252,165,165,.25)}
 .ssb-warn{color:#f59e0b;border-color:rgba(245,158,11,.25)}.ssb-skip{color:var(--muted);border-color:var(--border)}
 .scanner-cats{display:flex;flex-wrap:wrap;gap:.4rem;padding:.6rem 1.25rem}
 .scat-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.25rem .55rem;border-radius:6px;font-size:.72rem;background:rgba(255,255,255,.04);border:1px solid var(--border);cursor:default}
@@ -5013,7 +5154,7 @@ tr:last-child td{border-bottom:none}
 .scanner-table .cat-header td{background:rgba(59,130,246,.06);font-weight:700;font-size:.85rem;padding:.55rem 1rem;border-bottom:2px solid var(--accent);letter-spacing:.01em}
 .cat-hdr-icon{margin-right:.35rem;font-size:.95rem}
 .cat-hdr-desc{display:block;font-size:.72rem;font-weight:400;color:var(--muted);margin-top:.2rem;line-height:1.4}
-.scan-status-critical,.scan-status-high,.scan-status-medium{color:#ef4444;font-weight:700;font-size:.72rem}
+.scan-status-critical,.scan-status-high,.scan-status-medium{color:#fca5a5;font-weight:700;font-size:.72rem}
 .scan-status-warning,.scan-status-low{color:#f59e0b;font-weight:600;font-size:.72rem}
 td.fix{font-size:.78rem;color:var(--muted);line-height:1.5}
 td.fix em{color:rgba(255,255,255,.2)}
@@ -5076,6 +5217,7 @@ button.env-pill{cursor:pointer}button.env-pill:hover{border-color:var(--accent)}
 .tf-act-label{font-weight:600;color:#6ee7b7}
 .scan-loc{font-size:.72rem;color:var(--muted);margin-left:.35rem}
 .scan-loc code{font-size:.7rem;color:#94a3b8}
+.res-meta{font-size:.7rem;color:var(--muted);margin-left:.35rem;font-style:italic}
 /* Architecture */
 .arch-domain{border:1px solid var(--border);border-radius:var(--radius);margin-bottom:.65rem;overflow:hidden}
 .arch-domain.fail{border-left:3px solid #ef4444}.arch-domain.pass{border-left:3px solid #22c55e}
@@ -5122,7 +5264,7 @@ tr.arch-highlight td{animation:archPulseTd 1.2s ease 2}
 .net-ov-nums{display:flex;gap:.35rem;align-items:baseline;flex-wrap:wrap}
 .net-ov-big{font-size:1.2rem;font-weight:800;color:var(--text)}
 .net-ov-none{color:var(--muted);font-size:.85rem}
-.pcs-low{font-size:.72rem;font-weight:600;color:#6b7280;background:rgba(107,114,128,.12);padding:.1rem .35rem;border-radius:4px}
+.pcs-low{font-size:.72rem;font-weight:600;color:#9ca3af;background:rgba(107,114,128,.12);padding:.1rem .35rem;border-radius:4px}
 /* Architecture coverage dots */
 .arch-coverage{display:flex;gap:.3rem;margin-left:auto;margin-right:.5rem}
 .cov-dot{font-size:.6rem;padding:.1rem .3rem;border-radius:3px;font-weight:600}
@@ -5353,8 +5495,8 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
           <div class="grade">Grade {{GRADE}}</div>
         </div>
         <div style="flex:1;font-size:.82rem;color:var(--muted);line-height:1.8">
-          <div>Scanner: <strong style="color:var(--text)">{{PASSED}}</strong> passed / <strong style="color:#ef4444">{{FAILED}}</strong> failed / <strong style="color:#eab308">{{WARNINGS}}</strong> warnings</div>
-          <div>Prowler: <strong style="color:#ef4444">{{TOTAL_PROWLER_FAIL}}</strong> failed / <strong style="color:#22c55e">{{TOTAL_PROWLER_PASS}}</strong> passed</div>
+          <div>Scanner: <strong style="color:var(--text)">{{PASSED}}</strong> passed / <strong style="color:#fca5a5">{{FAILED}}</strong> failed / <strong style="color:#fde68a">{{WARNINGS}}</strong> warnings</div>
+          <div>Prowler: <strong style="color:#fca5a5">{{TOTAL_PROWLER_FAIL}}</strong> failed / <strong style="color:#22c55e">{{TOTAL_PROWLER_PASS}}</strong> passed</div>
           <div>Environment: <strong style="color:var(--text)">{{ENV_CONNECTED}}/{{ENV_TOTAL}}</strong> connected</div>
           {{SCAN_SCOPE_HTML}}
         </div>
@@ -5847,7 +5989,7 @@ function toggleComp(el){el.closest('.comp-section').classList.toggle('expanded')
     var d=history[idx];var ts=(d.timestamp||'').replace('T',' ').substring(0,16);
     var htm='<div style="font-weight:700;margin-bottom:3px">'+_esc(ts)+'</div>'
       +'<div style="color:#38bdf8">Score: <b>'+_esc(''+d.score)+'</b></div>'
-      +'<div style="color:#ef4444">Failed: <b>'+_esc(''+(d.failed||0))+'</b> | Critical: <b>'+_esc(''+(d.critical||0))+'</b> | High: <b>'+_esc(''+(d.high||0))+'</b></div>'
+      +'<div style="color:#fca5a5">Failed: <b>'+_esc(''+(d.failed||0))+'</b> | Critical: <b>'+_esc(''+(d.critical||0))+'</b> | High: <b>'+_esc(''+(d.high||0))+'</b></div>'
       +'<div style="color:#f59e0b">Warnings: <b>'+_esc(''+(d.warnings||d.warn||0))+'</b></div>'
       +'<div style="color:#64748b">Passed: '+_esc(''+(d.passed||0))+' / Total: '+_esc(''+(d.total||0))+'</div>';
     if(d.compliance){var ckeys=Object.keys(d.compliance);if(ckeys.length>0){htm+='<div style="border-top:1px solid #334155;margin-top:4px;padding-top:4px;font-size:11px">';for(var ci=0;ci<ckeys.length;ci++){var ck=ckeys[ci],cv=d.compliance[ck];htm+='<div style="color:'+(cv.fail>0?'#ef4444':'#22c55e')+'">'+_esc(ck)+': <b>'+_esc(''+cv.pass)+'</b>P / <b>'+_esc(''+cv.fail)+'</b>F</div>'}htm+='</div>'}}

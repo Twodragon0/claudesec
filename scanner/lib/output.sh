@@ -75,11 +75,11 @@ pass() {
 }
 
 fail() {
-  local id="$1" title="$2" severity="${3:-high}" details="${4:-}" remediation="${5:-}"
+  local id="$1" title="$2" severity="${3:-high}" details="${4:-}" remediation="${5:-}" location="${6:-}"
   TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
   FAILED=$((FAILED + 1))
 
-  local entry="$id|$title|$severity|$remediation|$details"
+  local entry="$id|$title|$severity|$remediation|$details|$location"
   case "$severity" in
     critical) FINDINGS_CRITICAL+=("$entry") ;;
     high)     FINDINGS_HIGH+=("$entry") ;;
@@ -95,9 +95,10 @@ fail() {
       echo -e "  ${color}✗ FAIL${NC}  ${DIM}[$id]${NC} $title ${DIM}(${severity})${NC}"
       [[ -n "$details" ]] && echo -e "         ${DIM}$details${NC}"
       [[ -n "$remediation" ]] && echo -e "         ${CYAN}→ $remediation${NC}"
+      [[ -n "$location" ]] && echo -e "         ${DIM}📍 $location${NC}"
     fi
   fi
-  append_json "$id" "$title" "fail" "$details" "$severity"
+  append_json "$id" "$title" "fail" "$details" "$severity" "$location"
 }
 
 warn() {
@@ -161,13 +162,15 @@ html_escape() {
 }
 
 append_json() {
-  local id="$1" title="$2" status="$3" details="$4" severity="${5:-}"
+  local id="$1" title="$2" status="$3" details="$4" severity="${5:-}" location="${6:-}"
   # Escape JSON strings
   title="${title//\\/\\\\}"; title="${title//\"/\\\"}"
   details="${details//\\/\\\\}"; details="${details//\"/\\\"}"
+  location="${location//\\/\\\\}"; location="${location//\"/\\\"}"
   local entry="{\"id\":\"$id\",\"status\":\"$status\",\"title\":\"$title\""
   [[ -n "$severity" ]] && entry+=",\"severity\":\"$severity\""
   [[ -n "$details" ]] && entry+=",\"details\":\"$details\""
+  [[ -n "$location" ]] && entry+=",\"location\":\"$location\""
   entry+="}"
   if [[ "$JSON_RESULTS" == "[]" ]]; then
     JSON_RESULTS="[$entry]"
@@ -605,46 +608,35 @@ generate_html_dashboard() {
   # Build findings JSON for Python generator
   local findings_json="["
   local first=true
-  for entry in "${FINDINGS_CRITICAL[@]+"${FINDINGS_CRITICAL[@]}"}"; do
-    IFS='|' read -r f_id f_title f_sev f_fix f_details <<< "$entry"
+
+  _emit_finding_json() {
+    local f_sev_label="$1"
+    local f_id f_title f_sev f_fix f_details f_loc
+    IFS='|' read -r f_id f_title f_sev f_fix f_details f_loc <<< "$2"
     f_title="${f_title//\"/\\\"}"
     f_fix="${f_fix//\"/\\\"}"
-    f_details="${f_details//\"/\\\"}"
+    f_loc="${f_loc//\"/\\\"}"
     local f_cat; f_cat=$(_id_to_category "$f_id")
     [[ "$first" == "true" ]] && first=false || findings_json+=","
-    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"critical\",\"details\":\"$f_fix\",\"category\":\"$f_cat\"}"
+    local loc_field=""
+    [[ -n "$f_loc" ]] && loc_field=",\"location\":\"$f_loc\""
+    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"$f_sev_label\",\"details\":\"$f_fix\",\"category\":\"$f_cat\"${loc_field}}"
+  }
+
+  for entry in "${FINDINGS_CRITICAL[@]+"${FINDINGS_CRITICAL[@]}"}"; do
+    _emit_finding_json "critical" "$entry"
   done
   for entry in "${FINDINGS_HIGH[@]+"${FINDINGS_HIGH[@]}"}"; do
-    IFS='|' read -r f_id f_title f_sev f_fix f_details <<< "$entry"
-    f_title="${f_title//\"/\\\"}"
-    f_fix="${f_fix//\"/\\\"}"
-    local f_cat; f_cat=$(_id_to_category "$f_id")
-    [[ "$first" == "true" ]] && first=false || findings_json+=","
-    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"high\",\"details\":\"$f_fix\",\"category\":\"$f_cat\"}"
+    _emit_finding_json "high" "$entry"
   done
   for entry in "${FINDINGS_MEDIUM[@]+"${FINDINGS_MEDIUM[@]}"}"; do
-    IFS='|' read -r f_id f_title f_sev f_fix f_details <<< "$entry"
-    f_title="${f_title//\"/\\\"}"
-    f_fix="${f_fix//\"/\\\"}"
-    local f_cat; f_cat=$(_id_to_category "$f_id")
-    [[ "$first" == "true" ]] && first=false || findings_json+=","
-    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"medium\",\"details\":\"$f_fix\",\"category\":\"$f_cat\"}"
+    _emit_finding_json "medium" "$entry"
   done
   for entry in "${FINDINGS_WARN[@]+"${FINDINGS_WARN[@]}"}"; do
-    IFS='|' read -r f_id f_title f_sev f_fix f_details <<< "$entry"
-    f_title="${f_title//\"/\\\"}"
-    f_fix="${f_fix//\"/\\\"}"
-    local f_cat; f_cat=$(_id_to_category "$f_id")
-    [[ "$first" == "true" ]] && first=false || findings_json+=","
-    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"warning\",\"details\":\"$f_fix\",\"category\":\"$f_cat\"}"
+    _emit_finding_json "warning" "$entry"
   done
   for entry in "${FINDINGS_LOW[@]+"${FINDINGS_LOW[@]}"}"; do
-    IFS='|' read -r f_id f_title f_sev f_fix f_details <<< "$entry"
-    f_title="${f_title//\"/\\\"}"
-    f_fix="${f_fix//\"/\\\"}"
-    local f_cat; f_cat=$(_id_to_category "$f_id")
-    [[ "$first" == "true" ]] && first=false || findings_json+=","
-    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"low\",\"details\":\"$f_fix\",\"category\":\"$f_cat\"}"
+    _emit_finding_json "low" "$entry"
   done
   findings_json+="]"
 
