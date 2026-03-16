@@ -1777,7 +1777,26 @@ COMPLIANCE_FRAMEWORKS = [
     },
 ]
 
-COMPLIANCE_CONTROL_MAP = {
+# Import compliance mapping from standalone module (shared with output.sh).
+# Falls back to inline definitions below if the module is unavailable.
+_COMPLIANCE_IMPORTED = False
+try:
+    import importlib.util as _ilu
+
+    _cm_spec = _ilu.spec_from_file_location(
+        "compliance_map",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "compliance-map.py"),
+    )
+    if _cm_spec and _cm_spec.loader:
+        _cm_mod = _ilu.module_from_spec(_cm_spec)
+        _cm_spec.loader.exec_module(_cm_mod)
+        COMPLIANCE_CONTROL_MAP = _cm_mod.COMPLIANCE_CONTROL_MAP
+        _COMPLIANCE_IMPORTED = True
+except Exception:
+    pass
+
+if not _COMPLIANCE_IMPORTED:
+    COMPLIANCE_CONTROL_MAP = {
     "ISO 27001:2022": [
         {
             "control": "A.5.1",
@@ -2095,44 +2114,50 @@ COMPLIANCE_CONTROL_MAP = {
 }
 
 
-def _match_prowler_compliance(finding, framework_key):
-    """Check if a prowler finding's native compliance data references a framework."""
-    comp = finding.get("compliance", {})
-    if not comp:
+if _COMPLIANCE_IMPORTED:
+    from importlib import import_module as _im  # noqa: F401 (used above)
+
+    _match_prowler_compliance = _cm_mod._match_prowler_compliance
+    map_compliance = _cm_mod.map_compliance
+else:
+
+    def _match_prowler_compliance(finding, framework_key):
+        """Check if a prowler finding's native compliance data references a framework."""
+        comp = finding.get("compliance", {})
+        if not comp:
+            return False
+        fk = framework_key.lower()
+        for key, val in comp.items():
+            k = key.lower()
+            if fk in k or k in fk:
+                return True
+            if isinstance(val, (list, str)) and any(fk in str(v).lower() for v in (val if isinstance(val, list) else [val])):
+                return True
         return False
-    fk = framework_key.lower()
-    for key, val in comp.items():
-        k = key.lower()
-        if fk in k or k in fk:
-            return True
-        if isinstance(val, (list, str)) and any(fk in str(v).lower() for v in (val if isinstance(val, list) else [val])):
-            return True
-    return False
 
-
-def map_compliance(all_findings):
-    result = {}
-    for framework, controls in COMPLIANCE_CONTROL_MAP.items():
-        mapped = []
-        for ctrl in controls:
-            matching = []
-            for f in all_findings:
-                text = f"{f['check']} {f['title']} {f['message']}".lower()
-                keyword_match = any(kw in text for kw in ctrl["checks"])
-                native_match = _match_prowler_compliance(f, framework)
-                if keyword_match or native_match:
-                    matching.append(f)
-            status = "PASS" if len(matching) == 0 else "FAIL"
-            mapped.append(
-                {
-                    **ctrl,
-                    "status": status,
-                    "count": len(matching),
-                    "findings": matching[:5],
-                }
-            )
-        result[framework] = mapped
-    return result
+    def map_compliance(all_findings):
+        result = {}
+        for framework, controls in COMPLIANCE_CONTROL_MAP.items():
+            mapped = []
+            for ctrl in controls:
+                matching = []
+                for f in all_findings:
+                    text = f"{f['check']} {f['title']} {f['message']}".lower()
+                    keyword_match = any(kw in text for kw in ctrl["checks"])
+                    native_match = _match_prowler_compliance(f, framework)
+                    if keyword_match or native_match:
+                        matching.append(f)
+                status = "PASS" if len(matching) == 0 else "FAIL"
+                mapped.append(
+                    {
+                        **ctrl,
+                        "status": status,
+                        "count": len(matching),
+                        "findings": matching[:5],
+                    }
+                )
+            result[framework] = mapped
+        return result
 
 
 # ── Architecture Security Domains ────────────────────────────────────────────
@@ -4345,6 +4370,9 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         audit_points_html += "</div>"
         # Search bar
         audit_points_html += '<input type="text" class="ap-search" placeholder="Search products or checklist items..." onkeyup="apFilterProducts(this.value)">'
+        # Progress bar
+        audit_points_html += '<div class="ap-progress-label"><span id="ap-progress-label">0 / 0 reviewed</span><span id="ap-progress-pct">0%</span></div>'
+        audit_points_html += '<div class="ap-progress-bar"><div id="ap-progress-fill" class="ap-progress-fill" style="width:0%"></div></div>'
 
     # Detected products section
     if detected_products and products_by_name:
@@ -4369,7 +4397,9 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                 url = f.get("url") or f.get("raw_url") or "#"
                 fname = f.get("name", "")
                 ext = fname.rsplit(".", 1)[-1] if "." in fname else ""
-                audit_points_html += '<div class="bp-audit-item-row">'
+                cb_id = f"ap-{pname}-{idx}".lower().replace(" ", "-")
+                audit_points_html += f'<div class="bp-audit-item-row" data-ap-id="{h(cb_id)}">'
+                audit_points_html += f'<input type="checkbox" class="ap-checkbox" data-ap-id="{h(cb_id)}" onchange="apToggleCheck(this)">'
                 audit_points_html += f'<span class="bp-audit-index">{idx}</span>'
                 audit_points_html += f'<a href="{h(url)}" target="_blank" rel="noopener" class="bp-audit-link">{h(fname)}</a>'
                 if ext:
@@ -4408,7 +4438,9 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                 url = f.get("url") or f.get("raw_url") or "#"
                 fname = f.get("name", "")
                 ext = fname.rsplit(".", 1)[-1] if "." in fname else ""
-                audit_points_html += '<div class="bp-audit-item-row">'
+                cb_id = f"ap-{pname}-{idx}".lower().replace(" ", "-")
+                audit_points_html += f'<div class="bp-audit-item-row" data-ap-id="{h(cb_id)}">'
+                audit_points_html += f'<input type="checkbox" class="ap-checkbox" data-ap-id="{h(cb_id)}" onchange="apToggleCheck(this)">'
                 audit_points_html += f'<span class="bp-audit-index">{idx}</span>'
                 audit_points_html += f'<a href="{h(url)}" target="_blank" rel="noopener" class="bp-audit-link">{h(fname)}</a>'
                 if ext:
@@ -4937,6 +4969,11 @@ tr.arch-highlight td{animation:archPulseTd 1.2s ease 2}
 .ap-search{width:100%;padding:.45rem .75rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:.82rem;outline:none;margin-bottom:.75rem;transition:border-color .15s}
 .ap-search:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(56,189,248,.1)}
 .ap-search::placeholder{color:var(--muted)}
+.ap-checkbox{width:1rem;height:1rem;accent-color:var(--accent);cursor:pointer;flex-shrink:0}
+.ap-checkbox:checked+.bp-audit-index{background:rgba(34,197,94,.15);color:#22c55e}
+.ap-progress-bar{height:6px;background:var(--border);border-radius:3px;margin-bottom:.75rem;overflow:hidden}
+.ap-progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),#22c55e);border-radius:3px;transition:width .3s}
+.ap-progress-label{font-size:.75rem;color:var(--muted);margin-bottom:.3rem;display:flex;justify-content:space-between}
 .bp-panel{display:none}
 .bp-panel.active{display:block}
 /* Footer */
@@ -5281,6 +5318,32 @@ function apFilterProducts(q){
     if(match&&q)card.classList.add('open');
   });
 }
+/* Audit Points localStorage checkbox persistence */
+function apToggleCheck(el){
+  var id=el.getAttribute('data-ap-id');if(!id)return;
+  var store=JSON.parse(localStorage.getItem('claudesec-ap-checks')||'{}');
+  if(el.checked){store[id]=1}else{delete store[id]}
+  localStorage.setItem('claudesec-ap-checks',JSON.stringify(store));
+  apUpdateProgress();
+}
+function apRestoreChecks(){
+  var store=JSON.parse(localStorage.getItem('claudesec-ap-checks')||'{}');
+  document.querySelectorAll('.ap-checkbox').forEach(function(cb){
+    var id=cb.getAttribute('data-ap-id');
+    if(id&&store[id])cb.checked=true;
+  });
+  apUpdateProgress();
+}
+function apUpdateProgress(){
+  var total=document.querySelectorAll('.ap-checkbox').length;
+  var done=document.querySelectorAll('.ap-checkbox:checked').length;
+  var lbl=document.getElementById('ap-progress-label');
+  var fill=document.getElementById('ap-progress-fill');
+  if(lbl)lbl.textContent=done+' / '+total+' reviewed';
+  if(fill)fill.style.width=(total?Math.round(done/total*100):0)+'%';
+  var pct=document.getElementById('ap-progress-pct');
+  if(pct)pct.textContent=(total?Math.round(done/total*100):0)+'%';
+}
 /* Best Practices internal sub-tab switching */
 function switchBpTab(id){
   document.querySelectorAll('.bp-panel').forEach(function(p){p.classList.remove('active')});
@@ -5484,6 +5547,7 @@ function openSetup(provider){
 function closeSetup(){document.getElementById('setupModal').classList.remove('open');document.body.style.overflow=''}
 function copyCmd(btn){var code=btn.previousElementSibling;navigator.clipboard.writeText(code.textContent).then(function(){btn.textContent='Copied';btn.classList.add('copied');setTimeout(function(){btn.textContent='Copy';btn.classList.remove('copied')},2000)})}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeSetup()});
+apRestoreChecks();
 </script>
 </body>
 </html>"""
