@@ -350,26 +350,44 @@ save_scan_history() {
   # Build compliance summary from prowler OCSF results if available
   local compliance_json=""
   local prowler_dir="${SCAN_DIR:-.}/.claudesec-prowler"
-  if [[ -d "$prowler_dir" ]] && command -v python3 &>/dev/null; then
-    compliance_json=$(python3 -c "
-import sys, json, glob
-sys.path.insert(0, '$(dirname "$(dirname "${BASH_SOURCE[0]}")")/lib')
-try:
-    import importlib.util
-    spec = importlib.util.spec_from_file_location('dg', '$(dirname "${BASH_SOURCE[0]}")/dashboard-gen.py')
-    dg = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(dg)
-    providers = dg.load_prowler_files('$prowler_dir')
-    _, findings = dg.analyze_prowler(providers)
-    cm = dg.map_compliance(findings)
-    summary = {}
-    for fw, ctrls in cm.items():
-        p = sum(1 for c in ctrls if c['status'] == 'PASS')
-        f = sum(1 for c in ctrls if c['status'] == 'FAIL')
-        summary[fw] = {'pass': p, 'fail': f, 'total': p + f}
-    print(json.dumps(summary, separators=(',', ':')))
-except Exception:
-    pass
+  local _has_ocsf=0
+  if [[ -d "$prowler_dir" ]]; then
+    for _f in "$prowler_dir"/prowler-*.ocsf.json; do
+      [[ -f "$_f" ]] && _has_ocsf=1 && break
+    done
+  fi
+  if [[ "$_has_ocsf" == "1" ]] && command -v python3 &>/dev/null; then
+    compliance_json=$(timeout 15 python3 -c "
+import json, glob, os
+pdir = '$prowler_dir'
+findings = []
+for fp in glob.glob(os.path.join(pdir, 'prowler-*.ocsf.json')):
+    try:
+        with open(fp, encoding='utf-8') as f:
+            raw = f.read().strip()
+        if raw.startswith('['):
+            data = json.loads(raw)
+        else:
+            data = [json.loads(line) for line in raw.splitlines() if line.strip()]
+        for item in data:
+            if item.get('status_code') != 'FAIL': continue
+            findings.append({'check': item.get('metadata',{}).get('event_code',''),
+                'title': item.get('finding_info',{}).get('title',''),
+                'message': item.get('message',''),
+                'compliance': item.get('unmapped',{}).get('compliance',{})})
+    except Exception: pass
+if not findings: exit(0)
+import importlib.util
+spec = importlib.util.spec_from_file_location('dg', '$(dirname "${BASH_SOURCE[0]}")/dashboard-gen.py')
+dg = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(dg)
+cm = dg.map_compliance(findings)
+summary = {}
+for fw, ctrls in cm.items():
+    p = sum(1 for c in ctrls if c['status'] == 'PASS')
+    fl = sum(1 for c in ctrls if c['status'] == 'FAIL')
+    summary[fw] = {'pass': p, 'fail': fl, 'total': p + fl}
+print(json.dumps(summary, separators=(',', ':')))
 " 2>/dev/null) || compliance_json=""
   fi
 
