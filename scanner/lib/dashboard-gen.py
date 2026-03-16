@@ -3065,7 +3065,9 @@ def _build_scanner_section(findings_list):
             status_label = (
                 "Fail" if sev in ("critical", "high", "medium") else "Warning"
             )
-            scanner_rows += f'<tr class="{sev_cls}"><td>{badge}</td><td><span class="scan-status-{sev}">{status_icon} {status_label}</span></td><td class="mono">{fid}</td><td>{title}</td><td class="fix">{details if details else "<em>-</em>"}</td></tr>'
+            location = h(f.get("location", ""))
+            loc_html = f' <span class="scan-loc">📍 <code>{location}</code></span>' if location else ""
+            scanner_rows += f'<tr class="{sev_cls}"><td>{badge}</td><td><span class="scan-status-{sev}">{status_icon} {status_label}</span></td><td class="mono">{fid}</td><td>{title}{loc_html}</td><td class="fix">{details if details else "<em>-</em>"}</td></tr>'
         scanner_cat_summary += f'<div class="scat-chip"><span class="scat-icon">{meta["icon"]}</span><span class="scat-label">{meta["label"]}</span><span class="scat-cnt">{len(items)}</span></div>'
     if not scanner_rows:
         scanner_rows = '<tr><td colspan="5" class="scan-empty" style="padding:1.5rem;text-align:center;color:var(--muted);font-size:.9rem">No failed or warning findings from the local scanner. All reported checks passed or were skipped.</td></tr>'
@@ -3248,13 +3250,15 @@ def _build_overview_blocks(
     top_findings_html = ""
     grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
 
-    def _add_grouped(severity: str, check: str, provider: str, msg: str) -> None:
+    def _add_grouped(severity: str, check: str, provider: str, msg: str, resource: str = "") -> None:
         key = (severity, check, provider)
         if key not in grouped:
-            grouped[key] = {"count": 0, "message": ""}
+            grouped[key] = {"count": 0, "message": "", "resource": ""}
         grouped[key]["count"] = int(grouped[key]["count"]) + 1
         if not grouped[key]["message"]:
             grouped[key]["message"] = msg
+        if resource and not grouped[key]["resource"]:
+            grouped[key]["resource"] = resource
 
     for f in findings_list:
         sev = (f.get("severity") or "").lower()
@@ -3270,6 +3274,7 @@ def _build_overview_blocks(
                 str(ff.get("check", "")),
                 str(prov),
                 msg,
+                str(ff.get("resource") or ""),
             )
     # Sort: Critical first, then High; within same severity by count descending
     combined = [
@@ -3279,6 +3284,7 @@ def _build_overview_blocks(
             "provider": prov,
             "count": int(d["count"]),
             "message": str(d["message"]),
+            "resource": str(d.get("resource") or ""),
         }
         for (sev, ck, prov), d in grouped.items()
     ]
@@ -3305,7 +3311,11 @@ def _build_overview_blocks(
         provider_text = str(ff["provider"])
         check_text = str(ff["check"])
         message_text = str(ff["message"])
-        top_findings_html += f'<div class="top-finding" onclick="{tab_click}"><div class="tf-badge">{sev_badge(severity_text)}</div><div class="tf-body"><div class="tf-check"><code>{h(check_text)}</code><span class="tf-prov">{h(provider_text.upper())}</span>{cnt_html}</div><div class="tf-msg">{h(message_text[:150])}</div></div></div>'
+        en = get_check_en(check_text)
+        resource_text = str(ff.get("resource") or "")
+        res_html = f'<div class="tf-resource"><span class="tf-res-label">Location:</span> <code>{h(resource_text[:80])}</code></div>' if resource_text else ""
+        action_html = f'<div class="tf-action"><span class="tf-act-label">Action:</span> {h(en["action"][:120])}</div>'
+        top_findings_html += f'<div class="top-finding" onclick="{tab_click}"><div class="tf-badge">{sev_badge(severity_text)}</div><div class="tf-body"><div class="tf-check"><code>{h(check_text)}</code><span class="tf-prov">{h(provider_text.upper())}</span>{cnt_html}</div><div class="tf-msg">{h(message_text[:150])}</div>{res_html}{action_html}</div></div>'
     if not top_findings_html:
         top_findings_html = '<div class="top-finding" style="border-color:var(--border)"><div class="tf-body" style="color:var(--muted);font-size:.9rem">No critical or high findings from the scanner or Prowler in this scan. Check the Scanner and Prowler CSPM tabs for full results.</div></div>'
     env_connected = sum(1 for e in envs if e["connected"])
@@ -3751,7 +3761,13 @@ def _build_owasp_html(owasp_map):
         if findings:
             out += '<div class="owasp-findings">'
             for ff in findings[:10]:
-                out += f'<div class="of-row">{sev_badge(ff["severity"])} <code>{h(ff["check"])}</code> {h(ff["message"][:120])}</div>'
+                res = (ff.get("resource") or "").strip()
+                prov = (ff.get("provider") or "").strip()
+                res_html = f' <span class="of-resource" title="Resource: {h(res)}">📍 <code>{h(res[:50])}</code></span>' if res else ""
+                prov_html = f' <span class="of-prov">{h(prov.upper())}</span>' if prov else ""
+                en = get_check_en(ff.get("check", ""))
+                out += f'<div class="of-row">{sev_badge(ff["severity"])} <code>{h(ff["check"])}</code>{prov_html} {h(ff["message"][:120])}{res_html}</div>'
+                out += f'<div class="of-detail"><span class="of-action">Action: {h(en["action"][:150])}</span></div>'
             if count > 10:
                 out += f'<div class="of-more">... and {count - 10} more</div>'
             out += "</div>"
@@ -4168,6 +4184,19 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                 table += f"<p>{h(desc)}</p>"
             table += f'<p class="detail-ko-summary"><strong>Summary</strong> {h(en["summary"])}</p>'
             table += f'<p class="detail-ko-action"><strong>Remediation</strong> {h(en["action"])}</p>'
+            # Affected resources list
+            resources = []
+            for it in items[:8]:
+                res = (it.get("resource") or "").strip()
+                if res and res not in resources:
+                    resources.append(res)
+            if resources:
+                table += '<div class="detail-resources"><strong>Affected resources</strong><ul class="resource-list">'
+                for r in resources:
+                    table += f"<li><code>{h(r)}</code></li>"
+                if len(items) > 8:
+                    table += f"<li>... +{len(items) - 8} more</li>"
+                table += "</ul></div>"
             if items[0].get("related_url"):
                 table += f'<a href="{h(items[0]["related_url"])}" target="_blank" rel="noopener" class="ref-link">📖 Reference</a>'
             table += "</div></td></tr>"
@@ -4242,7 +4271,13 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             arch_html += "</div>"
         if dom["findings"]:
             for ff in dom["findings"][:8]:
-                arch_html += f'<div class="af-row">{sev_badge(ff["severity"])} <code>{h(ff["check"])}</code> {h(ff["message"][:100])}</div>'
+                res = (ff.get("resource") or "").strip()
+                prov = (ff.get("provider") or "").strip()
+                res_html = f' <span class="of-resource" title="Resource: {h(res)}">📍 <code>{h(res[:40])}</code></span>' if res else ""
+                prov_html = f' <span class="of-prov">{h(prov.upper())}</span>' if prov else ""
+                en = get_check_en(ff.get("check", ""))
+                arch_html += f'<div class="af-row">{sev_badge(ff["severity"])} <code>{h(ff["check"])}</code>{prov_html} {h(ff["message"][:100])}{res_html}</div>'
+                arch_html += f'<div class="af-detail"><span class="af-action">Action: {h(en["action"][:120])}</span></div>'
             if dom["fail_count"] > 8:
                 arch_html += (
                     f'<div class="of-more">... and {dom["fail_count"] - 8} more</div>'
@@ -4290,7 +4325,19 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                 ctrl.get("action")
                 or "Apply security best practices for this control; refer to the framework documentation."
             ).strip()
-            summary_cell = f'<div class="comp-summary-cell"><span class="comp-desc-ko">{h(desc or "—")}</span><br><span class="comp-action-ko"><strong>Remediation</strong> {h(action)}</span></div>'
+            findings_detail = ""
+            if ctrl.get("findings"):
+                findings_detail = '<div class="comp-findings">'
+                for cf in ctrl["findings"][:5]:
+                    cf_res = (cf.get("resource") or "").strip()
+                    cf_prov = (cf.get("provider") or "").strip()
+                    cf_res_html = f' <span class="of-resource">📍 <code>{h(cf_res[:40])}</code></span>' if cf_res else ""
+                    cf_prov_html = f' <span class="of-prov">{h(cf_prov.upper())}</span>' if cf_prov else ""
+                    findings_detail += f'<div class="of-row" style="font-size:.78rem">{sev_badge(cf.get("severity","Medium"))} <code>{h(cf.get("check",""))}</code>{cf_prov_html} {h((cf.get("message") or cf.get("title") or "")[:100])}{cf_res_html}</div>'
+                if ctrl["count"] > 5:
+                    findings_detail += f'<div class="of-more">... +{ctrl["count"] - 5} more</div>'
+                findings_detail += "</div>"
+            summary_cell = f'<div class="comp-summary-cell"><span class="comp-desc-ko">{h(desc or "—")}</span><br><span class="comp-action-ko"><strong>Remediation</strong> {h(action)}</span>{findings_detail}</div>'
             comp_html += f'<tr class="comp-{st_cls}"><td class="mono">{h(ctrl["control"])}</td><td>{h(ctrl["name"])}</td><td class="comp-st-{st_cls}">{st_icon} {st_text}</td><td>{ctrl["count"]}</td><td class="comp-summary-td">{summary_cell}</td></tr>'
         comp_html += "</tbody></table></div></div>"
 
@@ -5010,7 +5057,25 @@ button.env-pill{cursor:pointer}button.env-pill:hover{border-color:var(--accent)}
 .owasp-findings{display:flex;flex-direction:column;gap:.3rem;margin-top:.75rem}
 .of-row{font-size:.8rem;padding:.3rem 0;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
 .of-row code{color:var(--accent);font-size:.75rem}
+.of-detail,.af-detail{font-size:.72rem;color:var(--muted);padding:0 0 .4rem 1.8rem;border-bottom:1px solid rgba(255,255,255,.04)}
+.of-action,.af-action{color:var(--success)}
+.of-resource{font-size:.72rem;color:var(--muted);margin-left:.25rem}
+.of-resource code{font-size:.7rem;color:#94a3b8}
+.of-prov{font-size:.65rem;background:rgba(56,189,248,.12);color:var(--accent);padding:.1rem .35rem;border-radius:3px;font-weight:700;letter-spacing:.04em}
 .of-more{font-size:.78rem;color:var(--muted);padding:.3rem 0}
+.detail-resources{margin-top:.5rem;padding-top:.5rem;border-top:1px solid var(--border)}
+.detail-resources strong{font-size:.8rem;color:var(--text)}
+.resource-list{margin:.3rem 0 0;padding-left:1.2rem;font-size:.78rem}
+.resource-list li{margin-bottom:.2rem}
+.resource-list code{color:#94a3b8;font-size:.75rem}
+.comp-findings{margin-top:.5rem;padding-top:.5rem;border-top:1px dashed var(--border)}
+.tf-resource{font-size:.72rem;color:var(--muted);margin-top:.15rem}
+.tf-res-label{font-weight:600;color:#94a3b8}
+.tf-resource code{font-size:.7rem;color:#94a3b8}
+.tf-action{font-size:.72rem;color:var(--success);margin-top:.1rem}
+.tf-act-label{font-weight:600;color:#6ee7b7}
+.scan-loc{font-size:.72rem;color:var(--muted);margin-left:.35rem}
+.scan-loc code{font-size:.7rem;color:#94a3b8}
 /* Architecture */
 .arch-domain{border:1px solid var(--border);border-radius:var(--radius);margin-bottom:.65rem;overflow:hidden}
 .arch-domain.fail{border-left:3px solid #ef4444}.arch-domain.pass{border-left:3px solid #22c55e}
