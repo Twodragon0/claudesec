@@ -13,15 +13,15 @@ Use OpenCode as an automation operator for repetitive repository maintenance, es
 ## Baseline Settings
 
 - Binary path: `opencode`
-- Primary manager: `/Users/namyongkim/Desktop/.twodragon0`
-- Non-interactive automation command: `/Users/namyongkim/Desktop/.twodragon0/bin/hourly-opencode-git-pull.sh`
+- Primary manager: `~/Desktop/.twodragon0`
+- Non-interactive automation command: `~/Desktop/.twodragon0/bin/hourly-opencode-git-pull.sh`
 - Fallback if OpenCode fails: direct `git pull --ff-only` is handled inside the central manager
 
 ## Safety Rules
 
 - Only use fast-forward pulls (`--ff-only`) to avoid hidden merge commits.
 - Run with least privilege and dedicated service account where possible.
-- Keep logs in `/Users/namyongkim/Desktop/.twodragon0/logs/` for auditability and incident review.
+- Keep logs in `~/Desktop/.twodragon0/logs/` for auditability and incident review.
 
 ## Continuous Improvement Loop
 
@@ -31,7 +31,7 @@ Use OpenCode as an automation operator for repetitive repository maintenance, es
 
 ## Optional gws CLI Integration
 
-- Install helper: `/Users/namyongkim/Desktop/.twodragon0/bin/setup-gws-cli.sh`
+- Install helper: `~/Desktop/.twodragon0/bin/setup-gws-cli.sh`
 - Enable in hourly runner: `GWS_ENABLED=true`
 - Provide per-repo command: `GWS_COMMAND='<gws command>'` (runner exports `REPO_PATH`)
-- Run auth and end-to-end check: `/Users/namyongkim/Desktop/.twodragon0/bin/finalize-gws-auth-and-verify.sh`
+- Run auth and end-to-end check: `~/Desktop/.twodragon0/bin/finalize-gws-auth-and-verify.sh`
