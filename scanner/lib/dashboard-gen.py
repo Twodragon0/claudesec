@@ -4464,6 +4464,9 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         ms_best_practices_data.get("source_filter") or _normalized_source_filter()
     )
     audit_points_html += '<div class="card bp-audit-section ms-source-root"><div class="card-title">Windows / Intune / Office 365 best-practice sources</div>'
+    # MS sources progress bar (same localStorage as audit points)
+    audit_points_html += '<div style="padding:.5rem 1.25rem 0"><div class="ap-progress-label"><span id="ms-progress-label">0 / 0 reviewed</span><span id="ms-progress-pct">0%</span></div>'
+    audit_points_html += '<div class="ap-progress-bar"><div id="ms-progress-fill" class="ap-progress-fill" style="width:0%"></div></div></div>'
     if source_filter == "none":
         preset_default = "none"
     elif source_filter == "official,gov":
@@ -4531,16 +4534,18 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                     if src.get("archived")
                     else ""
                 )
-                audit_points_html += f'<div class="card ms-source-entry" data-trust-token="{h(trust_token)}" style="margin-bottom:.75rem;padding:0"><div class="card-title" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==\'none\'?\'\':\'none\'" style="cursor:pointer;user-select:none">▸ {h(label)} <span class="trust-badge {h(trust_class)}">{h(trust_level)}</span>{archive_tag} <span style="font-size:.75rem;color:var(--muted);font-weight:400">({len(files)} files)</span></div>'
-                audit_points_html += '<div style="padding:.75rem 1rem">'
+                src_id = f"ms-{product}-{label}".lower().replace(" ", "-").replace("/", "-").replace("(", "").replace(")", "")
+                audit_points_html += f'<div class="card ms-source-entry" data-trust-token="{h(trust_token)}" style="margin-bottom:.75rem;padding:0"><div class="card-title" onclick="this.parentElement.querySelector(\'.ms-src-body\').style.display=this.parentElement.querySelector(\'.ms-src-body\').style.display==\'none\'?\'\':\'none\'" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:.5rem"><input type="checkbox" class="ap-checkbox ms-src-checkbox" data-ap-id="{h(src_id)}" onchange="apToggleCheck(this);msUpdateProgress()" onclick="event.stopPropagation()"> ▸ {h(label)} <span class="trust-badge {h(trust_class)}">{h(trust_level)}</span>{archive_tag} <span style="font-size:.75rem;color:var(--muted);font-weight:400">({len(files)} files)</span></div>'
+                audit_points_html += '<div class="ms-src-body" style="padding:.75rem 1rem">'
                 audit_points_html += f'<div style="color:var(--muted);font-size:.82rem;margin-bottom:.45rem">{h(reason)}</div>'
                 audit_points_html += f'<a href="{h(repo_url)}" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem">Open repository</a>'
                 if updated:
                     audit_points_html += f'<span style="font-size:.75rem;color:var(--muted);margin-left:.5rem">Updated: {h(updated[:10])}</span>'
-                for f in files[:25]:
+                for fidx, f in enumerate(files[:25]):
                     url = f.get("url") or f.get("raw_url") or "#"
                     fname = f.get("path") or f.get("name") or "file"
-                    audit_points_html += f'<div style="margin-top:.45rem"><a href="{h(url)}" target="_blank" rel="noopener" class="mono" style="font-size:.8rem;color:var(--text)">{h(fname)}</a></div>'
+                    file_id = f"{src_id}-f{fidx}"
+                    audit_points_html += f'<div class="bp-audit-item-row" style="margin-top:.35rem"><input type="checkbox" class="ap-checkbox ms-file-checkbox" data-ap-id="{h(file_id)}" onchange="apToggleCheck(this);msUpdateProgress()"><a href="{h(url)}" target="_blank" rel="noopener" class="mono bp-audit-link" style="font-size:.8rem;color:var(--text)">{h(fname)}</a></div>'
                 if len(files) > 25:
                     audit_points_html += f'<div style="margin-top:.5rem;color:var(--muted);font-size:.78rem">… and {len(files) - 25} more files</div>'
                 audit_points_html += "</div></div>"
@@ -5333,15 +5338,26 @@ function apRestoreChecks(){
     if(id&&store[id])cb.checked=true;
   });
   apUpdateProgress();
+  msUpdateProgress();
 }
 function apUpdateProgress(){
-  var total=document.querySelectorAll('.ap-checkbox').length;
-  var done=document.querySelectorAll('.ap-checkbox:checked').length;
+  var total=document.querySelectorAll('.ap-checkbox:not(.ms-src-checkbox):not(.ms-file-checkbox)').length;
+  var done=document.querySelectorAll('.ap-checkbox:checked:not(.ms-src-checkbox):not(.ms-file-checkbox)').length;
   var lbl=document.getElementById('ap-progress-label');
   var fill=document.getElementById('ap-progress-fill');
   if(lbl)lbl.textContent=done+' / '+total+' reviewed';
   if(fill)fill.style.width=(total?Math.round(done/total*100):0)+'%';
   var pct=document.getElementById('ap-progress-pct');
+  if(pct)pct.textContent=(total?Math.round(done/total*100):0)+'%';
+}
+function msUpdateProgress(){
+  var total=document.querySelectorAll('.ms-src-checkbox,.ms-file-checkbox').length;
+  var done=document.querySelectorAll('.ms-src-checkbox:checked,.ms-file-checkbox:checked').length;
+  var lbl=document.getElementById('ms-progress-label');
+  var fill=document.getElementById('ms-progress-fill');
+  if(lbl)lbl.textContent=done+' / '+total+' reviewed';
+  if(fill)fill.style.width=(total?Math.round(done/total*100):0)+'%';
+  var pct=document.getElementById('ms-progress-pct');
   if(pct)pct.textContent=(total?Math.round(done/total*100):0)+'%';
 }
 /* Best Practices internal sub-tab switching */
