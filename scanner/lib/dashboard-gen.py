@@ -11,6 +11,7 @@ import os
 import shutil
 import sys
 import glob
+import time
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -515,12 +516,38 @@ def load_audit_points(scan_dir: str) -> AuditPointsData:
     return {"products": [], "fetched_at": ""}
 
 
-def _github_api_json(url: str) -> Any:
-    req = urllib.request.Request(
-        url, headers={"Accept": "application/vnd.github.v3+json"}
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+def _github_api_json(url: str, _max_retries: int = 3) -> Any:
+    """Fetch JSON from GitHub API with exponential backoff on rate-limit responses."""
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+    headers: dict[str, str] = {"Accept": "application/vnd.github.v3+json"}
+    if token:
+        headers["Authorization"] = f"token {token}"
+    last_exc: Exception | None = None
+    for attempt in range(_max_retries):
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            last_exc = exc
+            if exc.code in (403, 429):
+                retry_after = exc.headers.get("Retry-After")
+                if retry_after and retry_after.isdigit():
+                    wait = min(int(retry_after), 60)
+                else:
+                    wait = min(2 ** attempt, 30)
+                time.sleep(wait)
+                continue
+            raise
+        except (urllib.error.URLError, OSError) as exc:
+            last_exc = exc
+            if attempt < _max_retries - 1:
+                time.sleep(min(2 ** attempt, 30))
+                continue
+            raise
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("_github_api_json: unreachable")
 
 
 def _is_best_practice_file(name: str) -> bool:
@@ -4056,7 +4083,7 @@ def _get_architecture_diagram_html(output_file, scan_dir: str = ""):
                     if svg_path.endswith("claudesec-overview.svg")
                     else "ClaudeSec Architecture"
                 )
-                return f'<img src="data:image/svg+xml;base64,{b64}" alt="{label}" style="max-width:100%;height:auto;display:block;border-radius:8px" />'
+                return f'<img src="data:image/svg+xml;base64,{b64}" alt="{label}" loading="lazy" style="max-width:100%;height:auto;display:block;border-radius:8px" />'
             except Exception:
                 continue
     return f'<div class="arch-diagram-wrap">{_INLINE_ARCH_SVG}</div>'
@@ -5044,12 +5071,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="generator" content="ClaudeSec v{{VERSION}}">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:;">
+<meta name="theme-color" content="#0f172a">
 <title>ClaudeSec Security Dashboard</title>
 <style>
 :root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--accent-glow:rgba(56,189,248,.15);--success:#22c55e;--danger:#ef4444;--warning:#eab308;--radius:12px;--transition:.2s cubic-bezier(.4,0,.2,1);--shadow-sm:0 1px 3px rgba(0,0,0,.3);--shadow-md:0 4px 12px rgba(0,0,0,.4);--shadow-lg:0 8px 24px rgba(0,0,0,.5)}
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeSpeed}
 .container{max-width:1200px;margin:0 auto;padding:1.5rem}
 header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:.5rem;position:sticky;top:0;z-index:100;background:var(--bg);padding-top:1rem;padding-bottom:.75rem;border-bottom:1px solid transparent;transition:border-color var(--transition)}
 header.scrolled{border-bottom-color:var(--border);box-shadow:var(--shadow-sm)}
@@ -5071,7 +5099,7 @@ header .header-right{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
 .tab:hover{color:var(--text);background:rgba(56,189,248,.04)}
 .tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px 4px 0 0}
 .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-.tab-panel{display:none;animation:fadeIn .25s ease}
+.tab-panel{display:none;animation:fadeIn .25s ease;contain:content;content-visibility:auto}
 .tab-panel.active{display:block}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 .prov-panel{display:none}
@@ -5751,9 +5779,12 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 
 <script>var HIST_DATA={{HISTORY_JSON}};
 /* Provider sub-tab switching within Prowler CSPM */
+var _provPanels,_provTabs;
 function switchProvTab(id){
-  document.querySelectorAll('.prov-panel').forEach(function(p){p.classList.remove('active')});
-  document.querySelectorAll('.prov-subtab').forEach(function(t){t.classList.remove('active')});
+  if(!_provPanels)_provPanels=document.querySelectorAll('.prov-panel');
+  if(!_provTabs)_provTabs=document.querySelectorAll('.prov-subtab');
+  _provPanels.forEach(function(p){p.classList.remove('active')});
+  _provTabs.forEach(function(t){t.classList.remove('active')});
   var panel=document.getElementById('provpanel-'+id);
   if(panel)panel.classList.add('active');
   var tab=document.getElementById('provtab-'+id);
