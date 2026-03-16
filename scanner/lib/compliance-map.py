@@ -319,6 +319,14 @@ COMPLIANCE_CONTROL_MAP = {
             "checks": ["kubelet", "worker", "node", "tls_cert", "readonly"],
             "status": "",
         },
+        {
+            "control": "CIS-K8s-ArgoCD",
+            "name": "ArgoCD RBAC and security configuration",
+            "desc": "Verify ArgoCD RBAC policies, SSO integration, and project-level access restrictions",
+            "action": "Enforce ArgoCD RBAC with least privilege; enable SSO; restrict project sources and destinations; disable anonymous access.",
+            "checks": ["argocd", "argo", "gitops", "rbac", "sso", "project"],
+            "status": "",
+        },
     ],
 }
 

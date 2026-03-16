@@ -121,6 +121,73 @@ MS_BEST_PRACTICES_REPO_SOURCES = [
     },
 ]
 
+SAAS_BEST_PRACTICES_SOURCES = [
+    {
+        "product": "Okta",
+        "repo": "okta/okta-developer-docs",
+        "label": "Okta Developer Docs (Security best practices)",
+        "trust_level": "Vendor Official",
+        "reason": "Official Okta documentation covering MFA, SSO, lifecycle management, and API token security.",
+        "focus_paths": ["packages/@okta/vuepress-site/docs/guides", "README.md"],
+    },
+    {
+        "product": "Okta",
+        "repo": "OktaSecurityLabs/sgt",
+        "label": "Okta Security Guard Toolkit",
+        "trust_level": "Vendor Official",
+        "reason": "Okta Security Labs toolkit for identity threat detection and event monitoring.",
+        "focus_paths": ["README.md", "docs"],
+    },
+    {
+        "product": "Okta",
+        "repo": "cisagov/ScubaGoggles",
+        "label": "CISA ScubaGoggles (GWS + Identity)",
+        "trust_level": "Government",
+        "reason": "CISA baseline assessment for Google Workspace and identity provider security, applicable to Okta SSO.",
+        "focus_paths": ["baselines", "README.md"],
+    },
+    {
+        "product": "QueryPie",
+        "repo": "querypie/audit-points",
+        "label": "QueryPie Audit Points (SaaS security checklists)",
+        "trust_level": "Vendor Official",
+        "reason": "Official QueryPie repository for SaaS and DevSecOps audit checklists, covering database access, privilege management, and audit logging.",
+        "focus_paths": ["README.md"],
+    },
+    {
+        "product": "QueryPie",
+        "repo": "querypie/querypie-docs",
+        "label": "QueryPie Documentation",
+        "trust_level": "Vendor Official",
+        "reason": "Official QueryPie documentation covering DAC (Database Access Control), SAC (System Access Control), and audit policies.",
+        "focus_paths": ["docs", "README.md"],
+    },
+    {
+        "product": "ArgoCD",
+        "repo": "argoproj/argo-cd",
+        "label": "Argo CD Official Repository",
+        "trust_level": "CNCF Official",
+        "reason": "Official Argo CD repository with RBAC configuration, SSO integration, and security best practices documentation.",
+        "focus_paths": ["docs/operator-manual/rbac.md", "docs/operator-manual/security.md", "docs/operator-manual/user-management", "README.md"],
+    },
+    {
+        "product": "ArgoCD",
+        "repo": "argoproj/argo-cd",
+        "label": "Argo CD RBAC & Policy Configuration",
+        "trust_level": "CNCF Official",
+        "reason": "RBAC policies, project roles, and JWT token management for Argo CD multi-tenant environments.",
+        "focus_paths": ["docs/operator-manual/rbac.md", "docs/operator-manual/project.md"],
+    },
+    {
+        "product": "IDE",
+        "repo": "nicedoc/vscode-security",
+        "label": "VS Code Security Best Practices",
+        "trust_level": "Community",
+        "reason": "Community-maintained guidance on Visual Studio Code security settings, extension review, and workspace trust.",
+        "focus_paths": ["README.md"],
+    },
+]
+
 VERSION = "0.5.0"
 
 
@@ -3773,6 +3840,8 @@ _TEMPLATE_KEYS = [
     "SCANNER_ISSUES",
     "SCAN_SCOPE_HTML",
     "AUTH_SUMMARY_HTML",
+    "ARCH_OVERVIEW_HTML",
+    "NETWORK_SUMMARY_HTML",
 ]
 
 
@@ -4134,7 +4203,17 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         status_cls = "fail" if dom["fail_count"] > 0 else "pass"
         links = dom.get("links", {})
         arch_html += f'<div class="arch-domain {status_cls}" id="arch-dom-{idx}" data-arch-idx="{idx}">'
-        arch_html += f'<div class="arch-header" onclick="toggleArch(this)"><span class="arch-icon">{dom["icon"]}</span><span class="arch-name">{h(dom["name"])}</span><span class="arch-stat"><span class="arch-fail">{dom["fail_count"]} failed</span></span><span class="arch-arrow">▸</span></div>'
+        scanner_cats = links.get("scanner", [])
+        coverage_dots = ""
+        if scanner_cats:
+            coverage_dots = '<span class="arch-coverage">'
+            for scat in scanner_cats:
+                slab = scanner_labels.get(scat, scat)
+                has_data = dom["fail_count"] > 0
+                dot_cls = "cov-on" if has_data else "cov-off"
+                coverage_dots += f'<span class="cov-dot {dot_cls}" title="{h(slab)}">{h(slab[:3])}</span>'
+            coverage_dots += '</span>'
+        arch_html += f'<div class="arch-header" onclick="toggleArch(this)"><span class="arch-icon">{dom["icon"]}</span><span class="arch-name">{h(dom["name"])}</span>{coverage_dots}<span class="arch-stat"><span class="arch-fail">{dom["fail_count"]} failed</span></span><span class="arch-arrow">▸</span></div>'
         arch_html += '<div class="arch-body">'
         summary = dom.get("summary", "")
         action = dom.get("action", "")
@@ -4560,6 +4639,57 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         else:
             audit_points_html += '<div style="padding:1rem 1.25rem;color:var(--muted)">No Microsoft best-practice source metadata cached yet. Re-run dashboard generation to refresh GitHub source discovery.</div>'
     audit_points_html += "</div>"
+    # ── SaaS / DevOps best-practice sources (Okta, QueryPie, ArgoCD, IDE) ──
+    saas_sources = SAAS_BEST_PRACTICES_SOURCES
+    audit_points_html += '<div class="card bp-audit-section ms-source-root"><div class="card-title">Okta / QueryPie / ArgoCD / IDE best-practice sources</div>'
+    audit_points_html += '<div style="padding:.5rem 1.25rem 0"><div class="ap-progress-label"><span id="saas-progress-label">0 / 0 reviewed</span><span id="saas-progress-pct">0%</span></div>'
+    audit_points_html += '<div class="ap-progress-bar"><div id="saas-progress-fill" class="ap-progress-fill" style="width:0%"></div></div></div>'
+    if saas_sources:
+        audit_points_html += '<div style="padding:1rem 1.25rem"><p style="color:var(--muted);margin-bottom:.45rem">Curated sources for identity, database access control, GitOps, and IDE security hardening.</p>'
+        saas_trust_counts: dict[str, int] = {}
+        for src in saas_sources:
+            level = src.get("trust_level") or "Community"
+            saas_trust_counts[level] = saas_trust_counts.get(level, 0) + 1
+        saas_count_chips = [f'<span class="badge info" style="font-size:.66rem">Total sources {len(saas_sources)}</span>']
+        for level in ("Vendor Official", "CNCF Official", "Government", "Community"):
+            if saas_trust_counts.get(level, 0) > 0:
+                cls = {"Vendor Official": "trust-ms", "CNCF Official": "trust-ms", "Government": "trust-gov", "Community": "trust-community"}.get(level, "trust-community")
+                saas_count_chips.append(f'<span class="trust-badge {h(cls)}">{h(level)} {saas_trust_counts[level]}</span>')
+        audit_points_html += f'<div style="display:flex;flex-wrap:wrap;gap:.45rem;margin-bottom:1rem">{"".join(saas_count_chips)}</div>'
+        saas_grouped: dict[str, list] = {}
+        for src in saas_sources:
+            p = src.get("product") or "Other"
+            saas_grouped.setdefault(p, []).append(src)
+        for product in ("Okta", "QueryPie", "ArgoCD", "IDE"):
+            entries = saas_grouped.get(product, [])
+            if not entries:
+                continue
+            audit_points_html += f'<h4 style="margin:.75rem 0 .5rem 0;font-size:.9rem;color:var(--text)">{h(product)}</h4>'
+            for src in entries:
+                files = src.get("files", [])
+                repo_url = src.get("repo_url") or f"https://github.com/{src.get('repo', '')}"
+                label = src.get("label") or src.get("repo") or "Source"
+                reason = src.get("reason") or ""
+                trust_level = src.get("trust_level") or "Community"
+                trust_class = {"Vendor Official": "trust-ms", "CNCF Official": "trust-ms", "Government": "trust-gov", "Community": "trust-community"}.get(trust_level, "trust-community")
+                src_id = f"saas-{product}-{label}".lower().replace(" ", "-").replace("/", "-").replace("(", "").replace(")", "")
+                focus = ", ".join(src.get("focus_paths", []))
+                audit_points_html += f'<div class="card ms-source-entry" style="margin-bottom:.75rem;padding:0"><div class="card-title" onclick="this.parentElement.querySelector(\'.ms-src-body\').style.display=this.parentElement.querySelector(\'.ms-src-body\').style.display==\'none\'?\'\':\'none\'" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:.5rem"><input type="checkbox" class="ap-checkbox saas-src-checkbox" data-ap-id="{h(src_id)}" onchange="apToggleCheck(this);saasUpdateProgress()" onclick="event.stopPropagation()"> ▸ {h(label)} <span class="trust-badge {h(trust_class)}">{h(trust_level)}</span> <span style="font-size:.75rem;color:var(--muted);font-weight:400">({len(files)} files)</span></div>'
+                audit_points_html += '<div class="ms-src-body" style="padding:.75rem 1rem">'
+                audit_points_html += f'<div style="color:var(--muted);font-size:.82rem;margin-bottom:.45rem">{h(reason)}</div>'
+                audit_points_html += f'<a href="{h(repo_url)}" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem">Open repository ↗</a>'
+                if focus:
+                    audit_points_html += f'<div style="color:var(--muted);font-size:.78rem;margin-top:.35rem">Focus paths: <code>{h(focus)}</code></div>'
+                for fidx, fl in enumerate(files[:25]):
+                    url = fl.get("url") or fl.get("raw_url") or "#"
+                    fname = fl.get("path") or fl.get("name") or "file"
+                    file_id = f"{src_id}-f{fidx}"
+                    audit_points_html += f'<div class="bp-audit-item-row" style="margin-top:.35rem"><input type="checkbox" class="ap-checkbox saas-file-checkbox" data-ap-id="{h(file_id)}" onchange="apToggleCheck(this);saasUpdateProgress()"><a href="{h(url)}" target="_blank" rel="noopener" class="mono bp-audit-link" style="font-size:.8rem;color:var(--text)">{h(fname)}</a></div>'
+                audit_points_html += "</div></div>"
+        audit_points_html += "</div>"
+    else:
+        audit_points_html += '<div style="padding:1rem 1.25rem;color:var(--muted)">No SaaS/DevOps best-practice sources configured.</div>'
+    audit_points_html += "</div>"
     overview = _build_overview_blocks(
         prov_summary,
         all_findings,
@@ -4588,6 +4718,59 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     env_total = overview["env_total"]
     network_tools_html = overview["network_tools_html"]
     network_tools_badge = overview["network_tools_badge"]
+
+    # Architecture domain summary for Overview tab
+    arch_overview_html = '<div class="arch-ov-grid">'
+    for idx, dom in enumerate(arch_domains):
+        fc = dom["fail_count"]
+        status_cls = "arch-ov-fail" if fc > 0 else "arch-ov-pass"
+        arch_overview_html += (
+            f'<div class="arch-ov-card {status_cls}" onclick="switchTab(\'arch\',\'arch-dom-{idx}\')">'
+            f'<div class="arch-ov-icon">{dom["icon"]}</div>'
+            f'<div class="arch-ov-name">{h(dom["name"])}</div>'
+            f'<div class="arch-ov-count">{fc}</div>'
+            f'<div class="arch-ov-label">{"findings" if fc != 1 else "finding"}</div>'
+            f'</div>'
+        )
+    arch_overview_html += '</div>'
+
+    # Network tools summary for Overview tab
+    ts = net_data.get("trivy_summary", {}) if net_data else {}
+    nmap_count = len(net_data.get("nmap_scans", [])) if net_data else 0
+    ssl_count = len(net_data.get("sslscan_results", [])) if net_data else 0
+    trivy_crit = ts.get("critical", 0)
+    trivy_high = ts.get("high", 0)
+    trivy_med = ts.get("medium", 0)
+    trivy_low = ts.get("low", 0)
+    trivy_total = trivy_crit + trivy_high + trivy_med + trivy_low
+    net_summary_html = '<div class="net-ov-row">'
+    net_summary_html += (
+        f'<div class="net-ov-card" onclick="switchTab(\'networktools\')">'
+        f'<div class="net-ov-icon">🔍</div>'
+        f'<div class="net-ov-body"><div class="net-ov-title">Trivy CVEs</div>'
+        f'<div class="net-ov-nums">'
+    )
+    if trivy_total > 0:
+        if trivy_crit: net_summary_html += f'<span class="pcs-crit">{trivy_crit}C</span>'
+        if trivy_high: net_summary_html += f'<span class="pcs-high">{trivy_high}H</span>'
+        if trivy_med: net_summary_html += f'<span class="pcs-med">{trivy_med}M</span>'
+        if trivy_low: net_summary_html += f'<span class="pcs-low">{trivy_low}L</span>'
+    else:
+        net_summary_html += '<span class="net-ov-none">—</span>'
+    net_summary_html += '</div></div></div>'
+    net_summary_html += (
+        f'<div class="net-ov-card" onclick="switchTab(\'networktools\')">'
+        f'<div class="net-ov-icon">🌐</div>'
+        f'<div class="net-ov-body"><div class="net-ov-title">Nmap scans</div>'
+        f'<div class="net-ov-nums"><span class="net-ov-big">{nmap_count}</span></div></div></div>'
+    )
+    net_summary_html += (
+        f'<div class="net-ov-card" onclick="switchTab(\'networktools\')">'
+        f'<div class="net-ov-icon">🔒</div>'
+        f'<div class="net-ov-body"><div class="net-ov-title">TLS/SSL scans</div>'
+        f'<div class="net-ov-nums"><span class="net-ov-big">{ssl_count}</span></div></div></div>'
+    )
+    net_summary_html += '</div>'
 
     # Architecture diagram: embed SVG from docs/architecture, or use built-in inline SVG
     arch_img = _get_architecture_diagram_html(output_file, scan_dir)
@@ -4658,6 +4841,8 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         failed + warnings,
         scan_scope_html,
         auth_summary_html,
+        arch_overview_html,
+        net_summary_html,
     )
     _apply_template_and_write(output_file, HTML_TEMPLATE, reps)
 
@@ -4842,6 +5027,36 @@ tr.arch-highlight td{animation:archPulseTd 1.2s ease 2}
 .arch-link-chip:hover{background:rgba(59,130,246,.2);border-color:var(--accent)}
 .arch-link-chip.arch-sm{font-size:.68rem;padding:.15rem .35rem}
 .arch-pass{color:#22c55e;font-size:.85rem;padding:.5rem 0}
+/* Architecture overview cards in Overview tab */
+.arch-ov-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:.5rem}
+@media(max-width:900px){.arch-ov-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:500px){.arch-ov-grid{grid-template-columns:repeat(2,1fr)}}
+.arch-ov-card{text-align:center;padding:.65rem .5rem;border-radius:var(--radius);border:1px solid var(--border);cursor:pointer;transition:all .15s}
+.arch-ov-card:hover{background:rgba(56,189,248,.06);border-color:var(--accent)}
+.arch-ov-fail{border-left:3px solid #ef4444}.arch-ov-pass{border-left:3px solid #22c55e}
+.arch-ov-icon{font-size:1.4rem;margin-bottom:.25rem}
+.arch-ov-name{font-size:.72rem;color:var(--muted);margin-bottom:.2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arch-ov-count{font-size:1.3rem;font-weight:800;color:var(--text)}
+.arch-ov-fail .arch-ov-count{color:#ef4444}
+.arch-ov-pass .arch-ov-count{color:#22c55e}
+.arch-ov-label{font-size:.65rem;color:var(--muted)}
+/* Network summary in Overview tab */
+.net-ov-row{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}
+@media(max-width:600px){.net-ov-row{grid-template-columns:1fr}}
+.net-ov-card{display:flex;align-items:center;gap:.75rem;padding:.65rem .75rem;border-radius:var(--radius);border:1px solid var(--border);cursor:pointer;transition:all .15s}
+.net-ov-card:hover{background:rgba(56,189,248,.06);border-color:var(--accent)}
+.net-ov-icon{font-size:1.3rem;flex-shrink:0}
+.net-ov-body{flex:1;min-width:0}
+.net-ov-title{font-size:.75rem;color:var(--muted);margin-bottom:.15rem}
+.net-ov-nums{display:flex;gap:.35rem;align-items:baseline;flex-wrap:wrap}
+.net-ov-big{font-size:1.2rem;font-weight:800;color:var(--text)}
+.net-ov-none{color:var(--muted);font-size:.85rem}
+.pcs-low{font-size:.72rem;font-weight:600;color:#6b7280;background:rgba(107,114,128,.12);padding:.1rem .35rem;border-radius:4px}
+/* Architecture coverage dots */
+.arch-coverage{display:flex;gap:.3rem;margin-left:auto;margin-right:.5rem}
+.cov-dot{font-size:.6rem;padding:.1rem .3rem;border-radius:3px;font-weight:600}
+.cov-dot.cov-on{color:#22c55e;background:rgba(34,197,94,.12)}
+.cov-dot.cov-off{color:var(--muted);background:rgba(148,163,184,.08)}
 .af-row{font-size:.8rem;padding:.3rem 0;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
 .af-row code{color:var(--accent);font-size:.75rem}
 /* Compliance */
@@ -5066,6 +5281,22 @@ footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem
       <div style="padding:.75rem">
         <div class="prov-cards">{{PROV_CARDS}}</div>
       </div>
+    </div>
+  </div>
+
+  <!-- Architecture domains overview -->
+  <div class="card" style="margin-bottom:0">
+    <div class="card-title">🏗 Architecture Security Domains <span style="font-size:.75rem;color:var(--muted);font-weight:400;cursor:pointer" onclick="switchTab('arch')">View details →</span></div>
+    <div style="padding:.75rem 1rem">
+      {{ARCH_OVERVIEW_HTML}}
+    </div>
+  </div>
+
+  <!-- Network tools overview -->
+  <div class="card" style="margin-bottom:0">
+    <div class="card-title">🔬 Network &amp; Security Tools <span style="font-size:.75rem;color:var(--muted);font-weight:400;cursor:pointer" onclick="switchTab('networktools')">View details →</span></div>
+    <div style="padding:.75rem 1rem">
+      {{NETWORK_SUMMARY_HTML}}
     </div>
   </div>
 
@@ -5339,6 +5570,7 @@ function apRestoreChecks(){
   });
   apUpdateProgress();
   msUpdateProgress();
+  saasUpdateProgress();
 }
 function apUpdateProgress(){
   var total=document.querySelectorAll('.ap-checkbox:not(.ms-src-checkbox):not(.ms-file-checkbox)').length;
@@ -5359,6 +5591,18 @@ function msUpdateProgress(){
   if(fill)fill.style.width=(total?Math.round(done/total*100):0)+'%';
   var pct=document.getElementById('ms-progress-pct');
   if(pct)pct.textContent=(total?Math.round(done/total*100):0)+'%';
+}
+function saasUpdateProgress(){
+  var boxes=document.querySelectorAll('.saas-src-checkbox,.saas-file-checkbox');
+  var total=boxes.length,checked=0;
+  boxes.forEach(function(b){if(b.checked)checked++});
+  var pct=total?Math.round(checked/total*100):0;
+  var lbl=document.getElementById('saas-progress-label');
+  var pctEl=document.getElementById('saas-progress-pct');
+  var fill=document.getElementById('saas-progress-fill');
+  if(lbl)lbl.textContent=checked+' / '+total+' reviewed';
+  if(pctEl)pctEl.textContent=pct+'%';
+  if(fill)fill.style.width=pct+'%';
 }
 /* Best Practices internal sub-tab switching */
 function switchBpTab(id){

@@ -60,7 +60,7 @@ class TestComplianceControlMap(unittest.TestCase):
         self.assertEqual(counts["KISA ISMS-P"], 6)
         self.assertEqual(counts["PCI-DSS v4.0.1"], 7)
         self.assertEqual(counts["NIST 800-53 Rev5"], 10)
-        self.assertEqual(counts["CIS Benchmarks"], 8)
+        self.assertEqual(counts["CIS Benchmarks"], 9)
 
 
 class TestMatchProwlerCompliance(unittest.TestCase):
@@ -170,6 +170,13 @@ class TestMapCompliance(unittest.TestCase):
         self.assertEqual(iso["A.8.24"]["status"], "FAIL")
         self.assertEqual(pci["Req 1"]["status"], "FAIL")
         self.assertEqual(nist["SC-8"]["status"], "FAIL")
+
+    def test_argocd_rbac_triggers_cis_k8s_argocd(self):
+        findings = [_make_finding(check="argocd_rbac", title="ArgoCD default admin", message="ArgoCD RBAC allows admin to all projects")]
+        result = map_compliance(findings)
+        cis_controls = {c["control"]: c for c in result["CIS Benchmarks"]}
+        self.assertEqual(cis_controls["CIS-K8s-ArgoCD"]["status"], "FAIL")
+        self.assertGreaterEqual(cis_controls["CIS-K8s-ArgoCD"]["count"], 1)
 
     def test_result_preserves_control_metadata(self):
         result = map_compliance([])
