@@ -43,10 +43,10 @@ All documentation is in Markdown. No build system required.
 
 ## Continuous Operations
 
-- Hourly automation entrypoint: `/Users/REDACTED_USER/Desktop/.twodragon0/bin/hourly-opencode-git-pull.sh`
-- Cron installer: `/Users/REDACTED_USER/Desktop/.twodragon0/bin/install-system-cron.sh`
-- gws CLI installer: `/Users/REDACTED_USER/Desktop/.twodragon0/bin/setup-gws-cli.sh`
-- gws auth verifier: `/Users/REDACTED_USER/Desktop/.twodragon0/bin/finalize-gws-auth-and-verify.sh`
+- Hourly automation entrypoint: `~/Desktop/.twodragon0/bin/hourly-opencode-git-pull.sh`
+- Cron installer: `~/Desktop/.twodragon0/bin/install-system-cron.sh`
+- gws CLI installer: `~/Desktop/.twodragon0/bin/setup-gws-cli.sh`
+- gws auth verifier: `~/Desktop/.twodragon0/bin/finalize-gws-auth-and-verify.sh`
 - OpenCode profile: `OPENCODE.md`
 - Improvement memory: `MEMORY.md`
 
