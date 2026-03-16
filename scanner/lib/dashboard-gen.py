@@ -4855,13 +4855,16 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="generator" content="ClaudeSec v{{VERSION}}">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:;">
 <title>ClaudeSec Security Dashboard</title>
 <style>
-:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--radius:12px}
+:root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--accent-glow:rgba(56,189,248,.15);--success:#22c55e;--danger:#ef4444;--warning:#eab308;--radius:12px;--transition:.2s cubic-bezier(.4,0,.2,1);--shadow-sm:0 1px 3px rgba(0,0,0,.3);--shadow-md:0 4px 12px rgba(0,0,0,.4);--shadow-lg:0 8px 24px rgba(0,0,0,.5)}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+html{scroll-behavior:smooth}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 .container{max-width:1200px;margin:0 auto;padding:1.5rem}
-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:.5rem}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:.5rem;position:sticky;top:0;z-index:100;background:var(--bg);padding-top:1rem;padding-bottom:.75rem;border-bottom:1px solid transparent;transition:border-color var(--transition)}
+header.scrolled{border-bottom-color:var(--border);box-shadow:var(--shadow-sm)}
 header h1{font-size:1.4rem;font-weight:800}
 header h1 span{color:var(--accent)}
 .ver{color:var(--accent);font-size:.75rem;font-weight:700;background:rgba(56,189,248,.12);padding:.15rem .5rem;border-radius:4px;margin-left:.5rem}
@@ -4876,11 +4879,13 @@ header h1 span{color:var(--accent)}
 header .header-right{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
 /* Tabs */
 .tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:1.5rem;overflow-x:auto}
-.tab{padding:.65rem 1.1rem;font-size:.82rem;font-weight:700;cursor:pointer;color:var(--muted);border:none;border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap;transition:all .15s;background:none}
-.tab:hover{color:var(--text)}
+.tab{padding:.65rem 1.1rem;font-size:.82rem;font-weight:700;cursor:pointer;color:var(--muted);border:none;border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap;transition:color var(--transition),border-color var(--transition),background var(--transition);background:none;position:relative}
+.tab:hover{color:var(--text);background:rgba(56,189,248,.04)}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px 4px 0 0}
 .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-.tab-panel{display:none}
+.tab-panel{display:none;animation:fadeIn .25s ease}
 .tab-panel.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 .prov-panel{display:none}
 .prov-panel.active{display:block}
 .prov-subtab.active{background:var(--accent)!important;color:#0f172a!important;border-color:var(--accent)!important;font-weight:600}
@@ -4899,7 +4904,8 @@ header .header-right{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
 .score-ring .value{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:1.8rem;font-weight:800}
 .score-ring .grade{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);font-size:.7rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 /* Card */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:1.5rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:1.5rem;transition:border-color var(--transition),box-shadow var(--transition)}
+.card:hover{border-color:rgba(56,189,248,.2)}
 .card-title{padding:.85rem 1.25rem;font-size:.95rem;font-weight:700;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
 /* Table */
 table{width:100%;border-collapse:collapse}
@@ -5199,6 +5205,19 @@ tr.arch-highlight td{animation:archPulseTd 1.2s ease 2}
 /* Footer */
 footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem}
 @media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr)}.score-section{flex-direction:column}.tabs{gap:0}.scanner-insights-grid{grid-template-columns:1fr;padding:.6rem .8rem}}
+/* Scroll-to-top button */
+.scroll-top{position:fixed;bottom:2rem;right:2rem;width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--bg);border:none;cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;opacity:0;visibility:hidden;transition:opacity var(--transition),visibility var(--transition),transform var(--transition);box-shadow:var(--shadow-md);z-index:99}
+.scroll-top.visible{opacity:1;visibility:visible}
+.scroll-top:hover{transform:scale(1.1)}
+.scroll-top:active{transform:scale(.95)}
+/* Toast notification */
+.toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%) translateY(100px);background:var(--surface);border:1px solid var(--accent);border-radius:8px;padding:.6rem 1.2rem;font-size:.82rem;color:var(--accent);box-shadow:var(--shadow-lg);z-index:200;transition:transform .3s cubic-bezier(.4,0,.2,1);pointer-events:none}
+.toast.show{transform:translateX(-50%) translateY(0)}
+/* Focus styles for accessibility */
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.expandable:focus-visible,.owasp-header:focus-visible,.arch-header:focus-visible,.comp-title:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px}
+/* Print styles */
+@media print{body{background:#fff;color:#111}.container{max-width:100%}header,.tabs,.quick-nav,.scroll-top,.toast,.setup-modal-overlay,.env-grid,.trend-section{display:none!important}.tab-panel{display:block!important;page-break-inside:avoid}.card{border:1px solid #ccc;break-inside:avoid;margin-bottom:1rem}.badge.critical,.badge.high{background:#dc2626;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.sev-bar div{-webkit-print-color-adjust:exact;print-color-adjust:exact}footer{text-align:center;border-top:1px solid #ccc;padding-top:1rem;color:#666}}
 </style>
 </head>
 <body>
@@ -5210,17 +5229,17 @@ footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem
   </div>
 </header>
 
-<div class="tabs" id="mainTabs">
-  <button class="tab active" onclick="switchTab('overview')">Overview</button>
-  <button class="tab" onclick="switchTab('prowler')">Prowler CSPM</button>
-  <button class="tab" onclick="switchTab('github')">GitHub Security</button>
-  <button class="tab" onclick="switchTab('bestpractices')">Best Practices</button>
-  <button class="tab" onclick="switchTab('arch')">Architecture</button>
-  <button class="tab" onclick="switchTab('networktools')">Network &amp; security tools</button>
-</div>
+<nav class="tabs" id="mainTabs" role="tablist" aria-label="Dashboard sections">
+  <button class="tab active" role="tab" aria-selected="true" aria-controls="tab-overview" onclick="switchTab('overview')">Overview</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-prowler" onclick="switchTab('prowler')">Prowler CSPM</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-github" onclick="switchTab('github')">GitHub Security</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-bestpractices" onclick="switchTab('bestpractices')">Best Practices</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-arch" onclick="switchTab('arch')">Architecture</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-networktools" onclick="switchTab('networktools')">Network &amp; security tools</button>
+</nav>
 
 <!-- ── Tab: Overview ───────────────────────────────────────────────── -->
-<div class="tab-panel active" id="tab-overview">
+<div class="tab-panel active" id="tab-overview" role="tabpanel" aria-label="Overview">
   <!-- Stat pills -->
   <div class="stats-row">
     <div class="stat-pill sp-total"><div class="sp-icon">📊</div><div><div class="sp-num">{{TOTAL_ISSUES}}</div><div class="sp-label">Total findings</div></div></div>
@@ -5356,7 +5375,7 @@ footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem
 </div>
 
 <!-- ── Tab: Prowler CSPM ──────────────────────────────────────────── -->
-<div class="tab-panel" id="tab-prowler">
+<div class="tab-panel" id="tab-prowler" role="tabpanel" aria-label="Prowler CSPM">
   <div class="card">
     <div class="card-title">Prowler cloud scan summary</div>
     <div style="padding:1rem 1.25rem">
@@ -5437,7 +5456,7 @@ footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem
 </div>
 
 <!-- ── Tab: GitHub Security ───────────────────────────────────────── -->
-<div class="tab-panel" id="tab-github">
+<div class="tab-panel" id="tab-github" role="tabpanel" aria-label="GitHub Security">
   <div class="card">
     <div class="card-title">GitHub security check results ({{GH_TOTAL}} findings)</div>
     <div style="max-height:70vh;overflow-y:auto">
@@ -5448,7 +5467,7 @@ footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem
 </div>
 
 <!-- ── Tab: Best Practices (Unified) ───────────────────────────────── -->
-<div class="tab-panel" id="tab-bestpractices">
+<div class="tab-panel" id="tab-bestpractices" role="tabpanel" aria-label="Best Practices">
   <div class="card">
     <div class="card-title">📚 Best Practices hub <span class="card-subtitle" style="font-size:.75rem;color:var(--muted);font-weight:400;margin-left:.5rem">OWASP + Compliance + Audit Points in one place</span></div>
     <div style="padding:1rem 1.25rem">
@@ -5487,7 +5506,7 @@ footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem
 </div>
 
 <!-- ── Tab: Architecture ─────────────────────────────────────────── -->
-<div class="tab-panel" id="tab-arch">
+<div class="tab-panel" id="tab-arch" role="tabpanel" aria-label="Architecture">
   <div class="card">
     <div class="card-title">Architecture diagram</div>
     <div style="padding:1rem 1.25rem">
@@ -5503,19 +5522,21 @@ footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem
 </div>
 
 <!-- ── Tab: Network & security tools ─────────────────────────────── -->
-<div class="tab-panel" id="tab-networktools">
+<div class="tab-panel" id="tab-networktools" role="tabpanel" aria-label="Network and security tools">
   {{NETWORK_TOOLS_HTML}}
 </div>
 
 <footer>Generated by ClaudeSec v{{VERSION}} · {{NOW}}</footer>
 </div>
+<button class="scroll-top" id="scrollTopBtn" aria-label="Scroll to top" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <!-- Setup Modal -->
-<div id="setupModal" class="setup-modal-overlay" onclick="if(event.target===this)closeSetup()">
+<div id="setupModal" class="setup-modal-overlay" onclick="if(event.target===this)closeSetup()" role="dialog" aria-modal="true" aria-labelledby="setupModalTitle">
   <div class="setup-modal">
     <div class="setup-modal-header">
       <h3 id="setupModalTitle">Provider setup</h3>
-      <button class="setup-modal-close" onclick="closeSetup()">&times;</button>
+      <button class="setup-modal-close" onclick="closeSetup()" aria-label="Close modal">&times;</button>
     </div>
     <div class="setup-modal-body" id="setupModalBody"></div>
   </div>
@@ -5616,13 +5637,13 @@ function switchBpTab(id){
 /* Tab switching — id: tab name, targetId: optional element id to scroll into view */
 function switchTab(id,targetId){
   document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active')});
-  document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');t.setAttribute('aria-selected','false')});
   var panel=document.getElementById('tab-'+id);
   if(panel)panel.classList.add('active');
   var tabs=document.querySelectorAll('.tab');
   var names=['overview','prowler','github','bestpractices','arch','networktools'];
   var idx=names.indexOf(id);
-  if(idx>=0&&tabs[idx])tabs[idx].classList.add('active');
+  if(idx>=0&&tabs[idx]){tabs[idx].classList.add('active');tabs[idx].setAttribute('aria-selected','true')}
   if(targetId){
     setTimeout(function(){
       var el=document.getElementById(targetId);
@@ -5759,12 +5780,12 @@ function toggleComp(el){el.closest('.comp-section').classList.toggle('expanded')
     var idx=Math.round(((mx-pad.l)/cw)*(n-1));
     if(idx<0||idx>=n){tooltip.style.display='none';return}
     var d=history[idx];var ts=(d.timestamp||'').replace('T',' ').substring(0,16);
-    var htm='<div style="font-weight:700;margin-bottom:3px">'+ts+'</div>'
-      +'<div style="color:#38bdf8">Score: <b>'+d.score+'</b></div>'
-      +'<div style="color:#ef4444">Failed: <b>'+(d.failed||0)+'</b> | Critical: <b>'+(d.critical||0)+'</b> | High: <b>'+(d.high||0)+'</b></div>'
-      +'<div style="color:#f59e0b">Warnings: <b>'+(d.warnings||d.warn||0)+'</b></div>'
-      +'<div style="color:#64748b">Passed: '+(d.passed||0)+' / Total: '+(d.total||0)+'</div>';
-    if(d.compliance){var ckeys=Object.keys(d.compliance);if(ckeys.length>0){htm+='<div style="border-top:1px solid #334155;margin-top:4px;padding-top:4px;font-size:11px">';for(var ci=0;ci<ckeys.length;ci++){var ck=ckeys[ci],cv=d.compliance[ck];htm+='<div style="color:'+(cv.fail>0?'#ef4444':'#22c55e')+'">'+ck+': <b>'+cv.pass+'</b>P / <b>'+cv.fail+'</b>F</div>'}htm+='</div>'}}
+    var htm='<div style="font-weight:700;margin-bottom:3px">'+_esc(ts)+'</div>'
+      +'<div style="color:#38bdf8">Score: <b>'+_esc(''+d.score)+'</b></div>'
+      +'<div style="color:#ef4444">Failed: <b>'+_esc(''+(d.failed||0))+'</b> | Critical: <b>'+_esc(''+(d.critical||0))+'</b> | High: <b>'+_esc(''+(d.high||0))+'</b></div>'
+      +'<div style="color:#f59e0b">Warnings: <b>'+_esc(''+(d.warnings||d.warn||0))+'</b></div>'
+      +'<div style="color:#64748b">Passed: '+_esc(''+(d.passed||0))+' / Total: '+_esc(''+(d.total||0))+'</div>';
+    if(d.compliance){var ckeys=Object.keys(d.compliance);if(ckeys.length>0){htm+='<div style="border-top:1px solid #334155;margin-top:4px;padding-top:4px;font-size:11px">';for(var ci=0;ci<ckeys.length;ci++){var ck=ckeys[ci],cv=d.compliance[ck];htm+='<div style="color:'+(cv.fail>0?'#ef4444':'#22c55e')+'">'+_esc(ck)+': <b>'+_esc(''+cv.pass)+'</b>P / <b>'+_esc(''+cv.fail)+'</b>F</div>'}htm+='</div>'}}
     tooltip.innerHTML=htm;
     tooltip.style.display='block';
     var tx=mx+12;if(tx+tooltip.offsetWidth>rect.width)tx=mx-tooltip.offsetWidth-12;
@@ -5788,25 +5809,52 @@ var SETUP_CONFIGS={
   llm:{title:'\uD83E\uDD16 LLM setup',methods:[{type:'cli',label:'promptfoo install',desc:'For LLM security scanning.',cmds:['npm install -g promptfoo','promptfoo init']},{type:'apikey',label:'OpenAI',desc:'For OpenAI model testing.',cmds:['export OPENAI_API_KEY=sk-...']},{type:'apikey',label:'Anthropic',desc:'For Claude model testing.',cmds:['export ANTHROPIC_API_KEY=sk-ant-...']}],docs:'https://www.promptfoo.dev/docs/red-team/',warn:'Set rate limit and spending limit for LLM API keys.'},
   datadog:{title:'\uD83D\uDCCA Datadog setup (recommended)',methods:[{type:'apikey',label:'API Key (recommended)',desc:'Use scoped API keys with least privilege.',cmds:['export DD_API_KEY=<your-api-key>','# Optional: use DD_APP_KEY instead']},{type:'apikey',label:'Application Key',desc:'For management operations and dashboard keys.',cmds:['export DD_APP_KEY=<your-app-key>']}],docs:'https://docs.datadoghq.com/account_management/api-app-keys/',warn:'Recommended: set API/App Key via env only; add .env to .gitignore. Least privilege (NIST AC-6).'}
 };
+function _esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function openSetup(provider){
   var c=SETUP_CONFIGS[provider];if(!c)return;
-  document.getElementById('setupModalTitle').innerHTML=c.title;
+  document.getElementById('setupModalTitle').textContent='';
+  document.getElementById('setupModalTitle').insertAdjacentHTML('afterbegin',c.title);
   var body=document.getElementById('setupModalBody'),html='';
   c.methods.forEach(function(m){
     var bc=m.type==='oauth'?'oauth':m.type==='cli'?'cli':'apikey';
     var bl=m.type==='oauth'?'OAuth':m.type==='cli'?'CLI':'API Key';
-    html+='<div class="setup-method"><div class="setup-method-label"><span class="method-badge '+bc+'">'+bl+'</span> '+m.label+'</div><p>'+m.desc+'</p>';
-    if(m.cmds&&m.cmds.length>0){html+='<div class="setup-cmd"><code>'+m.cmds.join('\n')+'</code><button class="setup-cmd-copy" onclick="copyCmd(this)">Copy</button></div>'}
+    html+='<div class="setup-method"><div class="setup-method-label"><span class="method-badge '+bc+'">'+_esc(bl)+'</span> '+_esc(m.label)+'</div><p>'+_esc(m.desc)+'</p>';
+    if(m.cmds&&m.cmds.length>0){html+='<div class="setup-cmd"><code>'+_esc(m.cmds.join('\n'))+'</code><button class="setup-cmd-copy" onclick="copyCmd(this)">Copy</button></div>'}
     html+='</div>';
   });
-  if(c.warn)html+='<div class="setup-warning"><span>\uD83D\uDD12</span><span>'+c.warn+'</span></div>';
-  if(c.docs)html+='<div style="margin-top:1rem;text-align:center"><a href="'+c.docs+'" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem;text-decoration:underline">View documentation</a></div>';
+  if(c.warn)html+='<div class="setup-warning"><span>\uD83D\uDD12</span><span>'+_esc(c.warn)+'</span></div>';
+  if(c.docs)html+='<div style="margin-top:1rem;text-align:center"><a href="'+_esc(c.docs)+'" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem;text-decoration:underline">View documentation</a></div>';
   body.innerHTML=html;
   document.getElementById('setupModal').classList.add('open');document.body.style.overflow='hidden';
+  body.querySelector('.setup-modal-close,button')&&body.querySelector('.setup-modal-close,button').focus();
 }
 function closeSetup(){document.getElementById('setupModal').classList.remove('open');document.body.style.overflow=''}
-function copyCmd(btn){var code=btn.previousElementSibling;navigator.clipboard.writeText(code.textContent).then(function(){btn.textContent='Copied';btn.classList.add('copied');setTimeout(function(){btn.textContent='Copy';btn.classList.remove('copied')},2000)})}
+function copyCmd(btn){var code=btn.previousElementSibling;navigator.clipboard.writeText(code.textContent).then(function(){btn.textContent='Copied';btn.classList.add('copied');showToast('Command copied to clipboard');setTimeout(function(){btn.textContent='Copy';btn.classList.remove('copied')},2000)})}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeSetup()});
+/* Keyboard navigation for tabs */
+document.getElementById('mainTabs').addEventListener('keydown',function(e){
+  if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
+  var tabs=Array.from(this.querySelectorAll('.tab'));
+  var cur=tabs.findIndex(function(t){return t.classList.contains('active')});
+  if(cur<0)return;
+  var next=e.key==='ArrowRight'?(cur+1)%tabs.length:(cur-1+tabs.length)%tabs.length;
+  tabs[next].click();tabs[next].focus();
+  e.preventDefault();
+});
+/* Debounced search */
+var _apFilterTimer;
+var _origApFilter=apFilterProducts;
+apFilterProducts=function(q){clearTimeout(_apFilterTimer);_apFilterTimer=setTimeout(function(){_origApFilter(q)},150)};
+/* Scroll-to-top and sticky header */
+var _scrollTopBtn=document.getElementById('scrollTopBtn');
+var _header=document.querySelector('header');
+window.addEventListener('scroll',function(){
+  var y=window.scrollY||document.documentElement.scrollTop;
+  if(_scrollTopBtn){if(y>400)_scrollTopBtn.classList.add('visible');else _scrollTopBtn.classList.remove('visible')}
+  if(_header){if(y>10)_header.classList.add('scrolled');else _header.classList.remove('scrolled')}
+},{passive:true});
+/* Toast helper */
+function showToast(msg){var t=document.getElementById('toast');if(!t)return;t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2500)}
 apRestoreChecks();
 </script>
 </body>
