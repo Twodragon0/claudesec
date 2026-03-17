@@ -91,6 +91,9 @@ tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 .gauge-fill{height:100%;border-radius:5px;transition:width .6s}
 .gauge-lbl{font-size:12px;color:var(--muted);min-width:110px}
 .gauge-val{font-size:12px;font-weight:600;min-width:70px;text-align:right}
+.scan-link-card{display:flex;flex-direction:column;padding:14px 16px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--text);text-decoration:none;transition:all .2s;font-size:14px;font-weight:600}
+.scan-link-card:hover{border-color:var(--accent);background:rgba(108,92,231,.08);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.1)}
+.scan-link-card span{font-size:11px;color:var(--muted);font-weight:400;margin-top:4px}
 .cat-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
 .cat-chip{padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid var(--border);background:var(--card);color:var(--muted);transition:all .2s}
 .cat-chip:hover,.cat-chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
@@ -373,7 +376,22 @@ function renderScan(d){
   var sc=d.claudesec||{},findings=sc.findings||[],hist=d.scan_history||[];
   var el=$('p-scan');
   var t=window._ts||{};
-  el.innerHTML=tsBar([{src:'ClaudeSec 스캔',time:t.claudesec_scan}])+'<div id="k-scan" class="kpis"></div><div class="g2"><div class="cd"><h3>스캔 점수</h3><div class="ring-wrap" id="scan-ring"></div></div><div class="cd"><h3>스캔 추이 <span style="margin-left:8px" id="scan-spark"></span></h3><div style="padding:16px" id="scan-trend"></div></div></div>'+(sc.compliance?'<div class="cd"><h3>\uCEF4\uD50C\uB77C\uC774\uC5B8\uC2A4 \uD504\uB808\uC784\uC6CC\uD06C</h3><div style="padding:16px" id="scan-comp"></div></div>':'')+'<div class="g2"><div class="cd"><h3>\uCE74\uD14C\uACE0\uB9AC\uBCC4 \uC2A4\uCE94 \uACB0\uACFC</h3><div style="padding:16px" id="scan-cats"></div></div><div class="cd"><h3>\uCDE8\uC57D\uC810 \uC0C1\uC138 <span class="bg" id="scan-fc"></span></h3><div class="stbl" id="scan-tbl-wrap"></div></div></div>';
+  var scanUrl='scan.html';
+  el.innerHTML=tsBar([{src:'ClaudeSec \uC2A4\uCE94',time:t.claudesec_scan}])
+    +'<div id="k-scan" class="kpis"></div>'
+    +'<div class="g2"><div class="cd"><h3>\uC2A4\uCE94 \uC810\uC218</h3><div class="ring-wrap" id="scan-ring"></div></div><div class="cd"><h3>\uC2A4\uCE94 \uCD94\uC774 <span style="margin-left:8px" id="scan-spark"></span></h3><div style="padding:16px" id="scan-trend"></div></div></div>'
+    +(sc.compliance?'<div class="cd"><h3>\uCEF4\uD50C\uB77C\uC774\uC5B8\uC2A4</h3><div style="padding:16px" id="scan-comp"></div></div>':'')
+    +'<div class="g2"><div class="cd"><h3>\uCE74\uD14C\uACE0\uB9AC\uBCC4</h3><div style="padding:16px" id="scan-cats"></div></div>'
+    +'<div class="cd"><h3>\uC8FC\uC694 \uCDE8\uC57D\uC810 <span class="bg" id="scan-fc"></span></h3><div id="scan-top"></div>'
+    +'<div style="padding:12px 16px;text-align:center;border-top:1px solid var(--border)"><a href="'+scanUrl+'" target="_blank" style="color:var(--accent);font-size:13px;font-weight:600;text-decoration:underline;text-underline-offset:3px">\uCDE8\uC57D\uC810 \uC0C1\uC138 \uBD84\uC11D \u2192 scan.html</a></div></div></div>'
+    +'<div class="cd" style="background:linear-gradient(135deg,rgba(108,92,231,.08),rgba(0,184,148,.05));border:1px dashed var(--accent)"><h3 style="border:none">\uD83D\uDD17 \uC0C1\uC138 \uBD84\uC11D \uB300\uC2DC\uBCF4\uB4DC</h3><div style="padding:0 18px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">'
+    +'<a href="'+scanUrl+'#tab-overview" target="_blank" class="scan-link-card">\uD83D\uDEE1 \uC2A4\uCE90\uB108 \uC804\uCCB4 \uACB0\uACFC<span>\uCE74\uD14C\uACE0\uB9AC\uBCC4 \uCDE8\uC57D\uC810 \uC0C1\uC138</span></a>'
+    +'<a href="'+scanUrl+'#tab-prowler" target="_blank" class="scan-link-card">\u2601 Prowler CSPM<span>\uD504\uB85C\uBC14\uC774\uB354\uBCC4 \uD074\uB77C\uC6B0\uB4DC \uBCF4\uC548</span></a>'
+    +'<a href="'+scanUrl+'#tab-bestpractices" target="_blank" class="scan-link-card">\uD83D\uDCDA Best Practices<span>OWASP \u00B7 \uBCF4\uC548 \uAD8C\uACE0\uC0AC\uD56D</span></a>'
+    +'<a href="'+scanUrl+'#tab-arch" target="_blank" class="scan-link-card">\uD83C\uDFD7 \uC544\uD0A4\uD14D\uCC98<span>\uBCF4\uC548 \uB3C4\uBA54\uC778 \uAD6C\uC870</span></a>'
+    +'<a href="'+scanUrl+'#tab-github" target="_blank" class="scan-link-card">\uD83D\uDC19 GitHub Security<span>\uB9AC\uD3EC \uBCF4\uC548 \uC810\uAC80</span></a>'
+    +'<a href="'+scanUrl+'#tab-networktools" target="_blank" class="scan-link-card">\uD83D\uDD2C \uB124\uD2B8\uC6CC\uD06C \uB3C4\uAD6C<span>\uC2A4\uCE94 \uB3C4\uAD6C \uD604\uD669</span></a>'
+    +'</div></div>';
   mkK($('k-scan'),[
     {l:'\uBCF4\uC548 \uB4F1\uAE09',v:sc.grade||'-',c:sc.grade==='A'?'g':sc.grade==='B'?'y':'r'},
     {l:'\uC810\uC218',v:(sc.score||0)+'/100',c:'b'},{l:'\uD1B5\uACFC',v:sc.passed||0,c:'g'},
@@ -396,36 +414,18 @@ function renderScan(d){
   var catCount={};findings.forEach(function(f){var c=f.category||'unknown';catCount[c]=(catCount[c]||0)+1});
   var catItems=Object.entries(catCount).map(function(e){return{l:catMap[e[0]]||e[0],v:e[1],color:e[1]>1?'var(--red)':'var(--yellow)'}});
   if(catItems.length)mkBar($('scan-cats'),catItems,Math.max.apply(null,catItems.map(function(x){return x.v})));
-  /* Expandable findings cards with location + remediation */
-  var tw=$('scan-tbl-wrap'),fhtml='';
-  findings.forEach(function(f){
+  /* Top findings summary (max 5) — click goes to scan.html */
+  var topF=findings.slice(0,5),topHtml='';
+  topF.forEach(function(f){
     var sevColor=f.severity==='critical'||f.severity==='high'?'var(--red)':f.severity==='warning'?'var(--yellow)':'var(--blue)';
-    var loc=f.location||'';
-    var locLines=loc.split('\n').filter(function(l){return l.trim()});
-    fhtml+='<div class="finding-card" style="border:1px solid var(--border);border-left:3px solid '+sevColor+';border-radius:8px;margin:0 12px 8px;overflow:hidden;cursor:pointer" onclick="var d=this.querySelector(\'.fc-detail\');var a=this.querySelector(\'.fc-arrow\');if(d.style.display===\'none\'){d.style.display=\'block\';a.textContent=\'\\u25BE\'}else{d.style.display=\'none\';a.textContent=\'\\u25B8\'}">';
-    fhtml+='<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--card2)">';
-    fhtml+='<span style="min-width:90px;font-family:monospace;font-size:11px;font-weight:700;color:var(--accent)">'+esc(f.id||'')+'</span>';
-    fhtml+=sevCh(f.severity);
-    fhtml+='<span style="flex:1;font-size:13px;font-weight:600">'+esc(f.title||'')+'</span>';
-    fhtml+=ch(catMap[f.category]||f.category||'','b');
-    fhtml+='<span class="fc-arrow" style="color:var(--muted);font-size:11px">\u25B8</span>';
-    fhtml+='</div>';
-    fhtml+='<div class="fc-detail" style="display:none;padding:14px 16px;border-top:1px dashed var(--border);background:var(--card)">';
-    if(f.details){fhtml+='<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">\uC870\uCE58\uBC29\uC548</div><div style="font-size:13px;line-height:1.6;padding:8px 12px;background:var(--card2);border-radius:6px;border-left:3px solid var(--accent)">'+esc(f.details)+'</div></div>';}
-    if(locLines.length>0){
-      fhtml+='<div><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">\uD0D0\uC9C0 \uC704\uCE58</div><div style="max-height:160px;overflow-y:auto;background:var(--bg);border-radius:6px;padding:8px 12px;font-family:monospace;font-size:11px;line-height:1.6;color:var(--muted)">';
-      locLines.forEach(function(line){
-        var trimmed=line.trim();
-        if(!trimmed)return;
-        var m=trimmed.match(/^([^:]+\.\w+:\d+)/);
-        fhtml+='<div style="padding:2px 0;border-bottom:1px solid var(--border)">'+(m?'<span style="color:var(--accent)">'+esc(m[1])+'</span>'+esc(trimmed.substring(m[0].length)):esc(trimmed))+'</div>';
-      });
-      fhtml+='</div></div>';
-    }
-    if(!f.details&&locLines.length===0){fhtml+='<div style="font-size:12px;color:var(--muted)">\uCD94\uAC00 \uC0C1\uC138 \uC815\uBCF4 \uC5C6\uC74C</div>';}
-    fhtml+='</div></div>';
+    topHtml+='<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border)">';
+    topHtml+='<span style="font-family:monospace;font-size:11px;font-weight:700;color:var(--accent);min-width:80px">'+esc(f.id||'')+'</span>';
+    topHtml+=sevCh(f.severity);
+    topHtml+='<span style="flex:1;font-size:12px">'+esc(f.title||'')+'</span>';
+    topHtml+=ch(catMap[f.category]||f.category||'','b');
+    topHtml+='</div>';
   });
-  tw.innerHTML=fhtml||'<div style="padding:20px;text-align:center;color:var(--muted)">\uD0D0\uC9C0\uB41C \uCDE8\uC57D\uC810\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.</div>';
+  $('scan-top').innerHTML=topHtml||'<div style="padding:16px;text-align:center;color:var(--muted)">\uD0D0\uC9C0\uB41C \uCDE8\uC57D\uC810 \uC5C6\uC74C</div>';
   $('scan-fc').textContent=findings.length+'\uAC74';
 }
 
@@ -435,7 +435,15 @@ function renderSec(d){
   var el=$('p-sec');
   var medSamples=pw.medium_fails_sample||[];
   var t=window._ts||{};
-  el.innerHTML=tsBar([{src:'Prowler',time:t.prowler},{src:'Datadog SIEM',time:t.datadog},{src:'ClaudeSec',time:t.claudesec_scan}])+'<div id="k-sec" class="kpis"></div>'+(Object.keys(byProv).length?'<div class="cd"><h3>프로바이더별 분석</h3><div class="fb" id="sec-fb"></div><div style="padding:16px" id="sec-prov"></div></div>':'')+'<div class="cd"><h3>\uC2EC\uAC01\uB3C4 \uBD84\uD3EC</h3><div style="padding:16px;display:flex;align-items:center;gap:24px" id="sec-sev"></div></div><div class="cd"><h3>Prowler \uCDE8\uC57D\uC810 (High/Critical) <span class="bg" id="prow-c"></span></h3><div id="t-prow" style="padding:12px 16px;max-height:480px;overflow-y:auto"></div></div><div class="cd"><h3>Medium \uCDE8\uC57D\uC810 <span class="bg" id="med-c"></span></h3><div id="t-med" style="padding:12px 16px;max-height:360px;overflow-y:auto"></div></div><div class="cd"><h3>ClaudeSec \uC2A4\uCE94 \uCDE8\uC57D\uC810 <span class="bg" id="cs-fc2"></span></h3><div id="t-cs2" style="padding:12px 16px;max-height:480px;overflow-y:auto"></div></div>';
+  var scanUrl='scan.html';
+  el.innerHTML=tsBar([{src:'Prowler',time:t.prowler},{src:'Datadog SIEM',time:t.datadog},{src:'ClaudeSec',time:t.claudesec_scan}])+'<div id="k-sec" class="kpis"></div>'
+    +(Object.keys(byProv).length?'<div class="cd"><h3>\uD504\uB85C\uBC14\uC774\uB354\uBCC4 \uBD84\uC11D</h3><div class="fb" id="sec-fb"></div><div style="padding:16px" id="sec-prov"></div></div>':'')
+    +'<div class="g2"><div class="cd"><h3>\uC2EC\uAC01\uB3C4 \uBD84\uD3EC</h3><div style="padding:16px;display:flex;align-items:center;gap:24px" id="sec-sev"></div></div>'
+    +'<div class="cd"><h3>\uC8FC\uC694 \uCDE8\uC57D\uC810 (Top 5) <span class="bg" id="prow-c"></span></h3><div id="t-prow" style="padding:12px 16px;max-height:300px;overflow-y:auto"></div>'
+    +'<div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:12px;flex-wrap:wrap">'
+    +'<a href="'+scanUrl+'#tab-prowler" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">Prowler \uC804\uCCB4 \uBCF4\uAE30 \u2192</a>'
+    +'<a href="'+scanUrl+'#tab-overview" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">ClaudeSec \uC0C1\uC138 \u2192</a>'
+    +'</div></div></div>';
   var sevD2=pw.fail_by_severity||{};
   mkK($('k-sec'),[
     {l:'ClaudeSec',v:sc.grade||'-',s:(sc.score||0)+'점',c:sc.grade==='A'?'g':sc.grade==='B'?'y':'r'},
@@ -454,34 +462,8 @@ function renderSec(d){
   var segs=[{v:sevD.Critical||0,color:'var(--red)',label:'Critical'},{v:sevD.High||0,color:'var(--orange)',label:'High'},{v:sevD.Medium||0,color:'var(--yellow)',label:'Medium'},{v:sevD.Low||0,color:'var(--blue)',label:'Low'}].filter(function(s){return s.v>0});
   $('sec-sev').innerHTML=(segs.length?donut(segs,100):'')+'<div>'+segs.map(function(s){return'<div style="font-size:12px;margin:2px 0"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+s.color+';margin-right:6px;vertical-align:middle"></span>'+esc(s.label)+': <strong>'+s.v+'</strong></div>'}).join('')+'</div>';
   window._prowAll=pw.critical_fails_sample||[];window._byProv=byProv;
-  _renderProw(window._prowAll);
-  /* Medium — expandable cards */
-  _renderProwCards($('t-med'),medSamples,'var(--yellow)');
-  $('med-c').textContent=medSamples.length+'\uAC74';
-  /* ClaudeSec findings — expandable cards with location + remediation */
-  var csFindings=sc.findings||[];
-  var catMap2={code:'\uCF54\uB4DC',infra:'\uC778\uD504\uB77C',cicd:'CI/CD','access-control':'\uC811\uADFC\uC81C\uC5B4',cloud:'\uD074\uB77C\uC6B0\uB4DC',saas:'SaaS',network:'\uB124\uD2B8\uC6CC\uD06C',ai:'AI/LLM'};
-  var cs2html='';
-  csFindings.forEach(function(f){
-    var sevColor=f.severity==='critical'||f.severity==='high'?'var(--red)':f.severity==='warning'?'var(--yellow)':'var(--blue)';
-    var loc=f.location||'';var locLines=loc.split('\n').filter(function(l){return l.trim()});
-    cs2html+='<div style="border:1px solid var(--border);border-left:3px solid '+sevColor+';border-radius:8px;margin-bottom:8px;overflow:hidden;cursor:pointer" onclick="var d=this.querySelector(\'.fc-detail\');var a=this.querySelector(\'.fc-arrow\');if(d.style.display===\'none\'){d.style.display=\'block\';a.textContent=\'\\u25BE\'}else{d.style.display=\'none\';a.textContent=\'\\u25B8\'}">';
-    cs2html+='<div style="display:flex;align-items:center;gap:8px;padding:9px 14px;background:var(--card2)">';
-    cs2html+='<span style="font-family:monospace;font-size:11px;font-weight:700;color:var(--accent);min-width:80px">'+esc(f.id||'')+'</span>';
-    cs2html+=sevCh(f.severity)+' '+ch(catMap2[f.category]||f.category||'','b');
-    cs2html+='<span style="flex:1;font-size:12px;font-weight:600">'+esc(f.title||'')+'</span>';
-    cs2html+='<span class="fc-arrow" style="color:var(--muted);font-size:10px">\u25B8</span></div>';
-    cs2html+='<div class="fc-detail" style="display:none;padding:12px 16px;border-top:1px dashed var(--border);background:var(--card)">';
-    if(f.details){cs2html+='<div style="margin-bottom:8px"><div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">\uC870\uCE58\uBC29\uC548</div><div style="font-size:12px;line-height:1.6;padding:6px 10px;background:var(--card2);border-radius:6px;border-left:3px solid var(--accent)">'+esc(f.details)+'</div></div>';}
-    if(locLines.length>0){
-      cs2html+='<div><div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">\uD0D0\uC9C0 \uC704\uCE58</div><div style="max-height:120px;overflow-y:auto;background:var(--bg);border-radius:6px;padding:6px 10px;font-family:monospace;font-size:10px;line-height:1.5;color:var(--muted)">';
-      locLines.forEach(function(line){var t=line.trim();if(!t)return;var m=t.match(/^([^:]+\.\w+:\d+)/);cs2html+='<div style="padding:1px 0;border-bottom:1px solid var(--border)">'+(m?'<span style="color:var(--accent)">'+esc(m[1])+'</span>'+esc(t.substring(m[0].length)):esc(t))+'</div>';});
-      cs2html+='</div></div>';
-    }
-    cs2html+='</div></div>';
-  });
-  $('t-cs2').innerHTML=cs2html||'<div style="padding:16px;text-align:center;color:var(--muted)">\uD0D0\uC9C0\uB41C \uCDE8\uC57D\uC810\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.</div>';
-  $('cs-fc2').textContent=csFindings.length+'\uAC74';
+  /* Show top 5 only — full list in scan.html */
+  _renderProw(window._prowAll.slice(0,5));
 }
 /* Prowler cards renderer */
 function _renderProwCards(el,rows,defaultColor){
@@ -519,13 +501,15 @@ function renderAsset(d){
   var t=window._ts||{};
   el.innerHTML=tsBar([{src:'Google Sheets',time:t.google_sheets}])+'<div id="k-asset" class="kpis"></div><div class="g2"><div class="cd"><h3>자산 분류별 현황</h3><div style="padding:16px" id="asset-bars"></div></div><div class="cd"><h3>SaaS \uC778\uC99D \uBC29\uC2DD \uBD84\uD3EC</h3><div style="padding:16px" id="auth-bars"></div></div></div>';
   var jamfCount=(d.jamf_pcs||[]).length;var sheetPc=ac.PC||0;
+  var jamfMobiles=d.jamf_mobiles||[];
   var pcGap=sheetPc-jamfCount;
   mkK($('k-asset'),[
     {l:'\uCD1D \uC790\uC0B0',v:totalAssets,c:'b'},
     {l:'PC (Jamf)',v:jamfCount,c:jamfCount?'a':'m',s:jamfCount?'\uAD00\uB9AC \uB2E8\uB9D0':'\uB370\uC774\uD130 \uC5C6\uC74C'},
+    {l:'\uBAA8\uBC14\uC77C (Jamf)',v:jamfMobiles.length,c:jamfMobiles.length?'c':'m',s:'QA \uAE30\uAE30'},
     {l:'PC (\uC2DC\uD2B8)',v:sheetPc,c:'a',s:'\uC790\uC0B0\uAD00\uB9AC\uB300\uC7A5'},
     {l:'\uBE44\uAD00\uB9AC PC',v:pcGap>0?pcGap:0,c:pcGap>10?'r':pcGap>0?'y':'g',s:pcGap>0?'\uB4F1\uB85D \uD544\uC694':'Jamf \uC804\uCCB4 \uAD00\uB9AC'}
-  ].concat(Object.entries(ac).filter(function(e){return e[0]!=='PC'}).slice(0,4).map(function(e){return{l:e[0],v:e[1],c:'a'}})));
+  ].concat(Object.entries(ac).filter(function(e){return e[0]!=='PC'}).slice(0,3).map(function(e){return{l:e[0],v:e[1],c:'a'}})));
   mkBar($('asset-bars'),Object.entries(ac).map(function(e){return{l:e[0],v:e[1],color:'var(--accent)'}}),Math.max.apply(null,Object.values(ac).concat([1])));
   var authMap={};saas.forEach(function(s){var a=s.auth||'N/A';authMap[a]=(authMap[a]||0)+1});
   var ai=Object.entries(authMap).sort(function(a,b){return b[1]-a[1]}).map(function(e){return{l:e[0],v:e[1],t:e[1]+'\uAC1C ('+Math.round(e[1]/saas.length*100)+'%)',color:e[0].toLowerCase().includes('okta')?'var(--blue)':e[0].toLowerCase().includes('google')?'var(--accent)':'var(--red)'}});
@@ -539,6 +523,15 @@ function renderAsset(d){
     window._jamfAll=jamfPcs;
     window._renderPc=function(pcs){mkT($('t-pc'),['\uD638\uC2A4\uD2B8\uBA85','\uBAA8\uB378','OS','\uC2DC\uB9AC\uC5BC','\uC0AC\uC6A9\uC790','\uBD80\uC11C','\uCD5C\uC885\uCCB4\uD06C\uC778'],pcs.map(function(p){var c=p.last_checkin||'';var old=c&&(new Date()-new Date(c))>7*86400e3;var departed=p.status==='departed';var nameCell=departed?esc(p.name||'')+' '+ch('\uD1F4\uC0AC','r'):esc(p.name||'');var checkinCell=departed?ch(c.substring(0,10),'r'):(old?ch(c.substring(0,10),'r'):ch(c.substring(0,10),'g'));return[nameCell,esc(p.model||''),esc(p.os||''),esc(p.serial||''),esc(p.user||''),esc(p.department||''),checkinCell]}));$('pc-c').textContent=pcs.length+'\uB300'};
     window._renderPc(jamfPcs);
+  }
+  /* Jamf Mobile devices (QA) */
+  if(jamfMobiles.length){
+    el.innerHTML+='<div class="cd"><h3>\uD83D\uDCF1 \uBAA8\uBC14\uC77C QA \uAE30\uAE30 (Jamf Pro) <span class="bg" id="mob-c"></span></h3><div class="stbl"><table id="t-mob"></table></div></div>';
+    mkT($('t-mob'),['\uAE30\uAE30\uBA85','\uBAA8\uB378','OS','\uC2DC\uB9AC\uC5BC','IMEI','\uCD5C\uC885 \uC5C5\uB370\uC774\uD2B8'],jamfMobiles.map(function(m){
+      var c=m.last_checkin||'';var old=c&&(new Date()-new Date(c))>14*86400e3;
+      return[esc(m.name||''),esc(m.model||''),'iOS '+esc(m.os||''),esc(m.serial||''),esc(m.imei||'-'),old?ch(c.substring(0,10),'r'):ch(c.substring(0,10),'g')]
+    }));
+    $('mob-c').textContent=jamfMobiles.length+'\uB300';
   }
 }
 window._fpc=function(dept,el){document.querySelectorAll('#pc-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');var list=dept==='all'?window._jamfAll:window._jamfAll.filter(function(p){return(p.department||'N/A')===dept});window._renderPc(list)};

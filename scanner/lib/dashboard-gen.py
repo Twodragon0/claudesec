@@ -5515,6 +5515,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 </header>
 
 <nav class="tabs" id="mainTabs" role="tablist" aria-label="Dashboard sections">
+  <a href="/" style="display:flex;align-items:center;gap:4px;padding:11px 14px;color:var(--accent);font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap;border-right:1px solid var(--border);margin-right:4px" title="ISMS 통합 대시보드로 이동">&larr; 자산관리</a>
   <button class="tab active" role="tab" aria-selected="true" aria-controls="tab-overview" onclick="switchTab('overview')">Overview</button>
   <button class="tab" role="tab" aria-selected="false" aria-controls="tab-prowler" onclick="switchTab('prowler')">Prowler CSPM</button>
   <button class="tab" role="tab" aria-selected="false" aria-controls="tab-github" onclick="switchTab('github')">GitHub Security</button>
@@ -6167,6 +6168,8 @@ apRestoreChecks();
 function toggleTheme(){var t=document.documentElement;var cur=t.getAttribute('data-theme');var next=cur==='light'?'dark':'light';t.setAttribute('data-theme',next);try{localStorage.setItem('claudesec-theme',next)}catch(e){}}
 (function(){try{var t=localStorage.getItem('claudesec-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}})();
 function filterScannerSev(val){var rows=document.querySelectorAll('.scanner-table tbody tr');var shown=0;var total=0;rows.forEach(function(r){if(r.classList.contains('cat-header')||r.classList.contains('row-detail'))return;total++;if(val==='all'){r.style.display='';shown++;return}var show=false;if(val==='critical')show=r.classList.contains('sev-critical');else if(val==='high')show=r.classList.contains('sev-critical')||r.classList.contains('sev-high');else if(val==='warning')show=r.classList.contains('sev-warning');r.style.display=show?'':'none';if(show)shown++});var el=document.getElementById('scannerFilterCount');if(el)el.textContent=val==='all'?'':'('+shown+'/'+total+')'}
+/* Hash-based tab navigation (for links from asset dashboard) */
+(function(){var h=location.hash.replace('#','');if(h&&h.startsWith('tab-')){var tab=h.replace('tab-','');setTimeout(function(){switchTab(tab)},100)}window.addEventListener('hashchange',function(){var h2=location.hash.replace('#','');if(h2&&h2.startsWith('tab-'))switchTab(h2.replace('tab-',''))})})();
 </script>
 </body>
 </html>"""
