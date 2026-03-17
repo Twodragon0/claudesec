@@ -797,7 +797,13 @@ def _cross_verify_ec2(aws_ec2: list, sheet_servers: list) -> dict:
 def load_aws_live_data():
     """Load AWS describe results from .claudesec-assets/aws-*.json files"""
     result = {"ec2": [], "rds": [], "elasticache": [], "s3": [], "eks": []}
-    aws_profiles = ["dive-dev", "dive-prod", "web3-prod", "playground"]
+    aws_profiles = [p.strip() for p in os.environ.get("AWS_PROFILES", "").split(",") if p.strip()]
+    if not aws_profiles:
+        # Fallback: scan .claudesec-assets for aws-ec2-*.json files
+        for f in sorted(ASSETS_DIR.glob("aws-ec2-*.json")):
+            p = f.stem.replace("aws-ec2-", "")
+            if p not in aws_profiles:
+                aws_profiles.append(p)
     for profile in aws_profiles:
         for rtype in ["ec2", "rds", "rds-clusters", "elasticache", "s3", "eks"]:
             fpath = ASSETS_DIR / f"aws-{rtype}-{profile}.json"
