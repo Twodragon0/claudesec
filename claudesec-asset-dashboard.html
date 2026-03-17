@@ -127,26 +127,22 @@ tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 
 <div class="tabs" id="tabs">
 <div class="tab active" data-p="isms">ISMS PDCA<span class="badge" id="b-isms"></span></div>
-<div class="tab" data-p="scan">ClaudeSec 스캔<span class="badge" id="b-scan"></span></div>
-<div class="tab" data-p="sec">보안 현황<span class="badge" id="b-sec"></span></div>
+<div class="tab" data-p="sec">보안<span class="badge" id="b-sec"></span></div>
 <div class="tab" data-p="asset">자산 관리<span class="badge" id="b-asset"></span></div>
 <div class="tab" data-p="infra">인프라<span class="badge" id="b-infra"></span></div>
 <div class="tab" data-p="saas">SaaS·라이선스<span class="badge" id="b-saas"></span></div>
 <div class="tab" data-p="cost">비용 분석<span class="badge" id="b-cost"></span></div>
 <div class="tab" data-p="ai">AI 구독<span class="badge" id="b-ai"></span></div>
-<div class="tab" data-p="sig">보안 시그널<span class="badge" id="b-sig"></span></div>
 </div>
 
 <div class="wrap">
 <div class="pnl active" id="p-isms"></div>
-<div class="pnl" id="p-scan"></div>
 <div class="pnl" id="p-sec"></div>
 <div class="pnl" id="p-asset"></div>
 <div class="pnl" id="p-infra"></div>
 <div class="pnl" id="p-saas"></div>
 <div class="pnl" id="p-cost"></div>
 <div class="pnl" id="p-ai"></div>
-<div class="pnl" id="p-sig"></div>
 </div>
 
 <script>
@@ -313,22 +309,20 @@ function render(d){
 
   /* Tab badges */
   $('b-isms').textContent=ismsTotal+'%';
-  $('b-scan').textContent=sc.grade||'-';
-  $('b-sec').textContent=(pw.fail||0)>0?pw.fail:'\u2713';
+  $('b-sec').textContent=(sc.grade||'-')+'/'+(pw.fail||0);
   $('b-asset').textContent=totalAssets;
   $('b-infra').textContent=hosts.length;
   $('b-saas').textContent=saas.length;
   $('b-cost').textContent='\u20A9'+fmt(totalCost);
   $('b-ai').textContent=ai.length;
-  $('b-sig').textContent=sigs.length;
 
   /* Render ISMS tab (always first) */
   renderISMS(d,{planScore:planScore,doScore:doScore,checkScore:checkScore,actScore:actScore,ismsTotal:ismsTotal,totalAssets:totalAssets,ssoCount:ssoCount,idpwCount:idpwCount,activeL:activeL});
 
   /* Register lazy renderers */
-  renderers.scan=renderScan;renderers.sec=renderSec;renderers.asset=renderAsset;
+  renderers.sec=renderSecUnified;renderers.asset=renderAsset;
   renderers.infra=renderInfra;renderers.saas=renderSaaS;renderers.cost=renderCost;
-  renderers.ai=renderAI;renderers.sig=renderSig;
+  renderers.ai=renderAI;
 }
 
 /* ═══ ISMS PDCA ═══ */
@@ -390,9 +384,91 @@ function renderISMS(d,s){
 }
 
 /* ═══ ClaudeSec Scan ═══ */
+/* ═══ Unified Security Tab ═══ */
+function renderSecUnified(d){
+  var el=$('p-sec');var t=window._ts||{};
+  var sc=d.claudesec||{},pw=d.prowler||{},sigs=(d.datadog||{}).signals||[],byProv=pw.by_provider||{};
+  var audits=d.notion_audits||[];var findings=sc.findings||[];var s1t=d.s1_threats||[];
+  var sevD=pw.fail_by_severity||{};
+  var scanUrl='scan.html';
+  el.innerHTML=tsBar([{src:'ClaudeSec',time:t.claudesec_scan},{src:'Prowler',time:t.prowler},{src:'Datadog SIEM',time:t.datadog},{src:'Notion',time:t.notion}])
+    +'<div id="k-sec" class="kpis"></div>'
+    +'<div class="g2"><div class="cd"><h3>ClaudeSec 스캔 점수</h3><div class="ring-wrap" id="scan-ring"></div></div>'
+    +'<div class="cd"><h3>심각도 분포</h3><div style="padding:16px;display:flex;align-items:center;gap:24px" id="sec-sev"></div></div></div>'
+    +(Object.keys(byProv).length?'<div class="cd"><h3>프로바이더별 분석</h3><div class="fb" id="sec-fb"></div><div style="padding:16px" id="sec-prov"></div></div>':'')
+    +'<div class="g2"><div class="cd"><h3>주요 취약점 (Top 5) <span class="bg" id="prow-c"></span></h3><div id="t-prow" style="padding:12px 16px;max-height:300px;overflow-y:auto"></div>'
+    +'<div style="padding:10px 16px;border-top:1px solid var(--border)"><a href="'+scanUrl+'" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">DevSecOps 상세 →</a></div></div>'
+    +'<div class="cd"><h3>ClaudeSec 취약점 <span class="bg" id="scan-fc"></span></h3><div class="stbl" id="scan-tbl-wrap"></div></div></div>'
+    +'<div class="cd"><h3>정보보호 규정·지침 현황 <span class="bg" id="pol-c"></span></h3><div id="pol-area" style="padding:16px"></div></div>'
+    +'<div class="cd"><h3>Notion 보안 정기점검 이력 <span class="bg" id="audit-c"></span></h3><div id="t-audit" style="padding:12px 16px;max-height:400px;overflow-y:auto"></div></div>'
+    +'<div class="cd"><h3>Datadog 보안 시그널 (최근 14일) <span class="bg" id="sig-c"></span></h3><div class="stbl"><table id="t-sig"></table></div></div>';
+
+  /* KPIs */
+  mkK($('k-sec'),[
+    {l:'ClaudeSec',v:sc.grade||'-',s:(sc.score||0)+'점',c:sc.grade==='A'?'g':sc.grade==='B'?'y':'r'},
+    {l:'Prowler FAIL',v:pw.fail||0,c:'r',s:'총 '+(pw.total||0)},
+    {l:'High',v:sevD.High||0,c:(sevD.High||0)>0?'r':'y'},
+    {l:'SIEM',v:sigs.length+'건',c:sigs.length>5?'y':'g',s:'14일'},
+    {l:'정기점검',v:audits.length+'회',c:'b'},
+    {l:'S1 위협',v:(d.sentinelone||[]).reduce(function(a,b){return a+(b.threats||0)},0),c:'r'},
+  ]);
+
+  /* Score ring */
+  var clr=sc.grade==='A'?'var(--green)':sc.grade==='B'?'var(--yellow)':'var(--red)';
+  $('scan-ring').innerHTML=scoreRing(sc.score||0,100,sc.grade||'-',clr,120);
+
+  /* Severity donut */
+  var segs=[{v:sevD.Critical||0,color:'var(--red)',label:'Critical'},{v:sevD.High||0,color:'var(--orange)',label:'High'},{v:sevD.Medium||0,color:'var(--yellow)',label:'Medium'},{v:sevD.Low||0,color:'var(--blue)',label:'Low'}].filter(function(s){return s.v>0});
+  $('sec-sev').innerHTML=(segs.length?donut(segs,100):'')+'<div>'+segs.map(function(s){return'<div style="font-size:12px;margin:2px 0"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+s.color+';margin-right:6px;vertical-align:middle"></span>'+esc(s.label)+': <strong>'+s.v+'</strong></div>'}).join('')+'</div>';
+
+  /* Provider bars */
+  if(Object.keys(byProv).length){
+    var pe=Object.entries(byProv);
+    $('sec-fb').innerHTML='<span class="fb-btn on" onclick="window._fprow(\'all\',this)">전체</span>'+pe.map(function(e){return'<span class="fb-btn" onclick="window._fprow(\''+esc(e[0])+'\',this)">'+esc(e[0].toUpperCase())+'</span>'}).join('');
+    mkBar($('sec-prov'),pe.map(function(e){return{l:e[0].toUpperCase(),v:e[1].fail||0,t:'FAIL '+(e[1].fail||0)+' / PASS '+(e[1].pass||0),color:(e[1].fail||0)>10?'var(--red)':(e[1].fail||0)>0?'var(--yellow)':'var(--green)'}}),Math.max.apply(null,pe.map(function(e){return e[1].fail||0}).concat([1])));
+  }
+
+  /* Prowler top findings */
+  window._prowAll=pw.critical_fails_sample||[];window._byProv=byProv;
+  _renderProw(window._prowAll.slice(0,5));
+
+  /* ClaudeSec findings */
+  var fhtml='';
+  findings.forEach(function(f){
+    var sevColor=f.severity==='critical'||f.severity==='high'?'var(--red)':'var(--yellow)';
+    fhtml+='<div style="border:1px solid var(--border);border-left:3px solid '+sevColor+';border-radius:8px;margin:0 0 8px;padding:10px 14px;font-size:12px">';
+    fhtml+=sevCh(f.severity)+' <strong>'+esc(f.id||'')+'</strong> '+esc(f.title||'');
+    if(f.details)fhtml+='<div style="color:var(--muted);margin-top:4px;font-size:11px">'+esc(f.details.substring(0,120))+'</div>';
+    fhtml+='</div>';
+  });
+  $('scan-tbl-wrap').innerHTML=fhtml||'<div style="padding:16px;text-align:center;color:var(--muted)">취약점 없음</div>';
+  $('scan-fc').textContent=findings.length+'건';
+
+  /* Policies */
+  _renderPolicies(d);
+
+  /* Notion audits */
+  var auditHtml='';
+  audits.forEach(function(a){
+    var impN=parseInt(a.impact)||0;
+    auditHtml+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px">';
+    auditHtml+='<span style="min-width:80px;color:var(--muted)">'+esc(a.date||'')+'</span>';
+    auditHtml+='<a href="'+esc(a.url||'')+'" target="_blank" style="flex:1;color:var(--accent);font-weight:600">'+esc(a.title||'')+'</a>';
+    auditHtml+=impN>=8?ch(a.impact,'r'):impN>=5?ch(a.impact,'y'):ch(a.impact,'g');
+    auditHtml+='</div>';
+  });
+  $('t-audit').innerHTML=auditHtml||'<div style="padding:16px;color:var(--muted);text-align:center">점검 이력 없음</div>';
+  $('audit-c').textContent=audits.length+'회';
+
+  /* Datadog signals */
+  mkT($('t-sig'),['발생시각','심각도','상태','제목'],sigs.map(function(s){return[esc((s.timestamp||'').substring(0,16)),sevCh(s.severity),esc(s.status||''),esc((s.title||'').substring(0,80))]}));
+  $('sig-c').textContent=sigs.length+'건';
+}
+
+/* (legacy — kept for compatibility) */
 function renderScan(d){
   var sc=d.claudesec||{},findings=sc.findings||[],hist=d.scan_history||[];
-  var el=$('p-scan');
+  var el=document.createElement('div');
   var t=window._ts||{};
   var scanUrl='scan.html';
   el.innerHTML=tsBar([{src:'ClaudeSec \uC2A4\uCE94',time:t.claudesec_scan}])
