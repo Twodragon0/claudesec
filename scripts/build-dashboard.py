@@ -399,6 +399,20 @@ def collect_jamf_pcs():
     return pcs
 
 
+def collect_intune_pcs():
+    """Collect Intune managed PC data from cache/CSV."""
+    cache_path = ASSETS_DIR / "intune-computers.json"
+    if cache_path.exists():
+        try:
+            pcs = json.loads(cache_path.read_text())
+            print(f"  Intune PC: {len(pcs)}대")
+            return pcs
+        except Exception:
+            pass
+    print("  Intune PC: 데이터 없음")
+    return []
+
+
 def collect_sheets():
     """Google Sheets 데이터 수집"""
     print("  Google Sheets 연결...")
@@ -827,6 +841,7 @@ def main():
     prowler = collect_prowler()
     notion_audits = collect_notion_audits()
     jamf_pcs = collect_jamf_pcs()
+    intune_pcs = collect_intune_pcs()
     # Load mobile devices if available
     jamf_mobiles = []
     mobile_inv = ASSETS_DIR / "jamf-full-inventory.json"
@@ -893,6 +908,7 @@ def main():
         "endpoint_crossverify": ep_crossverify,
         "notion_audits": notion_audits,
         "jamf_pcs": jamf_pcs,
+        "intune_pcs": intune_pcs,
         "jamf_mobiles": jamf_mobiles,
     }
 
