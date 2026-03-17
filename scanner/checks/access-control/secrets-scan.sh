@@ -124,7 +124,9 @@ for entry in "${SECRET_PATTERNS[@]}"; do
        -o -name "Dockerfile*" -o -name "docker-compose*" \) \
     -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/vendor/*" \
     -not -path "*/dist/*" -not -path "*/.env.example" -not -path "*/scanner/*" \
-    -not -path "*/hooks/*" -not -path "*/.claudesec-prowler/*" -not -path "*/.claudesec-history/*" \
+    -not -path "*/hooks/*" -not -path "*/.venv*/*" -not -path "*/venv/*" \
+    -not -path "*/.claudesec-prowler/*" -not -path "*/.claudesec-history/*" \
+    -not -path "*/.claudesec-assets/*" \
     -exec grep -lE "$secret_pattern" {} \; 2>/dev/null | head -3 || true)
 
   if [[ -n "$hit" ]]; then
