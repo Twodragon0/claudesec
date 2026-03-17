@@ -17,7 +17,7 @@ import gspread
 
 # ── 설정 ─────────────────────────────────────────────────────────────────────
 
-SHEET_ID   = "REDACTED_SHEET_ID"
+SHEET_ID   = "YOUR_SHEET_ID"
 WORKSHEET  = "5.PC"
 HEADER_ROW = 8   # row 8 = 헤더 (1-indexed)
 DATA_START  = 9  # row 9 = 데이터 시작
