@@ -85,3 +85,7 @@ tmp-*.png
 
 # Claude Code
 .claude/
+
+# Architecture diagrams (auto-generated, may contain scan-specific data)
+docs/architecture/*.svg
+docs/architecture/*.drawio
