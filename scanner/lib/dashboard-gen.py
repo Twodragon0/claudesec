@@ -3201,8 +3201,18 @@ def _build_scanner_section(findings_list):
             )
             location = h(f.get("location", ""))
             loc_html = f' <span class="scan-loc">📍 <code>{location}</code></span>' if location else ""
-            scanner_rows += f'<tr class="{sev_cls}"><td>{badge}</td><td><span class="scan-status-{sev}">{status_icon} {status_label}</span></td><td class="mono">{fid}</td><td>{title}{loc_html}</td><td class="fix">{details if details else "<em>-</em>"}</td></tr>'
-        scanner_cat_summary += f'<div class="scat-chip"><span class="scat-icon">{meta["icon"]}</span><span class="scat-label">{meta["label"]}</span><span class="scat-cnt">{len(items)}</span></div>'
+            has_expandable = location or details
+            row_cls = f'{sev_cls} expandable' if has_expandable else sev_cls
+            toggle = ' onclick="toggleRow(this)"' if has_expandable else ""
+            scanner_rows += f'<tr class="{row_cls}"{toggle}><td>{badge}</td><td><span class="scan-status-{sev}">{status_icon} {status_label}</span></td><td class="mono">{fid}</td><td>{title}</td><td class="fix">{details if details else "<em>-</em>"}</td></tr>'
+            if has_expandable:
+                detail_parts = []
+                if details:
+                    detail_parts.append(f'<p style="margin-bottom:.4rem"><strong>Remediation:</strong> {details}</p>')
+                if location:
+                    detail_parts.append(f'<p style="margin-top:.3rem"><strong>Location:</strong> <code style="font-size:.75rem;word-break:break-all">{location}</code></p>')
+                scanner_rows += f'<tr class="row-detail"><td colspan="5"><div class="detail-panel">{"".join(detail_parts)}</div></td></tr>'
+        scanner_cat_summary += f'<div class="scat-chip" onclick="document.getElementById(\'scanner-cat-{cat}\').scrollIntoView({{behavior:\'smooth\',block:\'center\'}});" title="Jump to {h(meta["label"])} findings"><span class="scat-icon">{meta["icon"]}</span><span class="scat-label">{meta["label"]}</span><span class="scat-cnt">{len(items)}</span></div>'
     if not scanner_rows:
         scanner_rows = '<tr><td colspan="5" class="scan-empty" style="padding:1.5rem;text-align:center;color:var(--muted);font-size:.9rem">No failed or warning findings from the local scanner. All reported checks passed or were skipped.</td></tr>'
 
@@ -3254,7 +3264,8 @@ def _build_scanner_section(findings_list):
         sev = (f.get("severity") or "medium").lower()
         title = h(f.get("title") or "Untitled finding")
         fid = h(f.get("id") or "N/A")
-        detail_list += f'<li><span class="si-sev si-{sev}">{sev}</span><span class="mono">{fid}</span> {title}</li>'
+        fcat = f.get("category") or _infer_category(f.get("id", ""))
+        detail_list += f'<li onclick="document.getElementById(\'scanner-cat-{fcat}\').scrollIntoView({{behavior:\'smooth\',block:\'center\'}});" title="Jump to {fid}"><span class="si-sev si-{sev}">{sev}</span><span class="mono">{fid}</span> {title}</li>'
     if not detail_list:
         detail_list = "<li>No outstanding scanner findings.</li>"
 
@@ -3959,6 +3970,9 @@ _TEMPLATE_KEYS = [
     "SCANNER_CAT_SUMMARY",
     "SCANNER_INSIGHTS_HTML",
     "SCANNER_TOTAL",
+    "PASS_PCT",
+    "FAIL_PCT",
+    "WARN_PCT",
     "GH_TABLE",
     "GH_TOTAL",
     "AWS_TABLE",
@@ -4618,7 +4632,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         + (scanner_cat_links_html if scanner_cat_links_html else h(scanner_cat_text))
         + "</div>"
         + f'<div style="margin-top:.25rem"><strong style="color:var(--text)">Scan root:</strong> <code class="scan-root-path" title="{h(scan_dir)}">{h(scan_root_short)}</code>{scan_root_badge}</div>'
-        + '<div style="margin-top:.4rem;display:flex;flex-wrap:wrap;gap:.75rem;align-items:center"><a href="#" onclick="switchTab(\'overview\',\'scanner-section\');return false;" style="color:var(--accent);text-decoration:underline;font-weight:600">Open local scanner results</a><label style="display:flex;align-items:center;gap:.35rem"><span style="color:var(--text);font-weight:600">Prowler summary</span><select class="scope-select" onchange="openProwlerFromOverview(this)">'
+        + '<div style="margin-top:.4rem;display:flex;flex-wrap:wrap;gap:.75rem;align-items:center"><a href="#scanner-section" onclick="document.getElementById(\'scanner-section\').scrollIntoView({behavior:\'smooth\'});return false;" style="color:var(--accent);text-decoration:underline;font-weight:600">View scanner results ↓</a><label style="display:flex;align-items:center;gap:.35rem"><span style="color:var(--text);font-weight:600">Prowler summary</span><select class="scope-select" onchange="openProwlerFromOverview(this)">'
         + prowler_selector_options_html
         + "</select></label></div>"
         + "</div>"
@@ -5025,6 +5039,9 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         scanner_cat_summary,
         scanner_insights_html,
         total,
+        round(passed / total * 100) if total else 0,
+        round(failed / total * 100) if total else 0,
+        round(warnings / total * 100) if total else 0,
         gh_table,
         len(gh_finds),
         aws_table,
@@ -5075,6 +5092,28 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <title>ClaudeSec Security Dashboard</title>
 <style>
 :root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--accent-glow:rgba(56,189,248,.15);--success:#22c55e;--danger:#ef4444;--warning:#eab308;--radius:12px;--transition:.2s cubic-bezier(.4,0,.2,1);--shadow-sm:0 1px 3px rgba(0,0,0,.3);--shadow-md:0 4px 12px rgba(0,0,0,.4);--shadow-lg:0 8px 24px rgba(0,0,0,.5)}
+[data-theme="light"]{--bg:#f8fafc;--surface:#ffffff;--border:#e2e8f0;--text:#1e293b;--muted:#64748b;--accent:#0284c7;--shadow-sm:0 1px 2px rgba(0,0,0,.06);--shadow-md:0 4px 6px rgba(0,0,0,.08);--shadow-lg:0 10px 15px rgba(0,0,0,.1)}
+[data-theme="light"] .badge.critical{background:#fef2f2;color:#dc2626;border:1px solid #fecaca}
+[data-theme="light"] .badge.high{background:#fff1f2;color:#e11d48;border:1px solid #fecdd3}
+[data-theme="light"] .badge.medium,[data-theme="light"] .badge.warning{background:#fffbeb;color:#d97706;border:1px solid #fde68a}
+[data-theme="light"] .badge.low,[data-theme="light"] .badge.info{background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe}
+[data-theme="light"] .stat{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+[data-theme="light"] .scanner-insight-card{background:#fff;border-color:#e2e8f0}
+[data-theme="light"] .scanner-insights-grid{background:rgba(2,132,199,.04)}
+[data-theme="light"] .scat-chip{background:#f1f5f9;border-color:#e2e8f0}
+[data-theme="light"] .si-critical{background:#fef2f2;color:#dc2626;border-color:#fecaca}
+[data-theme="light"] .si-high{background:#fff1f2;color:#e11d48;border-color:#fecdd3}
+[data-theme="light"] .si-warning{background:#fffbeb;color:#d97706;border-color:#fde68a}
+[data-theme="light"] .card{background:#fff;border-color:#e2e8f0}
+[data-theme="light"] .score-card{background:#fff}
+[data-theme="light"] .detail-panel{background:#f8fafc}
+[data-theme="light"] .env-pill{border-color:#e2e8f0}
+[data-theme="light"] .tab.active{color:#0284c7;border-bottom-color:#0284c7}
+[data-theme="light"] .qn-card{background:#fff;border-color:#e2e8f0}
+[data-theme="light"] .qn-card:hover{border-color:#0284c7;background:#f0f9ff}
+[data-theme="light"] .scroll-top{background:#0284c7;color:#fff}
+.theme-toggle{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:.35rem .55rem;cursor:pointer;font-size:1rem;transition:all .15s;color:var(--text)}
+.theme-toggle:hover{border-color:var(--accent);background:rgba(56,189,248,.08)}
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeSpeed}
@@ -5150,17 +5189,23 @@ tr:last-child td{border-bottom:none}
 .sev-medium{border-left:3px solid #eab308}.sev-low{border-left:3px solid #6b7280}
 .sev-warning{border-left:3px solid #f59e0b}
 /* Scanner card enhancements */
-.scanner-card-title{flex-direction:column;align-items:flex-start!important;gap:.25rem}
-.scanner-card-title>span:first-child{font-size:1.05rem}
+.scanner-card-title{flex-direction:column;align-items:flex-start!important;gap:.35rem;padding-bottom:.5rem}
+.scanner-card-title>span:first-child{font-size:1.1rem;font-weight:800;letter-spacing:-.01em}
+.scanner-card-title .scanner-title-link{color:var(--text);text-decoration:none;transition:color .15s}
+.scanner-card-title .scanner-title-link:hover{color:var(--accent)}
 .scanner-subtitle{font-size:.76rem;color:var(--muted);font-weight:400;line-height:1.4}
-.scanner-summary-bar{display:flex;flex-wrap:wrap;gap:.5rem;padding:.6rem 1.25rem;border-bottom:1px solid var(--border);background:rgba(255,255,255,.015)}
+.scanner-summary-bar{display:flex;flex-wrap:wrap;gap:.5rem;padding:.6rem 1.25rem;border-bottom:1px solid var(--border);background:rgba(255,255,255,.015);align-items:center}
+.scanner-progress{flex:1 1 100%;height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-top:.35rem;display:flex}
+.scanner-progress .sp-pass{background:#22c55e;transition:width .4s}.scanner-progress .sp-fail{background:#ef4444;transition:width .4s}.scanner-progress .sp-warn{background:#f59e0b;transition:width .4s}.scanner-progress .sp-skip{background:var(--muted);opacity:.3;transition:width .4s}
 .scanner-insights-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.6rem;padding:.7rem 1.25rem;border-bottom:1px solid var(--border);background:rgba(56,189,248,.04)}
-.scanner-insight-card{border:1px solid var(--border);border-radius:10px;background:rgba(15,23,42,.35);padding:.6rem .7rem}
+.scanner-insight-card{border:1px solid var(--border);border-radius:10px;background:rgba(15,23,42,.35);padding:.6rem .7rem;transition:border-color .15s,transform .15s}
+.scanner-insight-card:hover{border-color:rgba(56,189,248,.4);transform:translateY(-1px)}
 .scanner-insight-title{font-size:.76rem;font-weight:700;color:var(--accent);margin-bottom:.35rem;text-transform:uppercase;letter-spacing:.03em}
 .scanner-insight-text,.scanner-insight-sub{font-size:.8rem;line-height:1.45;color:var(--text)}
 .scanner-insight-sub{color:var(--muted);margin-top:.3rem}
 .scanner-insight-list,.scanner-insight-action-list{margin:0;padding-left:1rem;display:grid;gap:.28rem}
-.scanner-insight-list li,.scanner-insight-action-list li{font-size:.78rem;line-height:1.4;color:var(--text)}
+.scanner-insight-list li,.scanner-insight-action-list li{font-size:.78rem;line-height:1.4;color:var(--text);cursor:pointer;padding:.15rem .2rem;border-radius:4px;transition:background .12s}
+.scanner-insight-list li:hover,.scanner-insight-action-list li:hover{background:rgba(56,189,248,.08)}
 .si-sev{display:inline-block;min-width:62px;text-transform:uppercase;font-size:.62rem;font-weight:700;border-radius:999px;padding:.12rem .38rem;margin-right:.35rem;text-align:center;vertical-align:middle;border:1px solid transparent}
 .si-critical{background:rgba(239,68,68,.18);color:#fecaca;border-color:rgba(239,68,68,.45)}
 .si-high{background:rgba(248,113,113,.16);color:#fecaca;border-color:rgba(248,113,113,.4)}
@@ -5172,7 +5217,8 @@ tr:last-child td{border-bottom:none}
 .ssb-pass{color:#22c55e;border-color:rgba(34,197,94,.25)}.ssb-fail{color:#fca5a5;border-color:rgba(252,165,165,.25)}
 .ssb-warn{color:#f59e0b;border-color:rgba(245,158,11,.25)}.ssb-skip{color:var(--muted);border-color:var(--border)}
 .scanner-cats{display:flex;flex-wrap:wrap;gap:.4rem;padding:.6rem 1.25rem}
-.scat-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.25rem .55rem;border-radius:6px;font-size:.72rem;background:rgba(255,255,255,.04);border:1px solid var(--border);cursor:default}
+.scat-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.25rem .55rem;border-radius:6px;font-size:.72rem;background:rgba(255,255,255,.04);border:1px solid var(--border);cursor:pointer;transition:all .15s}
+.scat-chip:hover{border-color:var(--accent);background:rgba(56,189,248,.08);transform:translateY(-1px)}
 .scat-icon{font-size:.85rem}.scat-label{font-weight:600;color:var(--text)}.scat-cnt{font-weight:700;color:var(--accent);min-width:1.2rem;text-align:center;background:rgba(59,130,246,.12);border-radius:4px;padding:0 .3rem}
 .scan-root-path{display:inline-block;max-width:min(100%,520px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
 .scope-cat-count{display:inline-flex;align-items:center;margin-left:.35rem;margin-right:.35rem;padding:.08rem .42rem;border-radius:999px;background:rgba(56,189,248,.15);border:1px solid rgba(56,189,248,.35);color:#7dd3fc;font-size:.68rem;font-weight:700;text-decoration:none}
@@ -5186,6 +5232,9 @@ tr:last-child td{border-bottom:none}
 .scan-status-warning,.scan-status-low{color:#f59e0b;font-weight:600;font-size:.72rem}
 td.fix{font-size:.78rem;color:var(--muted);line-height:1.5}
 td.fix em{color:rgba(255,255,255,.2)}
+.scanner-table tbody tr:not(.cat-header){cursor:pointer;transition:background .12s}
+.scanner-table tbody tr:not(.cat-header):hover{background:rgba(56,189,248,.04)}
+td .mono{color:var(--accent);font-weight:600}
 /* Expandable rows */
 .expandable{cursor:pointer;transition:background .15s}.expandable:hover{background:rgba(255,255,255,.03)}
 .row-detail{display:none}.row-detail.open{display:table-row}
@@ -5461,6 +5510,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
   <h1><span>◆</span> ClaudeSec Security Dashboard <span class="ver">v{{VERSION}}</span></h1>
   <div class="header-right">
     <div class="meta">Scan: {{NOW}} · {{DURATION}}s</div>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme">🌓</button>
   </div>
 </header>
 
@@ -5590,18 +5640,38 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
   <!-- Scanner findings (categorized) -->
   <div class="card scanner-card" id="scanner-section">
     <div class="card-title scanner-card-title">
-      <span><a href="#" onclick="switchTab('overview','scanner-section');return false;" style="color:var(--text);text-decoration:underline;text-underline-offset:3px">🛡️ ClaudeSec local security scanner results</a></span>
-      <span class="scanner-subtitle">Security issues from static analysis of project source, config, CI workflows, and environment artifacts</span>
+      <span><a class="scanner-title-link" href="#scanner-section" onclick="document.getElementById('scanner-section').scrollIntoView({behavior:'smooth'});return false;">🛡️ ClaudeSec Local Security Scanner</a> <span class="ver" style="font-size:.65rem">{{SCANNER_TOTAL}} checks</span></span>
+      <span class="scanner-subtitle">Static analysis of project source, config, CI workflows, and environment artifacts</span>
     </div>
     <div class="scanner-summary-bar">
-      <div class="ssb-item ssb-total"><strong>{{SCANNER_TOTAL}}</strong> checks</div>
-      <div class="ssb-item ssb-pass">✓ {{PASSED}} passed</div>
-      <div class="ssb-item ssb-fail">✗ {{FAILED}} failed</div>
-      <div class="ssb-item ssb-warn">⚠ {{WARNINGS}} warnings</div>
-      <div class="ssb-item ssb-skip">— {{SKIPPED}} skipped</div>
+      <div class="ssb-item ssb-pass" title="Passed checks">✓ {{PASSED}} passed</div>
+      <div class="ssb-item ssb-fail" title="Failed checks — action required">✗ {{FAILED}} failed</div>
+      <div class="ssb-item ssb-warn" title="Warnings — review recommended">⚠ {{WARNINGS}} warnings</div>
+      <div class="ssb-item ssb-skip" title="Skipped — not applicable or disabled">— {{SKIPPED}} skipped</div>
+      <div class="scanner-progress" title="Pass {{PASSED}} / Fail {{FAILED}} / Warn {{WARNINGS}} / Skip {{SKIPPED}}">
+        <div class="sp-pass" style="width:calc({{PASSED}}/{{SCANNER_TOTAL}}*100%)"></div>
+        <div class="sp-fail" style="width:calc({{FAILED}}/{{SCANNER_TOTAL}}*100%)"></div>
+        <div class="sp-warn" style="width:calc({{WARNINGS}}/{{SCANNER_TOTAL}}*100%)"></div>
+        <div class="sp-skip" style="width:calc({{SKIPPED}}/{{SCANNER_TOTAL}}*100%)"></div>
+      </div>
+      <div style="flex:1 1 100%;display:flex;justify-content:space-between;font-size:.68rem;color:var(--muted);margin-top:.15rem">
+        <span>✓ {{PASS_PCT}}% passed</span>
+        <span>✗ {{FAIL_PCT}}% failed</span>
+        <span>⚠ {{WARN_PCT}}% warnings</span>
+      </div>
     </div>
     <div class="scanner-cats">{{SCANNER_CAT_SUMMARY}}</div>
     {{SCANNER_INSIGHTS_HTML}}
+    <div style="padding:.5rem 1.25rem;display:flex;align-items:center;gap:.5rem;border-bottom:1px solid var(--border)">
+      <label for="scannerSevFilter" style="font-size:.78rem;color:var(--muted);font-weight:600">Filter:</label>
+      <select class="scope-select" id="scannerSevFilter" onchange="filterScannerSev(this.value)" style="font-size:.78rem" aria-label="Filter by severity">
+        <option value="all">All severities</option>
+        <option value="critical">Critical only</option>
+        <option value="high">Critical + High</option>
+        <option value="warning">Warnings</option>
+      </select>
+      <span id="scannerFilterCount" style="font-size:.72rem;color:var(--muted)"></span>
+    </div>
     <div style="max-height:55vh;overflow-y:auto">
       <table class="scanner-table"><thead><tr><th style="width:68px">Severity</th><th style="width:62px">Status</th><th style="width:100px">Check ID</th><th>Finding</th><th style="width:280px">Details / Remediation</th></tr></thead>
       <tbody>{{SCANNER_ROWS}}</tbody></table>
@@ -6094,6 +6164,9 @@ window.addEventListener('scroll',function(){
 /* Toast helper */
 function showToast(msg){var t=document.getElementById('toast');if(!t)return;t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2500)}
 apRestoreChecks();
+function toggleTheme(){var t=document.documentElement;var cur=t.getAttribute('data-theme');var next=cur==='light'?'dark':'light';t.setAttribute('data-theme',next);try{localStorage.setItem('claudesec-theme',next)}catch(e){}}
+(function(){try{var t=localStorage.getItem('claudesec-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}})();
+function filterScannerSev(val){var rows=document.querySelectorAll('.scanner-table tbody tr');var shown=0;var total=0;rows.forEach(function(r){if(r.classList.contains('cat-header')||r.classList.contains('row-detail'))return;total++;if(val==='all'){r.style.display='';shown++;return}var show=false;if(val==='critical')show=r.classList.contains('sev-critical');else if(val==='high')show=r.classList.contains('sev-critical')||r.classList.contains('sev-high');else if(val==='warning')show=r.classList.contains('sev-warning');r.style.display=show?'':'none';if(show)shown++});var el=document.getElementById('scannerFilterCount');if(el)el.textContent=val==='all'?'':'('+shown+'/'+total+')'}
 </script>
 </body>
 </html>"""
