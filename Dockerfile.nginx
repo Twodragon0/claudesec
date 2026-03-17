@@ -1,5 +1,5 @@
 FROM nginx:1.27-alpine
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
-# Dashboard HTML is mounted as volume at runtime (excluded from .dockerignore)
-RUN echo '<!DOCTYPE html><html><body>Dashboard not mounted. Use docker-compose or -v flag.</body></html>' > /usr/share/nginx/html/index.html
+COPY nginx/favicon.svg /usr/share/nginx/html/favicon.svg
+RUN echo '<!DOCTYPE html><html><body>Dashboard not mounted.</body></html>' > /usr/share/nginx/html/index.html
 EXPOSE 8080

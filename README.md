@@ -16,8 +16,6 @@
 
 ClaudeSec integrates security best practices directly into your AI-powered development workflow. It provides security-focused prompts, hooks, templates, and guides designed for use with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and CI/CD pipelines.
 
-**Zero config, one command.** Like [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) — clone, setup, run.
-
 ## Quick Start
 
 **Install (clone)**
@@ -108,6 +106,121 @@ AI coding assistants accelerate development — but speed without security creat
 - **Supply chain integrity**: SLSA, SBOM, and artifact signing workflows
 - **Compliance mapping**: SOC 2, ISO 27001, NIST, PCI-DSS, KISA ISMS-P, KISA 주요정보통신기반시설
 - **Living documentation**: Actionable guides for OWASP Top 10, MITRE ATLAS, and more
+
+## ISMS Asset & Security Dashboard
+
+ClaudeSec provides an **ISMS PDCA-based** integrated dashboard that combines security scanning, asset management, and vulnerability assessment into a single view.
+
+<p align="center">
+  <img src="assets/asset-dashboard-arch.svg" alt="ClaudeSec Asset Dashboard Architecture" width="800" />
+</p>
+
+### One Command — Full Asset Scan + Dashboard
+
+```bash
+# Full: security scan + asset collection + dashboard build + Docker serve
+./run-all.sh
+
+# Quick scan only (code, infra, cicd)
+./run-all.sh --quick
+
+# Include AWS infrastructure collection
+./run-all.sh --aws
+
+# Build dashboard only (skip scan)
+./run-all.sh --build-only
+```
+
+Dashboard served at **`http://localhost:11777`** (Docker) with 9 tabs:
+
+| Tab | Data Sources | Description |
+|-----|-------------|-------------|
+| **ISMS PDCA** | All sources | Plan/Do/Check/Act cycle with scores |
+| **ClaudeSec Scan** | Scanner | Code, infra, CI/CD, AI security checks |
+| **Security** | Prowler, Datadog SIEM | Vulnerability findings, severity distribution |
+| **Asset Management** | Sheets, SentinelOne, Jamf | PC/endpoint inventory, EDR cross-verification |
+| **Infrastructure** | AWS, Datadog | EC2, RDS, ElastiCache, Karpenter node detection |
+| **SaaS & License** | Sheets | SaaS inventory, auth method analysis, license tracking |
+| **Cost Analysis** | xlsx | Monthly SaaS spending by software/department |
+| **AI Subscription** | Sheets | AI service usage (Claude, GPT, Cursor, etc.) |
+| **Security Signals** | Datadog SIEM, Notion | 14-day alerts + security audit history |
+
+### Data Collection
+
+The dashboard aggregates data from multiple sources:
+
+```
+Data Sources                  Collection Method
+─────────────────────────────────────────────────
+Datadog API                   Hosts, SIEM signals, SentinelOne logs
+Google Sheets API             Asset registry, SaaS, licenses
+Google Drive API (xlsx)       SaaS cost/spending data
+AWS CLI (describe)            EC2, RDS, ElastiCache, S3, EKS
+Prowler (K8s Job)             CIS benchmark, security checks
+Notion API                    Security audit history
+ClaudeSec Scanner             Code, infra, CI/CD, AI checks
+```
+
+### Cross-Verification
+
+Automatically detects discrepancies between data sources:
+
+- **EC2 cross-verify**: AWS live instances vs asset registry (Karpenter dynamic nodes auto-excluded)
+- **Endpoint cross-verify**: Jamf MDM vs SentinelOne EDR (identifies devices missing protection)
+- **SaaS auth audit**: Identifies ID/PW-only services that need SSO migration
+
+### Configuration
+
+```bash
+# Required: Google OAuth (first-time browser auth)
+pip install gspread google-auth google-auth-oauthlib openpyxl
+
+# Required: Datadog API keys in ~/Desktop/.env
+# datadog_key_credential=<API_KEY>
+# datadog_app_key_credential=<APP_KEY>
+
+# Optional: AWS profiles for infrastructure collection
+# Requires valid AWS CLI sessions (SSO or credentials)
+
+# Optional: Prowler K8s CronJob (weekly scan)
+kubectl apply -f .claudesec-prowler/prowler-rbac.yaml --context <dev-cluster>
+kubectl apply -f .claudesec-prowler/prowler-cronjob.yaml --context <dev-cluster>
+```
+
+### Docker
+
+```bash
+# Start dashboard (nginx, port 11777)
+docker compose up -d dashboard
+
+# Endpoints:
+#   http://localhost:11777           → ISMS Dashboard
+#   http://localhost:11777/scan.html → ClaudeSec Scan Dashboard
+```
+
+### Directory Structure
+
+```
+claudesec/
+├── run-all.sh                          # One-command: scan + build + serve
+├── scripts/
+│   ├── build-dashboard.py              # Dashboard data collection & HTML build
+│   ├── asset-gsheet-sync.py            # Google Sheets sync
+│   ├── collect-assets.sh               # Multi-source asset collector
+│   ├── run-prowler-k8s.sh              # Prowler K8s scan (CronJob-based)
+│   └── full-asset-sync.py              # Full sync to Google Sheets
+├── claudesec-asset-dashboard.html      # Dashboard template (no data)
+├── .claudesec-prowler/
+│   ├── prowler-rbac.yaml               # K8s ServiceAccount + ClusterRole
+│   └── prowler-cronjob.yaml            # Weekly Prowler CronJob
+├── scanner/                            # ClaudeSec security scanner
+├── docker-compose.yml                  # Docker stack
+└── Dockerfile.nginx                    # Dashboard serving
+```
+
+> **Privacy**: All scan results, asset data, and dashboard files with real data are in `.gitignore`. Only templates and scripts are committed. No PII, company info, or credentials are included in the repository.
+
+---
 
 ## Scanner CLI
 

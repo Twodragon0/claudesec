@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>ClaudeSec — ISMS 통합 보안 대시보드</title>
 <style>
 :root{--bg:#0f1117;--card:#1a1d27;--card2:#1e2130;--border:#2a2d3a;--text:#e1e4eb;--muted:#8b8fa3;--accent:#6c5ce7;--green:#00b894;--yellow:#fdcb6e;--red:#e17055;--orange:#f39c12;--blue:#0984e3;--cyan:#00cec9;--pink:#fd79a8;--glass:rgba(26,29,39,.72);--glass-border:rgba(108,92,231,.18)}
@@ -187,8 +188,24 @@ function fmt(n){return typeof n==='number'?n.toLocaleString('ko-KR'):n;}
 /* Check if value contains raw HTML (chip markup) */
 function isHtml(v){return typeof v==='string'&&v.indexOf('<span')===0;}
 
-function mkT(el,hd,rows){
-  var h='<thead><tr>'+hd.map(function(x,i){return'<th data-col="'+i+'">'+esc(x)+' <span class="sort-arrow">\u25B4\u25BE</span></th>'}).join('')+'</tr></thead><tbody>';
+function mkT(el,hd,rows,sortOpt){
+  /* sortOpt: {col:index, asc:bool} for initial sort */
+  if(sortOpt&&typeof sortOpt.col==='number'){
+    var sc=sortOpt.col,sa=sortOpt.asc;
+    rows=rows.slice().sort(function(a,b){
+      var va=a[sc]||'',vb=b[sc]||'';
+      var ta=(typeof va==='string'?va:'').replace(/<[^>]*>/g,'').trim();
+      var tb=(typeof vb==='string'?vb:'').replace(/<[^>]*>/g,'').trim();
+      var na=parseFloat(ta.replace(/[^0-9.\-]/g,'')),nb=parseFloat(tb.replace(/[^0-9.\-]/g,''));
+      if(!isNaN(na)&&!isNaN(nb))return sa?na-nb:nb-na;
+      return sa?ta.localeCompare(tb,'ko'):tb.localeCompare(ta,'ko');
+    });
+  }
+  var h='<thead><tr>'+hd.map(function(x,i){
+    var isSorted=sortOpt&&sortOpt.col===i;
+    return'<th data-col="'+i+'"'+(isSorted?' class="sorted" data-asc="'+(sortOpt.asc?'1':'0')+'"':'')+'>'
+      +esc(x)+' <span class="sort-arrow">'+(isSorted?(sortOpt.asc?'\u25B4':'\u25BE'):'\u25B4\u25BE')+'</span></th>'
+  }).join('')+'</tr></thead><tbody>';
   rows.forEach(function(r){h+='<tr>'+r.map(function(c){return'<td>'+(isHtml(c)?c:esc(c))+'</td>'}).join('')+'</tr>'});
   h+='</tbody>';el.innerHTML=h;
   /* Sortable headers */
@@ -320,7 +337,8 @@ function renderISMS(d,s){
   var el=$('p-isms');
   var t=window._ts||{};
   el.innerHTML=tsBar([{src:'Datadog',time:t.datadog},{src:'Prowler',time:t.prowler},{src:'ClaudeSec',time:t.claudesec_scan},{src:'Google Sheets',time:t.google_sheets},{src:'AWS EC2',time:t.aws_ec2},{src:'Notion',time:t.notion}])
-    +'<div id="k-isms" class="kpis"></div><div id="pdca-ring" class="pdca-ring"></div><div class="g2"><div class="cd"><h3>Plan (계획) — 정보보호 정책·자산 분류</h3><div style="padding:16px" id="pdca-plan"></div></div><div class="cd"><h3>Do (이행) — 보호대책 구현</h3><div style="padding:16px" id="pdca-do"></div></div><div class="cd"><h3>Check (점검) — 취약점 진단·모니터링</h3><div style="padding:16px" id="pdca-check"></div></div><div class="cd"><h3>Act (개선) — 조치·이행 계획</h3><div style="padding:16px" id="pdca-act"></div></div></div>';
+    +'<div id="k-isms" class="kpis"></div><div id="pdca-ring" class="pdca-ring"></div><div class="g2"><div class="cd"><h3>Plan (\uACC4\uD68D) \u2014 \uC815\uBCF4\uBCF4\uD638 \uC815\uCC45\xB7\uC790\uC0B0 \uBD84\uB958</h3><div style="padding:16px" id="pdca-plan"></div></div><div class="cd"><h3>Do (\uC774\uD589) \u2014 \uBCF4\uD638\uB300\uCC45 \uAD6C\uD604</h3><div style="padding:16px" id="pdca-do"></div></div><div class="cd"><h3>Check (\uC810\uAC80) \u2014 \uCDE8\uC57D\uC810 \uC9C4\uB2E8\xB7\uBAA8\uB2C8\uD130\uB9C1</h3><div style="padding:16px" id="pdca-check"></div></div><div class="cd"><h3>Act (\uAC1C\uC120) \u2014 \uC870\uCE58\xB7\uC774\uD589 \uACC4\uD68D</h3><div style="padding:16px" id="pdca-act"></div></div></div>'
+    +'<div class="cd"><h3>\uD83D\uDCDC \uC815\uBCF4\uBCF4\uD638 \uADDC\uC815\xB7\uC9C0\uCE68 \uD604\uD669 <span class="bg" id="pol-c"></span></h3><div id="pol-area" style="padding:16px"></div></div>';
   mkK($('k-isms'),[
     {l:'ISMS \uC885\uD569',v:s.ismsTotal+'%',c:s.ismsTotal>=80?'g':s.ismsTotal>=60?'y':'r'},
     {l:'Plan',v:s.planScore+'%',c:'b',s:'\uC790\uC0B0 \uBD84\uB958\xB7\uC815\uCC45'},
@@ -369,6 +387,35 @@ function renderISMS(d,s){
   actArr.push('\u25CB Kyverno Audit \uC815\uCC45 8\uAC1C \u2192 Enforce \uC804\uD658 \uB2E8\uACC4\uC801 \uC9C4\uD589');
   actArr.push('\u25CB Datadog APM dive-prod \uD65C\uC131\uD654 \u2192 \uC11C\uBE44\uC2A4 \uC131\uB2A5 \uAC00\uC2DC\uC131 \uD655\uBCF4');
   $('pdca-act').innerHTML=actArr.map(function(x){return'<div style="padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)">'+x+'</div>'}).join('');
+  /* ── 규정/지침 현황 ── */
+  var pols=d.policies||[];
+  if(pols.length&&$('pol-area')){
+    var totalArt=pols.reduce(function(a,p){return a+(p.total_articles||0)},0);
+    $('pol-c').textContent=pols.length+'\uAC1C \uADDC\uC815 / '+totalArt+'\uAC1C \uC870\uD56D';
+    var ph='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px;margin-bottom:16px">';
+    pols.forEach(function(p){
+      var arts=p.articles||[];
+      ph+='<div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer" onclick="var d=this.querySelector(\'.pol-det\');var a=this.querySelector(\'.pol-arrow\');if(d.style.display===\'none\'){d.style.display=\'block\';a.textContent=\'\\u25BE\'}else{d.style.display=\'none\';a.textContent=\'\\u25B8\'}">';
+      ph+='<div style="display:flex;align-items:center;gap:8px;padding:12px 14px;background:var(--card2)">';
+      ph+='<span style="font-size:18px">\uD83D\uDCC4</span>';
+      ph+='<div style="flex:1"><div style="font-size:13px;font-weight:700">'+esc(p.name)+'</div>';
+      ph+='<div style="font-size:11px;color:var(--muted)">'+p.total_chapters+'\uC7A5 '+p.total_articles+'\uC870';
+      if(p.isms_controls&&p.isms_controls.length)ph+=' \u00B7 ISMS: '+p.isms_controls.map(function(c){return ch(c,'b')}).join(' ');
+      ph+='</div></div>';
+      ph+='<a href="'+esc(p.url)+'" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--accent);text-decoration:underline">\uC6D0\uBB38</a>';
+      ph+='<span class="pol-arrow" style="color:var(--muted);font-size:10px">\u25B8</span></div>';
+      ph+='<div class="pol-det" style="display:none;padding:10px 14px;border-top:1px dashed var(--border);max-height:200px;overflow-y:auto">';
+      var byChap={};arts.forEach(function(a){var c=a.chapter||'\uAE30\uD0C0';if(!byChap[c])byChap[c]=[];byChap[c].push(a)});
+      Object.entries(byChap).forEach(function(e){
+        ph+='<div style="font-size:11px;font-weight:700;color:var(--accent);margin:6px 0 3px">'+esc(e[0])+'</div>';
+        e[1].forEach(function(a){ph+='<div style="font-size:11px;color:var(--muted);padding:1px 0">'+(a.num||'')+'. '+esc(a.title)+'</div>'});
+      });
+      ph+='</div></div>';
+    });
+    ph+='</div>';
+    ph+='<div style="text-align:center"><a href="scan.html#tab-bestpractices" target="_blank" style="color:var(--accent);font-size:13px;font-weight:600;text-decoration:underline">\uADDC\uC815 \uC0C1\uC138 \u00B7 \uCEF4\uD50C\uB77C\uC774\uC5B8\uC2A4 \u2192 scan.html</a></div>';
+    $('pol-area').innerHTML=ph;
+  }
 }
 
 /* ═══ ClaudeSec Scan ═══ */
@@ -551,7 +598,7 @@ function renderAsset(d){
       var c=p.last_checkin||'';var old=c&&(new Date()-new Date(c))>7*86400e3;
       var comp=p.compliance==='Compliant'?ch('\uC900\uC218','g'):(p.compliance==='Noncompliant'?ch('\uBBF8\uC900\uC218','r'):ch(p.compliance||'-','m'));
       return[esc(p.name||''),esc(p.model||''),esc(p.os||''),esc(p.user_display||p.user||''),esc(p.serial||'-'),comp,old?ch(c.substring(0,10),'r'):ch(c.substring(0,10),'g')]
-    }));
+    }),{col:6,asc:false});
     $('intune-c').textContent=intunePcs.length+'\uB300';
   }
   /* ── SentinelOne (EDR) ── */
@@ -571,15 +618,15 @@ function renderAsset(d){
       $('s1-c').textContent=list.length+'대';
     };window._renderS1(s1);
   }
-  /* S1 위협 상세 */
+  /* S1 위협 상세 — 시간 내림차순 */
   if(s1t.length&&$('t-s1-threats')){
-    mkT($('t-s1-threats'),['시간','기기','OS','분류','신뢰도','상태','파일 경로'],s1t.map(function(t){
+    mkT($('t-s1-threats'),['\uC2DC\uAC04','\uAE30\uAE30','OS','\uBD84\uB958','\uC2E0\uB8B0\uB3C4','\uC0C1\uD0DC','\uD30C\uC77C \uACBD\uB85C'],s1t.map(function(t){
       return[esc((t.time||'').substring(0,16)),esc(t.device||''),esc(t.os||''),
         t.classification?ch(t.classification,'r'):ch(t.threat_name||'unknown','y'),
         t.confidence==='malicious'?ch(t.confidence,'r'):ch(t.confidence||'','y'),
         t.status==='mitigated'||t.status==='marked_as_benign'?ch(t.status,'g'):ch(t.status||'','r'),
-        esc((t.file_path||'').substring(0,60))]}));
-    $('s1t-c').textContent=s1t.length+'건';
+        esc((t.file_path||'').substring(0,60))]}),{col:0,asc:false});
+    $('s1t-c').textContent=s1t.length+'\uAC74';
   }
   /* Endpoint 교차 검증 */
   if(epxv.jamf_total&&$('ep-xv')){
@@ -803,11 +850,11 @@ function renderCost(d){
     var trend=febV>janV?ch('\u25B2','r'):(febV<janV?ch('\u25BC','g'):ch('-','m'));
     return[esc(x.software),'\u20A9'+fmt(janV),'\u20A9'+fmt(febV),'\u20A9'+fmt(marV),'\u20A9'+fmt(tot),trend]
   });
-  mkT($('t-sw'),['\uC18C\uD504\uD2B8\uC6E8\uC5B4','1\uC6D4','2\uC6D4','3\uC6D4','\uD569\uACC4','\uCD94\uC774'],swRows);
+  mkT($('t-sw'),['\uC18C\uD504\uD2B8\uC6E8\uC5B4','1\uC6D4','2\uC6D4','3\uC6D4','\uD569\uACC4','\uCD94\uC774'],swRows,{col:4,asc:false});
   $('sw-c').textContent=csF.length+'\uC885';
   /* User cost table */
   var byUser=(cost.by_user||[]).filter(function(u){return(u.total||0)>0}).sort(function(a,b){return(b.total||0)-(a.total||0)});
-  mkT($('t-user-cost'),['\uC0AC\uC6A9\uC790','1\uC6D4','2\uC6D4','3\uC6D4','\uD569\uACC4'],byUser.map(function(u){return[esc(u.user||u.name||''),'\u20A9'+fmt(u.jan||0),'\u20A9'+fmt(u.feb||0),'\u20A9'+fmt(u.mar||0),'\u20A9'+fmt(u.total||0)]}));
+  mkT($('t-user-cost'),['\uC0AC\uC6A9\uC790','1\uC6D4','2\uC6D4','3\uC6D4','\uD569\uACC4'],byUser.map(function(u){return[esc(u.user||u.name||''),'\u20A9'+fmt(u.jan||0),'\u20A9'+fmt(u.feb||0),'\u20A9'+fmt(u.mar||0),'\u20A9'+fmt(u.total||0)]}),{col:4,asc:false});
   $('user-cost-c').textContent=byUser.length+'\uBA85';
   /* Department cost table */
   var byDept=(cost.by_department||[]).filter(function(x){return(x.total||0)>0}).sort(function(a,b){return(b.total||0)-(a.total||0)});
@@ -820,7 +867,7 @@ function renderCost(d){
   window._fCost=function(m,el){
     document.querySelectorAll('#cost-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
     var list=m==='all'?window._allCostD:window._allCostD.filter(function(r){return r.month===m});
-    mkT($('t-cost'),['\uC6D4','\uC18C\uD504\uD2B8\uC6E8\uC5B4','\uC0AC\uC6A9\uC790','\uBD80\uC11C','\uAE08\uC561','\uC9C0\uCD9C\uC77C','\uBCA4\uB354','\uBA54\uBAA8'],list.map(function(r){return[ch(r.month,'c'),esc(r.software||''),esc(r.user||''),esc(r.department||''),'\u20A9'+fmt(r.amount||0),esc(r.date||''),esc(r.vendor||''),esc(r.memo||'')]}));
+    mkT($('t-cost'),['\uC6D4','\uC18C\uD504\uD2B8\uC6E8\uC5B4','\uC0AC\uC6A9\uC790','\uBD80\uC11C','\uAE08\uC561','\uC9C0\uCD9C\uC77C','\uBCA4\uB354','\uBA54\uBAA8'],list.map(function(r){return[ch(r.month,'c'),esc(r.software||''),esc(r.user||''),esc(r.department||''),'\u20A9'+fmt(r.amount||0),esc(r.date||''),esc(r.vendor||''),esc(r.memo||'')]}),{col:4,asc:false});
     $('cost-c').textContent=list.length+'\uAC74';
   };
   window._fCost('all',document.querySelector('#cost-fb .fb-btn'));
@@ -898,7 +945,7 @@ function renderSig(d){
       else{det.style.display='none';if(arrow)arrow.textContent='▸'}
     });
   });
-  mkT($('t-sig'),['발생시각','심각도','상태','제목','태그'],sigs.map(function(s){return[esc(s.timestamp||''),sevCh(s.severity),esc(s.status||''),esc(s.title||''),(s.tags||[]).map(function(t){return esc(t)}).join(', ')]}));
+  mkT($('t-sig'),['\uBC1C\uC0DD\uC2DC\uAC01','\uC2EC\uAC01\uB3C4','\uC0C1\uD0DC','\uC81C\uBAA9','\uD0DC\uADF8'],sigs.map(function(s){return[esc(s.timestamp||''),sevCh(s.severity),esc(s.status||''),esc(s.title||''),(s.tags||[]).map(function(t){return esc(t)}).join(', ')]}),{col:0,asc:false});
   $('sig-c').textContent=sigs.length+'건';
 }
 

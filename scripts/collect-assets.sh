@@ -149,7 +149,8 @@ collect_aws() {
   echo "▶ AWS 자산 수집 중..."
 
   # 4개 프로파일 순회
-  local profiles=("dive-prod" "dive-dev" "web3-prod" "playground")
+  IFS=',' read -ra profiles <<< "${AWS_PROFILES:-}"
+  [[ ${#profiles[@]} -eq 0 ]] && { echo "  AWS_PROFILES 미설정"; return 0; }
 
   local all_ec2=()
   local all_rds=()

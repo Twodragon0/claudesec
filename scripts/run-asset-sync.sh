@@ -18,7 +18,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SHEET_ID="${ASSET_SHEET_ID:-1jHuyKEkoAe1jui_mO38nqK2urQqxlNUsEoqnTq1ZsgU}"
+SHEET_ID="${ASSET_SHEET_ID:-YOUR_SHEET_ID}"
 ACTION="report"
 USE_DOCKER=0
 SCAN_FIRST=0

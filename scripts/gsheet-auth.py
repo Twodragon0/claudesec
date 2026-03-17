@@ -2,12 +2,13 @@
 """
 Google Sheets OAuth2 인증 + 자산관리대장 상세 읽기
 """
+import os
 
 import gspread
 import json
 from pathlib import Path
 
-SHEET_ID = "1jHuyKEkoAe1jui_mO38nqK2urQqxlNUsEoqnTq1ZsgU"
+SHEET_ID = os.environ.get("ASSET_SHEET_ID", "YOUR_GOOGLE_SHEET_ID")
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / ".claudesec-assets"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
