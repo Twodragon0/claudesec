@@ -42,7 +42,10 @@ a{color:var(--accent);text-decoration:none}
 .cd h3{padding:14px 18px;font-size:14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
 .cd h3 .bg{background:var(--accent);color:#fff;font-size:10px;padding:2px 7px;border-radius:8px;font-weight:600}
 table{width:100%;border-collapse:collapse}
-th{background:var(--card2);text-align:left;padding:8px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;position:sticky;top:0;z-index:1}
+th{background:var(--card2);text-align:left;padding:8px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;position:sticky;top:0;z-index:1;cursor:pointer;user-select:none;transition:color .15s}
+th:hover{color:var(--accent)}
+th .sort-arrow{font-size:9px;margin-left:3px;opacity:.4;transition:opacity .15s}
+th.sorted .sort-arrow{opacity:1;color:var(--accent)}
 td{padding:8px 14px;border-top:1px solid var(--border);font-size:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 .stbl{max-height:420px;overflow-y:auto}
@@ -182,9 +185,32 @@ function fmt(n){return typeof n==='number'?n.toLocaleString('ko-KR'):n;}
 function isHtml(v){return typeof v==='string'&&v.indexOf('<span')===0;}
 
 function mkT(el,hd,rows){
-  var h='<thead><tr>'+hd.map(function(x){return'<th>'+esc(x)+'</th>'}).join('')+'</tr></thead><tbody>';
+  var h='<thead><tr>'+hd.map(function(x,i){return'<th data-col="'+i+'">'+esc(x)+' <span class="sort-arrow">\u25B4\u25BE</span></th>'}).join('')+'</tr></thead><tbody>';
   rows.forEach(function(r){h+='<tr>'+r.map(function(c){return'<td>'+(isHtml(c)?c:esc(c))+'</td>'}).join('')+'</tr>'});
   h+='</tbody>';el.innerHTML=h;
+  /* Sortable headers */
+  el._rows=rows;el._hd=hd;
+  el.querySelectorAll('th').forEach(function(th){
+    th.addEventListener('click',function(){
+      var ci=parseInt(this.dataset.col),asc=this.dataset.asc!=='1';
+      el.querySelectorAll('th').forEach(function(t){t.classList.remove('sorted');t.dataset.asc='';t.querySelector('.sort-arrow').textContent='\u25B4\u25BE'});
+      this.classList.add('sorted');this.dataset.asc=asc?'1':'0';
+      this.querySelector('.sort-arrow').textContent=asc?'\u25B4':'\u25BE';
+      var sorted=el._rows.slice().sort(function(a,b){
+        var va=a[ci]||'',vb=b[ci]||'';
+        /* Strip HTML for comparison */
+        var ta=va.replace(/<[^>]*>/g,'').trim(),tb=vb.replace(/<[^>]*>/g,'').trim();
+        /* Try numeric (including currency ₩, $) */
+        var na=parseFloat(ta.replace(/[^0-9.\-]/g,'')),nb=parseFloat(tb.replace(/[^0-9.\-]/g,''));
+        if(!isNaN(na)&&!isNaN(nb))return asc?na-nb:nb-na;
+        /* Try date */
+        if(ta.match(/^\d{4}-\d{2}/)&&tb.match(/^\d{4}-\d{2}/))return asc?ta.localeCompare(tb):tb.localeCompare(ta);
+        return asc?ta.localeCompare(tb,'ko'):tb.localeCompare(ta,'ko');
+      });
+      var body='';sorted.forEach(function(r){body+='<tr>'+r.map(function(c){return'<td>'+(isHtml(c)?c:esc(c))+'</td>'}).join('')+'</tr>'});
+      el.querySelector('tbody').innerHTML=body;
+    });
+  });
 }
 function mkK(el,items){
   el.innerHTML=items.map(function(i){return'<div class="kpi '+(i.c||'')+'"><div class="l">'+esc(i.l)+'</div><div class="v">'+esc(i.v)+'</div>'+(i.s?'<div class="s">'+esc(i.s)+'</div>':'')+'</div>'}).join('');
@@ -511,7 +537,7 @@ function renderAsset(d){
     var depts={};jamfPcs.forEach(function(p){var dd=p.department||'N/A';depts[dd]=(depts[dd]||0)+1});
     $('pc-fb').innerHTML='<span class="fb-btn on" onclick="window._fpc(\'all\',this)">\uC804\uCCB4</span>'+Object.keys(depts).sort().map(function(dd){return'<span class="fb-btn" onclick="window._fpc(\''+esc(dd)+'\',this)">'+esc(dd)+' ('+depts[dd]+')</span>'}).join('');
     window._jamfAll=jamfPcs;
-    window._renderPc=function(pcs){mkT($('t-pc'),['\uD638\uC2A4\uD2B8\uBA85','\uBAA8\uB378','OS','\uC2DC\uB9AC\uC5BC','\uC0AC\uC6A9\uC790','\uBD80\uC11C','\uCD5C\uC885\uCCB4\uD06C\uC778'],pcs.map(function(p){var c=p.last_checkin||'';var old=c&&(new Date()-new Date(c))>7*86400e3;return[esc(p.name||''),esc(p.model||''),esc(p.os||''),esc(p.serial||''),esc(p.user||''),esc(p.department||''),old?ch(c.substring(0,10),'r'):ch(c.substring(0,10),'g')]}));$('pc-c').textContent=pcs.length+'\uB300'};
+    window._renderPc=function(pcs){mkT($('t-pc'),['\uD638\uC2A4\uD2B8\uBA85','\uBAA8\uB378','OS','\uC2DC\uB9AC\uC5BC','\uC0AC\uC6A9\uC790','\uBD80\uC11C','\uCD5C\uC885\uCCB4\uD06C\uC778'],pcs.map(function(p){var c=p.last_checkin||'';var old=c&&(new Date()-new Date(c))>7*86400e3;var departed=p.status==='departed';var nameCell=departed?esc(p.name||'')+' '+ch('\uD1F4\uC0AC','r'):esc(p.name||'');var checkinCell=departed?ch(c.substring(0,10),'r'):(old?ch(c.substring(0,10),'r'):ch(c.substring(0,10),'g'));return[nameCell,esc(p.model||''),esc(p.os||''),esc(p.serial||''),esc(p.user||''),esc(p.department||''),checkinCell]}));$('pc-c').textContent=pcs.length+'\uB300'};
     window._renderPc(jamfPcs);
   }
 }
@@ -521,83 +547,110 @@ window._fpc=function(dept,el){document.querySelectorAll('#pc-fb .fb-btn').forEac
 function renderInfra(d){
   var dd=d.datadog||{},hosts=dd.hosts||[],inf=d.infra||{};
   var envs=[],seen={};hosts.forEach(function(h){var e=h.aws_alias||h.env||'unknown';if(!seen[e]){seen[e]=1;envs.push(e)}});
-  var clusters={};hosts.forEach(function(h){if(h.cluster)clusters[h.cluster]=1});
   var el=$('p-infra');
   var awsLive=d.aws_live||{},xv=d.cross_verify||window._xv||{};
   var liveEc2=awsLive.ec2||[],liveRds=awsLive.rds||[],liveCache=awsLive.elasticache||[],liveS3=awsLive.s3||[],liveEks=awsLive.eks||[];
   var t=window._ts||{};
-  var xvHtml='';
-  if(xv.aws_total){
-    xvHtml='<div class="xv-card"><h3 style="margin-bottom:12px;font-size:14px;font-weight:700">EC2 교차 검증: 고정 서버 (Karpenter 동적 노드 제외)</h3>'
-      +'<div class="xv-stat">'
-      +'<div><div class="xv-num" style="color:var(--blue)">'+(xv.aws_static||0)+'</div><div class="xv-lbl">AWS 고정 서버</div></div>'
-      +'<div><div class="xv-num" style="color:var(--accent)">'+(xv.sheet_static||0)+'</div><div class="xv-lbl">시트 고정 서버</div></div>'
-      +'<div><div class="xv-num" style="color:var(--green)">'+xv.matched+'</div><div class="xv-lbl">일치</div></div>'
-      +'<div><div class="xv-num" style="color:var(--red)">'+(xv.aws_only_count||0)+'</div><div class="xv-lbl">미등록</div></div>'
-      +'<div><div class="xv-num" style="color:var(--yellow)">'+(xv.sheet_only_count||0)+'</div><div class="xv-lbl">종료/교체</div></div>'
-      +'<div><div class="xv-num" style="color:var(--cyan)">'+(xv.karpenter_count||0)+'</div><div class="xv-lbl">Karpenter 노드</div></div>'
-      +'</div>';
-    if(xv.aws_only&&xv.aws_only.length)xvHtml+='<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--red);margin-bottom:6px">미등록 고정 서버 (자산관리대장에 추가 필요)</div><div class="stbl"><table id="t-xv-aws"></table></div></div>';
-    if(xv.sheet_only&&xv.sheet_only.length)xvHtml+='<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--yellow);margin-bottom:6px">종료/교체 서버 (자산관리대장에서 제거 필요)</div><div class="stbl"><table id="t-xv-sheet"></table></div></div>';
-    if(xv.karpenter_nodes&&xv.karpenter_nodes.length)xvHtml+='<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--cyan);margin-bottom:6px">Karpenter 동적 노드 (자동 관리, 교차검증 제외)</div><div class="stbl"><table id="t-xv-karp"></table></div></div>';
-    xvHtml+='</div>';
-  }
-  el.innerHTML=tsBar([{src:'Datadog',time:t.datadog},{src:'AWS EC2',time:t.aws_ec2},{src:'AWS RDS',time:t.aws_rds},{src:'자산관리대장',time:t.google_sheets}])
-    +xvHtml
-    +'<div id="k-infra" class="kpis"></div><div class="fb" id="infra-fb"></div><div class="cd"><h3>Datadog 호스트 <span class="bg" id="host-c"></span></h3><div class="stbl"><table id="t-host"></table></div></div>'
-    +(liveEc2.length?'<div class="cd"><h3>AWS EC2 (실시간) <span class="bg" id="ec2-c"></span></h3><div class="stbl"><table id="t-ec2"></table></div></div>':'')
-    +(liveRds.length?'<div class="cd"><h3>AWS RDS (실시간) <span class="bg" id="rds-c"></span></h3><div class="stbl"><table id="t-rds"></table></div></div>':'')
-    +(liveCache.length?'<div class="cd"><h3>AWS ElastiCache <span class="bg" id="cache-c"></span></h3><div class="stbl"><table id="t-cache"></table></div></div>':'')
-    +'<div class="g2"><div class="cd"><h3>서버 (자산관리대장) <span class="bg" id="srv-c"></span></h3><div class="stbl"><table id="t-srv"></table></div></div><div class="cd"><h3>DBMS (자산관리대장) <span class="bg" id="db-c"></span></h3><div class="stbl"><table id="t-db"></table></div></div></div><div class="g2"><div class="cd"><h3>정보보호시스템 <span class="bg" id="sec-c"></span></h3><div class="stbl"><table id="t-secsys"></table></div></div><div class="cd"><h3>네트워크 장비 <span class="bg" id="net-c"></span></h3><div class="stbl"><table id="t-net"></table></div></div></div>';
+
+  /* ── Merge & Deduplicate: AWS EC2 + Datadog + Sheet → unified server list ── */
+  var srvMap={};/* key=instanceId or name */
+  /* 1) AWS EC2 (실시간 — source of truth for running instances) */
+  liveEc2.forEach(function(e){
+    if(e.Name&&e.Name.match(/^ip-10-\d+-\d+-\d+\./))return;/* Skip Karpenter nodes */
+    var key=e.InstanceId||e.Name||'';
+    if(!key)return;
+    srvMap[key]={id:e.InstanceId||'',name:e.Name||'',type:e.Type||'',ip:e.PrivateIp||'',az:e.AZ||'',profile:e._profile||'',since:(e.LaunchTime||'').substring(0,10),src:'aws',verified:true,up:true};
+  });
+  /* 2) Datadog hosts (monitoring — confirms running) */
+  hosts.forEach(function(h){
+    if(h.cluster)return;/* Skip EKS nodes — they are dynamic */
+    var name=h.name||'';
+    var matched=false;
+    Object.keys(srvMap).forEach(function(k){if(srvMap[k].name&&name.indexOf(srvMap[k].name)>=0){srvMap[k].dd=true;srvMap[k].up=h.up;srvMap[k].agent=h.agent_version;matched=true;}});
+    if(!matched&&h.instance_type){/* EC2 not in AWS describe but in DD */
+      srvMap['dd:'+name]={id:'',name:name.substring(0,50),type:h.instance_type||'',ip:'',az:h.region||'',profile:h.aws_alias||'',src:'datadog',verified:false,up:h.up,dd:true,agent:h.agent_version};
+    }
+  });
+  /* 3) Sheet servers (자산관리대장 — registered assets) */
+  var srvSheet=inf.servers||[];
+  srvSheet.forEach(function(s){
+    var iid=s.instance_id||'';
+    if(iid&&srvMap[iid]){srvMap[iid].registered=true;srvMap[iid].sheet_name=s.name;}
+    else if(iid){srvMap[iid]={id:iid,name:s.name||'',type:s.instance_type||'',ip:'',az:s.region||'',profile:s.account||'',src:'sheet',verified:false,up:false,registered:true};}
+  });
+  var unified=Object.values(srvMap).sort(function(a,b){return(a.profile||'').localeCompare(b.profile||'')||(a.name||'').localeCompare(b.name||'')});
+  var verifiedCount=unified.filter(function(s){return s.verified||s.dd}).length;
+  var registeredCount=unified.filter(function(s){return s.registered}).length;
+  var unregistered=unified.filter(function(s){return(s.verified||s.dd)&&!s.registered});
+
+  /* ── KPI ── */
+  var karpCount=xv.karpenter_count||0;
+  var eksNodes=hosts.filter(function(h){return h.cluster}).length;
+  el.innerHTML=tsBar([{src:'Datadog',time:t.datadog},{src:'AWS',time:t.aws_ec2},{src:'\uC2DC\uD2B8',time:t.google_sheets}])
+    +'<div id="k-infra" class="kpis"></div>'
+    +'<div class="cd"><h3>\uD1B5\uD569 \uC11C\uBC84 \uC790\uC0B0 <span class="bg" id="srv-unified-c"></span></h3><div style="padding:8px 16px;font-size:12px;color:var(--muted)">AWS EC2 + Datadog + \uC790\uC0B0\uAD00\uB9AC\uB300\uC7A5 \uAD50\uCC28\uAC80\uC99D \uACB0\uACFC (Karpenter \uB3D9\uC801 \uB178\uB4DC \uC81C\uC678)</div><div class="fb" id="infra-fb"></div><div class="stbl"><table id="t-unified"></table></div></div>'
+    +'<div class="g2">'
+    +(liveRds.length?'<div class="cd"><h3>\uB370\uC774\uD130\uBCA0\uC774\uC2A4 <span class="bg" id="rds-c"></span></h3><div class="stbl"><table id="t-rds"></table></div></div>':'')
+    +(liveCache.length?'<div class="cd"><h3>ElastiCache <span class="bg" id="cache-c"></span></h3><div class="stbl"><table id="t-cache"></table></div></div>':'')
+    +'</div>'
+    +'<div class="g2"><div class="cd"><h3>\uC815\uBCF4\uBCF4\uD638\uC2DC\uC2A4\uD15C <span class="bg" id="sec-c"></span></h3><div class="stbl"><table id="t-secsys"></table></div></div>'
+    +'<div class="cd"><h3>EKS / \uCEE8\uD14C\uC774\uB108 <span class="bg" id="eks-c"></span></h3><div style="padding:16px" id="eks-info"></div></div></div>';
+
   mkK($('k-infra'),[
-    {l:'DD 호스트',v:hosts.length,c:'b'},
-    {l:'Running',v:hosts.filter(function(h){return h.up}).length,c:'g'},
-    {l:'AWS EC2',v:liveEc2.length||'-',c:liveEc2.length?'c':'m',s:'실시간'},
-    {l:'AWS RDS',v:liveRds.length||'-',c:liveRds.length?'c':'m'},
+    {l:'\uAC80\uC99D\uB41C \uC11C\uBC84',v:verifiedCount,c:'g',s:'AWS+DD \uD655\uC778'},
+    {l:'\uC790\uC0B0 \uB4F1\uB85D',v:registeredCount,c:'b',s:'\uC2DC\uD2B8 \uB4F1\uB85D'},
+    {l:'\uBBF8\uB4F1\uB85D',v:unregistered.length,c:unregistered.length?'r':'g',s:unregistered.length?'\uB4F1\uB85D \uD544\uC694':''},
+    {l:'RDS',v:liveRds.length||'-',c:liveRds.length?'c':'m'},
     {l:'ElastiCache',v:liveCache.length||'-',c:liveCache.length?'c':'m'},
-    {l:'S3 버킷',v:liveS3.length||'-',c:'b'},
-    {l:'EKS',v:liveEks.length||'-',c:'a'},
-    {l:'AWS 계정',v:envs.length,c:'a'}
+    {l:'EKS \uD074\uB7EC\uC2A4\uD130',v:liveEks.length||'-',c:'a'},
+    {l:'Karpenter \uB178\uB4DC',v:karpCount||eksNodes,c:'c',s:'\uB3D9\uC801 \uAD00\uB9AC'},
+    {l:'S3 \uBC84\uD0B7',v:liveS3.length||'-',c:'b'}
   ]);
-  $('infra-fb').innerHTML='<span class="fb-btn on" onclick="fH(\'all\',this)">전체</span>'+envs.map(function(e){return'<span class="fb-btn" onclick="fH(\''+esc(e)+'\',this)">'+esc(e)+'</span>'}).join('');
-  window._hosts=hosts;rH(hosts);
-  /* AWS live EC2 */
-  if(liveEc2.length&&$('t-ec2')){
-    mkT($('t-ec2'),['인스턴스ID','이름','유형','AZ','프라이빗IP','시작시간','프로파일'],liveEc2.map(function(e){return[esc(e.InstanceId||''),esc(e.Name||''),esc(e.Type||''),esc(e.AZ||''),esc(e.PrivateIp||''),esc((e.LaunchTime||'').substring(0,10)),ch(e._profile||'','a')]}));
-    $('ec2-c').textContent=liveEc2.length+'개';
-  }
-  /* AWS live RDS */
+
+  /* ── Unified server table ── */
+  window._unified=unified;
+  window._renderUnified=function(list){
+    mkT($('t-unified'),['\uC0C1\uD0DC','\uC774\uB984','\uC720\uD615','\uACC4\uC815','IP/AZ','\uAC80\uC99D','\uB4F1\uB85D','\uBAA8\uB2C8\uD130\uB9C1'],list.map(function(s){
+      var statusCh=s.up?ch('Running','g'):(s.src==='sheet'?ch('\uC2DC\uD2B8\uB9CC','m'):ch('Down','r'));
+      var verifCh=s.verified?ch('\u2713 AWS','g'):(s.dd?ch('\u2713 DD','b'):ch('-','m'));
+      var regCh=s.registered?ch('\u2713 \uB4F1\uB85D','g'):ch('\uBBF8\uB4F1\uB85D','r');
+      var ddCh=s.dd?ch('DD \u2713','g'):(s.agent?ch('v'+esc(s.agent),'b'):ch('-','m'));
+      return[statusCh,esc(s.name||s.id||''),esc(s.type||''),ch(s.profile||'','a'),esc((s.ip||'')+' '+(s.az||'')),verifCh,regCh,ddCh]
+    }));
+    $('srv-unified-c').textContent=list.length+'\uB300';
+  };
+
+  $('infra-fb').innerHTML='<span class="fb-btn on" onclick="window._fInfra(\'all\',this)">\uC804\uCCB4</span>'
+    +'<span class="fb-btn" onclick="window._fInfra(\'unregistered\',this)">\uBBF8\uB4F1\uB85D</span>'
+    +envs.map(function(e){return'<span class="fb-btn" onclick="window._fInfra(\''+esc(e)+'\',this)">'+esc(e)+'</span>'}).join('');
+  window._fInfra=function(f,el){
+    document.querySelectorAll('#infra-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
+    if(f==='all')window._renderUnified(window._unified);
+    else if(f==='unregistered')window._renderUnified(window._unified.filter(function(s){return(s.verified||s.dd)&&!s.registered}));
+    else window._renderUnified(window._unified.filter(function(s){return(s.profile||'')===f}));
+  };
+  window._renderUnified(unified);
+
+  /* ── RDS ── */
   if(liveRds.length&&$('t-rds')){
-    mkT($('t-rds'),['DB ID','엔진','버전','클래스','상태','MultiAZ','암호화','프로파일'],liveRds.map(function(r){return[esc(r.Id||''),ch(r.Engine||'','b'),esc(r.Version||''),esc(r.Class||''),r.Status==='available'?ch('available','g'):ch(r.Status||'','y'),r.MultiAZ?ch('Yes','g'):ch('No','r'),r.Encrypted?ch('Yes','g'):ch('No','r'),ch(r._profile||'','a')]}));
-    $('rds-c').textContent=liveRds.length+'개';
+    mkT($('t-rds'),['DB ID','\uC5D4\uC9C4','\uBC84\uC804','\uD074\uB798\uC2A4','\uC0C1\uD0DC','MultiAZ','\uC554\uD638\uD654','\uACC4\uC815'],liveRds.map(function(r){return[esc(r.Id||''),ch(r.Engine||'','b'),esc(r.Version||''),esc(r.Class||''),r.Status==='available'?ch('available','g'):ch(r.Status||'','y'),r.MultiAZ?ch('Yes','g'):ch('No','r'),r.Encrypted?ch('Yes','g'):ch('No','r'),ch(r._profile||'','a')]}));
+    $('rds-c').textContent=liveRds.length+'\uAC1C';
   }
-  /* AWS ElastiCache */
+  /* ── ElastiCache ── */
   if(liveCache.length&&$('t-cache')){
-    mkT($('t-cache'),['ID','엔진','유형','상태','노드수','프로파일'],liveCache.map(function(c){return[esc(c.Id||''),ch(c.Engine||'','b'),esc(c.Type||''),c.Status==='available'?ch('available','g'):ch(c.Status||'','y'),esc(c.Nodes||''),ch(c._profile||'','a')]}));
-    $('cache-c').textContent=liveCache.length+'개';
+    mkT($('t-cache'),['ID','\uC5D4\uC9C4','\uC720\uD615','\uC0C1\uD0DC','\uB178\uB4DC','\uACC4\uC815'],liveCache.map(function(c){return[esc(c.Id||''),ch(c.Engine||'','b'),esc(c.Type||''),c.Status==='available'?ch('available','g'):ch(c.Status||'','y'),esc(c.Nodes||''),ch(c._profile||'','a')]}));
+    $('cache-c').textContent=liveCache.length+'\uAC1C';
   }
-  /* Cross-verify tables */
-  if(xv.aws_only&&xv.aws_only.length&&$('t-xv-aws')){
-    mkT($('t-xv-aws'),['인스턴스ID','이름','유형','프로파일','상태'],xv.aws_only.map(function(e){return[esc(e.id),esc(e.name),esc(e.type),ch(e.profile||'','a'),ch(e.status||'미등록','r')]}));
-  }
-  if(xv.sheet_only&&xv.sheet_only.length&&$('t-xv-sheet')){
-    mkT($('t-xv-sheet'),['인스턴스ID','이름','유형','계정','상태'],xv.sheet_only.map(function(e){return[esc(e.id),esc(e.name),esc(e.type),ch(e.account||'','a'),ch(e.status||'종료/교체','y')]}));
-  }
-  if(xv.karpenter_nodes&&xv.karpenter_nodes.length&&$('t-xv-karp')){
-    mkT($('t-xv-karp'),['인스턴스ID','이름','유형','프로파일'],xv.karpenter_nodes.map(function(e){return[esc(e.id),esc(e.name),esc(e.type),ch(e.profile||'','c')]}));
-  }
-  var srvs=inf.servers||[];
-  mkT($('t-srv'),['\uAD6C\uBD84','\uC778\uC2A4\uD134\uC2A4ID','\uC790\uC0B0\uBA85','\uACC4\uC815','OS','\uAE30\uC885','\uB9AC\uC804'],srvs.map(function(s){return[ch(s.os_type||'','b'),esc(s.instance_id||''),esc(s.name||''),ch(s.account||'','a'),esc(s.os||''),esc(s.instance_type||''),esc(s.region||'')]}));
-  $('srv-c').textContent=srvs.length+'\uAC1C';
-  var dbs=inf.databases||[];
-  mkT($('t-db'),['\uC720\uD615','\uC790\uC0B0\uBA85','\uBC84\uC804','\uC5D4\uC9C4','\uD50C\uB7AB\uD3FC','\uB9AC\uC804','\uACC4\uC815'],dbs.map(function(x){return[ch(x.type||'','b'),esc(x.name||''),esc(x.version||''),esc(x.engine||''),esc(x.platform||''),esc(x.region||''),ch(x.account||'','a')]}));
-  $('db-c').textContent=dbs.length+'\uAC1C';
+  /* ── Security systems ── */
   var secs=inf.sec_systems||[];
-  mkT($('t-secsys'),['\uAD6C\uBD84','\uC790\uC0B0\uBA85','\uC124\uBA85','\uC6B4\uC601\uD615\uD0DC','\uC81C\uACF5\uC0AC','\uC778\uC99D\uBC29\uC2DD'],secs.map(function(x){return[ch(x.category||'','b'),esc(x.name||''),esc(x.description||''),esc(x.type||''),esc(x.provider||''),authCh(x.auth)]}));
+  mkT($('t-secsys'),['\uAD6C\uBD84','\uC790\uC0B0\uBA85','\uC124\uBA85','\uC6B4\uC601','\uC81C\uACF5\uC0AC','\uC778\uC99D'],secs.map(function(x){return[ch(x.category||'','b'),esc(x.name||''),esc(x.description||''),esc(x.type||''),esc(x.provider||''),authCh(x.auth)]}));
   $('sec-c').textContent=secs.length+'\uAC1C';
-  var nets=inf.networks||[];
-  mkT($('t-net'),['\uC720\uD615','\uB9AC\uC18C\uC2A4ID','\uC790\uC0B0\uBA85','\uC124\uBA85','\uB9AC\uC804','\uC0C1\uD0DC','\uACC4\uC815'],nets.map(function(x){return[ch(x.type||'','c'),esc(x.resource_id||''),esc(x.name||''),esc(x.description||''),esc(x.region||''),x.status?ch(x.status,'g'):'',ch(x.account||'','a')]}));
-  $('net-c').textContent=nets.length+'\uAC1C';
+  /* ── EKS info ── */
+  $('eks-info').innerHTML='<div style="display:flex;gap:16px;flex-wrap:wrap">'
+    +(liveEks.length?liveEks.map(function(e){return'<div style="padding:12px;border:1px solid var(--border);border-radius:8px;min-width:150px"><div style="font-size:16px;font-weight:700;color:var(--accent)">'+esc(e.name||'cluster')+'</div><div style="font-size:11px;color:var(--muted);margin-top:4px">'+ch(e._profile||'','a')+' '+esc(eksNodes+' \uB178\uB4DC')+'</div></div>'}).join(''):'<div style="color:var(--muted)">EKS \uB370\uC774\uD130 \uC5C6\uC74C</div>')
+    +(karpCount?'<div style="padding:12px;border:1px solid var(--cyan);border-radius:8px;min-width:150px"><div style="font-size:16px;font-weight:700;color:var(--cyan)">Karpenter</div><div style="font-size:11px;color:var(--muted);margin-top:4px">'+karpCount+'\uAC1C \uB3D9\uC801 \uB178\uB4DC (\uC790\uB3D9 \uC2A4\uCF00\uC77C\uB9C1)</div></div>':'')
+    +'</div>';
+  $('eks-c').textContent=(liveEks.length||0)+'\uAC1C';
 }
 function rH(h){
   mkT($('t-host'),['\uD638\uC2A4\uD2B8\uBA85','\uC778\uC2A4\uD134\uC2A4','\uB9AC\uC804','\uD074\uB7EC\uC2A4\uD130','\uB178\uB4DC\uD480','\uACC4\uC815','\uC0C1\uD0DC'],
