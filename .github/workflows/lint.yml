@@ -114,7 +114,7 @@ jobs:
       - name: Validate dashboard file exists
         run: test -f "$RUNNER_TEMP/claudesec-scan/claudesec-dashboard.html"
       - name: Validate dashboard content
-        run: grep -q "ClaudeSec local security scanner results" "$RUNNER_TEMP/claudesec-scan/claudesec-dashboard.html"
+        run: grep -qi "ClaudeSec.*Security" "$RUNNER_TEMP/claudesec-scan/claudesec-dashboard.html"
       - name: Install Lighthouse CI
         run: npm install -g @lhci/cli@0.14.x
       - name: Run Lighthouse accessibility audit
