@@ -513,8 +513,9 @@ function renderAsset(d){
   var edrMissing=epxv.jamf_only_count||0;
   mkK($('k-asset'),[
     {l:'총 자산',v:totalAssets,c:'b'},
-    {l:'PC (Jamf)',v:jamfCount,c:jamfCount?'a':'m',s:'MDM 관리'},
-    {l:'SentinelOne',v:s1.length,c:'b',s:'EDR 보호'},
+    {l:'Mac (Jamf)',v:jamfCount,c:jamfCount?'a':'m',s:'MDM'},
+    {l:'Win (Intune)',v:(d.intune_pcs||[]).length,c:(d.intune_pcs||[]).length?'c':'m',s:'MDM'},
+    {l:'SentinelOne',v:s1.length,c:'b',s:'EDR'},
     {l:'S1 위협',v:s1threats,c:s1threats>0?'r':'g',s:'30일'},
     {l:'EDR 미설치',v:edrMissing,c:edrMissing>0?'r':'g',s:edrMissing>0?'즉시 조치':'전체 보호'},
     {l:'양쪽 보호',v:epxv.matched||0,c:'g',s:'Jamf+S1'},
@@ -541,6 +542,17 @@ function renderAsset(d){
       return[esc(m.name||''),esc(m.model||''),'iOS '+esc(m.os||''),esc(m.serial||''),esc(m.imei||'-'),old?ch(c.substring(0,10),'r'):ch(c.substring(0,10),'g')]
     }));
     $('mob-c').textContent=jamfMobiles.length+'\uB300';
+  }
+  /* ── Intune (Windows PC) ── */
+  var intunePcs=d.intune_pcs||[];
+  if(intunePcs.length){
+    el.innerHTML+='<div class="cd"><h3>\uD83D\uDDA5 Windows PC (Intune) <span class="bg" id="intune-c"></span></h3><div class="stbl"><table id="t-intune"></table></div></div>';
+    mkT($('t-intune'),['\uAE30\uAE30\uBA85','\uBAA8\uB378','OS','\uC0AC\uC6A9\uC790','\uC2DC\uB9AC\uC5BC','\uCEF4\uD50C\uB77C\uC774\uC5B8\uC2A4','\uCD5C\uC885\uCCB4\uD06C\uC778'],intunePcs.map(function(p){
+      var c=p.last_checkin||'';var old=c&&(new Date()-new Date(c))>7*86400e3;
+      var comp=p.compliance==='Compliant'?ch('\uC900\uC218','g'):(p.compliance==='Noncompliant'?ch('\uBBF8\uC900\uC218','r'):ch(p.compliance||'-','m'));
+      return[esc(p.name||''),esc(p.model||''),esc(p.os||''),esc(p.user_display||p.user||''),esc(p.serial||'-'),comp,old?ch(c.substring(0,10),'r'):ch(c.substring(0,10),'g')]
+    }));
+    $('intune-c').textContent=intunePcs.length+'\uB300';
   }
   /* ── SentinelOne (EDR) ── */
   if(s1.length&&$('t-s1')){
