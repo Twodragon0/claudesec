@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750" width="1200" height="750">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0f172a"/><stop offset="100%" stop-color="#1e293b"/></linearGradient>
+</defs>
+<style>
+text{font-family:-apple-system,'Segoe UI',system-ui,sans-serif;fill:#e2e8f0}
+.t{font-size:16px;font-weight:700;fill:#f8fafc}.s{font-size:10px;fill:#94a3b8}.l{font-size:11px;font-weight:600}.c{font-size:12px;font-weight:700}.sm{font-size:9px;fill:#94a3b8}
+</style>
+<rect width="1200" height="750" fill="url(#bg)" rx="10"/>
+<text x="600" y="30" text-anchor="middle" class="t">AWS Infrastructure Architecture — DevSecOps</text>
+<text x="600" y="46" text-anchor="middle" class="s">ap-northeast-2 · Datadog + Prowler + ClaudeSec</text>
+
+<!-- Endpoints -->
+<rect x="25" y="60" width="1150" height="65" rx="8" fill="#1e293b" stroke="#334155"/>
+<text x="40" y="80" class="l">Endpoints</text>
+<rect x="40" y="88" width="95" height="28" rx="5" fill="#0f172a" stroke="#334155"/><text x="87" y="106" text-anchor="middle" class="s">Mac 59</text>
+<rect x="142" y="88" width="95" height="28" rx="5" fill="#0f172a" stroke="#334155"/><text x="189" y="106" text-anchor="middle" class="s">Win 21</text>
+<rect x="244" y="88" width="95" height="28" rx="5" fill="#0f172a" stroke="#334155"/><text x="291" y="106" text-anchor="middle" class="s">Mobile 18</text>
+<rect x="350" y="88" width="100" height="28" rx="5" fill="#0f172a" stroke="#6366f1"/><text x="400" y="106" text-anchor="middle" class="s" style="fill:#a5b4fc">Okta SSO 29</text>
+<rect x="458" y="88" width="100" height="28" rx="5" fill="#0f172a" stroke="#22c55e"/><text x="508" y="106" text-anchor="middle" class="s" style="fill:#86efac">S1 EDR 59</text>
+<rect x="566" y="88" width="100" height="28" rx="5" fill="#0f172a" stroke="#0ea5e9"/><text x="616" y="106" text-anchor="middle" class="s" style="fill:#7dd3fc">Zscaler ZT</text>
+<rect x="674" y="88" width="100" height="28" rx="5" fill="#0f172a" stroke="#f59e0b"/><text x="724" y="106" text-anchor="middle" class="s" style="fill:#fde68a">Cloudflare</text>
+<rect x="782" y="88" width="100" height="28" rx="5" fill="#0f172a" stroke="#ef4444"/><text x="832" y="106" text-anchor="middle" class="s" style="fill:#fca5a5">GuardDuty</text>
+<rect x="890" y="88" width="100" height="28" rx="5" fill="#0f172a" stroke="#a78bfa"/><text x="940" y="106" text-anchor="middle" class="s" style="fill:#c4b5fd">Querypie</text>
+<rect x="998" y="88" width="100" height="28" rx="5" fill="#0f172a" stroke="#06b6d4"/><text x="1048" y="106" text-anchor="middle" class="s" style="fill:#67e8f9">Cososys EPP</text>
+
+<!-- dive-prod -->
+<rect x="25" y="140" width="570" height="310" rx="8" fill="#172554" stroke="#1d4ed8" stroke-opacity="0.4"/>
+<text x="40" y="162" class="l" style="fill:#60a5fa">dive-prod (535740263562)</text>
+<rect x="40" y="175" width="540" height="105" rx="6" fill="#0f172a" stroke="#2563eb" stroke-opacity="0.4"/>
+<text x="55" y="195" class="l" style="fill:#60a5fa">EKS dive-prod v1.33</text>
+<rect x="55" y="205" width="110" height="22" rx="4" fill="#1e3a5f"/><text x="110" y="220" text-anchor="middle" class="sm" style="fill:#93c5fd">m8g.xlarge x6</text>
+<rect x="172" y="205" width="110" height="22" rx="4" fill="#1e3a5f"/><text x="227" y="220" text-anchor="middle" class="sm" style="fill:#93c5fd">r8g.xlarge x5</text>
+<rect x="289" y="205" width="110" height="22" rx="4" fill="#1e3a5f"/><text x="344" y="220" text-anchor="middle" class="sm" style="fill:#93c5fd">m7i-flex x1</text>
+<rect x="55" y="235" width="60" height="22" rx="4" fill="#14532d"/><text x="85" y="250" text-anchor="middle" class="sm" style="fill:#86efac">12 nodes</text>
+<rect x="122" y="235" width="70" height="22" rx="4" fill="#1e293b" stroke="#334155"/><text x="157" y="250" text-anchor="middle" class="sm">Kyverno 9</text>
+<rect x="199" y="235" width="60" height="22" rx="4" fill="#1e293b" stroke="#334155"/><text x="229" y="250" text-anchor="middle" class="sm">ArgoCD</text>
+<rect x="266" y="235" width="75" height="22" rx="4" fill="#1e293b" stroke="#334155"/><text x="303" y="250" text-anchor="middle" class="sm">DD Agent</text>
+<rect x="348" y="235" width="75" height="22" rx="4" fill="#1e293b" stroke="#334155"/><text x="385" y="250" text-anchor="middle" class="sm">Karpenter</text>
+
+<rect x="40" y="290" width="250" height="30" rx="5" fill="#0f172a" stroke="#334155"/><text x="165" y="309" text-anchor="middle" class="s">querypie-prod · zpa-connector</text>
+<rect x="300" y="290" width="280" height="30" rx="5" fill="#0f172a" stroke="#f59e0b" stroke-opacity="0.4"/><text x="440" y="309" text-anchor="middle" class="s" style="fill:#fde68a">Aurora x4 · DocDB x2 · Cache x4</text>
+<rect x="40" y="330" width="120" height="25" rx="5" fill="#0f172a" stroke="#334155"/><text x="100" y="347" text-anchor="middle" class="sm">S3: 29 buckets</text>
+<rect x="170" y="330" width="130" height="25" rx="5" fill="#0f172a" stroke="#334155"/><text x="235" y="347" text-anchor="middle" class="sm">DD: 23 hosts</text>
+<rect x="310" y="330" width="120" height="25" rx="5" fill="#0f172a" stroke="#22c55e" stroke-opacity="0.3"/><text x="370" y="347" text-anchor="middle" class="sm" style="fill:#86efac">Encrypted ✓</text>
+<rect x="440" y="330" width="120" height="25" rx="5" fill="#0f172a" stroke="#22c55e" stroke-opacity="0.3"/><text x="500" y="347" text-anchor="middle" class="sm" style="fill:#86efac">MultiAZ ✓</text>
+
+<!-- dive-dev -->
+<rect x="605" y="140" width="570" height="310" rx="8" fill="#1a2332" stroke="#475569" stroke-opacity="0.4"/>
+<text x="620" y="162" class="l" style="fill:#94a3b8">dive-dev (394931144369)</text>
+<rect x="620" y="175" width="540" height="105" rx="6" fill="#0f172a" stroke="#475569" stroke-opacity="0.3"/>
+<text x="635" y="195" class="l" style="fill:#94a3b8">EKS dive-dev v1.33</text>
+<rect x="635" y="205" width="105" height="22" rx="4" fill="#1e293b"/><text x="687" y="220" text-anchor="middle" class="sm">m8g.xlarge x3</text>
+<rect x="747" y="205" width="105" height="22" rx="4" fill="#1e293b"/><text x="799" y="220" text-anchor="middle" class="sm">r8g.xlarge x6</text>
+<rect x="859" y="205" width="90" height="22" rx="4" fill="#1e293b"/><text x="904" y="220" text-anchor="middle" class="sm">Fargate x2</text>
+<rect x="635" y="235" width="60" height="22" rx="4" fill="#14532d"/><text x="665" y="250" text-anchor="middle" class="sm" style="fill:#86efac">11 nodes</text>
+<rect x="702" y="235" width="65" height="22" rx="4" fill="#1e293b" stroke="#334155"/><text x="734" y="250" text-anchor="middle" class="sm">266 pods</text>
+
+<rect x="620" y="290" width="250" height="30" rx="5" fill="#0f172a" stroke="#334155"/><text x="745" y="309" text-anchor="middle" class="s">querypie-dev · zpa-connector</text>
+<rect x="880" y="290" width="270" height="30" rx="5" fill="#0f172a" stroke="#475569"/><text x="1015" y="309" text-anchor="middle" class="s">Aurora x3 · DocDB x2 · Cache x4</text>
+<rect x="620" y="330" width="120" height="25" rx="5" fill="#0f172a" stroke="#334155"/><text x="680" y="347" text-anchor="middle" class="sm">S3: 45 buckets</text>
+<rect x="750" y="330" width="200" height="25" rx="5" fill="#0f172a" stroke="#f59e0b" stroke-opacity="0.3"/><text x="850" y="347" text-anchor="middle" class="sm" style="fill:#fde68a">DocDB Encrypted: No ⚠</text>
+
+<!-- Security Layer -->
+<rect x="25" y="465" width="1150" height="80" rx="8" fill="#14532d" stroke="#22c55e" stroke-opacity="0.3"/>
+<text x="40" y="487" class="l" style="fill:#86efac">Security &amp; Compliance</text>
+<rect x="40" y="497" width="120" height="35" rx="5" fill="#0f172a" stroke="#22c55e" stroke-opacity="0.3"/>
+<text x="100" y="513" text-anchor="middle" class="sm" style="fill:#86efac">ClaudeSec</text><text x="100" y="525" text-anchor="middle" class="c" style="fill:#22c55e;font-size:11px">B / 81</text>
+<rect x="168" y="497" width="120" height="35" rx="5" fill="#0f172a" stroke="#ef4444" stroke-opacity="0.3"/>
+<text x="228" y="513" text-anchor="middle" class="sm" style="fill:#fca5a5">Prowler</text><text x="228" y="525" text-anchor="middle" class="c" style="fill:#ef4444;font-size:11px">966 FAIL</text>
+<rect x="296" y="497" width="120" height="35" rx="5" fill="#0f172a" stroke="#3b82f6" stroke-opacity="0.3"/>
+<text x="356" y="513" text-anchor="middle" class="sm" style="fill:#93c5fd">DD SIEM</text><text x="356" y="525" text-anchor="middle" class="c" style="fill:#38bdf8;font-size:11px">16 signals</text>
+<rect x="424" y="497" width="120" height="35" rx="5" fill="#0f172a" stroke="#a78bfa" stroke-opacity="0.3"/>
+<text x="484" y="513" text-anchor="middle" class="sm" style="fill:#c4b5fd">ISMS-P</text><text x="484" y="525" text-anchor="middle" class="c" style="fill:#a78bfa;font-size:11px">8규정 83%</text>
+<rect x="552" y="497" width="120" height="35" rx="5" fill="#0f172a" stroke="#f59e0b" stroke-opacity="0.3"/>
+<text x="612" y="513" text-anchor="middle" class="sm" style="fill:#fde68a">IAM+PAM</text><text x="612" y="525" text-anchor="middle" class="c" style="fill:#eab308;font-size:11px">Okta+QP</text>
+<rect x="680" y="497" width="120" height="35" rx="5" fill="#0f172a" stroke="#ec4899" stroke-opacity="0.3"/>
+<text x="740" y="513" text-anchor="middle" class="sm" style="fill:#f9a8d4">GitHub</text><text x="740" y="525" text-anchor="middle" class="c" style="fill:#ec4899;font-size:11px">CodeQL+GHAS</text>
+<rect x="808" y="497" width="120" height="35" rx="5" fill="#0f172a" stroke="#06b6d4" stroke-opacity="0.3"/>
+<text x="868" y="513" text-anchor="middle" class="sm" style="fill:#67e8f9">EDR+MDM</text><text x="868" y="525" text-anchor="middle" class="c" style="fill:#06b6d4;font-size:11px">S1+Jamf</text>
+<rect x="936" y="497" width="120" height="35" rx="5" fill="#0f172a" stroke="#22c55e" stroke-opacity="0.3"/>
+<text x="996" y="513" text-anchor="middle" class="sm" style="fill:#86efac">Intune</text><text x="996" y="525" text-anchor="middle" class="c" style="fill:#22c55e;font-size:11px">21 Win PC</text>
+
+<!-- Observability -->
+<rect x="25" y="560" width="1150" height="40" rx="6" fill="#1e293b" stroke="#334155"/>
+<text x="40" y="585" class="l" style="fill:#94a3b8">Observability</text>
+<text x="180" y="585" class="sm">Datadog APM · Logs · Traces · Signals</text>
+<text x="450" y="585" class="sm">| Notion Audit 14x</text>
+<text x="580" y="585" class="sm">| SaaS 42 · License 70 · AI 7</text>
+<text x="800" y="585" class="sm">| Cost KRW 33.7M</text>
+<text x="960" y="585" class="sm">| Scan History 30</text>
+
+<!-- Connections -->
+<line x1="300" y1="125" x2="300" y2="140" stroke="#475569" stroke-width="1" stroke-dasharray="3,3"/>
+<line x1="890" y1="125" x2="890" y2="140" stroke="#475569" stroke-width="1" stroke-dasharray="3,3"/>
+<line x1="300" y1="450" x2="300" y2="465" stroke="#22c55e" stroke-width="1" stroke-dasharray="3,3"/>
+<line x1="890" y1="450" x2="890" y2="465" stroke="#22c55e" stroke-width="1" stroke-dasharray="3,3"/>
+
+<text x="1170" y="745" text-anchor="end" class="sm" style="font-size:8px">ClaudeSec · Datadog + AWS + K8s API</text>
+</svg>
