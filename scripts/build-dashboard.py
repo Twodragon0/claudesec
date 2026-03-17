@@ -31,8 +31,8 @@ ASSETS_DIR = ROOT / ".claudesec-assets"
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 
 SHEETS = {
-    "자산관리대장": "1jHuyKEkoAe1jui_mO38nqK2urQqxlNUsEoqnTq1ZsgU",
-    "AI구독현황": "13QhrE-KhJkxgXOApajhohaTzRcyc3R7BtE3_4JVyKcA",
+    "자산관리대장": os.environ.get("ASSET_SHEET_ID", "YOUR_ASSET_SHEET_ID"),
+    "AI구독현황": os.environ.get("AI_SHEET_ID", "YOUR_AI_SHEET_ID"),
 }
 
 NOW = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -563,7 +563,7 @@ def collect_sheets():
 
     # SaaS 비용 (.xlsx via Drive API download)
     cost_data = {"summary": [], "details": {}}
-    xlsx_id = "1Av4DH2-lWl0MAORw-9fD6mjlzvK8zpq0"
+    xlsx_id = os.environ.get("COST_SHEET_ID", "YOUR_COST_XLSX_ID")
     if openpyxl:
         try:
             print("  SaaS 비용 시트 다운로드 중...")
@@ -784,7 +784,8 @@ def _cross_verify_ec2(aws_ec2: list, sheet_servers: list) -> dict:
 def load_aws_live_data():
     """Load AWS describe results from .claudesec-assets/aws-*.json files"""
     result = {"ec2": [], "rds": [], "elasticache": [], "s3": [], "eks": []}
-    for profile in ["dive-dev", "dive-prod", "web3-prod", "playground"]:
+    aws_profiles = os.environ.get("AWS_PROFILES", "").split(",") if os.environ.get("AWS_PROFILES") else []
+    for profile in aws_profiles:
         for rtype in ["ec2", "rds", "rds-clusters", "elasticache", "s3", "eks"]:
             fpath = ASSETS_DIR / f"aws-{rtype}-{profile}.json"
             if not fpath.exists():
@@ -880,8 +881,8 @@ def main():
         "google_sheets": NOW,  # API 실시간
         "saas_cost_xlsx": file_mtime_str("/tmp/claudesec-cost.xlsx"),
         "notion": file_mtime_str(ASSETS_DIR / "notion-security-audits.json"),
-        "aws_ec2": file_mtime_str(ASSETS_DIR / "aws-ec2-dive-prod.json"),
-        "aws_rds": file_mtime_str(ASSETS_DIR / "aws-rds-dive-prod.json"),
+        "aws_ec2": file_mtime_str(ASSETS_DIR / "aws-ec2-prod.json") or file_mtime_str(next(ASSETS_DIR.glob("aws-ec2-*.json"), Path("/dev/null"))),
+        "aws_rds": file_mtime_str(ASSETS_DIR / "aws-rds-prod.json") or file_mtime_str(next(ASSETS_DIR.glob("aws-rds-*.json"), Path("/dev/null"))),
     }
 
     # EC2 교차 검증: AWS live vs 자산관리대장
