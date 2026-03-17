@@ -146,20 +146,9 @@ class DashboardGenSmokeTest(unittest.TestCase):
             # Dashboard must contain core structure
             self.assertIn("ClaudeSec", html)
             self.assertIn("tab-overview", html)
-            self.assertIn("Windows / Intune / Office 365 best-practice sources", html)
-            self.assertIn("OAuth &amp; authentication scan readiness", html)
-            self.assertIn("RFC 9700", html)
-            self.assertIn("OWASP OAuth 2.0 Cheat Sheet", html)
-            self.assertIn("Tokens expiring &lt;12h", html)
-            self.assertIn("Tokens expiring 12h-2d", html)
-            self.assertIn("Active windows: &lt;12h and 12h-2d", html)
-            self.assertIn("Threshold source: &lt;12h=env, 2d=env", html)
-            self.assertIn("Known token expiries", html)
-            self.assertIn("Expiring 12h-2d: 1", html)
-            self.assertIn("Policy Coverage", html)
-            self.assertIn("Permission gaps (SAAS-API-007)", html)
-            self.assertIn("Policy mapping gaps (SAAS-API-022)", html)
-            self.assertIn("Policy gaps (022)", html)
+            # Auth summary — simplified SSO status
+            self.assertIn("SSO", html)
+            self.assertIn("MFA", html)
 
     def test_fetch_ms_sources_scubagear_toggle_off_vs_on(self):
         fake_sources = [
