@@ -76,3 +76,28 @@ tmp-*.png
 *.secret.yml
 *.secret.yaml
 config.local.*
+
+# --- 회사 내부 데이터 (company internal data — NEVER commit) ---
+# Asset inventory & dashboard data (contains hostnames, IPs, account IDs, serial numbers)
+.claudesec-assets/
+claudesec-asset-dashboard-live.html
+# Jamf Pro device data (contains employee names, serial numbers, MAC addresses)
+jamf-*.json
+jamf-*.csv
+# SaaS cost & license data (contains pricing, employee info)
+.claudesec-saas-best-practices/
+# Google Sheets raw data
+gsheet-*.json
+# AWS live infrastructure data (contains instance IDs, IPs, account numbers)
+aws-*.json
+# Python virtual environments
+.venv*/
+venv*/
+# Claude Code local config
+.claude/
+# Prowler enhanced results
+prowler-*.json
+# Notion audit cache
+notion-*.json
+# Run scripts with local paths
+run-all.sh
