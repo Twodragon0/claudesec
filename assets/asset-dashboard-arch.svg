@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0f1117"/><stop offset="100%" stop-color="#1a1d27"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#6c5ce7"/><stop offset="100%" stop-color="#0984e3"/></linearGradient>
+  </defs>
+  <rect width="900" height="520" rx="12" fill="url(#bg)"/>
+  <!-- Title -->
+  <text x="450" y="36" text-anchor="middle" fill="#e1e4eb" font-size="18" font-weight="700">ClaudeSec — ISMS Asset &amp; Security Dashboard Architecture</text>
+  <!-- Data Sources -->
+  <g transform="translate(30,60)">
+    <rect width="160" height="100" rx="10" fill="#1e2130" stroke="#6c5ce7" stroke-width="1.5"/>
+    <text x="80" y="24" text-anchor="middle" fill="#6c5ce7" font-size="11" font-weight="700">DATA SOURCES</text>
+    <text x="80" y="44" text-anchor="middle" fill="#8b8fa3" font-size="10">Datadog API</text>
+    <text x="80" y="58" text-anchor="middle" fill="#8b8fa3" font-size="10">Google Sheets</text>
+    <text x="80" y="72" text-anchor="middle" fill="#8b8fa3" font-size="10">AWS describe</text>
+    <text x="80" y="86" text-anchor="middle" fill="#8b8fa3" font-size="10">Notion API</text>
+  </g>
+  <g transform="translate(30,175)">
+    <rect width="160" height="85" rx="10" fill="#1e2130" stroke="#00b894" stroke-width="1.5"/>
+    <text x="80" y="24" text-anchor="middle" fill="#00b894" font-size="11" font-weight="700">SECURITY SCAN</text>
+    <text x="80" y="44" text-anchor="middle" fill="#8b8fa3" font-size="10">ClaudeSec Scanner</text>
+    <text x="80" y="58" text-anchor="middle" fill="#8b8fa3" font-size="10">Prowler K8s/AWS</text>
+    <text x="80" y="72" text-anchor="middle" fill="#8b8fa3" font-size="10">SentinelOne EDR</text>
+  </g>
+  <!-- Arrows -->
+  <line x1="190" y1="110" x2="240" y2="200" stroke="#6c5ce7" stroke-width="1.5" stroke-dasharray="4"/>
+  <line x1="190" y1="217" x2="240" y2="200" stroke="#00b894" stroke-width="1.5" stroke-dasharray="4"/>
+  <!-- Build -->
+  <g transform="translate(240,165)">
+    <rect width="180" height="70" rx="10" fill="#2d1b69" stroke="#6c5ce7" stroke-width="2"/>
+    <text x="90" y="24" text-anchor="middle" fill="#e1e4eb" font-size="12" font-weight="700">build-dashboard.py</text>
+    <text x="90" y="42" text-anchor="middle" fill="#8b8fa3" font-size="10">Collect → Cross-verify</text>
+    <text x="90" y="56" text-anchor="middle" fill="#8b8fa3" font-size="10">→ Build HTML + JSON</text>
+  </g>
+  <line x1="420" y1="200" x2="470" y2="200" stroke="#6c5ce7" stroke-width="2" marker-end="url(#arrow)"/>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6c5ce7"/></marker></defs>
+  <!-- Dashboard -->
+  <g transform="translate(470,130)">
+    <rect width="200" height="140" rx="12" fill="#1e2130" stroke="url(#accent)" stroke-width="2"/>
+    <text x="100" y="24" text-anchor="middle" fill="#e1e4eb" font-size="13" font-weight="700">ISMS Dashboard</text>
+    <text x="100" y="44" text-anchor="middle" fill="#6c5ce7" font-size="10">localhost:11777</text>
+    <line x1="20" y1="54" x2="180" y2="54" stroke="#2a2d3a"/>
+    <text x="20" y="70" fill="#00b894" font-size="9">ISMS PDCA</text>
+    <text x="110" y="70" fill="#fdcb6e" font-size="9">보안 현황</text>
+    <text x="20" y="86" fill="#0984e3" font-size="9">자산 관리</text>
+    <text x="110" y="86" fill="#00cec9" font-size="9">인프라</text>
+    <text x="20" y="102" fill="#fd79a8" font-size="9">SaaS·라이선스</text>
+    <text x="110" y="102" fill="#e17055" font-size="9">비용 분석</text>
+    <text x="20" y="118" fill="#6c5ce7" font-size="9">AI 구독</text>
+    <text x="110" y="118" fill="#f39c12" font-size="9">보안 시그널</text>
+    <text x="20" y="134" fill="#8b8fa3" font-size="9">ClaudeSec 스캔</text>
+  </g>
+  <!-- Docker -->
+  <g transform="translate(700,155)">
+    <rect width="170" height="90" rx="10" fill="#1e2130" stroke="#0984e3" stroke-width="1.5"/>
+    <text x="85" y="22" text-anchor="middle" fill="#0984e3" font-size="11" font-weight="700">Docker</text>
+    <text x="85" y="42" text-anchor="middle" fill="#8b8fa3" font-size="10">nginx :11777</text>
+    <text x="85" y="58" text-anchor="middle" fill="#8b8fa3" font-size="10">/ → ISMS Dashboard</text>
+    <text x="85" y="74" text-anchor="middle" fill="#8b8fa3" font-size="10">/scan.html → Scan</text>
+  </g>
+  <line x1="670" y1="200" x2="700" y2="200" stroke="#0984e3" stroke-width="1.5" stroke-dasharray="4"/>
+  <!-- PDCA -->
+  <g transform="translate(240,290)">
+    <rect width="620" height="200" rx="12" fill="#1e2130" stroke="#2a2d3a" stroke-width="1"/>
+    <text x="310" y="24" text-anchor="middle" fill="#e1e4eb" font-size="13" font-weight="700">ISMS PDCA Cycle — Asset Management &amp; Vulnerability Assessment</text>
+    <!-- P -->
+    <circle cx="90" cy="110" r="55" fill="none" stroke="#0984e3" stroke-width="2.5"/>
+    <text x="90" y="95" text-anchor="middle" fill="#0984e3" font-size="20" font-weight="800">P</text>
+    <text x="90" y="112" text-anchor="middle" fill="#e1e4eb" font-size="10" font-weight="600">Plan</text>
+    <text x="90" y="128" text-anchor="middle" fill="#8b8fa3" font-size="8">자산 식별·분류</text>
+    <text x="90" y="140" text-anchor="middle" fill="#8b8fa3" font-size="8">보안 정책 수립</text>
+    <!-- Arrow -->
+    <text x="170" y="113" fill="#2a2d3a" font-size="20">→</text>
+    <!-- D -->
+    <circle cx="245" cy="110" r="55" fill="none" stroke="#00b894" stroke-width="2.5"/>
+    <text x="245" y="95" text-anchor="middle" fill="#00b894" font-size="20" font-weight="800">D</text>
+    <text x="245" y="112" text-anchor="middle" fill="#e1e4eb" font-size="10" font-weight="600">Do</text>
+    <text x="245" y="128" text-anchor="middle" fill="#8b8fa3" font-size="8">SSO 연동·EDR 배포</text>
+    <text x="245" y="140" text-anchor="middle" fill="#8b8fa3" font-size="8">모니터링 구현</text>
+    <text x="325" y="113" fill="#2a2d3a" font-size="20">→</text>
+    <!-- C -->
+    <circle cx="400" cy="110" r="55" fill="none" stroke="#fdcb6e" stroke-width="2.5"/>
+    <text x="400" y="95" text-anchor="middle" fill="#fdcb6e" font-size="20" font-weight="800">C</text>
+    <text x="400" y="112" text-anchor="middle" fill="#e1e4eb" font-size="10" font-weight="600">Check</text>
+    <text x="400" y="128" text-anchor="middle" fill="#8b8fa3" font-size="8">취약점 스캔·점검</text>
+    <text x="400" y="140" text-anchor="middle" fill="#8b8fa3" font-size="8">교차 검증</text>
+    <text x="480" y="113" fill="#2a2d3a" font-size="20">→</text>
+    <!-- A -->
+    <circle cx="555" cy="110" r="55" fill="none" stroke="#e17055" stroke-width="2.5"/>
+    <text x="555" y="95" text-anchor="middle" fill="#e17055" font-size="20" font-weight="800">A</text>
+    <text x="555" y="112" text-anchor="middle" fill="#e1e4eb" font-size="10" font-weight="600">Act</text>
+    <text x="555" y="128" text-anchor="middle" fill="#8b8fa3" font-size="8">조치·개선</text>
+    <text x="555" y="140" text-anchor="middle" fill="#8b8fa3" font-size="8">정기 점검</text>
+    <!-- Loop arrow -->
+    <path d="M 555 165 Q 555 185 530 185 L 115 185 Q 90 185 90 165" fill="none" stroke="#2a2d3a" stroke-width="1.5" stroke-dasharray="4" marker-end="url(#arrow2)"/>
+    <defs><marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2a2d3a"/></marker></defs>
+  </g>
+</svg>

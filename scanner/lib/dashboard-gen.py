@@ -2443,6 +2443,40 @@ ARCH_DOMAINS = [
         "summary": "Dependencies, CVE, and SBOM for supply chain vulnerability management.",
         "action": "Dependabot and CVE scanning; generate and verify SBOM; immutable releases and patch policy.",
     },
+    {
+        "name": "Endpoint security",
+        "icon": "💻",
+        "checks": [
+            "edr",
+            "endpoint",
+            "sentinelone",
+            "antivirus",
+            "malware",
+            "mdm",
+            "jamf",
+            "device",
+        ],
+        "summary": "Endpoint Detection and Response (EDR), MDM, and device management for endpoint protection.",
+        "action": "Deploy SentinelOne/EDR on all endpoints; enforce MDM enrollment via Jamf/Intune; monitor threat alerts.",
+    },
+    {
+        "name": "Cloud & K8s security",
+        "icon": "☁",
+        "checks": [
+            "cluster",
+            "pod",
+            "rbac",
+            "karpenter",
+            "eks",
+            "s3",
+            "rds",
+            "vpc",
+            "security_group",
+            "guardduty",
+        ],
+        "summary": "Cloud infrastructure, Kubernetes, and managed services security posture.",
+        "action": "CIS benchmark compliance; Pod Security Standards; least privilege RBAC; encrypt data at rest; enable GuardDuty.",
+    },
 ]
 
 # Mapping: architecture domains ↔ OWASP / compliance / scanner categories
@@ -2500,19 +2534,40 @@ ARCH_DOMAIN_LINKS = [
         "compliance": [("ISO 27001:2022", "A.8.8"), ("PCI-DSS v4.0.1", "Req 6")],
         "scanner": ["cicd", "code", "infra"],
     },
+    # Endpoint security
+    {
+        "owasp": ["A05", "A07"],
+        "compliance": [
+            ("ISO 27001:2022", "A.8.1"),
+            ("KISA ISMS-P", "2.10.1"),
+            ("PCI-DSS v4.0.1", "Req 5"),
+        ],
+        "scanner": ["infra"],
+    },
+    # Cloud & K8s security
+    {
+        "owasp": ["A01", "A05", "A09"],
+        "compliance": [
+            ("ISO 27001:2022", "A.8.23"),
+            ("KISA ISMS-P", "2.8.1"),
+            ("PCI-DSS v4.0.1", "Req 1"),
+            ("PCI-DSS v4.0.1", "Req 2"),
+        ],
+        "scanner": ["cloud", "infra", "prowler"],
+    },
 ]
 
 # OWASP → related architecture domains (reverse mapping)
 OWASP_TO_ARCH = {
-    "A01": [1],
+    "A01": [1, 7],
     "A02": [0, 2],
     "A03": [3, 5],
     "A04": [2],
-    "A05": [0],
+    "A05": [0, 6, 7],
     "A06": [],
-    "A07": [1],
+    "A07": [1, 6],
     "A08": [3, 5],
-    "A09": [0, 4],
+    "A09": [0, 4, 7],
     "A10": [],
 }
 
@@ -3521,7 +3576,7 @@ def _build_overview_blocks(
     net_enabled = os.environ.get("CLAUDESEC_NETWORK_SCAN_ENABLED", "0")
     net_targets = os.environ.get("CLAUDESEC_NETWORK_SCAN_TARGETS", "")
     trivy_enabled = os.environ.get("CLAUDESEC_TRIVY_ENABLED", "1")
-    network_tools_html += '<div class="card"><div class="card-title">Network &amp; security tools — cockpit</div><div style="padding:1rem 1.25rem">'
+    network_tools_html += '<div class="card"><div class="card-title">Network &amp; Security — Configuration</div><div style="padding:1rem 1.25rem">'
     network_tools_html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;margin-bottom:.9rem">'
     network_tools_html += f'<div class="ssb-item"><strong>network_scan_enabled</strong><div class="mono" style="margin-top:.25rem">{h(net_enabled)}</div></div>'
     network_tools_html += f'<div class="ssb-item"><strong>network_scan_targets</strong><div class="mono" style="margin-top:.25rem;word-break:break-all">{h(net_targets or "(empty)")}</div></div>'
@@ -3530,15 +3585,16 @@ def _build_overview_blocks(
     network_tools_html += (
         '<div style="color:var(--muted);font-size:.82rem;line-height:1.6">'
     )
-    network_tools_html += "<div><strong>Quick start (safe defaults)</strong></div>"
+    network_tools_html += "<div><strong>Enable network scanning</strong></div>"
     network_tools_html += '<div class="mono" style="margin-top:.35rem;white-space:pre-wrap;border:1px solid var(--border);border-radius:10px;padding:.75rem;background:rgba(255,255,255,.02)">'
+    network_tools_html += "# Add to .claudesec.yml or export as environment variables\n"
     network_tools_html += "export CLAUDESEC_NETWORK_SCAN_ENABLED=1\n"
     network_tools_html += (
-        'export CLAUDESEC_NETWORK_SCAN_TARGETS="example.com:443,https://example.com"\n'
+        'export CLAUDESEC_NETWORK_SCAN_TARGETS="your-domain.com:443"\n'
     )
-    network_tools_html += "./scanner/claudesec dashboard -d . --serve --all\n"
+    network_tools_html += "./run --quick    # or ./run-all.sh\n"
     network_tools_html += "</div>"
-    network_tools_html += '<div style="margin-top:.6rem">Artifacts are written to <code>.claudesec-network/</code> and summarized into <code>network-report.v1.json</code>. Targets are redacted in the dashboard by default (set <code>CLAUDESEC_DASHBOARD_SHOW_IDENTIFIERS=1</code> to reveal).</div>'
+    network_tools_html += '<div style="margin-top:.6rem">Results are saved to <code>.claudesec-network/</code>. Targets are redacted by default.</div>'
     network_tools_html += "</div>"
     network_tools_html += "</div></div>"
 
@@ -3550,7 +3606,7 @@ def _build_overview_blocks(
     has_trivy = _has_cmd("trivy")
     has_nmap = _has_cmd("nmap")
     has_sslscan = _has_cmd("sslscan")
-    has_testssl = _has_cmd("testssl.sh") or _has_cmd("testssl")
+    has_testssl = False  # removed: use sslscan instead
     has_curl = _has_cmd("curl")
     has_python = _has_cmd("python3")
 
@@ -3569,16 +3625,13 @@ def _build_overview_blocks(
     network_tools_html += _cmd_pill(
         "sslscan", has_sslscan, "optional TLS scan (when enabled + targets set)"
     )
-    network_tools_html += _cmd_pill(
-        "testssl.sh", has_testssl, "optional TLS scan alternative"
-    )
     network_tools_html += "</div>"
 
     # Why sections are empty (explain with concrete next steps).
     missing_notes: list[str] = []
     if not is_net_enabled:
         missing_notes.append(
-            "`CLAUDESEC_NETWORK_SCAN_ENABLED` is not enabled, so deep network checks (nmap/sslscan/http headers) won't run."
+            "Enable network scanning: `export CLAUDESEC_NETWORK_SCAN_ENABLED=1` and set scan targets."
         )
     if is_net_enabled and not has_targets:
         missing_notes.append(
@@ -3586,9 +3639,9 @@ def _build_overview_blocks(
         )
     if is_net_enabled and has_targets and not has_curl:
         missing_notes.append("`curl` not found: HTTP header scan can't run.")
-    if is_net_enabled and has_targets and not (has_sslscan or has_testssl):
+    if is_net_enabled and has_targets and not has_sslscan:
         missing_notes.append(
-            "Neither `sslscan` nor `testssl.sh` found: TLS grade section will be empty."
+            "`sslscan` not found: TLS grade section will be empty. Install with `brew install sslscan`."
         )
     if is_trivy_enabled and not has_trivy:
         missing_notes.append(
@@ -3626,7 +3679,7 @@ def _build_overview_blocks(
     if missing_notes:
         network_tools_html += '<div style="margin-top:.85rem;border-top:1px solid var(--border);padding-top:.85rem">'
         network_tools_html += (
-            '<div style="font-weight:800;margin-bottom:.35rem">Why is it empty?</div>'
+            '<div style="font-weight:800;margin-bottom:.35rem">Next steps</div>'
         )
         network_tools_html += (
             '<ul style="margin-left:1.1rem;color:var(--muted);line-height:1.7">'
@@ -3642,8 +3695,6 @@ def _build_overview_blocks(
     network_tools_html += "# macOS (Homebrew)\n"
     network_tools_html += "brew install curl nmap sslscan\n"
     network_tools_html += "brew install aquasecurity/trivy/trivy\n"
-    network_tools_html += "\n# testssl.sh (optional)\n"
-    network_tools_html += "brew install testssl || true\n"
     network_tools_html += "</div>"
     network_tools_html += '<div style="margin-top:.5rem;color:var(--muted);font-size:.78rem;line-height:1.6">'
     network_tools_html += "Tip: in CI, prefer pinned tool versions and run with least privilege. Only scan explicitly configured external targets."
@@ -5089,7 +5140,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta name="generator" content="ClaudeSec v{{VERSION}}">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:;">
 <meta name="theme-color" content="#0f172a">
-<title>ClaudeSec Security Dashboard</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>ClaudeSec DevSecOps Dashboard</title>
 <style>
 :root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--accent-glow:rgba(56,189,248,.15);--success:#22c55e;--danger:#ef4444;--warning:#eab308;--radius:12px;--transition:.2s cubic-bezier(.4,0,.2,1);--shadow-sm:0 1px 3px rgba(0,0,0,.3);--shadow-md:0 4px 12px rgba(0,0,0,.4);--shadow-lg:0 8px 24px rgba(0,0,0,.5)}
 [data-theme="light"]{--bg:#f8fafc;--surface:#ffffff;--border:#e2e8f0;--text:#1e293b;--muted:#64748b;--accent:#0284c7;--shadow-sm:0 1px 2px rgba(0,0,0,.06);--shadow-md:0 4px 6px rgba(0,0,0,.08);--shadow-lg:0 10px 15px rgba(0,0,0,.1)}
@@ -5507,21 +5559,21 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 <body>
 <div class="container" role="main">
 <header>
-  <h1><span>◆</span> ClaudeSec Security Dashboard <span class="ver">v{{VERSION}}</span></h1>
+  <h1><span>◆</span> ClaudeSec DevSecOps Dashboard <span class="ver">v{{VERSION}}</span></h1>
   <div class="header-right">
+    <a href="/" style="font-size:.82rem;padding:.35rem .7rem;border:1px solid var(--border);border-radius:8px;color:var(--accent);text-decoration:none;font-weight:600;transition:all .15s" onmouseover="this.style.background='var(--accent)';this.style.color='#fff'" onmouseout="this.style.background='';this.style.color='var(--accent)'" title="ISMS 통합 대시보드">ISMS Dashboard</a>
     <div class="meta">Scan: {{NOW}} · {{DURATION}}s</div>
     <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme">🌓</button>
   </div>
 </header>
 
 <nav class="tabs" id="mainTabs" role="tablist" aria-label="Dashboard sections">
-  <a href="/" style="display:flex;align-items:center;gap:4px;padding:11px 14px;color:var(--accent);font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap;border-right:1px solid var(--border);margin-right:4px" title="ISMS 통합 대시보드로 이동">&larr; 자산관리</a>
   <button class="tab active" role="tab" aria-selected="true" aria-controls="tab-overview" onclick="switchTab('overview')">Overview</button>
   <button class="tab" role="tab" aria-selected="false" aria-controls="tab-prowler" onclick="switchTab('prowler')">Prowler CSPM</button>
   <button class="tab" role="tab" aria-selected="false" aria-controls="tab-github" onclick="switchTab('github')">GitHub Security</button>
   <button class="tab" role="tab" aria-selected="false" aria-controls="tab-bestpractices" onclick="switchTab('bestpractices')">Best Practices</button>
   <button class="tab" role="tab" aria-selected="false" aria-controls="tab-arch" onclick="switchTab('arch')">Architecture</button>
-  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-networktools" onclick="switchTab('networktools')">Network &amp; security tools</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-networktools" onclick="switchTab('networktools')">Network &amp; Security</button>
 </nav>
 
 <!-- ── Tab: Overview ───────────────────────────────────────────────── -->
@@ -5781,6 +5833,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
         <button class="bp-subtab active" onclick="switchBpTab('owasp')" id="bptab-owasp">🛡 OWASP</button>
         <button class="bp-subtab" onclick="switchBpTab('compliance')" id="bptab-compliance">📋 Compliance</button>
         <button class="bp-subtab" onclick="switchBpTab('auditpoints')" id="bptab-auditpoints">✅ Audit Points</button>
+        <button class="bp-subtab" onclick="switchBpTab('policies')" id="bptab-policies">📜 규정·지침</button>
       </div>
 
       <div class="bp-panel active" id="bppanel-owasp">
@@ -5804,6 +5857,24 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
           <div class="card-title">Audit Points <span class="card-subtitle" style="font-size:.75rem;color:var(--muted);font-weight:400;margin-left:.5rem">SaaS/DevSecOps checklists + Microsoft platform guidance</span></div>
           <div style="padding:1rem 1.25rem">
             {{AUDIT_POINTS_HTML}}
+          </div>
+        </div>
+      </div>
+      <div class="bp-panel" id="bppanel-policies">
+        <div class="card" style="margin:0 0 1rem 0">
+          <div class="card-title">📜 Levvels 정보보호 규정·지침 <span class="card-subtitle" style="font-size:.75rem;color:var(--muted);font-weight:400;margin-left:.5rem">8개 규정 · 186개 조항 · ISMS-P 매핑</span></div>
+          <div style="padding:1rem 1.25rem">
+            <div style="color:var(--muted);font-size:.82rem;margin-bottom:1rem">Google Drive 원본 문서 연동 · <a href="/" style="color:var(--accent)">← 자산관리 대시보드</a></div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.75rem">
+              <a href="https://docs.google.com/document/d/1nvQLDJNrQtJCi1v8hm3nCE_ZDuOdVW2f/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid var(--accent)"><div class="owasp-header"><span class="owasp-id">1</span><span class="owasp-name">정보보호규정</span><span style="font-size:.7rem;color:var(--muted)">7장 23조 · ISMS 1.1, 1.2</span></div></a>
+              <a href="https://docs.google.com/document/d/1ir7nL3wqo8YV819Wy2Vk2FqzAlrPjA5n/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #0984e3"><div class="owasp-header"><span class="owasp-id">2</span><span class="owasp-name">정보자산 및 위험관리 지침</span><span style="font-size:.7rem;color:var(--muted)">3장 15조 · ISMS 1.2, 2.1</span></div></a>
+              <a href="https://docs.google.com/document/d/15V3XHW9vwUGjozpefmlVe5ZDwzS9nnG9/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #00b894"><div class="owasp-header"><span class="owasp-id">3</span><span class="owasp-name">인적보안 지침</span><span style="font-size:.7rem;color:var(--muted)">6장 19조 · ISMS 2.2</span></div></a>
+              <a href="https://docs.google.com/document/d/1UXvrOvGIb0vOd2jW1Z46W6r4boRBZ_FJ/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #f39c12"><div class="owasp-header"><span class="owasp-id">4</span><span class="owasp-name">물리보안 지침</span><span style="font-size:.7rem;color:var(--muted)">8장 21조 · ISMS 2.3, 2.5</span></div></a>
+              <a href="https://docs.google.com/document/d/1hDYAcnKNH-bNVTOl1ndUAOm6x2MROHr9/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #e17055"><div class="owasp-header"><span class="owasp-id">5</span><span class="owasp-name">인증 및 접근통제 지침</span><span style="font-size:.7rem;color:var(--muted)">5장 26조 · ISMS 2.6</span></div></a>
+              <a href="https://docs.google.com/document/d/18eersChtTeExyxvTJh0PDRV5TFwkfqy7/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #6c5ce7"><div class="owasp-header"><span class="owasp-id">6</span><span class="owasp-name">정보처리 시스템 및 운영 보안 지침</span><span style="font-size:.7rem;color:var(--muted)">5장 19조 · ISMS 2.7, 2.9</span></div></a>
+              <a href="https://docs.google.com/document/d/17TWgu_KcBw2Hkq6e8wCGwXj9xIxF_qog/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #fd79a8"><div class="owasp-header"><span class="owasp-id">7</span><span class="owasp-name">침해사고 대응 및 재해복구 관리 지침</span><span style="font-size:.7rem;color:var(--muted)">7장 17조 · ISMS 2.11</span></div></a>
+              <a href="https://docs.google.com/document/d/1r9aDZ3RXN3A3iYCZ5kgTsC7AjJ_3xXeL/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #00cec9"><div class="owasp-header"><span class="owasp-id">8</span><span class="owasp-name">개인정보보호 지침</span><span style="font-size:.7rem;color:var(--muted)">9장 46조 · ISMS 3.1, 3.2, 3.5</span></div></a>
+            </div>
           </div>
         </div>
       </div>
