@@ -11,7 +11,7 @@ import gspread
 
 # ── 설정 ──────────────────────────────────────────────────────────────────
 
-SHEET_ID = "REDACTED_SHEET_ID"
+SHEET_ID = "YOUR_SHEET_ID"
 WORKSHEET_NAME = "라이선스_현황"
 
 # 실제 활성 계정 수 (관리자 콘솔 기준)

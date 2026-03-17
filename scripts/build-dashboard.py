@@ -14,7 +14,7 @@ import json
 import os
 import urllib.request
 import urllib.error
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import gspread
@@ -31,11 +31,12 @@ ASSETS_DIR = ROOT / ".claudesec-assets"
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 
 SHEETS = {
-    "자산관리대장": os.environ.get("ASSET_SHEET_ID", "YOUR_ASSET_SHEET_ID"),
-    "AI구독현황": os.environ.get("AI_SHEET_ID", "YOUR_AI_SHEET_ID"),
+    "자산관리대장": "'$ASSET_SHEET_ID'",
+    "AI구독현황": "'$AI_SHEET_ID'",
 }
 
-NOW = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+KST = timezone(timedelta(hours=9))
+NOW = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
 
 # .env 로드
 def load_env():
@@ -413,6 +414,21 @@ def collect_intune_pcs():
     return []
 
 
+def collect_policies():
+    """Load policy/regulation data from cache."""
+    cache_path = ASSETS_DIR / "policies.json"
+    if cache_path.exists():
+        try:
+            policies = json.loads(cache_path.read_text())
+            total_articles = sum(p.get("total_articles", 0) for p in policies)
+            print(f"  규정/지침: {len(policies)}개 ({total_articles}개 조항)")
+            return policies
+        except Exception:
+            pass
+    print("  규정/지침: 데이터 없음")
+    return []
+
+
 def collect_sheets():
     """Google Sheets 데이터 수집"""
     print("  Google Sheets 연결...")
@@ -563,7 +579,7 @@ def collect_sheets():
 
     # SaaS 비용 (.xlsx via Drive API download)
     cost_data = {"summary": [], "details": {}}
-    xlsx_id = os.environ.get("COST_SHEET_ID", "YOUR_COST_XLSX_ID")
+    xlsx_id = "'$COST_SHEET_ID'"
     if openpyxl:
         try:
             print("  SaaS 비용 시트 다운로드 중...")
@@ -784,7 +800,7 @@ def _cross_verify_ec2(aws_ec2: list, sheet_servers: list) -> dict:
 def load_aws_live_data():
     """Load AWS describe results from .claudesec-assets/aws-*.json files"""
     result = {"ec2": [], "rds": [], "elasticache": [], "s3": [], "eks": []}
-    aws_profiles = os.environ.get("AWS_PROFILES", "").split(",") if os.environ.get("AWS_PROFILES") else []
+    aws_profiles = ["dive-dev", "dive-prod", "web3-prod", "playground"]
     for profile in aws_profiles:
         for rtype in ["ec2", "rds", "rds-clusters", "elasticache", "s3", "eks"]:
             fpath = ASSETS_DIR / f"aws-{rtype}-{profile}.json"
@@ -843,6 +859,7 @@ def main():
     notion_audits = collect_notion_audits()
     jamf_pcs = collect_jamf_pcs()
     intune_pcs = collect_intune_pcs()
+    policies = collect_policies()
     # Load mobile devices if available
     jamf_mobiles = []
     mobile_inv = ASSETS_DIR / "jamf-full-inventory.json"
@@ -871,7 +888,7 @@ def main():
         """파일 수정 시각을 ISO 문자열로 반환"""
         fp = Path(p)
         if fp.exists():
-            return datetime.fromtimestamp(fp.stat().st_mtime, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            return datetime.fromtimestamp(fp.stat().st_mtime, tz=KST).strftime("%Y-%m-%d %H:%M KST")
         return None
 
     timestamps = {
@@ -910,6 +927,7 @@ def main():
         "notion_audits": notion_audits,
         "jamf_pcs": jamf_pcs,
         "intune_pcs": intune_pcs,
+        "policies": policies,
         "jamf_mobiles": jamf_mobiles,
     }
 

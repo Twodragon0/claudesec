@@ -26,7 +26,7 @@ except ImportError:
 
 # ── 설정 ──────────────────────────────────────────────────────────────────
 
-SHEET_ID = "REDACTED_SHEET_ID"
+SHEET_ID = os.environ.get("ASSET_SHEET_ID", "YOUR_GOOGLE_SHEET_ID")
 ROOT_DIR = Path(__file__).resolve().parent.parent
 ASSETS_DIR = ROOT_DIR / ".claudesec-assets"
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)

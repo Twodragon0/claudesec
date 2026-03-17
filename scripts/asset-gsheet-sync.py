@@ -323,13 +323,13 @@ def main():
         epilog="""
 예시:
   # 자산 목록 읽기
-  python3 scripts/asset-gsheet-sync.py --sheet-id 1jHuyK... --action read
+  python3 scripts/asset-gsheet-sync.py --sheet-id YOUR_SHEET_ID --action read
 
   # ClaudeSec 스캔 결과 동기화
-  python3 scripts/asset-gsheet-sync.py --sheet-id 1jHuyK... --action sync
+  python3 scripts/asset-gsheet-sync.py --sheet-id YOUR_SHEET_ID --action sync
 
   # 통합 리포트 생성
-  python3 scripts/asset-gsheet-sync.py --sheet-id 1jHuyK... --action report
+  python3 scripts/asset-gsheet-sync.py --sheet-id YOUR_SHEET_ID --action report
 
   # Docker 환경에서 실행
   docker run --rm -v $PWD:/workspace -e GOOGLE_SERVICE_ACCOUNT_JSON=/workspace/sa.json \\

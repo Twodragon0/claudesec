@@ -2,7 +2,7 @@
 # ============================================================================
 # ClaudeSec — Full scan + dashboard and serve on http://localhost:11777
 # ============================================================================
-# One-command run (oh-my-claudecode style). Default: all categories + serve.
+# One-command run. Default: all categories + serve.
 #
 # Usage:
 #   ./scripts/run-full-dashboard.sh              # full scan + dashboard + serve
