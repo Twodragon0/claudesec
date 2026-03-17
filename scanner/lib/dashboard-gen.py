@@ -369,19 +369,31 @@ def _parse_ocsf_json(content: str) -> list[dict[str, Any]]:
     return items
 
 
+def _normalize_provider(name: str) -> str:
+    """Normalize provider names so k8s/kubernetes/eks variants merge into 'kubernetes'."""
+    if name.startswith("k8s") or name.startswith("kubernetes") or "eks" in name:
+        return "kubernetes"
+    return name
+
+
 def load_prowler_files(prowler_dir: str) -> dict[str, list[dict[str, Any]]]:
     providers: dict[str, list[dict[str, Any]]] = {}
     if not os.path.isdir(prowler_dir):
         return providers
-    for fpath in sorted(glob.glob(os.path.join(prowler_dir, "prowler-*.ocsf.json"))):
-        name = Path(fpath).stem.replace(".ocsf", "").replace("prowler-", "")
+    for fpath in sorted(glob.glob(os.path.join(prowler_dir, "*.ocsf.json"))):
+        raw_name = Path(fpath).stem.replace(".ocsf", "").replace("prowler-", "")
+        name = _normalize_provider(raw_name)
         try:
             with open(fpath) as f:
                 content = f.read().strip()
             items = _parse_ocsf_json(content)
-            providers[name] = items
+            if name in providers:
+                providers[name].extend(items)
+            else:
+                providers[name] = items
         except Exception:
-            providers[name] = []
+            if name not in providers:
+                providers[name] = []
     return providers
 
 
@@ -5862,19 +5874,12 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
       </div>
       <div class="bp-panel" id="bppanel-policies">
         <div class="card" style="margin:0 0 1rem 0">
-          <div class="card-title">📜 Levvels 정보보호 규정·지침 <span class="card-subtitle" style="font-size:.75rem;color:var(--muted);font-weight:400;margin-left:.5rem">8개 규정 · 186개 조항 · ISMS-P 매핑</span></div>
-          <div style="padding:1rem 1.25rem">
-            <div style="color:var(--muted);font-size:.82rem;margin-bottom:1rem">Google Drive 원본 문서 연동 · <a href="/" style="color:var(--accent)">← 자산관리 대시보드</a></div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.75rem">
-              <a href="https://docs.google.com/document/d/REDACTED_DOC_ID/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid var(--accent)"><div class="owasp-header"><span class="owasp-id">1</span><span class="owasp-name">정보보호규정</span><span style="font-size:.7rem;color:var(--muted)">7장 23조 · ISMS 1.1, 1.2</span></div></a>
-              <a href="https://docs.google.com/document/d/REDACTED_DOC_ID/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #0984e3"><div class="owasp-header"><span class="owasp-id">2</span><span class="owasp-name">정보자산 및 위험관리 지침</span><span style="font-size:.7rem;color:var(--muted)">3장 15조 · ISMS 1.2, 2.1</span></div></a>
-              <a href="https://docs.google.com/document/d/REDACTED_DOC_ID/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #00b894"><div class="owasp-header"><span class="owasp-id">3</span><span class="owasp-name">인적보안 지침</span><span style="font-size:.7rem;color:var(--muted)">6장 19조 · ISMS 2.2</span></div></a>
-              <a href="https://docs.google.com/document/d/REDACTED_DOC_ID/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #f39c12"><div class="owasp-header"><span class="owasp-id">4</span><span class="owasp-name">물리보안 지침</span><span style="font-size:.7rem;color:var(--muted)">8장 21조 · ISMS 2.3, 2.5</span></div></a>
-              <a href="https://docs.google.com/document/d/REDACTED_DOC_ID/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #e17055"><div class="owasp-header"><span class="owasp-id">5</span><span class="owasp-name">인증 및 접근통제 지침</span><span style="font-size:.7rem;color:var(--muted)">5장 26조 · ISMS 2.6</span></div></a>
-              <a href="https://docs.google.com/document/d/REDACTED_DOC_ID/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #6c5ce7"><div class="owasp-header"><span class="owasp-id">6</span><span class="owasp-name">정보처리 시스템 및 운영 보안 지침</span><span style="font-size:.7rem;color:var(--muted)">5장 19조 · ISMS 2.7, 2.9</span></div></a>
-              <a href="https://docs.google.com/document/d/REDACTED_DOC_ID/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #fd79a8"><div class="owasp-header"><span class="owasp-id">7</span><span class="owasp-name">침해사고 대응 및 재해복구 관리 지침</span><span style="font-size:.7rem;color:var(--muted)">7장 17조 · ISMS 2.11</span></div></a>
-              <a href="https://docs.google.com/document/d/REDACTED_DOC_ID/edit" target="_blank" class="owasp-item" style="text-decoration:none;border-left:3px solid #00cec9"><div class="owasp-header"><span class="owasp-id">8</span><span class="owasp-name">개인정보보호 지침</span><span style="font-size:.7rem;color:var(--muted)">9장 46조 · ISMS 3.1, 3.2, 3.5</span></div></a>
-            </div>
+          <div class="card-title">📜 정보보호 규정·지침 <span class="card-subtitle" style="font-size:.75rem;color:var(--muted);font-weight:400;margin-left:.5rem">ISMS-P 매핑 · Google Drive 연동</span></div>
+          <div style="padding:1.5rem 1.25rem;text-align:center">
+            <div style="font-size:2rem;margin-bottom:.5rem">📜</div>
+            <div style="font-size:.95rem;font-weight:600;margin-bottom:.5rem">규정·지침 상세는 자산관리 대시보드에서 확인</div>
+            <div style="font-size:.82rem;color:var(--muted);margin-bottom:1rem">내부 규정 문서는 보안을 위해 자산관리 대시보드에서만 Google Drive와 연동하여 표시됩니다.</div>
+            <a href="/" style="display:inline-block;padding:.5rem 1.2rem;background:var(--accent);color:#fff;border-radius:8px;font-size:.85rem;font-weight:600;text-decoration:none">← 자산관리 대시보드에서 보기</a>
           </div>
         </div>
       </div>
