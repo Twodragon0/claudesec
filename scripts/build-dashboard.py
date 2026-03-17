@@ -30,10 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 ASSETS_DIR = ROOT / ".claudesec-assets"
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 
-SHEETS = {
-    "자산관리대장": "'$ASSET_SHEET_ID'",
-    "AI구독현황": "'$AI_SHEET_ID'",
-}
+SHEETS = {}  # Loaded from env in main()
 
 KST = timezone(timedelta(hours=9))
 NOW = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
@@ -579,7 +576,7 @@ def collect_sheets():
 
     # SaaS 비용 (.xlsx via Drive API download)
     cost_data = {"summary": [], "details": {}}
-    xlsx_id = "'$COST_SHEET_ID'"
+    xlsx_id = env_vars.get("COST_XLSX_ID", "")
     if openpyxl:
         try:
             print("  SaaS 비용 시트 다운로드 중...")
@@ -851,6 +848,15 @@ def main():
     print(f"  {NOW}")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print()
+    # Load sheet IDs from env
+    global SHEETS
+    SHEETS = {
+        "자산관리대장": env_vars.get("ASSET_SHEET_ID", ""),
+        "AI구독현황": env_vars.get("AI_SHEET_ID", ""),
+    }
+    if not SHEETS["자산관리대장"]:
+        print("  ⚠ ASSET_SHEET_ID 환경변수 없음 — ~/Desktop/.env에 설정 필요")
+
     print("▶ 데이터 수집")
 
     # 수집
