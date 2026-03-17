@@ -1,0 +1,104 @@
+# ClaudeSec — Docker Compose stack
+#
+# Usage:
+#   docker compose up dashboard                  — Serve existing dashboard (nginx, port 11777)
+#   docker compose --profile scan up             — Run full scan + serve dashboard
+#   docker compose --profile generate up         — Regenerate dashboard from existing scan data
+#   docker compose --profile asset-sync up       — Sync scan results to Google Sheets
+#
+# First-time setup (build images):
+#   docker compose build
+#
+# Environment:
+#   CLAUDESEC_SCAN_DIR  — host directory to scan (default: current directory)
+#   GOOGLE_SERVICE_ACCOUNT_JSON — path to Google service account JSON (for asset-sync)
+#   ASSET_SHEET_ID — Google Sheets ID for asset management
+
+services:
+
+  # ── scanner ────────────────────────────────────────────────────────────────
+  # Runs the claudesec scanner against /workspace and writes scan artefacts.
+  # Active only under the "scan" profile so it does not run on every `up`.
+  scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: claudesec:local
+    command: ["scan", "-d", "/workspace", "-c", "all"]
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    profiles:
+      - scan
+
+  # ── dashboard ──────────────────────────────────────────────────────────────
+  # Serves the pre-built dashboard HTML via nginx on port 11777.
+  # Always started unless a profile-only compose command is used.
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    image: claudesec-dashboard:local
+    ports:
+      - "11777:8080"
+    volumes:
+      - ./claudesec-asset-dashboard-live.html:/usr/share/nginx/html/index.html:ro
+      - ./claudesec-dashboard.html:/usr/share/nginx/html/scan.html:ro
+      - ./.claudesec-assets/dashboard-data.json:/usr/share/nginx/html/.claudesec-assets/dashboard-data.json:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    # When the scan profile is active, wait for the scanner to finish
+    # successfully before starting nginx. Outside that profile the
+    # dependency is not evaluated (scanner service is not started).
+    depends_on:
+      scanner:
+        condition: service_completed_successfully
+        required: false
+
+  # ── dashboard-gen ──────────────────────────────────────────────────────────
+  # Re-generates claudesec-dashboard.html from existing scan data in /workspace.
+  # Active only under the "generate" profile.
+  dashboard-gen:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: claudesec:local
+    command: ["dashboard", "-d", "/workspace", "-c", "all"]
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    profiles:
+      - generate
+
+  # ── asset-sync ───────────────────────────────────────────────────────────
+  # Google Sheets 자산관리 양방향 연동.
+  # ClaudeSec 스캔 결과 + Prowler 결과를 시트에 동기화하고,
+  # 자산 현황 요약 JSON을 생성합니다.
+  # Active only under the "asset-sync" profile.
+  asset-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile.asset-sync
+    image: claudesec-asset-sync:local
+    command: >
+      python3 /opt/claudesec/scripts/asset-gsheet-sync.py
+        --sheet-id ${ASSET_SHEET_ID:-REDACTED_SHEET_ID}
+        --action ${ASSET_ACTION:-report}
+        --scan-dir /workspace
+    environment:
+      - GOOGLE_SERVICE_ACCOUNT_JSON=/workspace/.secrets/google-sa.json
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    profiles:
+      - asset-sync
+    depends_on:
+      scanner:
+        condition: service_completed_successfully
+        required: false
+

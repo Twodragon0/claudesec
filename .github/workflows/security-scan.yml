@@ -1,0 +1,122 @@
+# Security Scan Gate
+# Runs the full ClaudeSec scanner pipeline and audits the generated dashboard.
+# Triggers: push/PR to main, and every Monday at 09:00 UTC.
+#
+# Jobs:
+#   scan      — Build the Docker image, run the scanner, generate the dashboard,
+#               upload it as an artifact, and gate on critical findings.
+#   lighthouse — Download the dashboard artifact, serve it locally, and audit
+#               performance + accessibility with Lighthouse.
+
+name: Security Scan Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Every Monday at 09:00 UTC
+    - cron: '0 9 * * 1'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job: scan
+  # Builds the claudesec Docker image, executes the full security scan, and
+  # generates the HTML dashboard.  Fails the workflow on any CRITICAL finding.
+  # ---------------------------------------------------------------------------
+  scan:
+    name: Run Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Build the scanner image from the repo's Dockerfile so the scan always
+      # reflects the current scanner version rather than a cached registry image.
+      - name: Build scanner image
+        run: docker build -t claudesec:local .
+
+      # Run the full scan suite and tee output so we can gate on severity below.
+      - name: Run full security scan
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -e SCAN_DIR=/workspace \
+            claudesec:local scan -d /workspace -c all \
+            | tee scan-output.txt
+
+      # Generate the standalone HTML dashboard (--no-serve exits after writing
+      # the file rather than starting a long-lived HTTP server).
+      - name: Generate dashboard
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -e SCAN_DIR=/workspace \
+            claudesec:local dashboard -d /workspace -c all --no-serve
+
+      # Upload the dashboard so the lighthouse job (and humans) can download it.
+      - name: Upload dashboard artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-dashboard
+          path: claudesec-dashboard.html
+          retention-days: 30
+
+      # Gate: fail if any CRITICAL findings appear in the scan output.
+      # HIGH findings are counted and surfaced as a warning but do not block.
+      - name: Check for critical/high failures
+        run: |
+          CRITS=$(grep -c 'CRITICAL\|critical' scan-output.txt || true)
+          HIGHS=$(grep -c 'HIGH\|high.*Fail' scan-output.txt || true)
+          echo "Critical: $CRITS, High: $HIGHS"
+          if [ "$CRITS" -gt 0 ]; then
+            echo "::error::Critical security findings detected"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Job: lighthouse
+  # Downloads the generated dashboard artifact, serves it over HTTP, and runs
+  # Lighthouse to audit performance and accessibility.  Scores below threshold
+  # emit a warning annotation but do not fail the workflow.
+  # ---------------------------------------------------------------------------
+  lighthouse:
+    name: Lighthouse Audit
+    needs: scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Retrieve the dashboard HTML produced by the scan job.
+      - name: Download dashboard artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: security-dashboard
+
+      # Serve the dashboard on port 8080 and run Lighthouse against it.
+      # Thresholds: Performance >= 80, Accessibility >= 90.
+      - name: Serve and audit
+        run: |
+          python3 -m http.server 8080 &
+          sleep 2
+
+          npx lighthouse http://localhost:8080/claudesec-dashboard.html \
+            --output=json --output-path=lighthouse.json \
+            --chrome-flags="--headless --no-sandbox" \
+            --only-categories=performance,accessibility
+
+          PERF=$(python3 -c "import json;d=json.load(open('lighthouse.json'));print(int(d['categories']['performance']['score']*100))")
+          A11Y=$(python3 -c "import json;d=json.load(open('lighthouse.json'));print(int(d['categories']['accessibility']['score']*100))")
+
+          echo "Performance: $PERF, Accessibility: $A11Y"
+
+          if [ "$PERF" -lt 80 ] || [ "$A11Y" -lt 90 ]; then
+            echo "::warning::Dashboard quality below threshold (Perf=$PERF, A11y=$A11Y)"
+          fi
