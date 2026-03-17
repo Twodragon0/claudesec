@@ -6,12 +6,13 @@
 # K8s Job + ServiceAccount로 클러스터 내에서 직접 스캔합니다.
 #
 # 사용법:
-#   ./scripts/run-prowler-k8s.sh                # dive-prod 스캔
-#   ./scripts/run-prowler-k8s.sh dive-dev       # dive-dev 스캔
+#   ./scripts/run-prowler-k8s.sh                   # 기본 컨텍스트 스캔
+#   ./scripts/run-prowler-k8s.sh <context-name>    # 특정 컨텍스트 스캔
+#   KUBE_CONTEXT=my-cluster ./scripts/run-prowler-k8s.sh
 # ============================================================================
 set -euo pipefail
 
-CONTEXT="${1:-dive-dev}"
+CONTEXT="${1:-${KUBE_CONTEXT:-$(kubectl config current-context 2>/dev/null || echo default)}}"
 NS="platform"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIR="$ROOT_DIR/.claudesec-prowler"

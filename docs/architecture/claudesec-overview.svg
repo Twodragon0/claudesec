@@ -25,11 +25,11 @@ text{font-family:-apple-system,'Segoe UI',system-ui,sans-serif;fill:#e2e8f0}
 <rect x="890" y="88" width="100" height="28" rx="5" fill="#0f172a" stroke="#a78bfa"/><text x="940" y="106" text-anchor="middle" class="s" style="fill:#c4b5fd">Querypie</text>
 <rect x="998" y="88" width="100" height="28" rx="5" fill="#0f172a" stroke="#06b6d4"/><text x="1048" y="106" text-anchor="middle" class="s" style="fill:#67e8f9">Cososys EPP</text>
 
-<!-- dive-prod -->
+<!-- Production -->
 <rect x="25" y="140" width="570" height="310" rx="8" fill="#172554" stroke="#1d4ed8" stroke-opacity="0.4"/>
-<text x="40" y="162" class="l" style="fill:#60a5fa">dive-prod (535740263562)</text>
+<text x="40" y="162" class="l" style="fill:#60a5fa">Production</text>
 <rect x="40" y="175" width="540" height="105" rx="6" fill="#0f172a" stroke="#2563eb" stroke-opacity="0.4"/>
-<text x="55" y="195" class="l" style="fill:#60a5fa">EKS dive-prod v1.33</text>
+<text x="55" y="195" class="l" style="fill:#60a5fa">EKS Production v1.33</text>
 <rect x="55" y="205" width="110" height="22" rx="4" fill="#1e3a5f"/><text x="110" y="220" text-anchor="middle" class="sm" style="fill:#93c5fd">m8g.xlarge x6</text>
 <rect x="172" y="205" width="110" height="22" rx="4" fill="#1e3a5f"/><text x="227" y="220" text-anchor="middle" class="sm" style="fill:#93c5fd">r8g.xlarge x5</text>
 <rect x="289" y="205" width="110" height="22" rx="4" fill="#1e3a5f"/><text x="344" y="220" text-anchor="middle" class="sm" style="fill:#93c5fd">m7i-flex x1</text>
@@ -46,11 +46,11 @@ text{font-family:-apple-system,'Segoe UI',system-ui,sans-serif;fill:#e2e8f0}
 <rect x="310" y="330" width="120" height="25" rx="5" fill="#0f172a" stroke="#22c55e" stroke-opacity="0.3"/><text x="370" y="347" text-anchor="middle" class="sm" style="fill:#86efac">Encrypted ✓</text>
 <rect x="440" y="330" width="120" height="25" rx="5" fill="#0f172a" stroke="#22c55e" stroke-opacity="0.3"/><text x="500" y="347" text-anchor="middle" class="sm" style="fill:#86efac">MultiAZ ✓</text>
 
-<!-- dive-dev -->
+<!-- Development -->
 <rect x="605" y="140" width="570" height="310" rx="8" fill="#1a2332" stroke="#475569" stroke-opacity="0.4"/>
-<text x="620" y="162" class="l" style="fill:#94a3b8">dive-dev (394931144369)</text>
+<text x="620" y="162" class="l" style="fill:#94a3b8">Development</text>
 <rect x="620" y="175" width="540" height="105" rx="6" fill="#0f172a" stroke="#475569" stroke-opacity="0.3"/>
-<text x="635" y="195" class="l" style="fill:#94a3b8">EKS dive-dev v1.33</text>
+<text x="635" y="195" class="l" style="fill:#94a3b8">EKS Development v1.33</text>
 <rect x="635" y="205" width="105" height="22" rx="4" fill="#1e293b"/><text x="687" y="220" text-anchor="middle" class="sm">m8g.xlarge x3</text>
 <rect x="747" y="205" width="105" height="22" rx="4" fill="#1e293b"/><text x="799" y="220" text-anchor="middle" class="sm">r8g.xlarge x6</text>
 <rect x="859" y="205" width="90" height="22" rx="4" fill="#1e293b"/><text x="904" y="220" text-anchor="middle" class="sm">Fargate x2</text>
