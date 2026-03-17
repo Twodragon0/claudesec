@@ -10,17 +10,15 @@ This directory contains **draw.io** (diagrams.net) source files generated from C
 
 ## Generated Files
 
+These files are auto-generated and excluded from git (may contain scan-specific data).
+
 | File | Description |
 |------|-------------|
-| `claudesec-overview.drawio` | **One-file overview (multi-page): Architecture + Service flow + Network topology** |
+| `claudesec-overview.drawio` | Multi-page overview: Architecture + Service flow + Network topology |
 | `claudesec-architecture.drawio` | System architecture (draw.io source) |
-| **`claudesec-architecture.svg`** | **Same architecture as image — visible in browser/docs** |
-| `claudesec-scan-flow.drawio` | Scan flow: Start → Config → Run categories → Aggregate → Output |
+| `claudesec-architecture.svg` | Architecture as image |
+| `claudesec-scan-flow.drawio` | Scan flow diagram |
 | `claudesec-security-domains.drawio` | Security domains and framework references |
-
-### 아키텍처 구성도 (Architecture)
-
-![ClaudeSec Architecture](claudesec-architecture.svg)
 
 ## Regenerating Diagrams
 
