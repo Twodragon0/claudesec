@@ -594,12 +594,19 @@ function _renderPolicies(d){
       var isms=(p.isms_controls||[]).map(function(c){return ch(c,'b')}).join(' ');
       var arts=p.articles||[];var artSummary=arts.slice(0,5).map(function(a){return a.title}).join(' · ');
       ph+='<div style="padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:12px;transition:border-color .2s" onmouseover="this.style.borderColor=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border)\'">';
+      var pct=p.compliance_pct||0;var cs=p.compliance_summary||{};
+      var pctColor=pct>=80?'var(--green)':pct>=60?'var(--yellow)':'var(--red)';
       ph+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">\uD83D\uDCC4 <strong>'+esc(p.name)+'</strong>';
       ph+='<span style="color:var(--muted);font-size:10px">'+p.total_chapters+'\uC7A5 '+p.total_articles+'\uC870</span>';
       if(url)ph+=' <a href="'+esc(url)+'" target="_blank" style="font-size:10px;color:var(--accent);margin-left:auto">\uC6D0\uBB38\u2197</a>';
       ph+='</div>';
+      /* Compliance gauge */
+      ph+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">';
+      ph+='<div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+pctColor+';border-radius:3px"></div></div>';
+      ph+='<span style="font-size:10px;font-weight:700;color:'+pctColor+'">'+pct+'%</span>';
+      ph+='</div>';
+      ph+='<div style="font-size:9px;color:var(--muted);margin-bottom:3px">\uC774\uD589 '+(cs.done||0)+' \u00B7 \uBD80\uBD84 '+(cs.partial||0)+' \u00B7 \uBBF8\uC774\uD589 '+(cs.todo||0)+'</div>';
       if(isms)ph+='<div style="margin-bottom:3px">'+isms+'</div>';
-      if(artSummary)ph+='<div style="font-size:10px;color:var(--muted);line-height:1.4">'+esc(artSummary)+'</div>';
       ph+='</div>';
     });
     ph+='</div>';
