@@ -1,0 +1,25 @@
+# ClaudeSec Asset Sync — Google Sheets 자산관리 연동 이미지
+# gspread + google-auth 포함, 경량 Python 이미지
+
+FROM python:3.12-alpine
+
+RUN apk add --no-cache \
+    bash \
+    ca-certificates \
+    curl \
+    jq
+
+RUN pip install --no-cache-dir \
+    gspread==6.1.4 \
+    google-auth==2.38.0 \
+    google-auth-oauthlib==1.2.1
+
+WORKDIR /opt/claudesec
+
+COPY scripts/asset-gsheet-sync.py ./scripts/
+
+RUN adduser -D -u 1000 claudesec
+USER claudesec
+
+ENTRYPOINT ["python3"]
+CMD ["/opt/claudesec/scripts/asset-gsheet-sync.py", "--help"]
