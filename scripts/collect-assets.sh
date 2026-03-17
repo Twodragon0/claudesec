@@ -15,7 +15,7 @@
 #   DD_API_KEY       — Datadog API Key
 #   DD_APP_KEY       — Datadog Application Key
 #   DD_SITE          — Datadog 사이트 (기본: datadoghq.com)
-#   AWS_PROFILE      — AWS 프로파일 (기본: dive-prod)
+#   AWS_PROFILE      — AWS 프로파일 (기본: default)
 # ============================================================================
 
 set -euo pipefail

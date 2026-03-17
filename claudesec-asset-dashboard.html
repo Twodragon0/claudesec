@@ -379,7 +379,7 @@ function renderISMS(d,s){
   var unusedLic=lic.filter(function(l){return l.status==='\uBBF8\uC0AC\uC6A9'}).length;
   if(unusedLic>0)actArr.push('<span style="color:var(--yellow)">\u25B3</span> \uBBF8\uC0AC\uC6A9 \uB77C\uC774\uC120\uC2A4 '+unusedLic+'\uAC74 \u2192 \uBE44\uC6A9 \uC808\uAC10 \uAC80\uD1A0');
   actArr.push('\u25CB Kyverno Audit \uC815\uCC45 8\uAC1C \u2192 Enforce \uC804\uD658 \uB2E8\uACC4\uC801 \uC9C4\uD589');
-  actArr.push('\u25CB Datadog APM dive-prod \uD65C\uC131\uD654 \u2192 \uC11C\uBE44\uC2A4 \uC131\uB2A5 \uAC00\uC2DC\uC131 \uD655\uBCF4');
+  actArr.push('\u25CB Datadog APM Production \uD65C\uC131\uD654 \u2192 \uC11C\uBE44\uC2A4 \uC131\uB2A5 \uAC00\uC2DC\uC131 \uD655\uBCF4');
   $('pdca-act').innerHTML=actArr.map(function(x){return'<div style="padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)">'+x+'</div>'}).join('');
 }
 
