@@ -4362,10 +4362,11 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     gh_table = ""
     for check, items in sorted(gh_by_check.items(), key=lambda x: -len(x[1])):
         sev = items[0]["severity"]
-        repos = list(set(f["resource"] for f in items if f["resource"]))[:5]
-        repos_html = ", ".join(f"<code>{h(r)}</code>" for r in repos)
-        if len(items) > 5:
-            repos_html += f" ... +{len(items) - 5}"
+        repos = list(set(f["resource"] for f in items if f["resource"]))
+        repos_shown = repos[:5]
+        repos_html = ", ".join(f"<code>{h(r)}</code>" for r in repos_shown)
+        if len(repos) > 5:
+            repos_html += f' <span class="res-toggle" onclick="var s=this.nextElementSibling;s.style.display=s.style.display===\'none\'?\'inline\':\'none\';this.textContent=this.textContent.indexOf(\'+\')>=0?\'hide\':\'... +{len(repos)-5} more\'" style="color:var(--accent);cursor:pointer;font-weight:600">... +{len(repos) - 5} more</span><span style="display:none">, ' + ", ".join(f"<code>{h(r)}</code>" for r in repos[5:]) + "</span>"
         gh_table += f'<tr class="expandable" onclick="toggleRow(this)"><td>{sev_badge(sev)}</td><td class="mono">{h(check)}</td><td>{h(items[0]["title"])} <span class="cnt">({len(items)})</span></td><td>{repos_html}</td></tr>'
         en = get_check_en(check)
         desc = items[0].get("desc") or items[0].get("title") or ""
@@ -4379,7 +4380,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         ref_links = []
         if items[0].get("related_url"):
             ref_links.append(items[0]["related_url"])
-        for nr in (items[0].get("native_refs") or [])[:3]:
+        for nr in (items[0].get("native_refs") or []):
             if nr and nr not in ref_links:
                 ref_links.append(nr)
         for rl in ref_links:
@@ -4407,19 +4408,22 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                 table += f"<p>{h(desc)}</p>"
             table += f'<p class="detail-ko-summary"><strong>Summary</strong> {h(summary_text)}</p>'
             table += f'<p class="detail-ko-action"><strong>Remediation</strong> {h(action_text)}</p>'
-            # Affected resources with type, region, namespace
+            # Affected resources with type, region, namespace — all shown, overflow toggleable
             resources = []
-            for it in items[:8]:
+            seen_res = set()
+            for it in items:
                 res = (it.get("resource") or "").strip()
-                if res and res not in [r["name"] for r in resources]:
+                if res and res not in seen_res:
+                    seen_res.add(res)
                     r_type = (it.get("resource_type") or "").strip()
                     r_region = (it.get("region") or "").strip()
                     r_ns = (it.get("namespace") or "").strip()
                     r_line = (it.get("start_line") or "").strip()
                     resources.append({"name": res, "type": r_type, "region": r_region, "namespace": r_ns, "line": r_line})
             if resources:
+                SHOW_LIMIT = 5
                 table += '<div class="detail-resources"><strong>Affected resources</strong><ul class="resource-list">'
-                for r in resources:
+                for idx_r, r in enumerate(resources):
                     extra = []
                     if r["type"]:
                         extra.append(r["type"])
@@ -4430,15 +4434,17 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                     if r["line"]:
                         extra.append(f'L{r["line"]}')
                     extra_html = f' <span class="res-meta">{h(" · ".join(extra))}</span>' if extra else ""
-                    table += f'<li><code>{h(r["name"])}</code>{extra_html}</li>'
-                if len(items) > 8:
-                    table += f"<li>... +{len(items) - 8} more</li>"
+                    hidden = ' style="display:none" class="res-overflow"' if idx_r >= SHOW_LIMIT else ""
+                    table += f"<li{hidden}><code>{h(r['name'])}</code>{extra_html}</li>"
+                if len(resources) > SHOW_LIMIT:
+                    overflow_count = len(resources) - SHOW_LIMIT
+                    table += f'<li class="res-toggle" onclick="var p=this.parentNode;p.querySelectorAll(\'.res-overflow\').forEach(function(e){{e.style.display=e.style.display===\'none\'?\'list-item\':\'none\'}});this.textContent=this.textContent.indexOf(\'+\')>=0?\'Hide {overflow_count} resources\':\'+ {overflow_count} more resources\'" style="color:var(--accent);cursor:pointer;font-weight:600">+ {overflow_count} more resources</li>'
                 table += "</ul></div>"
             # Reference links: primary + native refs
             ref_links = []
             if items[0].get("related_url"):
                 ref_links.append(items[0]["related_url"])
-            for nr in (items[0].get("native_refs") or [])[:3]:
+            for nr in (items[0].get("native_refs") or []):
                 if nr and nr not in ref_links:
                     ref_links.append(nr)
             for rl in ref_links:
