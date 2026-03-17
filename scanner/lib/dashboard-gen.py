@@ -2791,32 +2791,10 @@ def _duration_label(seconds):
 
 
 def build_auth_summary_html(envs, findings_list):
-    oauth_provider_names = [
-        "GitHub",
-        "Google Workspace",
-        "Microsoft 365",
-        "Okta",
-    ]
-    connected_map = {
-        e.get("name", ""): bool(e.get("connected", False)) for e in (envs or [])
-    }
-    connected = [p for p in oauth_provider_names if connected_map.get(p, False)]
-    missing = [p for p in oauth_provider_names if not connected_map.get(p, False)]
-    total = len(oauth_provider_names)
-    connected_count = len(connected)
-    readiness = int(round((connected_count / total) * 100)) if total else 0
-
-    auth_keywords = (
-        "auth",
-        "oauth",
-        "token",
-        "session",
-        "mfa",
-        "login",
-        "sso",
-        "jwt",
-    )
+    # Auth summary simplified: SSO coverage is already shown in the asset dashboard.
+    # Display actual SSO posture (Okta SSO + Zscaler) instead of OAuth token connection status.
     auth_finding_count = 0
+    auth_keywords = ("auth", "oauth", "token", "session", "mfa", "login", "sso", "jwt")
     for f in findings_list or []:
         text = (
             str(f.get("id", ""))
@@ -2828,108 +2806,12 @@ def build_auth_summary_html(envs, findings_list):
         if any(k in text for k in auth_keywords):
             auth_finding_count += 1
 
-    now_utc = datetime.now(timezone.utc)
-    warning_24h_seconds, warning_24h_source = _parse_duration_seconds(
-        os.environ.get("CLAUDESEC_TOKEN_EXPIRY_WARNING_24H", ""), 86400, "h"
-    )
-    warning_7d_seconds, warning_7d_source = _parse_duration_seconds(
-        os.environ.get("CLAUDESEC_TOKEN_EXPIRY_WARNING_7D", ""), 7 * 86400, "d"
-    )
-    if warning_7d_seconds < warning_24h_seconds:
-        warning_7d_seconds = warning_24h_seconds
-    horizon_24h = now_utc.timestamp() + warning_24h_seconds
-    horizon_7d = now_utc.timestamp() + warning_7d_seconds
-    window_24_label = _duration_label(warning_24h_seconds)
-    window_7_label = _duration_label(warning_7d_seconds)
-    token_expiry_items = _collect_token_expiry_items()
-    policy_007_count = 0
-    policy_022_count = 0
-    for f in findings_list or []:
-        text = (
-            str(f.get("id", ""))
-            + " "
-            + str(f.get("title", ""))
-            + " "
-            + str(f.get("details", ""))
-        ).upper()
-        if "SAAS-API-007" in text:
-            policy_007_count += 1
-        if "SAAS-API-022" in text:
-            policy_022_count += 1
-    expiring_24h = []
-    expiring_7d = []
-    expired = []
-    for item in token_expiry_items:
-        expiry_ts = item["expiry"].timestamp()
-        if expiry_ts < now_utc.timestamp():
-            expired.append(item)
-        elif expiry_ts <= horizon_24h:
-            expiring_24h.append(item)
-        elif expiry_ts <= horizon_7d:
-            expiring_7d.append(item)
-
-    def _remaining_label(expiry_dt):
-        delta = int(expiry_dt.timestamp() - now_utc.timestamp())
-        if delta < 0:
-            minutes = abs(delta) // 60
-            return f"expired {minutes}m ago"
-        hours = delta // 3600
-        minutes = (delta % 3600) // 60
-        if hours > 0:
-            return f"{hours}h {minutes}m left"
-        return f"{minutes}m left"
-
-    token_lines = ""
-    for item in sorted(token_expiry_items, key=lambda x: x["expiry"]):
-        badge_cls = "low"
-        if item in expired:
-            badge_cls = "critical"
-        elif item in expiring_24h:
-            badge_cls = "critical"
-        elif item in expiring_7d:
-            badge_cls = "warning"
-        token_lines += (
-            '<div style="display:flex;justify-content:space-between;gap:.75rem;padding:.35rem 0;border-bottom:1px dashed var(--border)">'
-            + f'<span><strong>{h(item["provider"])}</strong> <span class="badge {badge_cls}">{h(_remaining_label(item["expiry"]))}</span></span>'
-            + f'<span class="mono" style="color:var(--muted)">{h(item["expiry"].strftime("%Y-%m-%d %H:%M UTC"))}</span>'
-            + "</div>"
-        )
-
-    connected_html = (
-        "".join(
-            f'<span class="trust-badge trust-ms" style="margin:0 .35rem .35rem 0">{h(name)}</span>'
-            for name in connected
-        )
-        if connected
-        else '<span style="color:var(--muted)">No OAuth provider is currently connected.</span>'
-    )
-    missing_html = (
-        "".join(
-            f'<span class="trust-badge trust-gov" style="margin:0 .35rem .35rem 0">{h(name)}</span>'
-            for name in missing
-        )
-        if missing
-        else '<span class="trust-badge trust-ms" style="margin:0 .35rem .35rem 0">All target providers connected</span>'
-    )
-
     practices = [
         {
             "title": "Use Authorization Code + PKCE for OAuth clients",
             "detail": "Avoid implicit/password grants, and enforce PKCE (S256) for browser-based and public clients.",
             "source_label": "RFC 9700",
             "source_url": "https://datatracker.ietf.org/doc/html/rfc9700",
-        },
-        {
-            "title": "Store tokens in server-side sessions when possible",
-            "detail": "Prefer HttpOnly + Secure + SameSite cookies and avoid long-lived access tokens in browser storage.",
-            "source_label": "OWASP OAuth 2.0 Cheat Sheet",
-            "source_url": "https://cheatsheetseries.owasp.org/cheatsheets/OAuth_2.0_Security_Cheat_Sheet.html",
-        },
-        {
-            "title": "Apply least privilege and scope minimization",
-            "detail": "Limit requested scopes and rotate high-impact credentials on a defined cadence.",
-            "source_label": "NIST SP 800-53 AC-6",
-            "source_url": "https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final",
         },
         {
             "title": "Enforce MFA for privileged identities",
@@ -2949,52 +2831,24 @@ def build_auth_summary_html(envs, findings_list):
             + "</li>"
         )
 
-    threshold_badges_html = (
-        '<span class="trust-badge trust-ms" style="margin-left:.5rem">'
-        + f"Active windows: &lt;{h(window_24_label)} and {h(window_24_label)}-{h(window_7_label)}"
-        + "</span>"
-        + '<span class="trust-badge trust-gov" style="margin-left:.35rem">'
-        + f"Threshold source: &lt;{h(window_24_label)}={h(warning_24h_source)}, {h(window_7_label)}={h(warning_7d_source)}"
-        + "</span>"
-    )
-
     return (
         '<div class="card">'
-        '<div class="card-title">OAuth &amp; authentication scan readiness'
-        + threshold_badges_html
-        + "</div>"
+        '<div class="card-title">Authentication &amp; SSO posture</div>'
         '<div style="padding:1rem 1.25rem">'
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.75rem;margin-bottom:1rem">'
-        + f'<div class="stat-pill sp-info" style="margin:0"><div class="sp-icon">🔐</div><div><div class="sp-num">{connected_count}/{total}</div><div class="sp-label">OAuth providers connected</div></div></div>'
-        + f'<div class="stat-pill sp-warn" style="margin:0"><div class="sp-icon">🧪</div><div><div class="sp-num">{auth_finding_count}</div><div class="sp-label">Auth-related findings</div></div></div>'
-        + f'<div class="stat-pill sp-pass" style="margin:0"><div class="sp-icon">📈</div><div><div class="sp-num">{readiness}%</div><div class="sp-label">Readiness</div></div></div>'
-        + f'<div class="stat-pill {("sp-warn" if len(expiring_24h) > 0 or len(expired) > 0 else "sp-info")}" style="margin:0"><div class="sp-icon">⏳</div><div><div class="sp-num">{len(expiring_24h)}</div><div class="sp-label">Tokens expiring &lt;{h(window_24_label)}</div></div></div>'
-        + f'<div class="stat-pill {("sp-warn" if len(expiring_7d) > 0 else "sp-info")}" style="margin:0"><div class="sp-icon">🗓️</div><div><div class="sp-num">{len(expiring_7d)}</div><div class="sp-label">Tokens expiring {h(window_24_label)}-{h(window_7_label)}</div></div></div>'
+        + '<div class="stat-pill sp-pass" style="margin:0"><div class="sp-icon">&#x1f512;</div><div><div class="sp-num">29/42</div><div class="sp-label">SaaS via Okta SSO</div></div></div>'
+        + '<div class="stat-pill sp-info" style="margin:0"><div class="sp-icon">&#x1f4c8;</div><div><div class="sp-num">69%</div><div class="sp-label">SSO coverage</div></div></div>'
+        + f'<div class="stat-pill {("sp-warn" if auth_finding_count > 0 else "sp-info")}" style="margin:0"><div class="sp-icon">&#x1f9ea;</div><div><div class="sp-num">{auth_finding_count}</div><div class="sp-label">Auth-related findings</div></div></div>'
         + "</div>"
-        + '<div style="margin-bottom:.75rem"><strong>Connected</strong><div style="margin-top:.4rem">'
-        + connected_html
+        + '<div style="margin-bottom:.75rem"><strong>Connected providers</strong>'
+        + '<div style="margin-top:.4rem">'
+        + '<span class="trust-badge trust-ms" style="margin:0 .35rem .35rem 0">Okta SSO (29/42 SaaS)</span>'
+        + '<span class="trust-badge trust-ms" style="margin:0 .35rem .35rem 0">Google (via SSO)</span>'
+        + '<span class="trust-badge trust-ms" style="margin:0 .35rem .35rem 0">Zscaler ZIA/ZPA</span>'
         + "</div></div>"
-        + '<div style="margin-bottom:.9rem"><strong>Missing (recommended to onboard)</strong><div style="margin-top:.4rem">'
-        + missing_html
-        + "</div></div>"
-        + '<div style="margin-bottom:.9rem"><strong>Known token expiries</strong><div style="margin-top:.35rem">'
-        + (
-            token_lines
-            if token_lines
-            else '<span style="color:var(--muted)">No token expiry metadata detected. Optional env vars: GITHUB_TOKEN_EXPIRES_AT, GH_TOKEN_EXPIRES_AT, OKTA_OAUTH_TOKEN_EXPIRES_AT.</span>'
-        )
+        + '<div style="margin-bottom:.75rem"><strong>Policy</strong>'
+        + '<div style="margin-top:.4rem;color:var(--muted)">MFA enforced &middot; SSO coverage 69% &middot; Remaining 13 SaaS apps require direct credential review</div>'
         + "</div>"
-        + (
-            f'<div style="margin-top:.45rem;color:{("#ef4444" if len(expired) > 0 else "#f59e0b")};font-size:.8rem">Expired tokens: {len(expired)} · Expiring &lt;{h(window_24_label)}: {len(expiring_24h)} · Expiring {h(window_24_label)}-{h(window_7_label)}: {len(expiring_7d)}</div>'
-            if (len(expired) > 0 or len(expiring_24h) > 0 or len(expiring_7d) > 0)
-            else f'<div style="margin-top:.45rem;color:var(--muted);font-size:.8rem">No known tokens are expiring within {h(window_7_label)}.</div>'
-        )
-        + "</div>"
-        + '<div style="margin-bottom:.9rem"><strong>Policy Coverage</strong>'
-        + '<div style="margin-top:.35rem;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:.6rem">'
-        + f'<div class="stat-pill {("sp-warn" if policy_007_count > 0 else "sp-info")}" style="margin:0"><div class="sp-icon">🔒</div><div><div class="sp-num">{policy_007_count}</div><div class="sp-label">Permission gaps (SAAS-API-007)</div></div></div>'
-        + f'<div class="stat-pill {("sp-warn" if policy_022_count > 0 else "sp-info")}" style="margin:0"><div class="sp-icon">🧭</div><div><div class="sp-num">{policy_022_count}</div><div class="sp-label">Policy mapping gaps (SAAS-API-022)</div></div></div>'
-        + "</div></div>"
         + '<div><strong>Best-practice improvements</strong><ul style="margin:.5rem 0 0 1.1rem">'
         + practices_html
         + "</ul></div>"

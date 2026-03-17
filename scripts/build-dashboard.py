@@ -147,6 +147,21 @@ def collect_prowler():
         try:
             data = json.loads(f.read_text())
             findings.extend(data if isinstance(data, list) else [data])
+        except json.JSONDecodeError:
+            # Handle NDJSON or multi-object files (e.g., prowler-iac.ocsf.json)
+            decoder = json.JSONDecoder()
+            raw = f.read_text().strip()
+            pos = 0
+            while pos < len(raw):
+                try:
+                    obj, end = decoder.raw_decode(raw, pos)
+                    if isinstance(obj, list):
+                        findings.extend(obj)
+                    else:
+                        findings.append(obj)
+                    pos = end
+                except json.JSONDecodeError:
+                    pos += 1
         except Exception:
             pass
 
@@ -207,6 +222,22 @@ def collect_prowler():
                 "severity": "Medium",
                 "provider": um.get("provider", "") if isinstance(um, dict) else "",
             })
+
+    # Normalize provider keys: merge kubernetes/k8s, keep iac as "IaC"
+    PROVIDER_MERGE = {
+        "k8s": "kubernetes",
+        "iac": "IaC",
+    }
+    normalized_by_provider = {}
+    for prov, stats in by_provider.items():
+        canonical = PROVIDER_MERGE.get(prov, prov)
+        if canonical not in normalized_by_provider:
+            normalized_by_provider[canonical] = {"total": 0, "fail": 0, "pass": 0, "critical_fails": []}
+        normalized_by_provider[canonical]["total"] += stats["total"]
+        normalized_by_provider[canonical]["fail"] += stats["fail"]
+        normalized_by_provider[canonical]["pass"] += stats["pass"]
+        normalized_by_provider[canonical]["critical_fails"].extend(stats["critical_fails"])
+    by_provider = normalized_by_provider
 
     result = {
         "total": len(findings),
