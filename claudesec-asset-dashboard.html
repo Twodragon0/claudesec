@@ -588,13 +588,22 @@ function _renderPolicies(d){
   if(pols.length&&$('pol-area')){
     var totalArt=pols.reduce(function(a,p){return a+(p.total_articles||0)},0);
     $('pol-c').textContent=pols.length+'개 규정 / '+totalArt+'개 조항';
-    var ph='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">';
+    var ph='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin-bottom:12px">';
     pols.forEach(function(p){
-      ph+='<div style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;display:flex;align-items:center;gap:6px">';
-      ph+='<strong>'+esc(p.name)+'</strong> <span style="color:var(--muted);font-size:10px">'+p.total_articles+'조</span>';
+      var url=p.url||'';
+      var isms=(p.isms_controls||[]).map(function(c){return ch(c,'b')}).join(' ');
+      var arts=p.articles||[];var artSummary=arts.slice(0,5).map(function(a){return a.title}).join(' · ');
+      ph+='<div style="padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:12px;transition:border-color .2s" onmouseover="this.style.borderColor=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border)\'">';
+      ph+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">\uD83D\uDCC4 <strong>'+esc(p.name)+'</strong>';
+      ph+='<span style="color:var(--muted);font-size:10px">'+p.total_chapters+'\uC7A5 '+p.total_articles+'\uC870</span>';
+      if(url)ph+=' <a href="'+esc(url)+'" target="_blank" style="font-size:10px;color:var(--accent);margin-left:auto">\uC6D0\uBB38\u2197</a>';
+      ph+='</div>';
+      if(isms)ph+='<div style="margin-bottom:3px">'+isms+'</div>';
+      if(artSummary)ph+='<div style="font-size:10px;color:var(--muted);line-height:1.4">'+esc(artSummary)+'</div>';
       ph+='</div>';
     });
     ph+='</div>';
+    ph+='<a href="scan.html#tab-bestpractices" target="_blank" class="scan-link-card" style="display:inline-flex;gap:8px;padding:8px 14px;font-size:12px">\uD83D\uDCDC \uADDC\uC815 \uC0C1\uC138 \u00B7 \uC870\uD56D \uBAA9\uB85D \u2192 scan.html</a>';
     $('pol-area').innerHTML=ph;
   }
 }
@@ -983,10 +992,12 @@ function renderSig(d){
     auditHtml+='<div class="audit-card" onclick="this.classList.toggle(\'open\')" style="border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;cursor:pointer;transition:all .2s;'+(impN>=8?'border-left:3px solid var(--red)':impN>=5?'border-left:3px solid var(--yellow)':'border-left:3px solid var(--green)')+'">';
     auditHtml+='<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--card2)">';
     auditHtml+='<span style="min-width:80px;font-size:12px;color:var(--muted);font-weight:600">'+esc(a.date||'')+'</span>';
-    auditHtml+='<span style="flex:1;font-size:13px;font-weight:600">'+esc(a.title||'')+'</span>';
+    auditHtml+='<div style="flex:1"><div style="font-size:13px;font-weight:600">'+esc(a.title||'')+'</div>';
+    if(a.summary)auditHtml+='<div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4;max-height:2.8em;overflow:hidden">'+esc(a.summary.substring(0,120))+(a.summary.length>120?'...':'')+'</div>';
+    auditHtml+='</div>';
     auditHtml+='<span>'+priCh+'</span>';
     auditHtml+='<span style="min-width:24px;text-align:center">'+impCh+'</span>';
-    auditHtml+='<span style="font-size:11px;color:var(--muted)">'+(impN>=8?'▾':'▸')+'</span>';
+    auditHtml+='<span style="font-size:11px;color:var(--muted)">'+(impN>=8?'\u25BE':'\u25B8')+'</span>';
     auditHtml+='</div>';
     auditHtml+='<div class="audit-detail" style="display:'+(impN>=8?'block':'none')+';padding:14px 16px;border-top:1px dashed var(--border);background:var(--card)">';
     auditHtml+='<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">';

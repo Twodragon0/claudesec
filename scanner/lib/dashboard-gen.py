@@ -5079,9 +5079,8 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     try:
         policies_path = os.path.join(scan_dir or os.getcwd(), ".claudesec-assets", "policies.json")
         if os.path.isfile(policies_path):
-            import json as _json
             with open(policies_path, "r", encoding="utf-8") as _pf:
-                _policies = _json.load(_pf)
+                _policies = json.load(_pf)
             if _policies:
                 policies_html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:.75rem">'
                 _isms_colors = ["var(--accent)", "#0984e3", "#00b894", "#f39c12", "#e17055", "#6c5ce7", "#fd79a8", "#00cec9"]
@@ -5120,8 +5119,13 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                 policies_html += '</div>'
                 _total_a = sum(p.get("total_articles", 0) for p in _policies)
                 policies_html = f'<div style="font-size:.82rem;color:var(--muted);margin-bottom:.75rem">{len(_policies)}개 규정 · {_total_a}개 조항 · Google Drive 원본 연동</div>' + policies_html
-    except Exception:
-        pass
+    except Exception as _pe:
+        print(f"  [policies] load error: {_pe}")
+
+    if policies_html:
+        print(f"  [policies] loaded successfully")
+    else:
+        print(f"  [policies] no data (scan_dir={scan_dir})")
 
     # ── Assemble Full HTML ───────────────────────────────────────────────
     reps = _build_replacements(
@@ -5899,6 +5903,12 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
   <div class="card">
     <div class="card-title">Compliance framework mapping</div>
     {{COMP_HTML}}
+  </div>
+  <div class="card">
+    <div class="card-title">📜 정보보호 규정·지침 <span style="font-size:.75rem;color:var(--muted);font-weight:400;margin-left:.5rem">ISMS-P 매핑 · Google Drive 연동</span></div>
+    <div style="padding:1rem 1.25rem">
+      {{POLICIES_HTML}}
+    </div>
   </div>
 </div>
 
