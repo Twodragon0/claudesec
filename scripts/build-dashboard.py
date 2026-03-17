@@ -562,20 +562,36 @@ def collect_sheets():
 
             wb = openpyxl.load_workbook(tmp_path, data_only=True)
 
-            # 요약 시트
+            # 요약 시트 — 3개 섹션 분리 (소프트웨어별/사용자별/부서별)
             ws_sum = wb["요약"]
+            section = "software"
+            cost_data["by_user"] = []
+            cost_data["by_department"] = []
             for row in ws_sum.iter_rows(min_row=3, values_only=True):
                 cells = list(row)
-                sw = str(cells[0] or "").strip()
-                if not sw or sw in ("합계", "소프트웨어"):
+                label = str(cells[0] or "").strip()
+                if not label:
                     continue
-                cost_data["summary"].append({
-                    "software": sw,
+                if label in ("사용자별 요약", "사용자"):
+                    section = "user"
+                    continue
+                if label in ("부서별 요약", "부서"):
+                    section = "department"
+                    continue
+                if label in ("합계", "소프트웨어"):
+                    continue
+                vals = {
                     "jan": cells[1] if isinstance(cells[1], (int, float)) else 0,
                     "feb": cells[2] if isinstance(cells[2], (int, float)) else 0,
                     "mar": cells[3] if isinstance(cells[3], (int, float)) else 0,
                     "total": cells[4] if isinstance(cells[4], (int, float)) else 0,
-                })
+                }
+                if section == "software":
+                    cost_data["summary"].append({"software": label, **vals})
+                elif section == "user":
+                    cost_data["by_user"].append({"user": label, **vals})
+                elif section == "department":
+                    cost_data["by_department"].append({"department": label, **vals})
 
             # 월별 상세
             for month_name in ["2026-01", "2026-02", "2026-03"]:
@@ -603,7 +619,46 @@ def collect_sheets():
                     })
                 cost_data["details"][month_name] = rows_m
 
-            print(f"    SaaS 비용: {len(cost_data['summary'])}종, 월별 상세 {sum(len(v) for v in cost_data['details'].values())}건")
+            # ── 중복/유사 항목 통합 정리 ──
+            # 1) summary: 유사 소프트웨어명 통합
+            SW_MERGE = {
+                "GWS(GoogleWorkSpace)": "Google Workspace",
+                "GitHub (Copilot/Actions)": "GitHub",
+                "Microsoft Office 365": "Microsoft 365 / Intune",
+            }
+            merged_summary = {}
+            for s in cost_data["summary"]:
+                name = SW_MERGE.get(s["software"], s["software"])
+                if name in merged_summary:
+                    for k in ("jan", "feb", "mar", "total"):
+                        merged_summary[name][k] = merged_summary[name].get(k, 0) + s.get(k, 0)
+                else:
+                    merged_summary[name] = {**s, "software": name}
+            cost_data["summary"] = list(merged_summary.values())
+
+            # 2) details: 동일 월+소프트웨어+사용자+금액 완전 중복 제거
+            for month_key in list(cost_data["details"].keys()):
+                rows = cost_data["details"][month_key]
+                seen = set()
+                deduped = []
+                for r in rows:
+                    # 소프트웨어명 통합
+                    r["software"] = SW_MERGE.get(r["software"], r["software"])
+                    key = (r["software"], r.get("user", ""), r.get("amount", 0))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    deduped.append(r)
+                cost_data["details"][month_key] = deduped
+
+            # 3) Warudo는 대리 결제 — 메모에 명시
+            for month_key, rows in cost_data["details"].items():
+                for r in rows:
+                    if r["software"] == "Warudo (싸이코드)" and r.get("user") == "mauve":
+                        r["memo"] = (r.get("memo", "") + " (대리결제 — 싸이코드 프로젝트 비용)").strip()
+                        r["department"] = "프로젝트 | 싸이코드 (대리결제)"
+
+            print(f"    SaaS 비용: {len(cost_data['summary'])}종, 월별 상세 {sum(len(v) for v in cost_data['details'].values())}건 (중복 정리 완료)")
         except Exception as e:
             print(f"    SaaS 비용 수집 실패: {e}")
     else:
@@ -612,7 +667,20 @@ def collect_sheets():
     infra = {"servers": servers, "databases": databases,
              "sec_systems": sec_systems, "networks": networks}
 
-    return saas, license_list, ai_list, asset_counts, cost_data, infra
+    # SentinelOne 에이전트 + 위협 + 교차 검증 (캐시)
+    s1_path = ASSETS_DIR / "sentinelone-agents.json"
+    s1_agents = []
+    if s1_path.exists():
+        s1_agents = json.loads(s1_path.read_text())
+        print(f"    SentinelOne: {len(s1_agents)}대")
+
+    s1_threats_path = ASSETS_DIR / "sentinelone-threats.json"
+    s1_threats = json.loads(s1_threats_path.read_text()) if s1_threats_path.exists() else []
+
+    ep_xv_path = ASSETS_DIR / "endpoint-crossverify.json"
+    ep_crossverify = json.loads(ep_xv_path.read_text()) if ep_xv_path.exists() else {}
+
+    return saas, license_list, ai_list, asset_counts, cost_data, infra, s1_agents, s1_threats, ep_crossverify
 
 
 def _is_karpenter_node(name: str) -> bool:
@@ -768,7 +836,7 @@ def main():
             jamf_mobiles = [item for item in all_inv if item.get("type") == "mobile"]
         except Exception:
             pass
-    saas, licenses, ai_subs, asset_counts, saas_cost, infra = collect_sheets()
+    saas, licenses, ai_subs, asset_counts, saas_cost, infra, s1_agents, s1_threats, ep_crossverify = collect_sheets()
 
     # ClaudeSec 스캔
     scan = {}
@@ -820,6 +888,9 @@ def main():
         "infra": infra,
         "aws_live": aws_live,
         "cross_verify": cross_verify,
+        "sentinelone": s1_agents,
+        "s1_threats": s1_threats,
+        "endpoint_crossverify": ep_crossverify,
         "notion_audits": notion_audits,
         "jamf_pcs": jamf_pcs,
         "jamf_mobiles": jamf_mobiles,

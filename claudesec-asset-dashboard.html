@@ -443,15 +443,15 @@ function renderSec(d){
     +'<div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:12px;flex-wrap:wrap">'
     +'<a href="'+scanUrl+'#tab-prowler" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">Prowler \uC804\uCCB4 \uBCF4\uAE30 \u2192</a>'
     +'<a href="'+scanUrl+'#tab-overview" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">ClaudeSec \uC0C1\uC138 \u2192</a>'
-    +'</div></div></div>';
+    +'</div></div></div>'
+    ;
   var sevD2=pw.fail_by_severity||{};
   mkK($('k-sec'),[
     {l:'ClaudeSec',v:sc.grade||'-',s:(sc.score||0)+'점',c:sc.grade==='A'?'g':sc.grade==='B'?'y':'r'},
-    {l:'Prowler Total',v:pw.total||0,c:'b'},{l:'Prowler FAIL',v:pw.fail||0,c:'r'},
-    {l:'Critical',v:sevD2.Critical||0,c:(sevD2.Critical||0)>0?'r':'g'},
+    {l:'Prowler FAIL',v:pw.fail||0,c:'r',s:'총 '+(pw.total||0)},
     {l:'High',v:sevD2.High||0,c:(sevD2.High||0)>0?'r':'y'},
-    {l:'Medium',v:sevD2.Medium||0,c:(sevD2.Medium||0)>0?'y':'g'},
-    {l:'Prowler PASS',v:pw.pass||0,c:'g'},{l:'SIEM 시그널',v:sigs.length,c:'y'}
+    {l:'Prowler PASS',v:pw.pass||0,c:'g'},
+    {l:'SIEM 시그널',v:sigs.length,c:'y',s:'14일'},
   ]);
   if(Object.keys(byProv).length){
     var pe=Object.entries(byProv);
@@ -499,17 +499,26 @@ function renderAsset(d){
   var saas=d.saas||[],ac=d.asset_counts||{},totalAssets=Object.values(ac).reduce(function(a,b){return a+b},0);
   var el=$('p-asset');
   var t=window._ts||{};
-  el.innerHTML=tsBar([{src:'Google Sheets',time:t.google_sheets}])+'<div id="k-asset" class="kpis"></div><div class="g2"><div class="cd"><h3>자산 분류별 현황</h3><div style="padding:16px" id="asset-bars"></div></div><div class="cd"><h3>SaaS \uC778\uC99D \uBC29\uC2DD \uBD84\uD3EC</h3><div style="padding:16px" id="auth-bars"></div></div></div>';
+  var s1=d.sentinelone||[];var s1t=d.s1_threats||[];var epxv=d.endpoint_crossverify||{};
+  var s1threats=s1.reduce(function(a,b){return a+(b.threats||0)},0);
+  el.innerHTML=tsBar([{src:'Google Sheets',time:t.google_sheets},{src:'SentinelOne',time:t.datadog},{src:'Jamf',time:t.datadog}])
+    +'<div id="k-asset" class="kpis"></div>'
+    +'<div class="g2"><div class="cd"><h3>자산 분류별 현황</h3><div style="padding:16px" id="asset-bars"></div></div><div class="cd"><h3>SaaS 인증 방식 분포</h3><div style="padding:16px" id="auth-bars"></div></div></div>'
+    +(epxv.jamf_total?'<div class="cd"><h3>엔드포인트 교차 검증: Jamf (MDM) vs SentinelOne (EDR)</h3><div id="ep-xv" style="padding:16px"></div></div>':'')
+    +(s1.length?'<div class="cd"><h3>SentinelOne 엔드포인트 (EDR) <span class="bg" id="s1-c"></span></h3><div class="fb" id="s1-fb"></div><div class="stbl"><table id="t-s1"></table></div></div>':'')
+    +(s1t.length?'<div class="cd"><h3>SentinelOne 위협 상세 (30일) <span class="bg" id="s1t-c"></span></h3><div class="stbl"><table id="t-s1-threats"></table></div></div>':'');
   var jamfCount=(d.jamf_pcs||[]).length;var sheetPc=ac.PC||0;
   var jamfMobiles=d.jamf_mobiles||[];
   var pcGap=sheetPc-jamfCount;
+  var edrMissing=epxv.jamf_only_count||0;
   mkK($('k-asset'),[
-    {l:'\uCD1D \uC790\uC0B0',v:totalAssets,c:'b'},
-    {l:'PC (Jamf)',v:jamfCount,c:jamfCount?'a':'m',s:jamfCount?'\uAD00\uB9AC \uB2E8\uB9D0':'\uB370\uC774\uD130 \uC5C6\uC74C'},
-    {l:'\uBAA8\uBC14\uC77C (Jamf)',v:jamfMobiles.length,c:jamfMobiles.length?'c':'m',s:'QA \uAE30\uAE30'},
-    {l:'PC (\uC2DC\uD2B8)',v:sheetPc,c:'a',s:'\uC790\uC0B0\uAD00\uB9AC\uB300\uC7A5'},
-    {l:'\uBE44\uAD00\uB9AC PC',v:pcGap>0?pcGap:0,c:pcGap>10?'r':pcGap>0?'y':'g',s:pcGap>0?'\uB4F1\uB85D \uD544\uC694':'Jamf \uC804\uCCB4 \uAD00\uB9AC'}
-  ].concat(Object.entries(ac).filter(function(e){return e[0]!=='PC'}).slice(0,3).map(function(e){return{l:e[0],v:e[1],c:'a'}})));
+    {l:'총 자산',v:totalAssets,c:'b'},
+    {l:'PC (Jamf)',v:jamfCount,c:jamfCount?'a':'m',s:'MDM 관리'},
+    {l:'SentinelOne',v:s1.length,c:'b',s:'EDR 보호'},
+    {l:'S1 위협',v:s1threats,c:s1threats>0?'r':'g',s:'30일'},
+    {l:'EDR 미설치',v:edrMissing,c:edrMissing>0?'r':'g',s:edrMissing>0?'즉시 조치':'전체 보호'},
+    {l:'양쪽 보호',v:epxv.matched||0,c:'g',s:'Jamf+S1'},
+  ].concat(Object.entries(ac).filter(function(e){return e[0]!=='PC'&&e[0]!=='라이선스'}).slice(0,2).map(function(e){return{l:e[0],v:e[1],c:'a'}})));
   mkBar($('asset-bars'),Object.entries(ac).map(function(e){return{l:e[0],v:e[1],color:'var(--accent)'}}),Math.max.apply(null,Object.values(ac).concat([1])));
   var authMap={};saas.forEach(function(s){var a=s.auth||'N/A';authMap[a]=(authMap[a]||0)+1});
   var ai=Object.entries(authMap).sort(function(a,b){return b[1]-a[1]}).map(function(e){return{l:e[0],v:e[1],t:e[1]+'\uAC1C ('+Math.round(e[1]/saas.length*100)+'%)',color:e[0].toLowerCase().includes('okta')?'var(--blue)':e[0].toLowerCase().includes('google')?'var(--accent)':'var(--red)'}});
@@ -533,7 +542,48 @@ function renderAsset(d){
     }));
     $('mob-c').textContent=jamfMobiles.length+'\uB300';
   }
+  /* ── SentinelOne (EDR) ── */
+  if(s1.length&&$('t-s1')){
+    var s1mac=s1.filter(function(a){return(a.name||'').indexOf('Lv-i ')===0}).length;
+    var s1win=s1.filter(function(a){return(a.name||'').indexOf('DESKTOP-')===0}).length;
+    var s1other=s1.length-s1mac-s1win;
+    $('s1-fb').innerHTML='<span class="fb-btn on" onclick="window._fs1(\'all\',this)">전체 ('+s1.length+')</span>'
+      +'<span class="fb-btn" onclick="window._fs1(\'mac\',this)">macOS ('+s1mac+')</span>'
+      +'<span class="fb-btn" onclick="window._fs1(\'win\',this)">Windows ('+s1win+')</span>'
+      +(s1other?'<span class="fb-btn" onclick="window._fs1(\'other\',this)">기타 ('+s1other+')</span>':'');
+    window._s1All=s1;window._renderS1=function(list){
+      mkT($('t-s1'),['기기명','사용자','OS','그룹','위협','최근 활동'],list.map(function(a){
+        return[esc(a.name||''),esc(a.user||''),
+          a.os?ch(a.os,'b'):(a.name||'').indexOf('Lv-i ')===0?ch('macOS','b'):(a.name||'').indexOf('DESKTOP-')===0?ch('Windows','c'):ch('-','m'),
+          esc(a.group||''),a.threats>0?ch(a.threats,'r'):ch('0','g'),esc((a.last_seen||'').substring(0,16))]}));
+      $('s1-c').textContent=list.length+'대';
+    };window._renderS1(s1);
+  }
+  /* S1 위협 상세 */
+  if(s1t.length&&$('t-s1-threats')){
+    mkT($('t-s1-threats'),['시간','기기','OS','분류','신뢰도','상태','파일 경로'],s1t.map(function(t){
+      return[esc((t.time||'').substring(0,16)),esc(t.device||''),esc(t.os||''),
+        t.classification?ch(t.classification,'r'):ch(t.threat_name||'unknown','y'),
+        t.confidence==='malicious'?ch(t.confidence,'r'):ch(t.confidence||'','y'),
+        t.status==='mitigated'||t.status==='marked_as_benign'?ch(t.status,'g'):ch(t.status||'','r'),
+        esc((t.file_path||'').substring(0,60))]}));
+    $('s1t-c').textContent=s1t.length+'건';
+  }
+  /* Endpoint 교차 검증 */
+  if(epxv.jamf_total&&$('ep-xv')){
+    var xvh='<div class="xv-stat">'
+      +'<div><div class="xv-num" style="color:var(--blue)">'+epxv.jamf_total+'</div><div class="xv-lbl">Jamf (MDM)</div></div>'
+      +'<div><div class="xv-num" style="color:var(--accent)">'+epxv.s1_total+'</div><div class="xv-lbl">SentinelOne (EDR)</div></div>'
+      +'<div><div class="xv-num" style="color:var(--green)">'+epxv.matched+'</div><div class="xv-lbl">양쪽 보호</div></div>'
+      +'<div><div class="xv-num" style="color:var(--red)">'+(epxv.jamf_only_count||0)+'</div><div class="xv-lbl">EDR 미설치</div></div>'
+      +'<div><div class="xv-num" style="color:var(--yellow)">'+(epxv.s1_only_count||0)+'</div><div class="xv-lbl">MDM 미등록</div></div>'
+      +'</div>';
+    if(epxv.jamf_only&&epxv.jamf_only.length)xvh+='<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--red);margin-bottom:6px">SentinelOne 미설치 (즉시 조치 필요)</div><div class="stbl"><table id="t-ep-missing"></table></div></div>';
+    $('ep-xv').innerHTML=xvh;
+    if(epxv.jamf_only&&epxv.jamf_only.length&&$('t-ep-missing'))mkT($('t-ep-missing'),['기기명','사용자','시리얼','모델'],epxv.jamf_only.map(function(j){return[esc(j.name),esc(j.user),esc(j.serial),esc(j.model)]}));
+  }
 }
+window._fs1=function(f,el){document.querySelectorAll('#s1-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');var list=f==='all'?window._s1All:f==='mac'?window._s1All.filter(function(a){return(a.name||'').indexOf('Lv-i ')===0}):f==='win'?window._s1All.filter(function(a){return(a.name||'').indexOf('DESKTOP-')===0}):window._s1All.filter(function(a){return(a.name||'').indexOf('Lv-i ')!==0&&(a.name||'').indexOf('DESKTOP-')!==0});window._renderS1(list)};
 window._fpc=function(dept,el){document.querySelectorAll('#pc-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');var list=dept==='all'?window._jamfAll:window._jamfAll.filter(function(p){return(p.department||'N/A')===dept});window._renderPc(list)};
 
 /* ═══ Infra ═══ */
@@ -706,7 +756,13 @@ function renderCost(d){
   var md=cost.details||{};var allD=[];
   Object.entries(md).forEach(function(e){e[1].forEach(function(r){allD.push(Object.assign({},r,{month:e[0]}))})});
   var el=$('p-cost'),t=window._ts||{};
-  el.innerHTML=tsBar([{src:'SaaS 비용 (xlsx)',time:t.saas_cost_xlsx}])+'<div id="k-cost" class="kpis"></div><div class="g2"><div class="cd"><h3>\uC6D4\uBCC4 \uCD94\uC774</h3><div id="cost-mch"></div></div><div class="cd"><h3>\uBD80\uC11C\uBCC4 \uBE44\uC6A9</h3><div style="padding:16px" id="cost-dept"></div></div></div><div class="g2"><div class="cd"><h3>SaaS \uBE44\uC6A9 Top 15 (\uC6D4\uBCC4)</h3><div style="padding:16px" id="cost-bars"></div></div><div class="cd"><h3>\uC6D4\uBCC4 \uC9C0\uCD9C \uC0C1\uC138 <span class="bg" id="cost-c"></span></h3><div class="stbl"><table id="t-cost"></table></div></div></div>';
+  el.innerHTML=tsBar([{src:'SaaS \uBE44\uC6A9 (xlsx)',time:t.saas_cost_xlsx}])+'<div id="k-cost" class="kpis"></div>'
+    +'<div class="g2"><div class="cd"><h3>\uC6D4\uBCC4 \uCD94\uC774</h3><div id="cost-mch"></div></div><div class="cd"><h3>\uBD80\uC11C\uBCC4 \uBE44\uC6A9</h3><div style="padding:16px" id="cost-dept"></div></div></div>'
+    +'<div class="cd"><h3>\uC18C\uD504\uD2B8\uC6E8\uC5B4\uBCC4 \uC6D4\uBCC4 \uBE44\uC6A9 <span class="bg" id="sw-c"></span></h3><div style="padding:6px 16px;font-size:11px;color:var(--muted)">\uD5E4\uB354 \uD074\uB9AD \uC815\uB82C \u00B7 \uAE08\uC561: \uC6D0(KRW)</div><div class="stbl"><table id="t-sw"></table></div></div>'
+    +'<div class="g2"><div class="cd"><h3>\uC0AC\uC6A9\uC790\uBCC4 \uBE44\uC6A9 <span class="bg" id="user-cost-c"></span></h3><div class="stbl"><table id="t-user-cost"></table></div></div>'
+    +'<div class="cd"><h3>\uBD80\uC11C\uBCC4 \uBE44\uC6A9 <span class="bg" id="dept-cost-c"></span></h3><div class="stbl"><table id="t-dept-cost"></table></div></div></div>'
+    +'<div class="g2"><div class="cd"><h3>\uC6D4\uBCC4 \uC9C0\uCD9C \uC0C1\uC138 <span class="bg" id="cost-c"></span></h3><div class="fb" id="cost-fb"></div><div class="stbl"><table id="t-cost"></table></div></div>'
+    +'<div class="cd"><h3>SaaS \uBE44\uC6A9 Top 15</h3><div style="padding:16px" id="cost-bars"></div></div></div>';
   var noSum=cs.filter(function(x){return!x.software.match(/\uD569\uACC4/)});
   var jan=noSum.reduce(function(a,b){return a+(b.jan||0)},0);
   var feb=noSum.reduce(function(a,b){return a+(b.feb||0)},0);
@@ -719,14 +775,43 @@ function renderCost(d){
     {l:'\uC6D4\uBCC4 \uC0C1\uC138',v:allD.length+'\uAC74',c:'c'}
   ]);
   monthBars([{label:'1\uC6D4',value:jan,color:'var(--blue)'},{label:'2\uC6D4',value:feb,color:'var(--accent)'},{label:'3\uC6D4',value:mar,color:'var(--yellow)'}],$('cost-mch'));
-  var deptMap={};allD.forEach(function(r){var dp=r.department||'\uBBF8\uBD84\uB958';deptMap[dp]=(deptMap[dp]||0)+(r.amount||0)});
-  var di=Object.entries(deptMap).sort(function(a,b){return b[1]-a[1]}).map(function(e){return{l:e[0],v:e[1],t:'\u20A9'+fmt(e[1]),color:'var(--cyan)'}});
+  var deptData=(cost.by_department||[]).filter(function(x){return(x.total||0)>0}).sort(function(a,b){return(b.total||0)-(a.total||0)});
+  var di=deptData.map(function(x){return{l:x.department||x.name||'',v:x.total||0,t:'\u20A9'+fmt(x.total||0),color:'var(--cyan)'}});
+  if(!di.length){/* fallback to detail aggregation */
+    var deptMap={};allD.forEach(function(r){var dp=r.department||'\uBBF8\uBD84\uB958';deptMap[dp]=(deptMap[dp]||0)+(r.amount||0)});
+    di=Object.entries(deptMap).sort(function(a,b){return b[1]-a[1]}).map(function(e){return{l:e[0],v:e[1],t:'\u20A9'+fmt(e[1]),color:'var(--cyan)'}});
+  }
   if(di.length)mkBar($('cost-dept'),di,Math.max.apply(null,di.map(function(x){return x.v})));
   else $('cost-dept').innerHTML='<div style="padding:16px;text-align:center;color:var(--muted)">\uBD80\uC11C\uBCC4 \uB370\uC774\uD130 \uC5C6\uC74C</div>';
   var t15=csF.slice(0,15),mc=t15.length?t15[0].total:1;
   mkBar($('cost-bars'),t15.map(function(x){return{l:x.software,v:x.total,t:'\u20A9'+fmt(x.total),color:'var(--accent)'}}),mc);
-  mkT($('t-cost'),['\uC6D4','\uC18C\uD504\uD2B8\uC6E8\uC5B4','\uC0AC\uC6A9\uC790','\uBD80\uC11C','\uAE08\uC561','\uC9C0\uCD9C\uC77C','\uBA54\uBAA8'],allD.map(function(r){return[ch(r.month,'c'),esc(r.software||''),esc(r.user||''),esc(r.department||''),'\u20A9'+fmt(r.amount||0),esc(r.date||''),esc(r.memo||'')]}));
-  $('cost-c').textContent=allD.length+'\uAC74';
+  /* Software × Month comparison table */
+  var swRows=csF.map(function(x){
+    var janV=x.jan||0,febV=x.feb||0,marV=x.mar||0,tot=x.total||0;
+    var trend=febV>janV?ch('\u25B2','r'):(febV<janV?ch('\u25BC','g'):ch('-','m'));
+    return[esc(x.software),'\u20A9'+fmt(janV),'\u20A9'+fmt(febV),'\u20A9'+fmt(marV),'\u20A9'+fmt(tot),trend]
+  });
+  mkT($('t-sw'),['\uC18C\uD504\uD2B8\uC6E8\uC5B4','1\uC6D4','2\uC6D4','3\uC6D4','\uD569\uACC4','\uCD94\uC774'],swRows);
+  $('sw-c').textContent=csF.length+'\uC885';
+  /* User cost table */
+  var byUser=(cost.by_user||[]).filter(function(u){return(u.total||0)>0}).sort(function(a,b){return(b.total||0)-(a.total||0)});
+  mkT($('t-user-cost'),['\uC0AC\uC6A9\uC790','1\uC6D4','2\uC6D4','3\uC6D4','\uD569\uACC4'],byUser.map(function(u){return[esc(u.user||u.name||''),'\u20A9'+fmt(u.jan||0),'\u20A9'+fmt(u.feb||0),'\u20A9'+fmt(u.mar||0),'\u20A9'+fmt(u.total||0)]}));
+  $('user-cost-c').textContent=byUser.length+'\uBA85';
+  /* Department cost table */
+  var byDept=(cost.by_department||[]).filter(function(x){return(x.total||0)>0}).sort(function(a,b){return(b.total||0)-(a.total||0)});
+  mkT($('t-dept-cost'),['\uBD80\uC11C','1\uC6D4','2\uC6D4','3\uC6D4','\uD569\uACC4'],byDept.map(function(x){return[esc(x.department||x.name||''),'\u20A9'+fmt(x.jan||0),'\u20A9'+fmt(x.feb||0),'\u20A9'+fmt(x.mar||0),'\u20A9'+fmt(x.total||0)]}));
+  $('dept-cost-c').textContent=byDept.length+'\uBD80\uC11C';
+  /* Month filter for detail table */
+  var months=Object.keys(md).sort();
+  $('cost-fb').innerHTML='<span class="fb-btn on" onclick="window._fCost(\'all\',this)">\uC804\uCCB4</span>'+months.map(function(m){return'<span class="fb-btn" onclick="window._fCost(\''+esc(m)+'\',this)">'+esc(m)+'</span>'}).join('');
+  window._allCostD=allD;
+  window._fCost=function(m,el){
+    document.querySelectorAll('#cost-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
+    var list=m==='all'?window._allCostD:window._allCostD.filter(function(r){return r.month===m});
+    mkT($('t-cost'),['\uC6D4','\uC18C\uD504\uD2B8\uC6E8\uC5B4','\uC0AC\uC6A9\uC790','\uBD80\uC11C','\uAE08\uC561','\uC9C0\uCD9C\uC77C','\uBCA4\uB354','\uBA54\uBAA8'],list.map(function(r){return[ch(r.month,'c'),esc(r.software||''),esc(r.user||''),esc(r.department||''),'\u20A9'+fmt(r.amount||0),esc(r.date||''),esc(r.vendor||''),esc(r.memo||'')]}));
+    $('cost-c').textContent=list.length+'\uAC74';
+  };
+  window._fCost('all',document.querySelector('#cost-fb .fb-btn'));
 }
 
 /* ═══ AI ═══ */
