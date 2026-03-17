@@ -152,9 +152,8 @@ collect_aws() {
   IFS=',' read -ra profiles <<< "${AWS_PROFILES:-}"
   [[ ${#profiles[@]} -eq 0 ]] && { echo "  AWS_PROFILES 미설정"; return 0; }
 
-  local all_ec2=()
-  local all_rds=()
-  local all_eks=()
+  # shellcheck disable=SC2034
+  local all_ec2=() all_rds=() all_eks=()
 
   for profile in "${profiles[@]}"; do
     echo "  - 프로파일: $profile"
