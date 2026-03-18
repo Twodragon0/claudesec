@@ -55,10 +55,10 @@ file_contains() {
 files_contain() {
   local glob="$1" pattern="$2" result
   if [[ "$glob" == */* ]]; then
-    result=$(find "$SCAN_DIR" -path "$SCAN_DIR/$glob" -not -path "*/node_modules/*" -not -path "*/.git/*" \
+    result=$(find "$SCAN_DIR" -path "$SCAN_DIR/$glob" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/.venv*/*" -not -path "*/venv/*" \
       -exec grep -lE "$pattern" {} \; 2>/dev/null | head -1 || true)
   else
-    result=$(find "$SCAN_DIR" -name "$glob" -not -path "*/node_modules/*" -not -path "*/.git/*" \
+    result=$(find "$SCAN_DIR" -name "$glob" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/.venv*/*" -not -path "*/venv/*" \
       -exec grep -lE "$pattern" {} \; 2>/dev/null | head -1 || true)
   fi
   [[ -n "$result" ]]
@@ -67,7 +67,7 @@ files_contain() {
 # Count files matching a pattern
 count_files() {
   local glob="$1"
-  find "$SCAN_DIR" -name "$glob" -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | wc -l | tr -d ' '
+  find "$SCAN_DIR" -name "$glob" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/.venv*/*" -not -path "*/venv/*" 2>/dev/null | wc -l | tr -d ' '
 }
 
 # Check if running in a git repo
@@ -570,7 +570,7 @@ kubectl_ensure_access() {
   fi
 
   # 1. Already connected
-  if run_with_timeout 10 $(_kubectl_cmd) cluster-info &>/dev/null; then
+  if run_with_timeout 10 "$(_kubectl_cmd)" cluster-info &>/dev/null; then
     return 0
   fi
 
@@ -652,7 +652,7 @@ kubectl_ensure_access() {
     fi
 
     # Test again after refresh
-    if run_with_timeout 10 $(_kubectl_cmd) cluster-info &>/dev/null; then
+    if run_with_timeout 10 "$(_kubectl_cmd)" cluster-info &>/dev/null; then
       echo -e "  ${GREEN}✓${NC} Connected to cluster (context: $current_ctx)"
       return 0
     fi
@@ -660,7 +660,7 @@ kubectl_ensure_access() {
     # OIDC/exec auth (e.g. kubectl oidc-login): run once with longer timeout so user can complete browser sign-in
     if kubectl_current_context_uses_oidc_exec 2>/dev/null; then
       echo -e "  ${DIM}Context uses OIDC login; a browser may open for sign-in. Waiting up to 45s…${NC}"
-      if run_with_timeout 45 $(_kubectl_cmd) cluster-info &>/dev/null; then
+      if run_with_timeout 45 "$(_kubectl_cmd)" cluster-info &>/dev/null; then
         echo -e "  ${GREEN}✓${NC} Connected to cluster (context: $current_ctx)"
         return 0
       fi
@@ -671,7 +671,7 @@ kubectl_ensure_access() {
   while IFS= read -r ctx; do
     [[ -z "$ctx" || "$ctx" == "$current_ctx" ]] && continue
     kubectl config use-context "$ctx" &>/dev/null || continue
-    if run_with_timeout 10 $(_kubectl_cmd) cluster-info &>/dev/null; then
+    if run_with_timeout 10 "$(_kubectl_cmd)" cluster-info &>/dev/null; then
       echo -e "  ${GREEN}✓${NC} Connected to cluster (context: $ctx)"
       return 0
     fi
@@ -773,8 +773,11 @@ collect_environment_info() {
     local aws_info
     aws_info=$(aws_identity_info 2>/dev/null)
     export CLAUDESEC_ENV_AWS_CONNECTED="true"
-    export CLAUDESEC_ENV_AWS_ACCOUNT=$(echo "$aws_info" | cut -d'|' -f1)
-    export CLAUDESEC_ENV_AWS_ARN=$(echo "$aws_info" | cut -d'|' -f2)
+    local aws_account aws_arn
+    aws_account=$(echo "$aws_info" | cut -d'|' -f1)
+    aws_arn=$(echo "$aws_info" | cut -d'|' -f2)
+    export CLAUDESEC_ENV_AWS_ACCOUNT="$aws_account"
+    export CLAUDESEC_ENV_AWS_ARN="$aws_arn"
     [[ -n "${AWS_PROFILE:-}" ]] && export CLAUDESEC_ENV_AWS_PROFILE="$AWS_PROFILE"
     if [[ "${CLAUDESEC_ENV_AWS_SSO_CONFIGURED:-false}" == "true" ]]; then
       export CLAUDESEC_ENV_AWS_SSO_SESSION="valid"
@@ -789,8 +792,11 @@ collect_environment_info() {
   # GCP
   if has_gcp_credentials 2>/dev/null; then
     export CLAUDESEC_ENV_GCP_CONNECTED="true"
-    export CLAUDESEC_ENV_GCP_ACCOUNT=$(gcloud config get-value account 2>/dev/null || echo "unknown")
-    export CLAUDESEC_ENV_GCP_PROJECT=$(gcloud config get-value project 2>/dev/null || echo "unknown")
+    local gcp_account gcp_project
+    gcp_account=$(gcloud config get-value account 2>/dev/null || echo "unknown")
+    gcp_project=$(gcloud config get-value project 2>/dev/null || echo "unknown")
+    export CLAUDESEC_ENV_GCP_ACCOUNT="$gcp_account"
+    export CLAUDESEC_ENV_GCP_PROJECT="$gcp_project"
   else
     export CLAUDESEC_ENV_GCP_CONNECTED="false"
   fi
@@ -798,7 +804,9 @@ collect_environment_info() {
   # Azure
   if has_command az && az account show &>/dev/null 2>&1; then
     export CLAUDESEC_ENV_AZ_CONNECTED="true"
-    export CLAUDESEC_ENV_AZ_SUBSCRIPTION=$(az account show --query name -o tsv 2>/dev/null || echo "unknown")
+    local az_sub
+    az_sub=$(az account show --query name -o tsv 2>/dev/null || echo "unknown")
+    export CLAUDESEC_ENV_AZ_SUBSCRIPTION="$az_sub"
   else
     export CLAUDESEC_ENV_AZ_CONNECTED="false"
   fi
@@ -885,7 +893,8 @@ compliance_map() {
     INFRA-*) echo "NIST:CM-6,CM-7|ISO:A.12,A.14|ISMS-P:2.10|SOC2:CC6.6" ;;
     MAC-*|CIS-*) echo "CIS:macOS-Benchmark|NIST:CM-6,CM-7|ISO:A.8.9|KISA-PC:PC-01~PC-19" ;;
     SECRETS-*) echo "NIST:IA-5,SC-28|ISO:A.8.4,A.8.24|ISMS-P:2.5,2.7|SOC2:CC6.1,CC6.7" ;;
-    SAAS-*|SAAS-API-*) echo "NIST:AC-2,CM-6|ISO:A.9,A.12|ISMS-P:2.5,2.10|SOC2:CC6.1,CC6.6" ;;
+    SAAS-API-*) echo "NIST:AC-2,CM-6|ISO:A.9,A.12|ISMS-P:2.5,2.10|SOC2:CC6.1,CC6.6" ;;
+    SAAS-*) echo "NIST:AC-2,CM-6|ISO:A.9,A.12|ISMS-P:2.5,2.10|SOC2:CC6.1,CC6.6" ;;
     WIN-*) echo "KISA-W:W-01~W-84|NIST:CM-6,AC-2,IA-5|ISO:A.8,A.9|ISMS-P:2.5,2.10" ;;
     PROWLER-*) echo "NIST:AC,CM,IA,SC|ISO:A.8,A.9,A.12,A.14|CIS:Benchmark|SOC2:CC6,CC7,CC8" ;;
     *) echo "" ;;
