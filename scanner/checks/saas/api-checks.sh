@@ -397,6 +397,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
   done
 
   if [[ ${#_okta_unchecked_scopes[@]} -gt 0 ]]; then
+    # nosemgrep: bash.lang.security.ifs-tampering — IFS change is scoped to subshell
     _unchecked_scope_list="$(IFS=', '; echo "${_okta_unchecked_scopes[*]}")"
     if [[ $_strict_okta_scopes_enabled -eq 1 ]]; then
       fail "SAAS-API-022" "Okta required scope mapping is incomplete (strict mode)" "medium" \
@@ -452,6 +453,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
     fi
 
     if [[ $_strict_okta_scopes_enabled -eq 1 && ${#_okta_missing_scopes[@]} -gt 0 ]]; then
+      # nosemgrep: bash.lang.security.ifs-tampering
       _missing_scope_list="$(IFS=', '; echo "${_okta_missing_scopes[*]}")"
       fail "SAAS-API-007" "Okta OAuth scope validation failed (strict mode)" "high" \
         "Missing required scopes: ${_missing_scope_list}" \
@@ -479,6 +481,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
 
     if [[ "$_okta_auth_mode" == "OAuth token" && ${#_okta_missing_scopes[@]} -gt 0 ]]; then
       _o_issues=$((_o_issues + 1))
+      # nosemgrep: bash.lang.security.ifs-tampering
       _o_details="${_o_details}\n    Missing OAuth scopes: $(IFS=', '; echo "${_okta_missing_scopes[*]}")"
     fi
 
@@ -515,7 +518,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
   else
     if [[ "$_okta_auth_mode" == "OAuth token" && ${#_okta_missing_scopes[@]} -gt 0 ]]; then
       warn "SAAS-API-007" "Okta OAuth token is missing required scopes" \
-        "Missing: $(IFS=', '; echo "${_okta_missing_scopes[*]}")"
+        "Missing: $(IFS=', '; echo "${_okta_missing_scopes[*]}")" # nosemgrep: bash.lang.security.ifs-tampering -- subshell scoped
     else
       warn "SAAS-API-007" "Okta API connection failed" "Check OKTA_ORG_URL and OKTA_OAUTH_TOKEN (preferred) or OKTA_API_TOKEN"
     fi
