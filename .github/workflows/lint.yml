@@ -61,6 +61,7 @@ jobs:
         id: scanner_tests
         env:
           PYTHONPATH: .
+          CLAUDESEC_DASHBOARD_OFFLINE: "1"
         run: |
           python3 -m py_compile scanner/lib/dashboard-gen.py scanner/lib/compliance-map.py scanner/tests/test_dashboard_gen_smoke.py scanner/tests/test_markdown_preview.py scanner/tests/test_prowler_ocsf.py scanner/tests/test_prowler_ocsf_e2e.py scanner/tests/test_compliance_map.py
           set +e
