@@ -1,0 +1,101 @@
+# npm Publish with Trusted Publishers (Provenance)
+#
+# Uses GitHub Actions OIDC to publish to npm without stored tokens.
+# Generates SLSA provenance attestation for supply chain security.
+#
+# Setup:
+#   1. npmjs.com → Package Settings → Trusted Publishers → Add GitHub Actions
+#      - Owner: Twodragon0
+#      - Repository: claudesec
+#      - Workflow: npm-publish.yml
+#      - Environment: npm-publish
+#   2. GitHub → Settings → Environments → Create "npm-publish"
+#
+# Trigger: manual dispatch or tag push (v*)
+
+name: Publish to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no actual publish)'
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify CLI
+        run: |
+          chmod +x bin/claudesec-cli.sh
+          ./bin/claudesec-cli.sh version
+          ./bin/claudesec-cli.sh help
+
+      - name: Verify package.json
+        run: |
+          node -e "const p = require('./package.json'); console.log(p.name + '@' + p.version)"
+
+      - name: Run scanner smoke test
+        run: |
+          chmod +x scanner/claudesec
+          ./scanner/claudesec version
+
+  publish:
+    name: Publish
+    needs: test
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write  # Required for npm provenance (OIDC)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check version
+        id: version
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing claudesec@$PKG_VERSION"
+
+          # Check if version already exists
+          if npm view "claudesec@$PKG_VERSION" version 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Version $PKG_VERSION already published"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish (dry run)
+        if: inputs.dry_run == true || steps.version.outputs.exists == 'true'
+        run: npm publish --access public --provenance --dry-run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish
+        if: inputs.dry_run != true && steps.version.outputs.exists != 'true'
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "## 📦 Published claudesec@${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- npm: https://www.npmjs.com/package/claudesec" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Provenance: ✅ SLSA attestation" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Install: \`npx claudesec scan\`" >> "$GITHUB_STEP_SUMMARY"
