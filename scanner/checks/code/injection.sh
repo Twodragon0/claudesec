@@ -46,7 +46,7 @@ _code_grep() {
     local hits
     hits=$(find "$SCAN_DIR" -maxdepth 5 -name "$ext" \
       -not -path "*/.git/*" -not -path "*/node_modules/*" -not -path "*/vendor/*" \
-      -not -path "*/dist/*" -not -path "*/venv/*" -not -path "*/__pycache__/*" \
+      -not -path "*/dist/*" -not -path "*/venv/*" -not -path "*/.venv*/*" -not -path "*/__pycache__/*" \
       -not -path "*/target/*" -not -path "*/scanner/*" -not -path "*/.claudesec-*" \
       -exec grep -nE "$pattern" {} /dev/null \; 2>/dev/null | head -"$max_hits" || true)
     [[ -n "$hits" ]] && results="${results}${results:+$'\n'}${hits}"
