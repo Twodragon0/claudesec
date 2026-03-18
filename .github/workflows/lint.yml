@@ -171,6 +171,7 @@ jobs:
             --exclude 'media.defense.gov'
             --exclude 'jamf.com'
             --exclude 'kyverno.io'
+            --exclude 'falco.org'
             --exclude 'contributor-covenant.org'
             --exclude 'conventionalcommits.org'
             --exclude 'github.com/Twodragon0/claudesec/discussions'
