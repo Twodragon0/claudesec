@@ -405,6 +405,30 @@ COMPLIANCE_CONTROL_MAP = {
             "status": "",
         },
     ],
+    # ISMS 간편인증 (2024 신설) — 소규모 기업 대상, 40개 항목으로 경량화
+    # 기존 ISMS-P 102개에서 핵심 통제항목만 선별 (정보통신망법 제47조의7)
+    "KISA ISMS Simple": [
+        {"control": "S-1.1", "name": "관리체계 기반 마련", "desc": "정보보호 정책 수립 및 경영진 참여", "action": "정보보호 정책 승인; 담당자 지정; 예산 확보.", "checks": ["security_policy", "policy", "governance"], "status": ""},
+        {"control": "S-1.2", "name": "위험 관리", "desc": "자산 식별 및 위험 평가·관리", "action": "자산 목록 관리; 위험 평가; 위험 처리 계획.", "checks": ["inventory", "asset", "vulnerability", "risk"], "status": ""},
+        {"control": "S-2.1", "name": "정보보호 정책", "desc": "정보보호 정책 수립·시행·검토", "action": "정책 문서화; 전 직원 숙지; 연 1회 이상 검토.", "checks": ["security_policy", "policy"], "status": ""},
+        {"control": "S-2.2", "name": "인적 보안", "desc": "직무 분리, 보안 서약, 교육", "action": "직무 분리(SoD); 입사/퇴사 절차; 연 1회 보안 교육.", "checks": ["admin", "permission", "training", "account"], "status": ""},
+        {"control": "S-2.3", "name": "외부자 보안", "desc": "외부자(위탁, 협력사) 보안 관리", "action": "위탁 계약 시 보안 요구사항; 접근 통제; 주기적 점검.", "checks": ["third_party", "vendor", "external"], "status": ""},
+        {"control": "S-2.4", "name": "사용자 인증 관리", "desc": "계정·비밀번호·인증 관리", "action": "MFA 적용; 비밀번호 복잡도; 미사용 계정 비활성화.", "checks": ["mfa", "authentication", "password", "account", "sso"], "status": ""},
+        {"control": "S-2.5", "name": "접근권한 관리", "desc": "최소 권한 부여 및 주기적 검토", "action": "RBAC; 권한 검토; 퇴직자 즉시 회수.", "checks": ["branch_protection", "access", "permission", "restrict", "rbac"], "status": ""},
+        {"control": "S-2.6", "name": "네트워크 접근통제", "desc": "네트워크 영역 분리 및 접근 제어", "action": "방화벽; VPC/서브넷; Security Group 최소 오픈.", "checks": ["firewall", "network", "segmentation", "vpc", "security_group"], "status": ""},
+        {"control": "S-2.7", "name": "암호화 적용", "desc": "전송·저장 시 암호화", "action": "TLS 1.2+; 저장 암호화(AES-256); KMS 키 관리.", "checks": ["encrypt", "tls", "ssl", "kms", "certificate"], "status": ""},
+        {"control": "S-2.8", "name": "시큐어 코딩", "desc": "안전한 소프트웨어 개발", "action": "SAST/CodeQL; 코드 리뷰; OWASP Top 10 대응.", "checks": ["code_scanning", "sast", "injection", "codeql"], "status": ""},
+        {"control": "S-2.9", "name": "변경 관리", "desc": "시스템 변경 승인·이행·기록", "action": "PR 기반 변경; 변경 이력 추적; 롤백 절차.", "checks": ["require_approval", "review", "pull_request", "change"], "status": ""},
+        {"control": "S-2.10", "name": "로그 관리", "desc": "접근·이용 기록 수집·보관", "action": "감사 로그 6개월 보관; CloudTrail 활성화; 무결성 보장.", "checks": ["logging", "audit", "cloudtrail", "retention"], "status": ""},
+        {"control": "S-2.11", "name": "취약점 관리", "desc": "정기 취약점 점검 및 조치", "action": "Prowler/OWASP 스캔; 패치 관리; CVE 모니터링.", "checks": ["vulnerability", "scan", "prowler", "cve", "patch"], "status": ""},
+        {"control": "S-2.12", "name": "침해사고 대응", "desc": "사고 탐지·대응·신고·복구", "action": "SIEM 모니터링; 24시간 내 신고(정보통신망법); 대응 플레이북.", "checks": ["monitoring", "alert", "incident", "logging"], "status": ""},
+        {"control": "S-2.13", "name": "악성코드 대응", "desc": "악성코드 예방·탐지", "action": "EDR/AV 운영; 실시간 탐지; 격리 및 복구.", "checks": ["malware", "antivirus", "endpoint", "edr"], "status": ""},
+        {"control": "S-2.14", "name": "백업 및 복구", "desc": "주요 정보 백업 및 복구 절차", "action": "정기 백업; 복구 테스트; 백업 암호화.", "checks": ["backup", "recovery", "snapshot", "restore"], "status": ""},
+        {"control": "S-3.1", "name": "개인정보 수집·이용", "desc": "목적 명시, 동의 획득, 최소 수집", "action": "필수/선택 동의 분리; 최소 수집; 법적 근거 확인.", "checks": ["personal_data", "pii", "consent", "privacy"], "status": ""},
+        {"control": "S-3.2", "name": "개인정보 보관·파기", "desc": "보유기간 준수 및 안전한 파기", "action": "보유기간 경과 시 파기; 복구 불가 방법; 파기 기록.", "checks": ["deletion", "retention", "destroy", "lifecycle"], "status": ""},
+        {"control": "S-3.3", "name": "개인정보 제3자 제공", "desc": "동의 기반 제공 및 관리", "action": "제공 동의; 항목·목적 명시; 제공 이력 관리.", "checks": ["third_party", "sharing", "consent", "data_transfer"], "status": ""},
+        {"control": "S-3.4", "name": "정보주체 권리 보장", "desc": "열람·정정·삭제·처리정지·전송요구·자동화결정 거부", "action": "권리 행사 절차; 전송요구권 대응; 10일 내 처리.", "checks": ["data_subject", "right_to_access", "right_to_delete", "portability"], "status": ""},
+    ],
     "PCI-DSS v4.0.1": [
         {
             "control": "Req 1",
