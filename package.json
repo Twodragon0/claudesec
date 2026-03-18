@@ -1,0 +1,23 @@
+{
+  "name": "claudesec",
+  "version": "0.5.0",
+  "description": "DevSecOps toolkit for AI-assisted secure development — security scanner, ISMS dashboard, asset management",
+  "bin": {
+    "claudesec": "./bin/claudesec-cli.sh"
+  },
+  "scripts": {
+    "scan": "./scanner/claudesec scan",
+    "dashboard": "./scripts/quick-start.sh",
+    "setup": "./scripts/setup.sh"
+  },
+  "keywords": ["devsecops", "security", "scanner", "isms", "prowler", "owasp", "claude-code"],
+  "author": "Twodragon0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Twodragon0/claudesec.git"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
