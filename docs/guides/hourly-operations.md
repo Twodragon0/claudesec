@@ -15,15 +15,15 @@ Run ClaudeSec hourly with cron so the repository stays synced and improvement ar
 1. Repository sync via central manager `git pull --ff-only` (through OpenCode when available)
 2. Centralized scheduler management from Desktop root
 3. Single source of truth for OpenClaw prompt and repo inventory
-4. Append-only operations log at `/Users/REDACTED_USER/Desktop/.twodragon0/logs/`
+4. Append-only operations log at `~/Desktop/.twodragon0/logs/`
 
 ## Setup
 
 ```bash
-bash /Users/REDACTED_USER/Desktop/.twodragon0/bin/install-system-cron.sh
-bash /Users/REDACTED_USER/Desktop/.twodragon0/bin/setup-openclaw-cron.sh
-bash /Users/REDACTED_USER/Desktop/.twodragon0/bin/setup-gws-cli.sh
-bash /Users/REDACTED_USER/Desktop/.twodragon0/bin/finalize-gws-auth-and-verify.sh
+bash ~/Desktop/.twodragon0/bin/install-system-cron.sh
+bash ~/Desktop/.twodragon0/bin/setup-openclaw-cron.sh
+bash ~/Desktop/.twodragon0/bin/setup-gws-cli.sh
+bash ~/Desktop/.twodragon0/bin/finalize-gws-auth-and-verify.sh
 ```
 
 ## Verification

@@ -709,12 +709,15 @@ def collect_sheets():
                     deduped.append(r)
                 cost_data["details"][month_key] = deduped
 
-            # 3) Warudo는 대리 결제 — 메모에 명시
+            # 3) Apply proxy-payment overrides from config (if present)
+            proxy_overrides = json.loads(os.environ.get("COST_PROXY_OVERRIDES", "[]"))
             for month_key, rows in cost_data["details"].items():
                 for r in rows:
-                    if r["software"] == "Warudo (싸이코드)" and r.get("user") == "mauve":
-                        r["memo"] = (r.get("memo", "") + " (대리결제 — 싸이코드 프로젝트 비용)").strip()
-                        r["department"] = "프로젝트 | 싸이코드 (대리결제)"
+                    for ovr in proxy_overrides:
+                        if r["software"] == ovr.get("software") and r.get("user") == ovr.get("user"):
+                            r["memo"] = (r.get("memo", "") + " " + ovr.get("memo", "")).strip()
+                            if ovr.get("department"):
+                                r["department"] = ovr["department"]
 
             print(f"    SaaS 비용: {len(cost_data['summary'])}종, 월별 상세 {sum(len(v) for v in cost_data['details'].values())}건 (중복 정리 완료)")
         except Exception as e:

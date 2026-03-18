@@ -8,7 +8,7 @@ tags: [memory, operations, quality, continuous-improvement]
 
 ## Operating Cadence
 
-- Hourly: central manager runs `git pull --ff-only` from `~/Desktop/.twodragon0`.
+- Hourly: central manager runs `git pull --ff-only` (see `docs/guides/hourly-operations.md`).
 - Daily: triage new findings and failures from `docs/reports/hourly-scan.json`.
 - Weekly: trend review across security, performance, code quality, and documentation quality.
 
