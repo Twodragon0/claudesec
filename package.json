@@ -1,6 +1,6 @@
 {
   "name": "claudesec",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "DevSecOps toolkit for AI-assisted secure development — security scanner, ISMS dashboard, asset management",
   "bin": {
     "claudesec": "./bin/claudesec-cli.sh"
@@ -8,9 +8,33 @@
   "scripts": {
     "scan": "./scanner/claudesec scan",
     "dashboard": "./scripts/quick-start.sh",
-    "setup": "./scripts/setup.sh"
+    "setup": "./scripts/setup.sh",
+    "quickstart": "docker compose -f docker-compose.quickstart.yml up"
   },
-  "keywords": ["devsecops", "security", "scanner", "isms", "prowler", "owasp", "claude-code"],
+  "files": [
+    "bin/",
+    "scanner/",
+    "scripts/",
+    "hooks/",
+    "templates/",
+    "docs/",
+    ".claude-plugin/",
+    "Dockerfile",
+    "Dockerfile.nginx",
+    "docker-compose.yml",
+    "docker-compose.quickstart.yml",
+    "nginx/",
+    ".env.example",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "devsecops", "security", "scanner", "isms", "isms-p",
+    "prowler", "owasp", "claude-code", "dashboard",
+    "compliance", "nist", "asset-management", "sast"
+  ],
+  "homepage": "https://github.com/Twodragon0/claudesec#readme",
+  "bugs": "https://github.com/Twodragon0/claudesec/issues",
   "author": "Twodragon0",
   "license": "MIT",
   "repository": {

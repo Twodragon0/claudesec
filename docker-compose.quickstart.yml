@@ -1,0 +1,44 @@
+# ClaudeSec Quick Start — One-command security scan + dashboard
+#
+# Usage:
+#   docker compose -f docker-compose.quickstart.yml up
+#   open http://localhost:11777
+#
+# This file is designed for first-time users who want to:
+#   1. Scan their project for security issues
+#   2. View results in an interactive dashboard
+#   3. No configuration needed
+
+services:
+
+  scan:
+    build: { context: ., dockerfile: Dockerfile }
+    image: claudesec:local
+    command: ["scan", "-d", "/workspace", "-c", "all"]
+    volumes: [".:/workspace"]
+    working_dir: /workspace
+
+  dashboard-gen:
+    build: { context: ., dockerfile: Dockerfile }
+    image: claudesec:local
+    command: ["dashboard", "-d", "/workspace", "-c", "all", "--no-serve"]
+    volumes: [".:/workspace"]
+    working_dir: /workspace
+    depends_on:
+      scan: { condition: service_completed_successfully }
+
+  dashboard:
+    build: { context: ., dockerfile: Dockerfile.nginx }
+    image: claudesec-dashboard:local
+    ports: ["11777:8080"]
+    volumes:
+      - ./claudesec-dashboard.html:/usr/share/nginx/html/index.html:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    depends_on:
+      dashboard-gen: { condition: service_completed_successfully }
