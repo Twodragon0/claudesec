@@ -61,6 +61,11 @@ tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
 @media(max-width:900px){.g2,.g3{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){*{animation-duration:0s!important;transition-duration:0s!important}}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+.load-error{padding:60px 20px;text-align:center;color:var(--red);font-size:16px}
+.load-error .icon{font-size:48px;margin-bottom:16px}
+.load-error .msg{color:var(--muted);font-size:13px;margin-top:8px}
 .pdca-ring{display:flex;justify-content:center;gap:0;margin:24px 0;flex-wrap:wrap}
 .pdca-step{width:160px;height:160px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;border:3px solid var(--border);position:relative;transition:all .3s;cursor:pointer;background:var(--glass);backdrop-filter:blur(6px)}
 .pdca-step:hover{transform:scale(1.07);box-shadow:0 8px 32px rgba(0,0,0,.18)}
@@ -125,24 +130,24 @@ tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 </div>
 </div>
 
-<div class="tabs" id="tabs">
-<div class="tab active" data-p="isms">ISMS PDCA<span class="badge" id="b-isms"></span></div>
-<div class="tab" data-p="sec">보안<span class="badge" id="b-sec"></span></div>
-<div class="tab" data-p="asset">자산 관리<span class="badge" id="b-asset"></span></div>
-<div class="tab" data-p="infra">인프라<span class="badge" id="b-infra"></span></div>
-<div class="tab" data-p="saas">SaaS·라이선스<span class="badge" id="b-saas"></span></div>
-<div class="tab" data-p="cost">비용 분석<span class="badge" id="b-cost"></span></div>
-<div class="tab" data-p="ai">AI 구독<span class="badge" id="b-ai"></span></div>
+<div class="tabs" id="tabs" role="tablist" aria-label="대시보드 탭">
+<div class="tab active" role="tab" tabindex="0" aria-selected="true" aria-controls="p-isms" data-p="isms">ISMS PDCA<span class="badge" id="b-isms"></span></div>
+<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-sec" data-p="sec">보안<span class="badge" id="b-sec"></span></div>
+<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-asset" data-p="asset">자산 관리<span class="badge" id="b-asset"></span></div>
+<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-infra" data-p="infra">인프라<span class="badge" id="b-infra"></span></div>
+<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-saas" data-p="saas">SaaS·라이선스<span class="badge" id="b-saas"></span></div>
+<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-cost" data-p="cost">비용 분석<span class="badge" id="b-cost"></span></div>
+<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-ai" data-p="ai">AI 구독<span class="badge" id="b-ai"></span></div>
 </div>
 
 <div class="wrap">
-<div class="pnl active" id="p-isms"></div>
-<div class="pnl" id="p-sec"></div>
-<div class="pnl" id="p-asset"></div>
-<div class="pnl" id="p-infra"></div>
-<div class="pnl" id="p-saas"></div>
-<div class="pnl" id="p-cost"></div>
-<div class="pnl" id="p-ai"></div>
+<div class="pnl active" id="p-isms" role="tabpanel" aria-labelledby="tab-isms"></div>
+<div class="pnl" id="p-sec" role="tabpanel" aria-labelledby="tab-sec"></div>
+<div class="pnl" id="p-asset" role="tabpanel" aria-labelledby="tab-asset"></div>
+<div class="pnl" id="p-infra" role="tabpanel" aria-labelledby="tab-infra"></div>
+<div class="pnl" id="p-saas" role="tabpanel" aria-labelledby="tab-saas"></div>
+<div class="pnl" id="p-cost" role="tabpanel" aria-labelledby="tab-cost"></div>
+<div class="pnl" id="p-ai" role="tabpanel" aria-labelledby="tab-ai"></div>
 </div>
 
 <script>
@@ -155,6 +160,7 @@ const D=/*__DATA__*/null;
   document.documentElement.setAttribute('data-theme',s);
 })();
 var thBtn=document.getElementById('theme-toggle');
+thBtn.setAttribute('aria-label','테마 전환');
 function updThBtn(){thBtn.textContent=document.documentElement.getAttribute('data-theme')==='dark'?'\u2600\uFE0F':'\uD83C\uDF19';}
 updThBtn();
 thBtn.addEventListener('click',function(){
@@ -162,15 +168,30 @@ thBtn.addEventListener('click',function(){
   document.documentElement.setAttribute('data-theme',c);localStorage.setItem('claudesec-theme',c);updThBtn();
 });
 
-/* === Lazy rendering === */
+/* === Lazy rendering with accessible tabs === */
 var rendered=new Set(['isms']),renderers={},_d=null;
-document.getElementById('tabs').addEventListener('click',function(e){
-  var t=e.target.closest('.tab');if(!t)return;
-  document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active')});
+function switchTab(p){
+  document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active');x.setAttribute('aria-selected','false');x.setAttribute('tabindex','-1')});
   document.querySelectorAll('.pnl').forEach(function(x){x.classList.remove('active')});
-  t.classList.add('active');var p=t.dataset.p;
+  var tab=document.querySelector('.tab[data-p="'+p+'"]');
+  if(tab){tab.classList.add('active');tab.setAttribute('aria-selected','true');tab.setAttribute('tabindex','0');tab.focus();}
   document.getElementById('p-'+p).classList.add('active');
   if(!rendered.has(p)&&_d&&renderers[p]){rendered.add(p);renderers[p](_d);}
+}
+document.getElementById('tabs').addEventListener('click',function(e){
+  var t=e.target.closest('.tab');if(!t)return;switchTab(t.dataset.p);
+});
+document.getElementById('tabs').addEventListener('keydown',function(e){
+  var tabs=Array.from(document.querySelectorAll('.tab'));
+  var cur=tabs.indexOf(e.target);if(cur<0)return;
+  var next=-1;
+  if(e.key==='ArrowRight'||e.key==='ArrowDown')next=(cur+1)%tabs.length;
+  else if(e.key==='ArrowLeft'||e.key==='ArrowUp')next=(cur-1+tabs.length)%tabs.length;
+  else if(e.key==='Home')next=0;
+  else if(e.key==='End')next=tabs.length-1;
+  else if(e.key==='Enter'||e.key===' '){e.preventDefault();switchTab(tabs[cur].dataset.p);return;}
+  else return;
+  e.preventDefault();switchTab(tabs[next].dataset.p);
 });
 
 /* === Helpers === */
@@ -465,63 +486,7 @@ function renderSecUnified(d){
   $('sig-c').textContent=sigs.length+'건';
 }
 
-/* (legacy — kept for compatibility) */
-function renderScan(d){
-  var sc=d.claudesec||{},findings=sc.findings||[],hist=d.scan_history||[];
-  var el=document.createElement('div');
-  var t=window._ts||{};
-  var scanUrl='scan.html';
-  el.innerHTML=tsBar([{src:'ClaudeSec \uC2A4\uCE94',time:t.claudesec_scan}])
-    +'<div id="k-scan" class="kpis"></div>'
-    +'<div class="g2"><div class="cd"><h3>\uC2A4\uCE94 \uC810\uC218</h3><div class="ring-wrap" id="scan-ring"></div></div><div class="cd"><h3>\uC2A4\uCE94 \uCD94\uC774 <span style="margin-left:8px" id="scan-spark"></span></h3><div style="padding:16px" id="scan-trend"></div></div></div>'
-    +(sc.compliance?'<div class="cd"><h3>\uCEF4\uD50C\uB77C\uC774\uC5B8\uC2A4</h3><div style="padding:16px" id="scan-comp"></div></div>':'')
-    +'<div class="g2"><div class="cd"><h3>\uCE74\uD14C\uACE0\uB9AC\uBCC4</h3><div style="padding:16px" id="scan-cats"></div></div>'
-    +'<div class="cd"><h3>\uC8FC\uC694 \uCDE8\uC57D\uC810 <span class="bg" id="scan-fc"></span></h3><div id="scan-top"></div>'
-    +'<div style="padding:12px 16px;text-align:center;border-top:1px solid var(--border)"><a href="'+scanUrl+'" target="_blank" style="color:var(--accent);font-size:13px;font-weight:600;text-decoration:underline;text-underline-offset:3px">\uCDE8\uC57D\uC810 \uC0C1\uC138 \uBD84\uC11D \u2192 scan.html</a></div></div></div>'
-    +'<div class="cd" style="background:linear-gradient(135deg,rgba(108,92,231,.08),rgba(0,184,148,.05));border:1px dashed var(--accent)"><h3 style="border:none">\uD83D\uDD17 \uC0C1\uC138 \uBD84\uC11D \uB300\uC2DC\uBCF4\uB4DC</h3><div style="padding:0 18px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">'
-    +'<a href="'+scanUrl+'#tab-overview" target="_blank" class="scan-link-card">\uD83D\uDEE1 \uC2A4\uCE90\uB108 \uC804\uCCB4 \uACB0\uACFC<span>\uCE74\uD14C\uACE0\uB9AC\uBCC4 \uCDE8\uC57D\uC810 \uC0C1\uC138</span></a>'
-    +'<a href="'+scanUrl+'#tab-prowler" target="_blank" class="scan-link-card">\u2601 Prowler CSPM<span>\uD504\uB85C\uBC14\uC774\uB354\uBCC4 \uD074\uB77C\uC6B0\uB4DC \uBCF4\uC548</span></a>'
-    +'<a href="'+scanUrl+'#tab-bestpractices" target="_blank" class="scan-link-card">\uD83D\uDCDA Best Practices<span>OWASP \u00B7 \uBCF4\uC548 \uAD8C\uACE0\uC0AC\uD56D</span></a>'
-    +'<a href="'+scanUrl+'#tab-arch" target="_blank" class="scan-link-card">\uD83C\uDFD7 \uC544\uD0A4\uD14D\uCC98<span>\uBCF4\uC548 \uB3C4\uBA54\uC778 \uAD6C\uC870</span></a>'
-    +'<a href="'+scanUrl+'#tab-github" target="_blank" class="scan-link-card">\uD83D\uDC19 GitHub Security<span>\uB9AC\uD3EC \uBCF4\uC548 \uC810\uAC80</span></a>'
-    +'<a href="'+scanUrl+'#tab-networktools" target="_blank" class="scan-link-card">\uD83D\uDD2C \uB124\uD2B8\uC6CC\uD06C \uB3C4\uAD6C<span>\uC2A4\uCE94 \uB3C4\uAD6C \uD604\uD669</span></a>'
-    +'</div></div>';
-  mkK($('k-scan'),[
-    {l:'\uBCF4\uC548 \uB4F1\uAE09',v:sc.grade||'-',c:sc.grade==='A'?'g':sc.grade==='B'?'y':'r'},
-    {l:'\uC810\uC218',v:(sc.score||0)+'/100',c:'b'},{l:'\uD1B5\uACFC',v:sc.passed||0,c:'g'},
-    {l:'\uC2E4\uD328',v:sc.failed||0,c:'r'},{l:'\uACBD\uACE0',v:sc.warnings||0,c:'y'},
-    {l:'\uC2A4\uD0B5',v:sc.skipped||0,c:'m'},{l:'\uCD1D \uAC80\uC0AC',v:sc.total||0,c:'a'},
-    {l:'\uC18C\uC694\uC2DC\uAC04',v:(sc.duration||0)+'s',c:'b'}
-  ]);
-  var clr=sc.grade==='A'?'var(--green)':sc.grade==='B'?'var(--yellow)':'var(--red)';
-  $('scan-ring').innerHTML=scoreRing(sc.score||0,100,sc.grade||'-',clr,120);
-  if(hist.length>1){
-    var scores=hist.map(function(h){return h.score||0});
-    $('scan-spark').innerHTML=sparkline(scores,160,30);
-    var latest=hist[hist.length-1],prev=hist[hist.length-2],diff=(latest.score||0)-(prev.score||0);
-    $('scan-trend').innerHTML='<div style="font-size:13px;color:var(--muted)">\uCD5C\uADFC '+hist.length+'\uD68C \uC2A4\uCE94 \uCD94\uC774</div><div style="font-size:16px;font-weight:700;margin:8px 0;color:'+(diff>=0?'var(--green)':'var(--red)')+'">'+esc(diff>=0?'\u25B2':'\u25BC')+' '+Math.abs(diff)+'\uC810 \uBCC0\uD654</div><div style="font-size:12px;color:var(--muted)">\uCD5C\uACE0: '+Math.max.apply(null,scores)+' / \uCD5C\uC800: '+Math.min.apply(null,scores)+'</div>';
-  }else{$('scan-trend').innerHTML='<div style="padding:20px;text-align:center;color:var(--muted)">\uC2A4\uCE94 \uC774\uB825 \uB370\uC774\uD130 \uBD80\uC871</div>';}
-  if(sc.compliance&&$('scan-comp')){
-    $('scan-comp').innerHTML=Object.entries(sc.compliance).map(function(e){var fw=e[0],st=e[1];return gauge(st.pass||0,(st.pass||0)+(st.fail||0),fw,st.fail>0?'var(--yellow)':'var(--green)')}).join('');
-  }
-  var catMap={code:'\uCF54\uB4DC',infra:'\uC778\uD504\uB77C',cicd:'CI/CD','access-control':'\uC811\uADFC\uC81C\uC5B4',cloud:'\uD074\uB77C\uC6B0\uB4DC',saas:'SaaS',network:'\uB124\uD2B8\uC6CC\uD06C',ai:'AI/LLM'};
-  var catCount={};findings.forEach(function(f){var c=f.category||'unknown';catCount[c]=(catCount[c]||0)+1});
-  var catItems=Object.entries(catCount).map(function(e){return{l:catMap[e[0]]||e[0],v:e[1],color:e[1]>1?'var(--red)':'var(--yellow)'}});
-  if(catItems.length)mkBar($('scan-cats'),catItems,Math.max.apply(null,catItems.map(function(x){return x.v})));
-  /* Top findings summary (max 5) — click goes to scan.html */
-  var topF=findings.slice(0,5),topHtml='';
-  topF.forEach(function(f){
-    var sevColor=f.severity==='critical'||f.severity==='high'?'var(--red)':f.severity==='warning'?'var(--yellow)':'var(--blue)';
-    topHtml+='<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border)">';
-    topHtml+='<span style="font-family:monospace;font-size:11px;font-weight:700;color:var(--accent);min-width:80px">'+esc(f.id||'')+'</span>';
-    topHtml+=sevCh(f.severity);
-    topHtml+='<span style="flex:1;font-size:12px">'+esc(f.title||'')+'</span>';
-    topHtml+=ch(catMap[f.category]||f.category||'','b');
-    topHtml+='</div>';
-  });
-  $('scan-top').innerHTML=topHtml||'<div style="padding:16px;text-align:center;color:var(--muted)">\uD0D0\uC9C0\uB41C \uCDE8\uC57D\uC810 \uC5C6\uC74C</div>';
-  $('scan-fc').textContent=findings.length+'\uAC74';
-}
+/* renderScan removed — scanner dashboard is at /scan.html */
 
 /* ═══ Security ═══ */
 function renderSec(d){
@@ -1091,7 +1056,9 @@ function renderSig(d){
 }
 
 if(D)render(D);
-else fetch('.claudesec-assets/dashboard-data.json').then(function(r){return r.json()}).then(render).catch(function(){});
+else fetch('.claudesec-assets/dashboard-data.json').then(function(r){if(!r.ok)throw new Error(r.status+' '+r.statusText);return r.json()}).then(render).catch(function(e){
+  document.getElementById('p-isms').innerHTML='<div class="load-error"><div class="icon">⚠</div><div>대시보드 데이터 로딩 실패</div><div class="msg">'+esc(e.message||'알 수 없는 오류')+'</div><div class="msg" style="margin-top:12px">python3 scripts/build-dashboard.py 실행 후 다시 시도하세요.</div></div>';
+});
 </script>
 <script id="jd" type="application/json">__DASHBOARD_DATA__</script>
 </body>

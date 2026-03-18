@@ -64,6 +64,7 @@ docs/reports/scan-report*.md
 .claudesec-audit-points/
 .claudesec-ms-best-practices/
 .claudesec-saas-best-practices/
+.claudesec-zscaler/
 
 # Local data files (employee names, serial numbers, pricing)
 jamf-*.json

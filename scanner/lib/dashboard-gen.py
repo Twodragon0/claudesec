@@ -3076,6 +3076,7 @@ def _infer_category(fid):
         "MAC": "macos",
         "CIS": "macos",
         "SAAS": "saas",
+        "ZIA": "saas",
         "WIN": "windows",
         "KISA": "windows",
         "PROWLER": "prowler",
