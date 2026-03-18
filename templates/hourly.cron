@@ -1,8 +1,8 @@
 # Centralized hourly automation via openclaw + opencode
-# Install with: bash /Users/REDACTED_USER/Desktop/.twodragon0/bin/install-system-cron.sh
+# Install with: bash ~/Desktop/.twodragon0/bin/install-system-cron.sh
 
 SHELL=/bin/bash
 PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin
 
 # Managed centrally from Desktop root manager
-5 * * * * /Users/REDACTED_USER/Desktop/.twodragon0/bin/hourly-opencode-git-pull.sh >> /Users/REDACTED_USER/Desktop/.twodragon0/logs/cron.log 2>&1
+5 * * * * $HOME/Desktop/.twodragon0/bin/hourly-opencode-git-pull.sh >> $HOME/Desktop/.twodragon0/logs/cron.log 2>&1

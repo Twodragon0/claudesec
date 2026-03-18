@@ -11,7 +11,7 @@
 #   ./scripts/run-asset-sync.sh --scan-first sync  # 스캔 후 동기화
 #
 # 환경변수:
-#   ASSET_SHEET_ID                 — Google Sheets ID (기본: example.io 자산관리)
+#   ASSET_SHEET_ID                 — Google Sheets ID for asset management
 #   GOOGLE_SERVICE_ACCOUNT_JSON    — 서비스 계정 JSON 경로
 # ============================================================================
 
