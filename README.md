@@ -8,6 +8,7 @@
 
 > AI Security Best Practices toolkit for secure development with Claude Code
 
+[![npm version](https://img.shields.io/npm/v/claudesec?color=cb3837&logo=npm)](https://www.npmjs.com/package/claudesec)
 [![GitHub stars](https://img.shields.io/github/stars/Twodragon0/claudesec?style=flat&color=yellow)](https://github.com/Twodragon0/claudesec/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -18,19 +19,39 @@ ClaudeSec integrates security best practices directly into your AI-powered devel
 
 ## Quick Start
 
+**npx (no install)**
+
+```bash
+npx claudesec scan                # Security scan — no install needed
+npx claudesec dashboard           # Full scan + dashboard
+```
+
+**Git clone + Docker**
+
 ```bash
 git clone https://github.com/Twodragon0/claudesec.git
 cd claudesec
-./scripts/quick-start.sh
+./scripts/quick-start.sh          # Docker build + scan + serve
 ```
 
-That’s it. Docker builds the scanner, runs a full security scan, and serves the dashboard at **`http://localhost:11777/`**.
+**Claude Code slash commands**
+
+```
+/scan                             # Run security scan
+/dashboard                        # Build + serve dashboard
+/audit                            # Full security audit
+/team-scan                        # Parallel multi-agent scan
+/security-review                  # Pre-commit security check
+```
+
+Dashboard serves at **`http://localhost:11777/`**
 
 **Options**
 
 ```bash
-./scripts/quick-start.sh                # Full scan + dashboard (default)
-./scripts/quick-start.sh --scan-only    # Scan only (no server)
+npx claudesec scan                      # Scan only
+npx claudesec dashboard                 # Full scan + dashboard
+./scripts/quick-start.sh --scan-only    # Docker scan only
 ./scripts/quick-start.sh --serve        # Serve existing dashboard
 ```
 
