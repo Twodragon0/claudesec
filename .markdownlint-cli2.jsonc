@@ -1,0 +1,4 @@
+{
+  // Ignore Claude Code slash command files (frontmatter-only format)
+  "ignores": [".claude/commands/**"]
+}

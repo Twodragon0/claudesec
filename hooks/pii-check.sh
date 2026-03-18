@@ -45,7 +45,7 @@ scan_file() {
     # Exclude common safe patterns
     if ! grep -qE "@(example\.com|anthropic\.com|users\.noreply\.github\.com|your-domain\.com)" "$file" 2>/dev/null; then
       local real_emails
-      real_emails=$(grep -oE "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.(io|co|com|net|org)" "$file" 2>/dev/null | grep -vE "@(example|anthropic|noreply|your-domain)" | head -3)
+      real_emails=$(grep -oE "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.(io|co|com|net|org)" "$file" 2>/dev/null | grep -vE "@(example|anthropic|noreply|your-domain|openssh|libssh|openbsd)" | head -3)
       if [ -n "$real_emails" ]; then
         echo -e "${YELLOW}[PII]${NC} Possible real email in: $file"
         echo "  $real_emails"
