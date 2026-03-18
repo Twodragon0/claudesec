@@ -55,9 +55,11 @@ jobs:
       - name: Generate dashboard
         run: |
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
             -e SCAN_DIR=/workspace \
+            -e HOME=/tmp \
             claudesec:local dashboard -d /workspace -c all --no-serve
           ls -la ${{ github.workspace }}/claudesec-dashboard.html || echo "Dashboard file not found in workspace"
 

@@ -2794,9 +2794,37 @@ def _duration_label(seconds):
     return f"{seconds // 60}m"
 
 
+def _load_saas_sso_stats():
+    """Load SaaS SSO stats from .claudesec-assets/dashboard-data.json if available."""
+    scan_dir = os.environ.get("SCAN_DIR", ".")
+    data_path = os.path.join(scan_dir, ".claudesec-assets", "dashboard-data.json")
+    try:
+        with open(data_path, encoding="utf-8") as f:
+            data = json.load(f)
+        saas = data.get("saas", [])
+        if not saas:
+            return None
+        sso_keywords = ("sso", "okta", "saml")
+        sso_count = sum(
+            1
+            for s in saas
+            if any(k in (s.get("auth", "") or "").lower() for k in sso_keywords)
+        )
+        total = len(saas)
+        pct = round(sso_count / total * 100) if total else 0
+        non_sso = total - sso_count
+        return {
+            "sso_count": sso_count,
+            "total": total,
+            "pct": pct,
+            "non_sso": non_sso,
+        }
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return None
+
+
 def build_auth_summary_html(envs, findings_list):
-    # Auth summary simplified: SSO coverage is already shown in the asset dashboard.
-    # Display actual SSO posture (Okta SSO + Zscaler) instead of OAuth token connection status.
+    """Build Auth & SSO posture card with dynamic SaaS data."""
     auth_finding_count = 0
     auth_keywords = ("auth", "oauth", "token", "session", "mfa", "login", "sso", "jwt")
     for f in findings_list or []:
@@ -2809,6 +2837,15 @@ def build_auth_summary_html(envs, findings_list):
         ).lower()
         if any(k in text for k in auth_keywords):
             auth_finding_count += 1
+
+    # Dynamic SSO stats from asset data
+    stats = _load_saas_sso_stats()
+    sso_count = stats["sso_count"] if stats else 0
+    sso_total = stats["total"] if stats else 0
+    sso_pct = stats["pct"] if stats else 0
+    non_sso = stats["non_sso"] if stats else 0
+    sso_label = f"{sso_count}/{sso_total}" if stats else "N/A"
+    pct_label = f"{sso_pct}%" if stats else "N/A"
 
     practices = [
         {
@@ -2835,23 +2872,30 @@ def build_auth_summary_html(envs, findings_list):
             + "</li>"
         )
 
+    sso_pill_class = "sp-pass" if sso_pct >= 70 else ("sp-warn" if sso_pct >= 50 else "sp-fail")
+    policy_text = (
+        f"MFA enforced &middot; SSO coverage {pct_label} &middot; Remaining {non_sso} SaaS apps require direct credential review"
+        if stats
+        else "Run asset collection to populate SSO coverage data"
+    )
+
     return (
         '<div class="card">'
         '<div class="card-title">Authentication &amp; SSO posture</div>'
         '<div style="padding:1rem 1.25rem">'
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.75rem;margin-bottom:1rem">'
-        + '<div class="stat-pill sp-pass" style="margin:0"><div class="sp-icon">&#x1f512;</div><div><div class="sp-num">29/42</div><div class="sp-label">SaaS via Okta SSO</div></div></div>'
-        + '<div class="stat-pill sp-info" style="margin:0"><div class="sp-icon">&#x1f4c8;</div><div><div class="sp-num">69%</div><div class="sp-label">SSO coverage</div></div></div>'
+        + f'<div class="stat-pill {sso_pill_class}" style="margin:0"><div class="sp-icon">&#x1f512;</div><div><div class="sp-num">{sso_label}</div><div class="sp-label">SaaS via Okta SSO</div></div></div>'
+        + f'<div class="stat-pill sp-info" style="margin:0"><div class="sp-icon">&#x1f4c8;</div><div><div class="sp-num">{pct_label}</div><div class="sp-label">SSO coverage</div></div></div>'
         + f'<div class="stat-pill {("sp-warn" if auth_finding_count > 0 else "sp-info")}" style="margin:0"><div class="sp-icon">&#x1f9ea;</div><div><div class="sp-num">{auth_finding_count}</div><div class="sp-label">Auth-related findings</div></div></div>'
         + "</div>"
-        + '<div style="margin-bottom:.75rem"><strong>Connected providers</strong>'
+        + f'<div style="margin-bottom:.75rem"><strong>Connected providers</strong>'
         + '<div style="margin-top:.4rem">'
-        + '<span class="trust-badge trust-ms" style="margin:0 .35rem .35rem 0">Okta SSO (29/42 SaaS)</span>'
+        + f'<span class="trust-badge trust-ms" style="margin:0 .35rem .35rem 0">Okta SSO ({sso_label} SaaS)</span>'
         + '<span class="trust-badge trust-ms" style="margin:0 .35rem .35rem 0">Google (via SSO)</span>'
         + '<span class="trust-badge trust-ms" style="margin:0 .35rem .35rem 0">Zscaler ZIA/ZPA</span>'
         + "</div></div>"
         + '<div style="margin-bottom:.75rem"><strong>Policy</strong>'
-        + '<div style="margin-top:.4rem;color:var(--muted)">MFA enforced &middot; SSO coverage 69% &middot; Remaining 13 SaaS apps require direct credential review</div>'
+        + f'<div style="margin-top:.4rem;color:var(--muted)">{policy_text}</div>'
         + "</div>"
         + '<div><strong>Best-practice improvements</strong><ul style="margin:.5rem 0 0 1.1rem">'
         + practices_html

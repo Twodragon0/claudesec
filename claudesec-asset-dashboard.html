@@ -585,7 +585,13 @@ function _renderProwCards(el,rows,defaultColor){
 function _renderProw(rows){_renderProwCards($('t-prow'),rows,'var(--orange)');$('prow-c').textContent=rows.length+'건';}
 function _renderPolicies(d){
   var pols=d.policies||[];
-  if(pols.length&&$('pol-area')){
+  if(!$('pol-area'))return;
+  if(!pols.length){
+    $('pol-c').textContent='0';
+    $('pol-area').innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px"><div style="font-size:24px;margin-bottom:8px">&#x1F4CB;</div>policies.json \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.<br><span style="font-size:11px">build-dashboard.py \uC2E4\uD589 \uD6C4 \uB300\uC2DC\uBCF4\uB4DC\uB97C \uC0C8\uB85C\uACE0\uCE68\uD558\uC138\uC694.</span></div>';
+    return;
+  }
+  if(pols.length){
     var totalArt=pols.reduce(function(a,p){return a+(p.total_articles||0)},0);
     $('pol-c').textContent=pols.length+'개 규정 / '+totalArt+'개 조항';
     var ph='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin-bottom:12px">';
