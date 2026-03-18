@@ -1,0 +1,19 @@
+title: ClaudeSec
+description: DevSecOps toolkit for AI-assisted secure development
+theme: jekyll-theme-minimal
+baseurl: /claudesec
+url: https://twodragon0.github.io
+
+nav:
+  - title: Getting Started
+    url: /guides/getting-started
+  - title: DevSecOps
+    url: /devsecops/pipeline
+  - title: AI Security
+    url: /ai/llm-security-checklist
+  - title: Compliance
+    url: /compliance/isms-p
+  - title: Architecture
+    url: /architecture/
+  - title: GitHub Security
+    url: /github/security-features
