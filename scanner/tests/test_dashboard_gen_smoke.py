@@ -131,6 +131,7 @@ class DashboardGenSmokeTest(unittest.TestCase):
                         "GH_TOKEN_EXPIRES_AT": (
                             datetime.now(timezone.utc) + timedelta(hours=36)
                         ).isoformat(),
+                        "CLAUDESEC_DASHBOARD_OFFLINE": "1",
                     },
                     clear=False,
                 ),
