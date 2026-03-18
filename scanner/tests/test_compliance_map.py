@@ -29,8 +29,8 @@ def _make_finding(check="chk", title="", message="", compliance=None):
 class TestComplianceControlMap(unittest.TestCase):
     """Verify the structure of the compliance control map."""
 
-    def test_has_five_frameworks(self):
-        self.assertEqual(len(COMPLIANCE_CONTROL_MAP), 5)
+    def test_has_six_frameworks(self):
+        self.assertEqual(len(COMPLIANCE_CONTROL_MAP), 6)
 
     def test_expected_framework_names(self):
         expected = {
@@ -39,6 +39,7 @@ class TestComplianceControlMap(unittest.TestCase):
             "PCI-DSS v4.0.1",
             "NIST 800-53 Rev5",
             "CIS Benchmarks",
+            "KISA ISMS Simple",
         }
         self.assertEqual(set(COMPLIANCE_CONTROL_MAP.keys()), expected)
 
@@ -61,6 +62,7 @@ class TestComplianceControlMap(unittest.TestCase):
         self.assertEqual(counts["PCI-DSS v4.0.1"], 7)
         self.assertEqual(counts["NIST 800-53 Rev5"], 10)
         self.assertEqual(counts["CIS Benchmarks"], 9)
+        self.assertEqual(counts["KISA ISMS Simple"], 20)
 
 
 class TestMatchProwlerCompliance(unittest.TestCase):
