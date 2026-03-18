@@ -149,9 +149,10 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Check for PII and personal information
         run: |
-          bash hooks/pii-check.sh $(find . -type f \( -name '*.py' -o -name '*.sh' -o -name '*.md' -o -name '*.yml' -o -name '*.yaml' -o -name '*.json' -o -name '*.html' -o -name '*.svg' \) \
+          find . -type f \( -name '*.py' -o -name '*.sh' -o -name '*.md' -o -name '*.yml' -o -name '*.yaml' -o -name '*.json' -o -name '*.html' -o -name '*.svg' \) \
             ! -path './node_modules/*' ! -path './.git/*' ! -path './package-lock.json' \
-            ! -path './.claudesec-assets/*' ! -path './.claudesec-saas-best-practices/*')
+            ! -path './.claudesec-assets/*' ! -path './.claudesec-saas-best-practices/*' \
+            -print0 | xargs -0 bash hooks/pii-check.sh
 
   gitleaks:
     runs-on: ubuntu-latest
