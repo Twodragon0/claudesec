@@ -1,12 +1,48 @@
+# Version control
 .git
 .github
+.gitignore
+
+# Documentation (not needed in image)
+docs/
+*.md
+!README.md
+LICENSE
+
+# Development/IDE
+.claude
+.omc
+.omx
+.vscode
+.idea
 .pytest_cache
 __pycache__
 *.pyc
 *.pyo
+.venv*
 node_modules
+
+# Generated/runtime artifacts
 claudesec-dashboard.html
 claudesec-dashboard.*.html
+claudesec-asset-dashboard-live.html
 scan-report.json
 scanner/output
 test-reports
+
+# Data directories (sensitive, runtime-only)
+.claudesec-assets
+.claudesec-saas-best-practices
+
+# Config files not needed in image
+.env
+.env.*
+.pre-commit-config.yaml
+.markdownlint*
+.gitleaks.toml
+.lychee.toml
+.mailmap
+
+# Build artifacts
+*.tar.gz
+*.zip

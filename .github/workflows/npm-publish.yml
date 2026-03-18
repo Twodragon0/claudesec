@@ -26,6 +26,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test
