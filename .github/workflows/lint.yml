@@ -25,6 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '20'
+          cache: 'npm'
       - name: npm audit
         run: npm audit --audit-level=high
 
@@ -51,8 +55,10 @@ jobs:
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements-ci.txt
       - name: Install XML test reporter
-        run: python3 -m pip install --upgrade unittest-xml-reporting
+        run: python3 -m pip install --upgrade -r requirements-ci.txt
       - name: Run bash unit tests (kubeconfig discovery, OIDC detection)
         run: bash scanner/tests/test_kube_discovery.sh
       - name: Run bash unit tests (output.sh functions)
