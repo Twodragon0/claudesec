@@ -1419,6 +1419,10 @@ def m365_findings(all_findings):
     return [f for f in all_findings if f["provider"] == "m365"]
 
 
+def iac_findings(all_findings):
+    return [f for f in all_findings if f["provider"] == "iac"]
+
+
 # Prowler/GitHub check code → English summary & remediation
 CHECK_EN_MAP = {
     "guardduty_is_enabled": {
@@ -3904,6 +3908,8 @@ _TEMPLATE_KEYS = [
     "AZURE_TOTAL",
     "M365_TABLE",
     "M365_TOTAL",
+    "IAC_TABLE",
+    "IAC_TOTAL",
     "OWASP_HTML",
     "ARCH_HTML",
     "ARCH_IMG",
@@ -4058,6 +4064,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     k8s_finds = k8s_findings(all_findings)
     azure_finds = azure_findings(all_findings)
     m365_finds = m365_findings(all_findings)
+    iac_finds = iac_findings(all_findings)
     envs = get_env_status()
 
     sd = scan_data
@@ -4156,6 +4163,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         "kubernetes": "k8s",
         "azure": "azure",
         "m365": "m365",
+        "iac": "iac",
     }
     _display_order = [
         "aws",
@@ -4164,6 +4172,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         "kubernetes",
         "azure",
         "m365",
+        "iac",
         "github",
     ]
     prov_table = ""
@@ -4313,6 +4322,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     k8s_table = _build_provider_table(k8s_finds)
     azure_table = _build_provider_table(azure_finds)
     m365_table = _build_provider_table(m365_finds)
+    iac_table = _build_provider_table(iac_finds)
 
     owasp_html = _build_owasp_html(owasp_map)
 
@@ -4523,6 +4533,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         ("kubernetes", "Kubernetes"),
         ("azure", "Azure"),
         ("m365", "Microsoft 365"),
+        ("iac", "IaC"),
     ]
     prowler_subtab_map = {
         "aws": "aws",
@@ -4531,6 +4542,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         "kubernetes": "k8s",
         "azure": "azure",
         "m365": "m365",
+        "iac": "iac",
     }
     prowler_selector_options_html = '<option value="">Prowler summary</option>'
     for key, label in prowler_provider_options:
@@ -5033,6 +5045,8 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         len(azure_finds),
         m365_table,
         len(m365_finds),
+        iac_table,
+        len(iac_finds),
         owasp_html,
         arch_html,
         arch_img,
@@ -5672,6 +5686,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
     <button class="prov-subtab" onclick="switchProvTab('k8s')" id="provtab-k8s" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">⎈ Kubernetes ({{K8S_TOTAL}})</button>
     <button class="prov-subtab" onclick="switchProvTab('azure')" id="provtab-azure" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">◇ Azure ({{AZURE_TOTAL}})</button>
     <button class="prov-subtab" onclick="switchProvTab('m365')" id="provtab-m365" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">📧 M365 ({{M365_TOTAL}})</button>
+    <button class="prov-subtab" onclick="switchProvTab('iac')" id="provtab-iac" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">📋 IaC ({{IAC_TOTAL}})</button>
   </div>
 
   <div class="prov-panel active" id="provpanel-aws">
@@ -5730,6 +5745,16 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
       <div style="max-height:60vh;overflow-y:auto">
         <table><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
         <tbody>{{M365_TABLE}}</tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="prov-panel" id="provpanel-iac">
+    <div class="card">
+      <div class="card-title">📋 IaC findings ({{IAC_TOTAL}})</div>
+      <div style="max-height:60vh;overflow-y:auto">
+        <table><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
+        <tbody>{{IAC_TABLE}}</tbody></table>
       </div>
     </div>
   </div>
