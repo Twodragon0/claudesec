@@ -2,7 +2,14 @@
 # ClaudeSec CLI — npx claudesec <command>
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Resolve symlinks (npx creates .bin/claudesec -> ../claudesec/bin/claudesec-cli.sh)
+SOURCE="$0"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")/.." && pwd)"
 
 case "${1:-help}" in
   scan)
