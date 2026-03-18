@@ -57,7 +57,7 @@ class TestComplianceControlMap(unittest.TestCase):
     def test_control_counts_per_framework(self):
         counts = {fw: len(ctrls) for fw, ctrls in COMPLIANCE_CONTROL_MAP.items()}
         self.assertEqual(counts["ISO 27001:2022"], 7)
-        self.assertEqual(counts["KISA ISMS-P"], 6)
+        self.assertEqual(counts["KISA ISMS-P"], 42)
         self.assertEqual(counts["PCI-DSS v4.0.1"], 7)
         self.assertEqual(counts["NIST 800-53 Rev5"], 10)
         self.assertEqual(counts["CIS Benchmarks"], 9)
