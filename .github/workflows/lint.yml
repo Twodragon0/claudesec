@@ -160,7 +160,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@44c470fca6b8f3e1fa68aad63e0e0ef5b13d51e9
+        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -200,6 +200,7 @@ jobs:
             --exclude 'securityscorecards.dev'
             --exclude 'in-toto.io'
             --exclude 'sigstore.dev'
+            --exclude 'localhost'
             --accept '100..=599'
             --timeout 20
             '**/*.md'
