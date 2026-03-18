@@ -1,5 +1,27 @@
 # CODEOWNERS - default reviewer assignments
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
+# Default owner for everything
 * @Twodragon0
+
+# Security-sensitive paths — require explicit review
+.github/workflows/ @Twodragon0
+.github/CODEOWNERS @Twodragon0
+hooks/ @Twodragon0
 scanner/ @Twodragon0
+scripts/ @Twodragon0
+templates/ @Twodragon0
+Dockerfile* @Twodragon0
+docker-compose*.yml @Twodragon0
+
+# Security policy and privacy
+SECURITY.md @Twodragon0
+PRIVACY.md @Twodragon0
+.gitleaks.toml @Twodragon0
+
+# npm package configuration
+package.json @Twodragon0
+.npmignore @Twodragon0
+
+# Documentation
 docs/ @Twodragon0
