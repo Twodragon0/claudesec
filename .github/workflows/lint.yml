@@ -143,6 +143,27 @@ jobs:
             fi
           fi
 
+  pii-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Check for PII and personal information
+        run: |
+          bash hooks/pii-check.sh $(find . -type f \( -name '*.py' -o -name '*.sh' -o -name '*.md' -o -name '*.yml' -o -name '*.yaml' -o -name '*.json' -o -name '*.html' -o -name '*.svg' \) \
+            ! -path './node_modules/*' ! -path './.git/*' ! -path './package-lock.json' \
+            ! -path './.claudesec-assets/*' ! -path './.claudesec-saas-best-practices/*')
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@44c470fca6b8f3e1fa68aad63e0e0ef5b13d51e9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   markdown-lint:
     runs-on: ubuntu-latest
     steps:
