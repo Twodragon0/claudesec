@@ -63,7 +63,7 @@ def dd_get(path, params=""):
         "Content-Type": "application/json",
     })
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req, timeout=30) as r:  # nosemgrep: dynamic-urllib-use-detected — trusted internal API URLs
             return json.loads(r.read())
     except Exception as e:
         print(f"  DD API 오류 ({path}): {e}")
@@ -77,7 +77,7 @@ def dd_post(path, body):
         "Content-Type": "application/json",
     })
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req, timeout=30) as r:  # nosemgrep: dynamic-urllib-use-detected — trusted internal API URLs
             return json.loads(r.read())
     except Exception as e:
         print(f"  DD API 오류 ({path}): {e}")
@@ -276,7 +276,7 @@ def collect_notion_audits():
                     "Notion-Version": "2022-06-28",
                 },
             )
-            with urllib.request.urlopen(req, timeout=30) as r:
+            with urllib.request.urlopen(req, timeout=30) as r:  # nosemgrep: dynamic-urllib-use-detected — trusted internal API URLs
                 data = json.loads(r.read())
 
             audits = []

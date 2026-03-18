@@ -66,7 +66,7 @@ def dd_api_get(path: str, params: str = "") -> dict:
         "Content-Type": "application/json",
     })
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # nosemgrep: dynamic-urllib-use-detected — trusted internal API URLs
             return json.loads(resp.read())
     except (urllib.error.URLError, urllib.error.HTTPError) as e:
         print(f"  Datadog API 오류 ({path}): {e}")
@@ -83,7 +83,7 @@ def dd_api_post(path: str, body: dict) -> dict:
         "Content-Type": "application/json",
     })
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # nosemgrep: dynamic-urllib-use-detected — trusted internal API URLs
             return json.loads(resp.read())
     except (urllib.error.URLError, urllib.error.HTTPError) as e:
         print(f"  Datadog API 오류 ({path}): {e}")
