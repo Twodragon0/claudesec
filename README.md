@@ -544,6 +544,38 @@ Claude Code security hooks for real-time protection:
 
 See [hooks/README.md](hooks/README.md) for details.
 
+## ISMS Compliance Mapping
+
+ClaudeSec scanner checks are mapped to major compliance frameworks. Each finding includes a compliance reference for audit evidence.
+
+| ClaudeSec Category | NIST CSF 2.0 | ISO 27001:2022 | KISA ISMS-P | SOC 2 |
+|-------------------|-------------|----------------|-------------|-------|
+| **Code (SAST)** | DE.CM, PR.DS | A.8.4, A.8.28 | 2.9, 2.11 | CC6.1, CC7.1 |
+| **CI/CD** | PR.DS, PR.PS | A.8.9, A.8.25 | 2.9, 2.10 | CC6.6, CC8.1 |
+| **Access Control** | PR.AC, PR.AA | A.5.15, A.8.5 | 2.5, 2.6 | CC6.1, CC6.3 |
+| **Infrastructure** | PR.IP, PR.PT | A.8.9, A.8.25 | 2.10 | CC6.6, CC7.1 |
+| **Cloud** | ID.AM, PR.AC | A.5.23, A.8.26 | 2.8, 2.10 | CC6.6, CC6.7 |
+| **Network** | PR.DS, DE.CM | A.8.20, A.8.21 | 2.10 | CC6.6 |
+| **AI/LLM** | GV.OC, ID.RA | A.5.8 (new) | 2.9 | CC6.1, CC7.2 |
+| **SaaS** | ID.AM, PR.AC | A.5.23, A.8.26 | 2.5, 2.10 | CC6.1, CC6.6 |
+| **macOS/Windows** | PR.IP, PR.PT | A.8.1, A.8.9 | 2.10 | CC6.6, CC6.8 |
+| **Prowler** | Full coverage | A.8, A.5 | 2.5~2.11 | CC6, CC7, CC8 |
+
+> Full mapping details: [docs/guides/compliance-mapping.md](docs/guides/compliance-mapping.md)
+
+### Supported Frameworks
+
+| Framework | Version | Controls | Coverage |
+|-----------|---------|----------|----------|
+| NIST CSF | 2.0 | 6 Functions (GV, ID, PR, DE, RS, RC) | 120+ checks mapped |
+| ISO 27001 | 2022 | 93 controls (4 themes) | Full Annex A mapping |
+| ISO 42001 | 2023 | AI Management System | AI category checks |
+| KISA ISMS-P | v3.0 | 102 certification items | Korean compliance |
+| SOC 2 | Type II | Trust Services Criteria | CC1~CC9 mapped |
+| CIS Benchmarks | v4.0 | macOS, Windows, K8s | OS hardening checks |
+| OWASP | Top 10 2025 | 10 categories | Code + AI checks |
+| OWASP LLM | Top 10 2025 | 10 LLM risks | AI category |
+
 ## Security Coverage Map
 
 ```

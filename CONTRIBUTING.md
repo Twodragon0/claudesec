@@ -17,9 +17,14 @@ Thank you for your interest in contributing to ClaudeSec! This project aims to m
 2. **Create a branch** from `main`: `git checkout -b feat/your-feature`
 3. **Make changes** following our conventions below
 4. **Test** your changes locally
+   - Install pre-commit hooks: `pre-commit install`
    - Docs change checklist (required):
      - `markdownlint "**/*.md"`
      - `lychee "**/*.md"`
+   - Security checklist (automated via pre-commit):
+     - gitleaks — no secrets or credentials
+     - PII check — no hardcoded user paths, account IDs, or real emails
+     - ShellCheck — shell script quality
 5. **Commit** using [Conventional Commits](https://www.conventionalcommits.org/):
    - `feat:` new feature or guide
    - `fix:` correction to existing content
