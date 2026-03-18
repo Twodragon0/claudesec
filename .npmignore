@@ -1,0 +1,46 @@
+# Data directories (contain PII, scan results)
+.claudesec-assets/
+.claudesec-prowler/
+.claudesec-history/
+.claudesec-network/
+.claudesec-datadog/
+.claudesec-audit-points/
+.claudesec-ms-best-practices/
+.claudesec-saas-best-practices/
+
+# Generated dashboards (contain findings)
+claudesec-dashboard.html
+claudesec-dashboard.*.html
+claudesec-asset-dashboard-live.html
+scan-report.json
+
+# Local config
+.claudesec.yml
+.env
+.env.*
+
+# Development
+.github/
+.git/
+.venv*/
+venv*/
+test-reports/
+__pycache__/
+*.pyc
+node_modules/
+
+# Docker
+Dockerfile
+Dockerfile.*
+docker-compose.yml
+
+# Large files
+*.csv
+*.xlsx
+docs/reports/
+
+# Claude Code local
+.claude/settings.json
+.claude/settings.local.json
+.claude/agents/
+.claude/hooks/
