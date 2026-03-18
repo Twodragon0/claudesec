@@ -249,6 +249,19 @@ function mkT(el,hd,rows,sortOpt){
     });
   });
 }
+/* Table search: attach to input, filters visible rows by text */
+function mkSearch(inputEl,tableEl){
+  if(!inputEl||!tableEl)return;
+  inputEl.setAttribute('aria-label',inputEl.getAttribute('placeholder')||'검색');
+  inputEl.addEventListener('input',function(){
+    var q=this.value.toLowerCase();
+    var rows=tableEl.querySelectorAll('tbody tr');
+    rows.forEach(function(tr){
+      var text=tr.textContent.toLowerCase();
+      tr.style.display=(!q||text.indexOf(q)>=0)?'':'none';
+    });
+  });
+}
 function mkK(el,items){
   el.innerHTML=items.map(function(i){return'<div class="kpi '+(i.c||'')+'"><div class="l">'+esc(i.l)+'</div><div class="v">'+esc(i.v)+'</div>'+(i.s?'<div class="s">'+esc(i.s)+'</div>':'')+'</div>'}).join('');
 }
@@ -422,7 +435,7 @@ function renderSecUnified(d){
     +'<div class="cd"><h3>ClaudeSec 취약점 <span class="bg" id="scan-fc"></span></h3><div class="stbl" id="scan-tbl-wrap"></div></div></div>'
     +'<div class="cd"><h3>정보보호 규정·지침 현황 <span class="bg" id="pol-c"></span></h3><div id="pol-area" style="padding:16px"></div></div>'
     +'<div class="cd"><h3>Notion 보안 정기점검 이력 <span class="bg" id="audit-c"></span></h3><div id="t-audit" style="padding:12px 16px;max-height:400px;overflow-y:auto"></div></div>'
-    +'<div class="cd"><h3>Datadog 보안 시그널 (최근 14일) <span class="bg" id="sig-c"></span></h3><div class="stbl"><table id="t-sig"></table></div></div>';
+    +'<div class="cd"><h3>Datadog 보안 시그널 (최근 14일) <span class="bg" id="sig-c"></span></h3><div style="padding:8px 16px"><input id="sec-search" class="search-input" placeholder="시그널·취약점 검색..." aria-label="보안 탭 검색"></div><div class="stbl"><table id="t-sig"></table></div></div>';
 
   /* KPIs */
   mkK($('k-sec'),[
@@ -484,6 +497,7 @@ function renderSecUnified(d){
   /* Datadog signals */
   mkT($('t-sig'),['발생시각','심각도','상태','제목'],sigs.map(function(s){return[esc((s.timestamp||'').substring(0,16)),sevCh(s.severity),esc(s.status||''),esc((s.title||'').substring(0,80))]}));
   $('sig-c').textContent=sigs.length+'건';
+  mkSearch($('sec-search'),$('t-sig'));
 }
 
 /* renderScan removed — scanner dashboard is at /scan.html */
@@ -794,7 +808,7 @@ function renderInfra(d){
   var eksNodes=hosts.filter(function(h){return h.cluster}).length;
   el.innerHTML=tsBar([{src:'Datadog',time:t.datadog},{src:'AWS',time:t.aws_ec2},{src:'\uC2DC\uD2B8',time:t.google_sheets}])
     +'<div id="k-infra" class="kpis"></div>'
-    +'<div class="cd"><h3>\uD1B5\uD569 \uC11C\uBC84 \uC790\uC0B0 <span class="bg" id="srv-unified-c"></span></h3><div style="padding:8px 16px;font-size:12px;color:var(--muted)">AWS EC2 + Datadog + \uC790\uC0B0\uAD00\uB9AC\uB300\uC7A5 \uAD50\uCC28\uAC80\uC99D \uACB0\uACFC (Karpenter \uB3D9\uC801 \uB178\uB4DC \uC81C\uC678)</div><div class="fb" id="infra-fb"></div><div class="stbl"><table id="t-unified"></table></div></div>'
+    +'<div class="cd"><h3>\uD1B5\uD569 \uC11C\uBC84 \uC790\uC0B0 <span class="bg" id="srv-unified-c"></span></h3><div style="padding:8px 16px;font-size:12px;color:var(--muted)">AWS EC2 + Datadog + \uC790\uC0B0\uAD00\uB9AC\uB300\uC7A5 \uAD50\uCC28\uAC80\uC99D \uACB0\uACFC (Karpenter \uB3D9\uC801 \uB178\uB4DC \uC81C\uC678)</div><div style="padding:4px 16px 8px"><input id="infra-search" class="search-input" placeholder="서버·DB·인스턴스 검색..." aria-label="인프라 검색"></div><div class="fb" id="infra-fb"></div><div class="stbl"><table id="t-unified"></table></div></div>'
     +'<div class="g2">'
     +(liveRds.length?'<div class="cd"><h3>\uB370\uC774\uD130\uBCA0\uC774\uC2A4 <span class="bg" id="rds-c"></span></h3><div class="stbl"><table id="t-rds"></table></div></div>':'')
     +(liveCache.length?'<div class="cd"><h3>ElastiCache <span class="bg" id="cache-c"></span></h3><div class="stbl"><table id="t-cache"></table></div></div>':'')
@@ -867,6 +881,8 @@ function fH(e,el){
   document.querySelectorAll('#infra-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
   rH(e==='all'?window._hosts:window._hosts.filter(function(h){return(h.aws_alias||h.env||'')===e}));
 }
+/* Infra search */
+if($('infra-search')&&$('t-unified'))mkSearch($('infra-search'),$('t-unified'));
 
 /* ═══ SaaS & License ═══ */
 function renderSaaS(d){
@@ -927,17 +943,18 @@ function renderCost(d){
     +'<div class="g2"><div class="cd"><h3>\uC6D4\uBCC4 \uC9C0\uCD9C \uC0C1\uC138 <span class="bg" id="cost-c"></span></h3><div class="fb" id="cost-fb"></div><div class="stbl"><table id="t-cost"></table></div></div>'
     +'<div class="cd"><h3>SaaS \uBE44\uC6A9 Top 15</h3><div style="padding:16px" id="cost-bars"></div></div></div>';
   var noSum=cs.filter(function(x){return!x.software.match(/\uD569\uACC4/)});
-  var jan=noSum.reduce(function(a,b){return a+(b.jan||0)},0);
-  var feb=noSum.reduce(function(a,b){return a+(b.feb||0)},0);
-  var mar=noSum.reduce(function(a,b){return a+(b.mar||0)},0);
-  mkK($('k-cost'),[
-    {l:'\uCD1D SaaS \uBE44\uC6A9',v:'\u20A9'+fmt(totalCost),c:'a'},
-    {l:'\uC18C\uD504\uD2B8\uC6E8\uC5B4',v:csF.length+'\uC885',c:'b'},
-    {l:'1\uC6D4',v:'\u20A9'+fmt(jan),c:'b'},{l:'2\uC6D4',v:'\u20A9'+fmt(feb),c:'b'},
-    {l:'3\uC6D4',v:'\u20A9'+fmt(mar),s:'\uC9C4\uD589 \uC911',c:'y'},
-    {l:'\uC6D4\uBCC4 \uC0C1\uC138',v:allD.length+'\uAC74',c:'c'}
-  ]);
-  monthBars([{label:'1\uC6D4',value:jan,color:'var(--blue)'},{label:'2\uC6D4',value:feb,color:'var(--accent)'},{label:'3\uC6D4',value:mar,color:'var(--yellow)'}],$('cost-mch'));
+  /* Dynamic month columns from data keys */
+  var monthKeys=Object.keys(md).sort();
+  var monthTotals=monthKeys.map(function(mk){
+    var key=mk.replace(/[^a-z0-9]/gi,'').toLowerCase();
+    return{key:mk,total:noSum.reduce(function(a,b){return a+(b[key]||b[mk]||0)},0)};
+  });
+  var kpiItems=[{l:'\uCD1D SaaS \uBE44\uC6A9',v:'\u20A9'+fmt(totalCost),c:'a'},{l:'\uC18C\uD504\uD2B8\uC6E8\uC5B4',v:csF.length+'\uC885',c:'b'}];
+  var barColors=['var(--blue)','var(--accent)','var(--yellow)','var(--green)','var(--cyan)','var(--pink)'];
+  monthTotals.forEach(function(mt,i){kpiItems.push({l:mt.key,v:'\u20A9'+fmt(mt.total),c:i===monthTotals.length-1?'y':'b'})});
+  kpiItems.push({l:'\uC6D4\uBCC4 \uC0C1\uC138',v:allD.length+'\uAC74',c:'c'});
+  mkK($('k-cost'),kpiItems);
+  monthBars(monthTotals.map(function(mt,i){return{label:mt.key,value:mt.total,color:barColors[i%barColors.length]}}),$('cost-mch'));
   var deptData=(cost.by_department||[]).filter(function(x){return(x.total||0)>0}).sort(function(a,b){return(b.total||0)-(a.total||0)});
   var di=deptData.map(function(x){return{l:x.department||x.name||'',v:x.total||0,t:'\u20A9'+fmt(x.total||0),color:'var(--cyan)'}});
   if(!di.length){/* fallback to detail aggregation */
@@ -949,20 +966,29 @@ function renderCost(d){
   var t15=csF.slice(0,15),mc=t15.length?t15[0].total:1;
   mkBar($('cost-bars'),t15.map(function(x){return{l:x.software,v:x.total,t:'\u20A9'+fmt(x.total),color:'var(--accent)'}}),mc);
   /* Software × Month comparison table */
+  var swHdrs=['\uC18C\uD504\uD2B8\uC6E8\uC5B4'];
+  monthKeys.forEach(function(mk){swHdrs.push(mk)});
+  swHdrs.push('\uD569\uACC4');swHdrs.push('\uCD94\uC774');
   var swRows=csF.map(function(x){
-    var janV=x.jan||0,febV=x.feb||0,marV=x.mar||0,tot=x.total||0;
-    var trend=febV>janV?ch('\u25B2','r'):(febV<janV?ch('\u25BC','g'):ch('-','m'));
-    return[esc(x.software),'\u20A9'+fmt(janV),'\u20A9'+fmt(febV),'\u20A9'+fmt(marV),'\u20A9'+fmt(tot),trend]
+    var row=[esc(x.software)];
+    var vals=monthKeys.map(function(mk){var key=mk.replace(/[^a-z0-9]/gi,'').toLowerCase();return x[key]||x[mk]||0});
+    vals.forEach(function(v){row.push('\u20A9'+fmt(v))});
+    row.push('\u20A9'+fmt(x.total||0));
+    var trend=vals.length>=2?(vals[vals.length-1]>vals[vals.length-2]?ch('\u25B2','r'):(vals[vals.length-1]<vals[vals.length-2]?ch('\u25BC','g'):ch('-','m'))):ch('-','m');
+    row.push(trend);
+    return row;
   });
-  mkT($('t-sw'),['\uC18C\uD504\uD2B8\uC6E8\uC5B4','1\uC6D4','2\uC6D4','3\uC6D4','\uD569\uACC4','\uCD94\uC774'],swRows,{col:4,asc:false});
+  mkT($('t-sw'),swHdrs,swRows,{col:swHdrs.length-2,asc:false});
   $('sw-c').textContent=csF.length+'\uC885';
   /* User cost table */
   var byUser=(cost.by_user||[]).filter(function(u){return(u.total||0)>0}).sort(function(a,b){return(b.total||0)-(a.total||0)});
-  mkT($('t-user-cost'),['\uC0AC\uC6A9\uC790','1\uC6D4','2\uC6D4','3\uC6D4','\uD569\uACC4'],byUser.map(function(u){return[esc(u.user||u.name||''),'\u20A9'+fmt(u.jan||0),'\u20A9'+fmt(u.feb||0),'\u20A9'+fmt(u.mar||0),'\u20A9'+fmt(u.total||0)]}),{col:4,asc:false});
+  var userHdrs=['\uC0AC\uC6A9\uC790'];monthKeys.forEach(function(mk){userHdrs.push(mk)});userHdrs.push('\uD569\uACC4');
+  mkT($('t-user-cost'),userHdrs,byUser.map(function(u){var row=[esc(u.user||u.name||'')];monthKeys.forEach(function(mk){var key=mk.replace(/[^a-z0-9]/gi,'').toLowerCase();row.push('\u20A9'+fmt(u[key]||u[mk]||0))});row.push('\u20A9'+fmt(u.total||0));return row}),{col:userHdrs.length-1,asc:false});
   $('user-cost-c').textContent=byUser.length+'\uBA85';
   /* Department cost table */
   var byDept=(cost.by_department||[]).filter(function(x){return(x.total||0)>0}).sort(function(a,b){return(b.total||0)-(a.total||0)});
-  mkT($('t-dept-cost'),['\uBD80\uC11C','1\uC6D4','2\uC6D4','3\uC6D4','\uD569\uACC4'],byDept.map(function(x){return[esc(x.department||x.name||''),'\u20A9'+fmt(x.jan||0),'\u20A9'+fmt(x.feb||0),'\u20A9'+fmt(x.mar||0),'\u20A9'+fmt(x.total||0)]}));
+  var deptHdrs=['\uBD80\uC11C'];monthKeys.forEach(function(mk){deptHdrs.push(mk)});deptHdrs.push('\uD569\uACC4');
+  mkT($('t-dept-cost'),deptHdrs,byDept.map(function(x){var row=[esc(x.department||x.name||'')];monthKeys.forEach(function(mk){var key=mk.replace(/[^a-z0-9]/gi,'').toLowerCase();row.push('\u20A9'+fmt(x[key]||x[mk]||0))});row.push('\u20A9'+fmt(x.total||0));return row}));
   $('dept-cost-c').textContent=byDept.length+'\uBD80\uC11C';
   /* Month filter for detail table */
   var months=Object.keys(md).sort();
@@ -980,10 +1006,11 @@ function renderCost(d){
 /* ═══ AI ═══ */
 function renderAI(d){
   var ai=d.ai||[];var el=$('p-ai'),t=window._ts||{};
-  el.innerHTML=tsBar([{src:'Google Sheets',time:t.google_sheets}])+'<div id="k-ai" class="kpis"></div><div class="cd"><h3>AI \uC11C\uBE44\uC2A4 \uAD6C\uB3C5</h3><table id="t-ai"></table></div>';
+  el.innerHTML=tsBar([{src:'Google Sheets',time:t.google_sheets}])+'<div id="k-ai" class="kpis"></div><div class="cd"><h3>AI \uC11C\uBE44\uC2A4 \uAD6C\uB3C5</h3><div style="padding:8px 16px"><input id="ai-search" class="search-input" placeholder="AI 서비스 검색..." aria-label="AI 서비스 검색"></div><table id="t-ai"></table></div>';
   var depts={};ai.forEach(function(a){if(a.department)depts[a.department]=1});
   mkK($('k-ai'),[{l:'AI \uC11C\uBE44\uC2A4',v:ai.length,c:'a'},{l:'\uC0AC\uC6A9 \uBD80\uC11C',v:Object.keys(depts).length,c:'b'}]);
   mkT($('t-ai'),['\uC11C\uBE44\uC2A4\uBA85','\uC124\uBA85','\uC218\uB7C9','\uC0AC\uC6A9\uBD80\uC11C'],ai.map(function(a){return[esc(a.name),esc(a.description||''),esc(a.quantity||''),esc(a.department||'')]}));
+  mkSearch($('ai-search'),$('t-ai'));
 }
 
 /* ═══ Signals ═══ */
