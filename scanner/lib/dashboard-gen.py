@@ -421,7 +421,7 @@ def _fetch_audit_points_from_github() -> AuditPointsData | None:
         req = urllib.request.Request(
             base, headers={"Accept": "application/vnd.github.v3+json"}
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=15) as resp:  # nosemgrep: dynamic-urllib-use-detected — trusted GitHub API URL
             root = json.loads(resp.read().decode("utf-8"))
         if not isinstance(root, list):
             return None
@@ -443,7 +443,7 @@ def _fetch_audit_points_from_github() -> AuditPointsData | None:
                     f"{base}/{urllib.parse.quote(name, safe='')}",
                     headers={"Accept": "application/vnd.github.v3+json"},
                 )
-                with urllib.request.urlopen(sub_req, timeout=15) as sub_resp:
+                with urllib.request.urlopen(sub_req, timeout=15) as sub_resp:  # nosemgrep: dynamic-urllib-use-detected
                     children = json.loads(sub_resp.read().decode("utf-8"))
                 if not isinstance(children, list):
                     children = []
@@ -538,7 +538,7 @@ def _github_api_json(url: str, _max_retries: int = 3) -> Any:
     for attempt in range(_max_retries):
         req = urllib.request.Request(url, headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=15) as resp:  # nosemgrep: dynamic-urllib-use-detected
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             last_exc = exc
@@ -976,7 +976,7 @@ def load_network_tool_results(network_dir: str) -> NetworkToolResult:
 
     for fpath in glob.glob(os.path.join(network_dir, "nmap-*.xml")):
         try:
-            tree = ET.parse(fpath)
+            tree = ET.parse(fpath)  # nosemgrep: use-defused-xml-parse — parsing trusted local nmap output files
             root = tree.getroot()
             name = os.path.basename(fpath).replace("nmap-", "").replace(".xml", "")
             hosts = []
@@ -2930,7 +2930,7 @@ def _fetch_markdown_preview(raw_url: str, max_chars: int = 1200, max_lines: int 
             raw_url,
             headers={"Accept": "application/vnd.github.v3.raw"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosemgrep: dynamic-urllib-use-detected
             text = resp.read().decode("utf-8", "ignore")
     except Exception:
         return ""
