@@ -544,7 +544,7 @@ class DashboardGenSmokeTest(unittest.TestCase):
             self.assertIn("Datadog case management summary", html)
             self.assertIn("Cloud signal", html)
             self.assertIn("Case title", html)
-            self.assertIn("ClaudeSec local security scanner results", html)
+            self.assertIn("ClaudeSec Local Security Scanner", html)
             self.assertIn("Detail (Top findings)", html)
             self.assertIn("Action plan", html)
 
@@ -627,7 +627,7 @@ class DashboardGenSmokeTest(unittest.TestCase):
             self.assertIn("Dockerfile USER directive", html)
 
             # Overview header has connected/total counter
-            self.assertIn("ClaudeSec local security scanner results", html)
+            self.assertIn("ClaudeSec Local Security Scanner", html)
 
 
 class GithubApiJsonTest(unittest.TestCase):

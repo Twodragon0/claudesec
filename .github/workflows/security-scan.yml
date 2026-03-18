@@ -56,16 +56,19 @@ jobs:
         run: |
           docker run --rm \
             -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
             -e SCAN_DIR=/workspace \
             claudesec:local dashboard -d /workspace -c all --no-serve
+          ls -la ${{ github.workspace }}/claudesec-dashboard.html || echo "Dashboard file not found in workspace"
 
       # Upload the dashboard so the lighthouse job (and humans) can download it.
       - name: Upload dashboard artifact
         uses: actions/upload-artifact@v4
         with:
           name: security-dashboard
-          path: claudesec-dashboard.html
+          path: ${{ github.workspace }}/claudesec-dashboard.html
           retention-days: 30
+          if-no-files-found: warn
 
       # Gate: count critical/high findings from scan output.
       # Known findings are surfaced as warnings; only NEW criticals block.
@@ -91,6 +94,7 @@ jobs:
   lighthouse:
     name: Lighthouse Audit
     needs: scan
+    if: always() && needs.scan.result != 'cancelled'
     runs-on: ubuntu-latest
 
     steps:
