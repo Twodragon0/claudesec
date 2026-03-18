@@ -34,7 +34,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Build the scanner image from the repo's Dockerfile so the scan always
       # reflects the current scanner version rather than a cached registry image.
@@ -63,7 +63,7 @@ jobs:
 
       # Upload the dashboard so the lighthouse job (and humans) can download it.
       - name: Upload dashboard artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-dashboard
           path: ${{ github.workspace }}/claudesec-dashboard.html
@@ -99,11 +99,11 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Retrieve the dashboard HTML produced by the scan job.
       - name: Download dashboard artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: security-dashboard
 
