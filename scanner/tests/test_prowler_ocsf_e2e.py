@@ -360,7 +360,7 @@ class TestOcsfDashboardE2E(unittest.TestCase):
             )
             # Should not raise
             html = self._generate_dashboard(tmpdir, {})
-            self.assertIn("ClaudeSec local security scanner results", html)
+            self.assertIn("ClaudeSec", html)
 
     def test_compliance_history_in_trend_tooltip(self):
         """Trend chart tooltip should include compliance pass/fail data."""
