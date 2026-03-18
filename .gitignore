@@ -83,8 +83,11 @@ run-all.sh
 tmp-*.svg
 tmp-*.png
 
-# Claude Code
-.claude/
+# Claude Code (local settings, agents, hooks — commands are shared)
+.claude/settings.json
+.claude/settings.local.json
+.claude/agents/
+.claude/hooks/
 
 # Architecture diagrams (auto-generated, may contain scan-specific data)
 docs/architecture/*.svg
