@@ -31,6 +31,10 @@ case "${1:-help}" in
     echo "ClaudeSec Quick Start — scan + dashboard at localhost:11777"
     docker compose -f "$SCRIPT_DIR/docker-compose.quickstart.yml" up --build
     ;;
+  isms-report)
+    shift
+    exec python3 "$SCRIPT_DIR/scripts/isms-p-report.py" "$@"
+    ;;
   version)
     grep '"version"' "$SCRIPT_DIR/package.json" | head -1 | sed 's/.*"\([0-9][^"]*\)".*/claudesec v\1/'
     ;;
@@ -43,6 +47,7 @@ case "${1:-help}" in
     echo "  claudesec setup [target]      Install hooks/workflows to a project"
     echo "  claudesec init                Initialize .claudesec.yml config"
     echo "  claudesec quickstart          Docker scan + dashboard (one command)"
+    echo "  claudesec isms-report [opts]  ISMS-P certification readiness report"
     echo "  claudesec version             Show version"
     echo ""
     echo "Quick start:"
