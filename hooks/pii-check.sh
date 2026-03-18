@@ -5,7 +5,7 @@
 # Usage: Add as a pre-commit hook or Claude Code hook
 #   cp hooks/pii-check.sh .git/hooks/pre-commit-pii && chmod +x .git/hooks/pre-commit-pii
 
-set -euo pipefail
+set -uo pipefail
 
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
