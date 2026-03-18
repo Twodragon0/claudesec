@@ -18,28 +18,33 @@ ClaudeSec integrates security best practices directly into your AI-powered devel
 
 ## Quick Start
 
-**Install (clone)**
-
 ```bash
 git clone https://github.com/Twodragon0/claudesec.git
 cd claudesec
+./scripts/quick-start.sh
 ```
 
-**Setup** (optional — to apply hooks/workflows into another project)
+That’s it. Docker builds the scanner, runs a full security scan, and serves the dashboard at **`http://localhost:11777/`**.
+
+**Options**
 
 ```bash
-./scripts/setup.sh                    # setup current dir (repo)
-./scripts/setup.sh /path/to/project   # setup another project
-./scripts/setup.sh --scan-only        # only scanner readiness (config + deps)
+./scripts/quick-start.sh                # Full scan + dashboard (default)
+./scripts/quick-start.sh --scan-only    # Scan only (no server)
+./scripts/quick-start.sh --serve        # Serve existing dashboard
 ```
 
-**Run**
+**Asset Management Dashboard** (optional — requires API keys)
 
 ```bash
-./run
+cp .env.example ~/Desktop/.env          # Edit with your API keys
+./scripts/setup.sh                      # Install hooks + templates
+source .venv-asset/bin/activate
+python3 scripts/build-dashboard.py      # Build asset dashboard
+docker compose up dashboard -d          # Serve on localhost:11777
 ```
 
-That’s it. Full scan runs, the HTML dashboard is generated, and a local server starts at **`localhost:11777`**. Open the dashboard in your browser.
+> Requires: Docker Desktop. See [.env.example](.env.example) for API key setup.
 
 | Command | What it does |
 |--------|----------------|
