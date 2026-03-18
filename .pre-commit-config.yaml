@@ -1,0 +1,28 @@
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: pii-check
+        name: PII Detection
+        entry: bash hooks/pii-check.sh
+        language: system
+        types: [text]
+        pass_filenames: true
+        exclude: >-
+          (?x)^(
+            node_modules/|
+            \.claudesec-assets/|
+            \.claudesec-saas-best-practices/|
+            package-lock\.json|
+            hooks/pii-check\.sh
+          )
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: ["-x", "--severity=warning"]

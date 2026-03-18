@@ -1,0 +1,38 @@
+title = "ClaudeSec gitleaks config"
+
+# Custom rules for PII detection (beyond default secret patterns)
+
+[[rules]]
+id = "hardcoded-macos-user-path"
+description = "Hardcoded macOS user path exposes username"
+regex = '''/Users/[a-zA-Z][a-zA-Z0-9_-]+/'''
+tags = ["pii", "path"]
+
+[[rules]]
+id = "aws-account-id"
+description = "AWS Account ID (12-digit)"
+regex = '''(?i)(account|aws)[_"':\s-]*[0-9]{12}'''
+tags = ["pii", "aws"]
+
+[[rules]]
+id = "google-sheet-id-hardcoded"
+description = "Google Sheet ID hardcoded"
+regex = '''SHEET_ID\s*=\s*["'][A-Za-z0-9_-]{25,}["']'''
+tags = ["pii", "google"]
+
+[[rules]]
+id = "notion-id-hardcoded"
+description = "Notion database/token ID hardcoded"
+regex = '''NOTION_(DB_ID|TOKEN)\s*=\s*["'][A-Za-z0-9_-]{20,}["']'''
+tags = ["pii", "notion"]
+
+# Allowlist — files and patterns that are safe to ignore
+[allowlist]
+paths = [
+  '''node_modules/''',
+  '''\.claudesec-assets/''',
+  '''\.claudesec-saas-best-practices/''',
+  '''package-lock\.json''',
+  '''hooks/pii-check\.sh''',
+  '''\.gitleaks\.toml''',
+]
