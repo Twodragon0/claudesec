@@ -34,7 +34,7 @@ _crypto_hits=""
 _crypto_hits=$(_code_grep '(md5|MD5|sha1|SHA1)\s*\(|hashlib\.(md5|sha1)|MessageDigest\.getInstance\s*\(\s*"(MD5|SHA-1)"' "*.py,*.js,*.ts,*.go,*.java,*.rb,*.php")
 
 # Weak encryption: DES, RC4, ECB mode
-_weak_enc=$(_code_grep '(DES|RC4|RC2|Blowfish|ECB)|DES\.new|AES\.new\s*\([^)]*MODE_ECB|Cipher\.getInstance\s*\(\s*"DES' "*.py,*.js,*.ts,*.java")
+_weak_enc=$(_code_grep '\b(DES|RC4|RC2|Blowfish|ECB)\b|DES\.new|AES\.new\s*\([^)]*MODE_ECB|Cipher\.getInstance\s*\(\s*"DES' "*.py,*.js,*.ts,*.java")
 [[ -n "$_weak_enc" ]] && _crypto_hits="${_crypto_hits}${_crypto_hits:+$'\n'}${_weak_enc}"
 
 # Hardcoded IV/nonce
