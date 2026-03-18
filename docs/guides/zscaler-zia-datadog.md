@@ -45,8 +45,8 @@ ZIA Cloud ──NSS──► NSS VM (on-prem/cloud) ──syslog/HTTPS──► 
 \{"sourcetype":"zscalernss-web","event":\{"datetime":"%s{time}","user":"%s{elogin}","department":"%s{edepartment}","action":"%s{action}","urlclass":"%s{urlclass}","url":"%s{eurl}","hostname":"%s{ehost}","status":"%s{statuscode}","reqsize":"%d{reqsize}","respsize":"%d{respsize}","serverip":"%s{sip}","dlpeng":"%s{dlpeng}","dlpdict":"%s{dlpdict}","location":"%s{elocation}","threatname":"%s{threatname}"\}\}
 ```
 
-3. **Status**: Enabled
-4. Save and activate
+1. **Status**: Enabled
+1. Save and activate
 
 ### 3. Configure Datadog Agent on NSS VM
 
