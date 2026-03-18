@@ -20,21 +20,27 @@ case "${1:-help}" in
   init)
     exec "$SCRIPT_DIR/scanner/claudesec" init
     ;;
+  quickstart)
+    echo "ClaudeSec Quick Start — scan + dashboard at localhost:11777"
+    docker compose -f "$SCRIPT_DIR/docker-compose.quickstart.yml" up --build
+    ;;
   version)
-    echo "claudesec v0.5.0"
+    grep '"version"' "$SCRIPT_DIR/package.json" | head -1 | sed 's/.*"\([0-9][^"]*\)".*/claudesec v\1/'
     ;;
   help|--help|-h|*)
-    echo "ClaudeSec — DevSecOps Scanner & Dashboard"
+    echo "ClaudeSec — DevSecOps Scanner & ISMS Dashboard"
     echo ""
     echo "Usage:"
     echo "  claudesec scan [options]      Run security scan"
     echo "  claudesec dashboard           Build + serve dashboard (Docker)"
-    echo "  claudesec setup [target]      Install hooks/workflows"
-    echo "  claudesec init                Initialize .claudesec.yml"
+    echo "  claudesec setup [target]      Install hooks/workflows to a project"
+    echo "  claudesec init                Initialize .claudesec.yml config"
+    echo "  claudesec quickstart          Docker scan + dashboard (one command)"
     echo "  claudesec version             Show version"
     echo ""
     echo "Quick start:"
     echo "  npx claudesec scan            Scan current directory"
     echo "  npx claudesec dashboard       Full scan + dashboard"
+    echo "  npx claudesec quickstart      Docker: scan + dashboard at localhost:11777"
     ;;
 esac

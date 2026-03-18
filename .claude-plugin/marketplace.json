@@ -1,0 +1,49 @@
+{
+  "name": "claudesec",
+  "displayName": "ClaudeSec — DevSecOps Scanner & Dashboard",
+  "version": "0.5.1",
+  "description": "Security scanner, ISMS dashboard, and asset management for AI-assisted development",
+  "author": "Twodragon0",
+  "license": "MIT",
+  "repository": "https://github.com/Twodragon0/claudesec",
+  "keywords": ["security", "devsecops", "scanner", "isms", "dashboard", "prowler", "owasp"],
+  "plugins": [
+    {
+      "id": "claudesec",
+      "name": "ClaudeSec Security Scanner",
+      "description": "Run security scans, generate ISMS dashboards, and manage compliance from Claude Code",
+      "type": "skills",
+      "skills": [
+        {
+          "name": "scan",
+          "description": "Run ClaudeSec security scan on the current project",
+          "command": "npx claudesec scan"
+        },
+        {
+          "name": "dashboard",
+          "description": "Build and serve the ClaudeSec security dashboard",
+          "command": "npx claudesec dashboard"
+        },
+        {
+          "name": "setup",
+          "description": "Install security hooks, workflows, and templates",
+          "command": "npx claudesec setup"
+        }
+      ],
+      "hooks": {
+        "PreToolUse": [
+          {
+            "matcher": "Edit|Write",
+            "hooks": [
+              {
+                "type": "command",
+                "command": "npx claudesec scan --quick --severity critical 2>/dev/null || true",
+                "statusMessage": "ClaudeSec security check"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
