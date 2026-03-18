@@ -131,6 +131,7 @@ class DashboardGenSmokeTest(unittest.TestCase):
                         "GH_TOKEN_EXPIRES_AT": (
                             datetime.now(timezone.utc) + timedelta(hours=36)
                         ).isoformat(),
+                        "CLAUDESEC_DASHBOARD_OFFLINE": "1",
                     },
                     clear=False,
                 ),
@@ -242,6 +243,7 @@ class DashboardGenSmokeTest(unittest.TestCase):
                     {
                         dashboard_gen.MS_SOURCE_FILTER_ENV: "gov",
                         dashboard_gen.MS_INCLUDE_SCUBAGEAR_ENV: "1",
+                        "CLAUDESEC_DASHBOARD_OFFLINE": "0",
                     },
                     clear=False,
                 ),
@@ -508,6 +510,7 @@ class DashboardGenSmokeTest(unittest.TestCase):
             }
 
             with (
+                patch.dict("os.environ", {"CLAUDESEC_DASHBOARD_OFFLINE": "1"}, clear=False),
                 patch.object(
                     dashboard_gen,
                     "load_audit_points",
@@ -577,6 +580,7 @@ class DashboardGenSmokeTest(unittest.TestCase):
             }
 
             with (
+                patch.dict("os.environ", {"CLAUDESEC_DASHBOARD_OFFLINE": "1"}, clear=False),
                 patch.object(
                     dashboard_gen,
                     "load_audit_points",

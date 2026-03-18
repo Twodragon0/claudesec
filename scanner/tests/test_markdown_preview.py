@@ -17,6 +17,14 @@ SPEC.loader.exec_module(dashboard_gen)
 class TestFetchMarkdownPreview(unittest.TestCase):
     """Unit tests for _fetch_markdown_preview()."""
 
+    def setUp(self):
+        """Ensure offline mode is disabled for tests that mock urlopen."""
+        self._offline_patcher = patch.dict("os.environ", {"CLAUDESEC_DASHBOARD_OFFLINE": "0"})
+        self._offline_patcher.start()
+
+    def tearDown(self):
+        self._offline_patcher.stop()
+
     def _mock_urlopen(self, text: str):
         """Create a mock context manager for urllib.request.urlopen."""
         resp = MagicMock()
