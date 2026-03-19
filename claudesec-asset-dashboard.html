@@ -430,8 +430,8 @@ function renderSecUnified(d){
     +'<div class="g2"><div class="cd"><h3>ClaudeSec 스캔 점수</h3><div class="ring-wrap" id="scan-ring"></div></div>'
     +'<div class="cd"><h3>심각도 분포</h3><div style="padding:16px;display:flex;align-items:center;gap:24px" id="sec-sev"></div></div></div>'
     +(Object.keys(byProv).length?'<div class="cd"><h3>프로바이더별 분석</h3><div class="fb" id="sec-fb"></div><div style="padding:16px" id="sec-prov"></div></div>':'')
-    +'<div class="g2"><div class="cd"><h3>주요 취약점 (Top 5) <span class="bg" id="prow-c"></span></h3><div id="t-prow" style="padding:12px 16px;max-height:300px;overflow-y:auto"></div>'
-    +'<div style="padding:10px 16px;border-top:1px solid var(--border)"><a href="'+scanUrl+'" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">DevSecOps 상세 →</a></div></div>'
+    +'<div class="g2"><div class="cd"><h3>Prowler 취약점 <span class="bg" id="prow-c"></span></h3><div class="fb" id="prow-sev-fb"></div><div id="t-prow" style="padding:12px 16px;max-height:480px;overflow-y:auto"></div>'
+    +'<div style="padding:10px 16px;border-top:1px solid var(--border)"><a href="'+scanUrl+'" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">DevSecOps 상세 보기 →</a></div></div>'
     +'<div class="cd"><h3>ClaudeSec 취약점 <span class="bg" id="scan-fc"></span></h3><div class="stbl" id="scan-tbl-wrap"></div></div></div>'
     +'<div class="cd"><h3>정보보호 규정·지침 현황 <span class="bg" id="pol-c"></span></h3><div id="pol-area" style="padding:16px"></div></div>'
     +'<div class="cd"><h3>Notion 보안 정기점검 이력 <span class="bg" id="audit-c"></span></h3><div id="t-audit" style="padding:12px 16px;max-height:400px;overflow-y:auto"></div></div>'
@@ -464,9 +464,24 @@ function renderSecUnified(d){
     mkBar($('sec-prov'),pe.map(function(e){return{l:e[0].toUpperCase(),v:e[1].fail||0,t:'FAIL '+(e[1].fail||0)+' / PASS '+(e[1].pass||0),color:(e[1].fail||0)>10?'var(--red)':(e[1].fail||0)>0?'var(--yellow)':'var(--green)'}}),Math.max.apply(null,pe.map(function(e){return e[1].fail||0}).concat([1])));
   }
 
-  /* Prowler top findings */
-  window._prowAll=pw.critical_fails_sample||[];window._byProv=byProv;
-  _renderProw(window._prowAll.slice(0,5));
+  /* Prowler findings — all severity with filter */
+  var allProwSamples=(pw.critical_fails_sample||[]).concat(pw.medium_fails_sample||[]);
+  window._prowAll=allProwSamples;window._byProv=byProv;
+  var sevFb=$('prow-sev-fb');
+  if(sevFb){
+    var cCount=allProwSamples.filter(function(s){return s.severity==='Critical'}).length;
+    var hCount=allProwSamples.filter(function(s){return s.severity==='High'}).length;
+    var mCount=allProwSamples.filter(function(s){return s.severity==='Medium'}).length;
+    sevFb.innerHTML='<span class="fb-btn on" onclick="window._fProwSev(\'all\',this)">전체 '+allProwSamples.length+'</span>'
+      +(cCount?'<span class="fb-btn" style="border-color:var(--red)" onclick="window._fProwSev(\'Critical\',this)">Critical '+cCount+'</span>':'')
+      +(hCount?'<span class="fb-btn" style="border-color:var(--orange)" onclick="window._fProwSev(\'High\',this)">High '+hCount+'</span>':'')
+      +(mCount?'<span class="fb-btn" style="border-color:var(--yellow)" onclick="window._fProwSev(\'Medium\',this)">Medium '+mCount+'</span>':'');
+  }
+  window._fProwSev=function(sev,el){
+    document.querySelectorAll('#prow-sev-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
+    _renderProw(sev==='all'?window._prowAll:window._prowAll.filter(function(f){return f.severity===sev}));
+  };
+  _renderProw(allProwSamples);
 
   /* ClaudeSec findings */
   var fhtml='';
@@ -514,9 +529,9 @@ function renderSec(d){
   el.innerHTML=tsBar([{src:'Prowler',time:t.prowler},{src:'Datadog SIEM',time:t.datadog},{src:'ClaudeSec',time:t.claudesec_scan}])+'<div id="k-sec" class="kpis"></div>'
     +(Object.keys(byProv).length?'<div class="cd"><h3>\uD504\uB85C\uBC14\uC774\uB354\uBCC4 \uBD84\uC11D</h3><div class="fb" id="sec-fb"></div><div style="padding:16px" id="sec-prov"></div></div>':'')
     +'<div class="g2"><div class="cd"><h3>\uC2EC\uAC01\uB3C4 \uBD84\uD3EC</h3><div style="padding:16px;display:flex;align-items:center;gap:24px" id="sec-sev"></div></div>'
-    +'<div class="cd"><h3>\uC8FC\uC694 \uCDE8\uC57D\uC810 (Top 5) <span class="bg" id="prow-c"></span></h3><div id="t-prow" style="padding:12px 16px;max-height:300px;overflow-y:auto"></div>'
+    +'<div class="cd"><h3>Prowler 취약점 <span class="bg" id="prow-c"></span></h3><div class="fb" id="prow-sev-fb2"></div><div id="t-prow" style="padding:12px 16px;max-height:480px;overflow-y:auto"></div>'
     +'<div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:12px;flex-wrap:wrap">'
-    +'<a href="'+scanUrl+'#tab-prowler" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">Prowler \uC804\uCCB4 \uBCF4\uAE30 \u2192</a>'
+    +'<a href="'+scanUrl+'#tab-prowler" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">DevSecOps 상세 보기 →</a>'
     +'<a href="'+scanUrl+'#tab-overview" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">ClaudeSec \uC0C1\uC138 \u2192</a>'
     +'</div></div></div>'
     +'<div class="cd"><h3>정보보호 규정·지침 현황 <span class="bg" id="pol-c"></span></h3><div id="pol-area" style="padding:16px"></div></div>'
@@ -538,9 +553,23 @@ function renderSec(d){
   var sevD=pw.fail_by_severity||{};
   var segs=[{v:sevD.Critical||0,color:'var(--red)',label:'Critical'},{v:sevD.High||0,color:'var(--orange)',label:'High'},{v:sevD.Medium||0,color:'var(--yellow)',label:'Medium'},{v:sevD.Low||0,color:'var(--blue)',label:'Low'}].filter(function(s){return s.v>0});
   $('sec-sev').innerHTML=(segs.length?donut(segs,100):'')+'<div>'+segs.map(function(s){return'<div style="font-size:12px;margin:2px 0"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+s.color+';margin-right:6px;vertical-align:middle"></span>'+esc(s.label)+': <strong>'+s.v+'</strong></div>'}).join('')+'</div>';
-  window._prowAll=pw.critical_fails_sample||[];window._byProv=byProv;
-  /* Show top 5 only — full list in scan.html */
-  _renderProw(window._prowAll.slice(0,5));
+  var allProw2=(pw.critical_fails_sample||[]).concat(pw.medium_fails_sample||[]);
+  window._prowAll=allProw2;window._byProv=byProv;
+  var sfb2=$('prow-sev-fb2');
+  if(sfb2){
+    var cc=allProw2.filter(function(s){return s.severity==='Critical'}).length;
+    var hh=allProw2.filter(function(s){return s.severity==='High'}).length;
+    var mm=allProw2.filter(function(s){return s.severity==='Medium'}).length;
+    sfb2.innerHTML='<span class="fb-btn on" onclick="window._fPS2(\'all\',this)">전체 '+allProw2.length+'</span>'
+      +(cc?'<span class="fb-btn" style="border-color:var(--red)" onclick="window._fPS2(\'Critical\',this)">Critical '+cc+'</span>':'')
+      +(hh?'<span class="fb-btn" style="border-color:var(--orange)" onclick="window._fPS2(\'High\',this)">High '+hh+'</span>':'')
+      +(mm?'<span class="fb-btn" style="border-color:var(--yellow)" onclick="window._fPS2(\'Medium\',this)">Medium '+mm+'</span>':'');
+  }
+  window._fPS2=function(sev,el){
+    document.querySelectorAll('#prow-sev-fb2 .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
+    _renderProw(sev==='all'?window._prowAll:window._prowAll.filter(function(f){return f.severity===sev}));
+  };
+  _renderProw(allProw2);
   _renderPolicies(d);
 }
 /* Prowler cards renderer */
