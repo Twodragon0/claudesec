@@ -25,9 +25,9 @@ a{color:var(--accent);text-decoration:none}
 .theme-btn{background:var(--card);border:1px solid var(--border);color:var(--text);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:all .2s}
 .theme-btn:hover{border-color:var(--accent);background:var(--accent);color:#fff}
 .tabs{display:flex;gap:0;background:var(--glass);backdrop-filter:blur(10px);border-bottom:2px solid var(--border);padding:0 16px;overflow-x:auto;position:sticky;top:0;z-index:50}
-.tab{padding:11px 14px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap;font-weight:600;font-size:13px;transition:all .25s}
+.tab{padding:11px 14px;cursor:pointer;color:#b0b8cc;border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap;font-weight:600;font-size:13px;transition:all .25s}
 .tab:hover{color:var(--text)}.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-.tab .badge{font-size:9px;background:var(--border);color:var(--muted);padding:1px 6px;border-radius:8px;margin-left:4px;font-weight:700;transition:all .2s}
+.tab .badge{font-size:9px;background:var(--border);color:#b0b8cc;padding:1px 6px;border-radius:8px;margin-left:4px;font-weight:700;transition:all .2s}
 .tab.active .badge{background:rgba(108,92,231,.2);color:var(--accent)}
 .wrap{padding:20px;max-width:1440px;margin:0 auto}
 .pnl{display:none;animation:fadeIn .3s ease}.pnl.active{display:block}
@@ -140,7 +140,7 @@ tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 <div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-ai" data-p="ai">AI 구독<span class="badge" id="b-ai"></span></div>
 </div>
 
-<div class="wrap">
+<main class="wrap">
 <div class="pnl active" id="p-isms" role="tabpanel" aria-labelledby="tab-isms"></div>
 <div class="pnl" id="p-sec" role="tabpanel" aria-labelledby="tab-sec"></div>
 <div class="pnl" id="p-asset" role="tabpanel" aria-labelledby="tab-asset"></div>
@@ -148,7 +148,7 @@ tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 <div class="pnl" id="p-saas" role="tabpanel" aria-labelledby="tab-saas"></div>
 <div class="pnl" id="p-cost" role="tabpanel" aria-labelledby="tab-cost"></div>
 <div class="pnl" id="p-ai" role="tabpanel" aria-labelledby="tab-ai"></div>
-</div>
+</main>
 
 <script>
 const D=/*__DATA__*/null;
