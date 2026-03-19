@@ -5223,7 +5223,7 @@ tr:last-child td{border-bottom:none}
 .source-filter-chip{border:1px solid var(--border);background:var(--surface);color:var(--muted);padding:.2rem .55rem;border-radius:999px;font-size:.72rem;font-weight:700;cursor:pointer;transition:all .15s;font-family:inherit}
 .source-filter-chip:hover{border-color:var(--accent);color:var(--accent)}
 .source-filter-chip.active{background:rgba(56,189,248,.15);border-color:var(--accent);color:var(--accent)}
-.sev-critical{border-left:3px solid #dc2626}.sev-high{border-left:3px solid #ef4444}
+.sev-critical{border-left:4px solid #dc2626;background:rgba(220,38,38,.12)}.sev-high{border-left:4px solid #ef4444;background:rgba(239,68,68,.08)}
 .sev-medium{border-left:3px solid #eab308}.sev-low{border-left:3px solid #6b7280}
 .sev-warning{border-left:3px solid #f59e0b}
 /* Scanner card enhancements */
@@ -5701,7 +5701,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
       <select class="scope-select" id="scannerSevFilter" onchange="filterScannerSev(this.value)" style="font-size:.78rem" aria-label="Filter by severity">
         <option value="all">All severities</option>
         <option value="critical">Critical only</option>
-        <option value="high">Critical + High</option>
+        <option value="high" selected>Critical + High</option>
         <option value="warning">Warnings</option>
       </select>
       <span id="scannerFilterCount" style="font-size:.72rem;color:var(--muted)"></span>
@@ -6193,6 +6193,7 @@ apRestoreChecks();
 function toggleTheme(){var t=document.documentElement;var cur=t.getAttribute('data-theme');var next=cur==='light'?'dark':'light';t.setAttribute('data-theme',next);try{localStorage.setItem('claudesec-theme',next)}catch(e){}}
 (function(){try{var t=localStorage.getItem('claudesec-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}})();
 function filterScannerSev(val){var rows=document.querySelectorAll('.scanner-table tbody tr');var shown=0;var total=0;rows.forEach(function(r){if(r.classList.contains('cat-header')||r.classList.contains('row-detail'))return;total++;if(val==='all'){r.style.display='';shown++;return}var show=false;if(val==='critical')show=r.classList.contains('sev-critical');else if(val==='high')show=r.classList.contains('sev-critical')||r.classList.contains('sev-high');else if(val==='warning')show=r.classList.contains('sev-warning');r.style.display=show?'':'none';if(show)shown++});var el=document.getElementById('scannerFilterCount');if(el)el.textContent=val==='all'?'':'('+shown+'/'+total+')'}
+document.addEventListener('DOMContentLoaded',function(){var sel=document.getElementById('scannerSevFilter');if(sel)filterScannerSev(sel.value)})
 /* Hash-based tab navigation (for links from asset dashboard) */
 (function(){var h=location.hash.replace('#','');if(h&&h.startsWith('tab-')){var tab=h.replace('tab-','');setTimeout(function(){switchTab(tab)},100)}window.addEventListener('hashchange',function(){var h2=location.hash.replace('#','');if(h2&&h2.startsWith('tab-'))switchTab(h2.replace('tab-',''))})})();
 </script>
