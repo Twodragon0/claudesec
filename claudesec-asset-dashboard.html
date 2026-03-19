@@ -131,13 +131,13 @@ tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 </div>
 
 <div class="tabs" id="tabs" role="tablist" aria-label="대시보드 탭">
-<div class="tab active" role="tab" tabindex="0" aria-selected="true" aria-controls="p-isms" data-p="isms">ISMS PDCA<span class="badge" id="b-isms"></span></div>
-<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-sec" data-p="sec">보안<span class="badge" id="b-sec"></span></div>
-<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-asset" data-p="asset">자산 관리<span class="badge" id="b-asset"></span></div>
-<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-infra" data-p="infra">인프라<span class="badge" id="b-infra"></span></div>
-<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-saas" data-p="saas">SaaS·라이선스<span class="badge" id="b-saas"></span></div>
-<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-cost" data-p="cost">비용 분석<span class="badge" id="b-cost"></span></div>
-<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-ai" data-p="ai">AI 구독<span class="badge" id="b-ai"></span></div>
+<div class="tab active" role="tab" tabindex="0" aria-selected="true" aria-controls="p-isms" data-p="isms" id="tab-isms">ISMS PDCA<span class="badge" id="b-isms"></span></div>
+<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-sec" data-p="sec" id="tab-sec">보안<span class="badge" id="b-sec"></span></div>
+<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-asset" data-p="asset" id="tab-asset">자산 관리<span class="badge" id="b-asset"></span></div>
+<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-infra" data-p="infra" id="tab-infra">인프라<span class="badge" id="b-infra"></span></div>
+<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-saas" data-p="saas" id="tab-saas">SaaS·라이선스<span class="badge" id="b-saas"></span></div>
+<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-cost" data-p="cost" id="tab-cost">비용 분석<span class="badge" id="b-cost"></span></div>
+<div class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="p-ai" data-p="ai" id="tab-ai">AI 구독<span class="badge" id="b-ai"></span></div>
 </div>
 
 <main class="wrap">
@@ -168,16 +168,24 @@ thBtn.addEventListener('click',function(){
   document.documentElement.setAttribute('data-theme',c);localStorage.setItem('claudesec-theme',c);updThBtn();
 });
 
+/* === Hash ↔ Tab mapping === */
+var _hashMap={isms_pdca:'isms',security:'sec',asset:'asset',infra:'infra',saas:'saas',cost:'cost',ai:'ai'};
+var _hashRev={isms:'isms_pdca',sec:'security',asset:'asset',infra:'infra',saas:'saas',cost:'cost',ai:'ai'};
 /* === Lazy rendering with accessible tabs === */
 var rendered=new Set(['isms']),renderers={},_d=null;
-function switchTab(p){
+function switchTab(p,noHash){
   document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active');x.setAttribute('aria-selected','false');x.setAttribute('tabindex','-1')});
   document.querySelectorAll('.pnl').forEach(function(x){x.classList.remove('active')});
   var tab=document.querySelector('.tab[data-p="'+p+'"]');
   if(tab){tab.classList.add('active');tab.setAttribute('aria-selected','true');tab.setAttribute('tabindex','0');tab.focus();}
   document.getElementById('p-'+p).classList.add('active');
   if(!rendered.has(p)&&_d&&renderers[p]){rendered.add(p);renderers[p](_d);}
+  if(!noHash&&_hashRev[p])history.replaceState(null,'','#'+_hashRev[p]);
 }
+/* Hash-based navigation on load and hashchange */
+function _navFromHash(){var h=(location.hash||'').replace('#','');if(h&&_hashMap[h])switchTab(_hashMap[h],true);}
+window.addEventListener('hashchange',_navFromHash);
+window.addEventListener('DOMContentLoaded',function(){setTimeout(_navFromHash,100)});
 document.getElementById('tabs').addEventListener('click',function(e){
   var t=e.target.closest('.tab');if(!t)return;switchTab(t.dataset.p);
 });
@@ -653,21 +661,20 @@ function renderAsset(d){
   el.innerHTML=tsBar([{src:'Google Sheets',time:t.google_sheets},{src:'SentinelOne',time:t.datadog},{src:'Jamf',time:t.datadog}])
     +'<div id="k-asset" class="kpis"></div>'
     +'<div class="g2"><div class="cd"><h3>자산 분류별 현황</h3><div style="padding:16px" id="asset-bars"></div></div><div class="cd"><h3>SaaS 인증 방식 분포</h3><div style="padding:16px" id="auth-bars"></div></div></div>'
-    +(epxv.jamf_total?'<div class="cd"><h3>엔드포인트 교차 검증: Jamf (MDM) vs SentinelOne (EDR)</h3><div id="ep-xv" style="padding:16px"></div></div>':'')
-    +(s1.length?'<div class="cd"><h3>SentinelOne 엔드포인트 (EDR) <span class="bg" id="s1-c"></span></h3><div class="fb" id="s1-fb"></div><div class="stbl"><table id="t-s1"></table></div></div>':'')
-    +(s1t.length?'<div class="cd"><h3>SentinelOne 위협 상세 (30일) <span class="bg" id="s1t-c"></span></h3><div class="stbl"><table id="t-s1-threats"></table></div></div>':'');
+    +(s1t.length?'<div class="cd"><h3>SentinelOne 위협 (30일) <span class="bg" id="s1t-c"></span></h3><div class="stbl"><table id="t-s1-threats"></table></div></div>':'');
   var jamfCount=(d.jamf_pcs||[]).length;var sheetPc=ac.PC||0;
   var jamfMobiles=d.jamf_mobiles||[];
   var pcGap=sheetPc-jamfCount;
   var edrMissing=epxv.jamf_only_count||0;
+  var intLen=(d.intune_pcs||[]).length;
+  var mobLen=jamfMobiles.length;
   mkK($('k-asset'),[
     {l:'총 자산',v:totalAssets,c:'b'},
     {l:'Mac (Jamf)',v:jamfCount,c:jamfCount?'a':'m',s:'MDM'},
-    {l:'Win (Intune)',v:(d.intune_pcs||[]).length,c:(d.intune_pcs||[]).length?'c':'m',s:'MDM'},
-    {l:'SentinelOne',v:s1.length,c:'b',s:'EDR'},
+    {l:'Win (Intune)',v:intLen,c:intLen?'c':'m',s:'MDM'},
+    {l:'모바일 (iOS)',v:mobLen,c:mobLen?'p':'m',s:'QA'},
+    {l:'EDR (S1)',v:s1.length,c:'b',s:s1threats>0?'위협 '+s1threats:'보호 중'},
     {l:'S1 위협',v:s1threats,c:s1threats>0?'r':'g',s:'30일'},
-    {l:'EDR 미설치',v:edrMissing,c:edrMissing>0?'r':'g',s:edrMissing>0?'즉시 조치':'전체 보호'},
-    {l:'양쪽 보호',v:epxv.matched||0,c:'g',s:'Jamf+S1'},
   ].concat(Object.entries(ac).filter(function(e){return e[0]!=='PC'&&e[0]!=='라이선스'}).slice(0,2).map(function(e){return{l:e[0],v:e[1],c:'a'}})));
   mkBar($('asset-bars'),Object.entries(ac).map(function(e){return{l:e[0],v:e[1],color:'var(--accent)'}}),Math.max.apply(null,Object.values(ac).concat([1])));
   var authMap={};saas.forEach(function(s){var a=s.auth||'N/A';authMap[a]=(authMap[a]||0)+1});
@@ -680,13 +687,19 @@ function renderAsset(d){
     var depts={};jamfPcs.forEach(function(p){var dd=p.department||'N/A';depts[dd]=(depts[dd]||0)+1});
     $('pc-fb').innerHTML='<span class="fb-btn on" onclick="window._fpc(\'all\',this)">\uC804\uCCB4</span>'+Object.keys(depts).sort().map(function(dd){return'<span class="fb-btn" onclick="window._fpc(\''+esc(dd)+'\',this)">'+esc(dd)+' ('+depts[dd]+')</span>'}).join('');
     window._jamfAll=jamfPcs;
-    window._renderPc=function(pcs){mkT($('t-pc'),['사용자','이름','모델','Zscaler','Okta','체크인','상태'],pcs.map(function(p){
+    /* Build S1 lookup for cross-verification */
+    var s1Map={};s1.forEach(function(a){var n=(a.name||'').toLowerCase();s1Map[n]={threats:a.threats||0,group:a.group||'',last:a.last_seen||''}});
+    window._renderPc=function(pcs){mkT($('t-pc'),['사용자','이름','모델','EDR','Zscaler','Okta','체크인','상태'],pcs.map(function(p){
       var c=p.last_checkin||'';var days=c?Math.floor((Date.now()-new Date(c.replace('T',' ')).getTime())/86400e3):999;
       var departed=p.status==='departed';
       var statusCell=departed?ch('퇴사','r'):(days>30?ch('미접속 '+days+'일','r'):(days>7?ch(days+'일 전','y'):ch('정상','g')));
       var zCell=(p.zscaler_status||'').indexOf('Not logged')>=0?ch('미접속','r'):(p.zscaler_status||'').indexOf('Zscaler')>=0?ch('접속','g'):ch('-','m');
       var oktaCell=p.okta_active?ch('활성','g'):ch('미확인','m');
-      return[esc(p.user||''),esc(p.display_name||'-'),esc(p.model||'').replace(/MacBook Pro /,'MBP '),zCell,oktaCell,esc((c||'').substring(0,10)),statusCell]
+      /* S1 cross-verify */
+      var pName=(p.name||'').toLowerCase();
+      var s1Info=s1Map[pName];
+      var edrCell=s1Info?(s1Info.threats>0?ch('위협 '+s1Info.threats,'r'):ch('보호','g')):ch('미설치','r');
+      return[esc(p.user||''),esc(p.display_name||'-'),esc(p.model||'').replace(/MacBook Pro /,'MBP '),edrCell,zCell,oktaCell,esc((c||'').substring(0,10)),statusCell]
     }),{col:6,asc:false});$('pc-c').textContent=pcs.length+'대'};
     window._renderPc(jamfPcs);
     mkSearch($('pc-search'),$('t-pc'));
@@ -704,29 +717,14 @@ function renderAsset(d){
   var intunePcs=d.intune_pcs||[];
   if(intunePcs.length){
     el.innerHTML+='<div class="cd"><h3>\uD83D\uDDA5 Windows PC (Intune) <span class="bg" id="intune-c"></span></h3><div class="stbl"><table id="t-intune"></table></div></div>';
-    mkT($('t-intune'),['\uAE30\uAE30\uBA85','\uBAA8\uB378','OS','\uC0AC\uC6A9\uC790','\uC2DC\uB9AC\uC5BC','\uCEF4\uD50C\uB77C\uC774\uC5B8\uC2A4','\uCD5C\uC885\uCCB4\uD06C\uC778'],intunePcs.map(function(p){
+    mkT($('t-intune'),['기기명','사용자','모델','EDR','컴플라이언스','체크인'],intunePcs.map(function(p){
       var c=p.last_checkin||'';var old=c&&(new Date()-new Date(c))>7*86400e3;
-      var comp=p.compliance==='Compliant'?ch('\uC900\uC218','g'):(p.compliance==='Noncompliant'?ch('\uBBF8\uC900\uC218','r'):ch(p.compliance||'-','m'));
-      return[esc(p.name||''),esc(p.model||''),esc(p.os||''),esc(p.user_display||p.user||''),esc(p.serial||'-'),comp,old?ch(c.substring(0,10),'r'):ch(c.substring(0,10),'g')]
-    }),{col:6,asc:false});
+      var comp=p.compliance==='Compliant'?ch('준수','g'):(p.compliance==='Noncompliant'?ch('미준수','r'):ch(p.compliance||'-','m'));
+      var pn=(p.name||'').toLowerCase();var si=s1Map[pn];
+      var ec=si?(si.threats>0?ch('위협 '+si.threats,'r'):ch('보호','g')):ch('미설치','r');
+      return[esc(p.name||''),esc(p.user_display||p.user||''),esc(p.model||''),ec,comp,old?ch(c.substring(0,10),'r'):ch(c.substring(0,10),'g')]
+    }),{col:5,asc:false});
     $('intune-c').textContent=intunePcs.length+'\uB300';
-  }
-  /* ── SentinelOne (EDR) ── */
-  if(s1.length&&$('t-s1')){
-    var s1mac=s1.filter(function(a){return(a.name||'').indexOf('Lv-i ')===0}).length;
-    var s1win=s1.filter(function(a){return(a.name||'').indexOf('DESKTOP-')===0}).length;
-    var s1other=s1.length-s1mac-s1win;
-    $('s1-fb').innerHTML='<span class="fb-btn on" onclick="window._fs1(\'all\',this)">전체 ('+s1.length+')</span>'
-      +'<span class="fb-btn" onclick="window._fs1(\'mac\',this)">macOS ('+s1mac+')</span>'
-      +'<span class="fb-btn" onclick="window._fs1(\'win\',this)">Windows ('+s1win+')</span>'
-      +(s1other?'<span class="fb-btn" onclick="window._fs1(\'other\',this)">기타 ('+s1other+')</span>':'');
-    window._s1All=s1;window._renderS1=function(list){
-      mkT($('t-s1'),['기기명','사용자','OS','그룹','위협','최근 활동'],list.map(function(a){
-        return[esc(a.name||''),esc(a.user||''),
-          a.os?ch(a.os,'b'):(a.name||'').indexOf('Lv-i ')===0?ch('macOS','b'):(a.name||'').indexOf('DESKTOP-')===0?ch('Windows','c'):ch('-','m'),
-          esc(a.group||''),a.threats>0?ch(a.threats,'r'):ch('0','g'),esc((a.last_seen||'').substring(0,16))]}));
-      $('s1-c').textContent=list.length+'대';
-    };window._renderS1(s1);
   }
   /* S1 위협 상세 — 시간 내림차순 */
   if(s1t.length&&$('t-s1-threats')){
@@ -738,21 +736,8 @@ function renderAsset(d){
         esc((t.file_path||'').substring(0,60))]}),{col:0,asc:false});
     $('s1t-c').textContent=s1t.length+'\uAC74';
   }
-  /* Endpoint 교차 검증 */
-  if(epxv.jamf_total&&$('ep-xv')){
-    var xvh='<div class="xv-stat">'
-      +'<div><div class="xv-num" style="color:var(--blue)">'+epxv.jamf_total+'</div><div class="xv-lbl">Jamf (MDM)</div></div>'
-      +'<div><div class="xv-num" style="color:var(--accent)">'+epxv.s1_total+'</div><div class="xv-lbl">SentinelOne (EDR)</div></div>'
-      +'<div><div class="xv-num" style="color:var(--green)">'+epxv.matched+'</div><div class="xv-lbl">양쪽 보호</div></div>'
-      +'<div><div class="xv-num" style="color:var(--red)">'+(epxv.jamf_only_count||0)+'</div><div class="xv-lbl">EDR 미설치</div></div>'
-      +'<div><div class="xv-num" style="color:var(--yellow)">'+(epxv.s1_only_count||0)+'</div><div class="xv-lbl">MDM 미등록</div></div>'
-      +'</div>';
-    if(epxv.jamf_only&&epxv.jamf_only.length)xvh+='<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--red);margin-bottom:6px">SentinelOne 미설치 (즉시 조치 필요)</div><div class="stbl"><table id="t-ep-missing"></table></div></div>';
-    $('ep-xv').innerHTML=xvh;
-    if(epxv.jamf_only&&epxv.jamf_only.length&&$('t-ep-missing'))mkT($('t-ep-missing'),['기기명','사용자','시리얼','모델'],epxv.jamf_only.map(function(j){return[esc(j.name),esc(j.user),esc(j.serial),esc(j.model)]}));
-  }
 }
-window._fs1=function(f,el){document.querySelectorAll('#s1-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');var list=f==='all'?window._s1All:f==='mac'?window._s1All.filter(function(a){return(a.name||'').indexOf('Lv-i ')===0}):f==='win'?window._s1All.filter(function(a){return(a.name||'').indexOf('DESKTOP-')===0}):window._s1All.filter(function(a){return(a.name||'').indexOf('Lv-i ')!==0&&(a.name||'').indexOf('DESKTOP-')!==0});window._renderS1(list)};
+
 window._fpc=function(dept,el){document.querySelectorAll('#pc-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');var list=dept==='all'?window._jamfAll:window._jamfAll.filter(function(p){return(p.department||'N/A')===dept});window._renderPc(list)};
 
 /* ═══ Infra ═══ */
