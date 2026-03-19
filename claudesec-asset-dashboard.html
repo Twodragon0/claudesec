@@ -672,55 +672,6 @@ function renderAsset(d){
   var authMap={};saas.forEach(function(s){var a=s.auth||'N/A';authMap[a]=(authMap[a]||0)+1});
   var ai=Object.entries(authMap).sort(function(a,b){return b[1]-a[1]}).map(function(e){return{l:e[0],v:e[1],t:e[1]+'\uAC1C ('+Math.round(e[1]/saas.length*100)+'%)',color:e[0].toLowerCase().includes('okta')?'var(--blue)':e[0].toLowerCase().includes('google')?'var(--accent)':'var(--red)'}});
   mkBar($('auth-bars'),ai,Math.max.apply(null,ai.map(function(x){return x.v}).concat([1])));
-  /* SSO Migration tracker */
-  if(saas.length){
-    var ssoKw=['sso','okta','saml'];
-    var ssoApps=saas.filter(function(s){var a=(s.auth||'').toLowerCase();return ssoKw.some(function(k){return a.indexOf(k)>=0})});
-    var googleApps=saas.filter(function(s){var a=(s.auth||'').toLowerCase();return a.indexOf('google')>=0&&!ssoKw.some(function(k){return a.indexOf(k)>=0})});
-    var idpwApps=saas.filter(function(s){var a=(s.auth||'').toLowerCase();return a.indexOf('id/pw')>=0||a.indexOf('id pw')>=0||a==='id/pw'});
-    var otherApps=saas.filter(function(s){var a=(s.auth||'').toLowerCase();return!ssoKw.some(function(k){return a.indexOf(k)>=0})&&a.indexOf('google')<0&&a.indexOf('id/pw')<0&&a.indexOf('id pw')<0&&a!=='id/pw'});
-    var ssoPct=Math.round(ssoApps.length/saas.length*100);
-    var gPct=Math.round(googleApps.length/saas.length*100);
-    var pctColor=ssoPct>=70?'var(--green)':ssoPct>=50?'var(--yellow)':'var(--red)';
-    el.innerHTML+='<div class="cd"><h3>SSO \uB9C8\uC774\uADF8\uB808\uC774\uC158 \uC9C4\uD589\uB960</h3><div style="padding:16px" id="sso-track"></div></div>';
-    var sh='<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">';
-    sh+='<div style="flex:1;height:10px;background:var(--border);border-radius:5px;overflow:hidden;display:flex">';
-    sh+='<div style="width:'+ssoPct+'%;background:var(--blue);height:100%" title="Okta SSO '+ssoPct+'%"></div>';
-    sh+='<div style="width:'+gPct+'%;background:var(--accent);height:100%" title="Google SSO '+gPct+'%"></div>';
-    sh+='</div>';
-    sh+='<span style="font-size:14px;font-weight:700;color:'+pctColor+'">'+Math.round((ssoApps.length+googleApps.length)/saas.length*100)+'%</span>';
-    sh+='</div>';
-    sh+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">';
-    sh+='<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--blue);color:#fff">Okta SSO '+ssoApps.length+' ('+ssoPct+'%)</span>';
-    sh+='<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--accent);color:#fff">Google '+googleApps.length+' ('+gPct+'%)</span>';
-    sh+='<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--red);color:#fff">ID/PW '+idpwApps.length+'</span>';
-    if(otherApps.length)sh+='<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--yellow);color:#000">Other '+otherApps.length+'</span>';
-    sh+='</div>';
-    if(idpwApps.length){
-      sh+='<div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--red)">SSO \uC804\uD658 \uD544\uC694 (ID/PW)</div>';
-      sh+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px">';
-      idpwApps.forEach(function(s){
-        var hr=['adp','carta','anthem','hartford','payroll','\uC6D4\uAE09'].some(function(k){return(s.name||'').toLowerCase().indexOf(k)>=0||(s.category||'').toLowerCase().indexOf(k)>=0});
-        var pri=hr?'r':'y';var priL=hr?'\uB192\uC74C':'\uC911\uAC04';
-        sh+='<div style="padding:6px 10px;border:1px solid var(--border);border-left:3px solid var(--'+pri+');border-radius:6px;font-size:11px">';
-        sh+='<strong>'+esc(s.name||'')+'</strong> '+ch(priL,pri);
-        if(s.category)sh+='<div style="color:var(--muted);font-size:10px">'+esc(s.category)+'</div>';
-        sh+='</div>';
-      });
-      sh+='</div>';
-    }
-    if(otherApps.length){
-      sh+='<div style="font-size:12px;font-weight:600;margin:10px 0 6px;color:var(--yellow)">SSO \uAC80\uD1A0 \uD544\uC694 (\uAE30\uD0C0 \uC778\uC99D)</div>';
-      sh+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px">';
-      otherApps.forEach(function(s){
-        sh+='<div style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:11px">';
-        sh+='<strong>'+esc(s.name||'')+'</strong> <span style="color:var(--muted)">'+esc(s.auth||'')+'</span>';
-        sh+='</div>';
-      });
-      sh+='</div>';
-    }
-    $('sso-track').innerHTML=sh;
-  }
   /* Jamf Pro PC table */
   var jamfPcs=d.jamf_pcs||[];
   if(jamfPcs.length){
@@ -925,7 +876,9 @@ function renderSaaS(d){
   var idpwCount=saas.filter(function(s){return(s.auth||'').match(/id\/pw|ip\/pw/i)&&!(s.auth||'').toLowerCase().includes('mfa')}).length;
   var activeL=lic.filter(function(l){return l.status==='\uC0AC\uC6A9 \uC911'}).length;
   var el=$('p-saas'),t=window._ts||{};
-  el.innerHTML=tsBar([{src:'Google Sheets',time:t.google_sheets}])+'<div id="k-saas" class="kpis"></div><input class="search-input" id="saas-search" placeholder="SaaS \uAC80\uC0C9 (\uC774\uB984, \uCE74\uD14C\uACE0\uB9AC, \uC81C\uACF5\uC0AC)..."><div class="cat-chips" id="saas-cats"></div><div style="padding:0 0 16px" id="saas-gauges"></div><div class="g2"><div class="cd"><h3>SaaS \uC790\uC0B0 <span class="bg" id="saas-c"></span></h3><div class="stbl"><table id="t-saas"></table></div></div><div class="cd"><h3>\uB77C\uC774\uC120\uC2A4 \uD604\uD669 <span class="bg" id="lic-c"></span></h3><div class="stbl"><table id="t-lic"></table></div></div></div>';
+  el.innerHTML=tsBar([{src:'Google Sheets',time:t.google_sheets}])+'<div id="k-saas" class="kpis"></div><input class="search-input" id="saas-search" placeholder="SaaS \uAC80\uC0C9 (\uC774\uB984, \uCE74\uD14C\uACE0\uB9AC, \uC81C\uACF5\uC0AC)..." aria-label="SaaS 검색"><div class="cat-chips" id="saas-cats"></div><div style="padding:0 0 16px" id="saas-gauges"></div>'
+    +'<div class="cd"><h3>SSO 마이그레이션 현황</h3><div style="padding:16px" id="saas-sso-track"></div></div>'
+    +'<div class="g2"><div class="cd"><h3>SaaS \uC790\uC0B0 <span class="bg" id="saas-c"></span></h3><div class="stbl"><table id="t-saas"></table></div></div><div class="cd"><h3>\uB77C\uC774\uC120\uC2A4 \uD604\uD669 <span class="bg" id="lic-c"></span></h3><div class="stbl"><table id="t-lic"></table></div></div></div>';
   mkK($('k-saas'),[
     {l:'SaaS',v:saas.length,c:'b'},{l:'\uB77C\uC774\uC120\uC2A4(\uD65C\uC131)',v:activeL,c:'g'},
     {l:'\uB77C\uC774\uC120\uC2A4(\uBBF8\uC0AC\uC6A9)',v:lic.length-activeL,s:'\uBE44\uC6A9 \uC808\uAC10 \uB300\uC0C1',c:'r'},
@@ -944,6 +897,7 @@ function renderSaaS(d){
   mkT($('t-lic'),['\uD504\uB85C\uADF8\uB7A8','\uC124\uBA85','\uC0C1\uD0DC','\uBD80\uC11C','\uACC4\uC815\uC218','\uBE44\uC6A9','\uC8FC\uAE30','\uACC4\uC57D\uAE30\uAC04'],lic.map(function(l){return[esc(l.name),esc(l.description||''),stCh(l.status),esc(l.department||''),esc(l.accounts||''),esc(l.cost||''),esc(l.cycle||''),esc(l.contract_period||'-')]}));
   $('lic-c').textContent=lic.length+'\uAC1C';
   $('saas-search').addEventListener('input',function(){_applyFilter()});
+  _renderSsoTrack(saas);
 }
 function _renderSaaST(list){
   mkT($('t-saas'),['No','\uAD6C\uBD84','\uC790\uC0B0\uBA85','\uC124\uBA85','\uC81C\uACF5\uC0AC','\uC778\uC99D','\uACC4\uC57D\uAE30\uAC04'],list.map(function(s){return[esc(s.no),ch(s.category||'','b'),esc(s.name),esc(s.description||''),esc(s.provider||''),authCh(s.auth,s.sso),esc(s.contract_period||'-')]}));
@@ -960,6 +914,56 @@ window._fSaaS=function(cat,el){
   document.querySelectorAll('#saas-cats .cat-chip').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
   window._saasCat=cat;_applyFilter();
 };
+/* SSO tracking in SaaS tab */
+function _renderSsoTrack(saas){
+  var el=$('saas-sso-track');if(!el||!saas.length)return;
+  var ssoKw=['sso','okta','saml'];
+  var ssoApps=saas.filter(function(s){var a=(s.auth||'').toLowerCase();return ssoKw.some(function(k){return a.indexOf(k)>=0})});
+  var googleApps=saas.filter(function(s){var a=(s.auth||'').toLowerCase();return a.indexOf('google')>=0&&!ssoKw.some(function(k){return a.indexOf(k)>=0})});
+  var idpwApps=saas.filter(function(s){var a=(s.auth||'').toLowerCase();return a.indexOf('id/pw')>=0||a.indexOf('id pw')>=0||a==='id/pw'});
+  var otherApps=saas.filter(function(s){var a=(s.auth||'').toLowerCase();return!ssoKw.some(function(k){return a.indexOf(k)>=0})&&a.indexOf('google')<0&&a.indexOf('id/pw')<0&&a.indexOf('id pw')<0&&a!=='id/pw'});
+  var ssoPct=Math.round(ssoApps.length/saas.length*100);
+  var gPct=Math.round(googleApps.length/saas.length*100);
+  var totalPct=Math.round((ssoApps.length+googleApps.length)/saas.length*100);
+  var pctColor=totalPct>=70?'var(--green)':totalPct>=50?'var(--yellow)':'var(--red)';
+  var sh='<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">';
+  sh+='<div style="flex:1;height:10px;background:var(--border);border-radius:5px;overflow:hidden;display:flex">';
+  sh+='<div style="width:'+ssoPct+'%;background:var(--blue);height:100%" title="Okta SSO '+ssoPct+'%"></div>';
+  sh+='<div style="width:'+gPct+'%;background:var(--accent);height:100%" title="Google SSO '+gPct+'%"></div>';
+  sh+='</div>';
+  sh+='<span style="font-size:14px;font-weight:700;color:'+pctColor+'">'+totalPct+'%</span>';
+  sh+='</div>';
+  sh+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">';
+  sh+='<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--blue);color:#fff">Okta SSO '+ssoApps.length+' ('+ssoPct+'%)</span>';
+  sh+='<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--accent);color:#fff">Google '+googleApps.length+' ('+gPct+'%)</span>';
+  sh+='<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--red);color:#fff">ID/PW '+idpwApps.length+'</span>';
+  if(otherApps.length)sh+='<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--yellow);color:#000">Other '+otherApps.length+'</span>';
+  sh+='</div>';
+  if(idpwApps.length){
+    sh+='<div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--red)">SSO 전환 필요 (ID/PW)</div>';
+    sh+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px">';
+    idpwApps.forEach(function(s){
+      var hr=['adp','carta','anthem','hartford','payroll','\uC6D4\uAE09'].some(function(k){return(s.name||'').toLowerCase().indexOf(k)>=0||(s.category||'').toLowerCase().indexOf(k)>=0});
+      var pri=hr?'r':'y';var priL=hr?'높음':'중간';
+      sh+='<div style="padding:6px 10px;border:1px solid var(--border);border-left:3px solid var(--'+pri+');border-radius:6px;font-size:11px">';
+      sh+='<strong>'+esc(s.name||'')+'</strong> '+ch(priL,pri);
+      if(s.category)sh+='<div style="color:var(--muted);font-size:10px">'+esc(s.category)+'</div>';
+      sh+='</div>';
+    });
+    sh+='</div>';
+  }
+  if(otherApps.length){
+    sh+='<div style="font-size:12px;font-weight:600;margin:10px 0 6px;color:var(--yellow)">SSO 검토 필요 (기타 인증)</div>';
+    sh+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px">';
+    otherApps.forEach(function(s){
+      sh+='<div style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:11px">';
+      sh+='<strong>'+esc(s.name||'')+'</strong> <span style="color:var(--muted)">'+esc(s.auth||'')+'</span>';
+      sh+='</div>';
+    });
+    sh+='</div>';
+  }
+  el.innerHTML=sh;
+}
 
 /* ═══ Cost ═══ */
 function renderCost(d){
