@@ -756,12 +756,12 @@ window._fpc=function(dept,el){document.querySelectorAll('#pc-fb .fb-btn').forEac
 /* ═══ Infra ═══ */
 function renderInfra(d){
   var dd=d.datadog||{},hosts=dd.hosts||[],inf=d.infra||{};
-  var envs=[],seen={};
-  hosts.forEach(function(h){var e=h.aws_alias||h.env||'unknown';if(!seen[e]){seen[e]=1;envs.push(e)}});
-  liveEc2.forEach(function(e){var p=e._profile||'unknown';if(!seen[p]){seen[p]=1;envs.push(p)}});
   var el=$('p-infra');
   var awsLive=d.aws_live||{},xv=d.cross_verify||window._xv||{};
   var liveEc2=awsLive.ec2||[],liveRds=awsLive.rds||[],liveCache=awsLive.elasticache||[],liveS3=awsLive.s3||[],liveEks=awsLive.eks||[];
+  var envs=[],seen={};
+  hosts.forEach(function(h){var e=h.aws_alias||h.env||'unknown';if(!seen[e]){seen[e]=1;envs.push(e)}});
+  liveEc2.forEach(function(e){var p=e._profile||'unknown';if(!seen[p]){seen[p]=1;envs.push(p)}});
   var t=window._ts||{};
 
   /* ── Merge & Deduplicate: AWS EC2 + Datadog + Sheet → unified server list ── */
