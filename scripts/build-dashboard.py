@@ -171,14 +171,28 @@ def collect_prowler():
     def _is_critical_or_high(f):
         return (f.get("severity") or "").lower() in ("high", "critical")
 
+    # Truncated check names → verified full names on hub.prowler.com
+    _PROWLER_NAME_FIX = {
+        "core_minimize_containers_added_capabiliti": "core_minimize_containers_added_capabilities",
+        "iam_aws_attached_policy_no_administrative_privil": "iam_aws_attached_policy_no_administrative_privileges",
+    }
+    # Check names known to NOT exist on hub.prowler.com
+    _PROWLER_HUB_BLOCKLIST = {"iac-branch", "slack-web-hook"}
+
     def _prowler_hub_url(check_id: str) -> str:
         """Generate validated Prowler Hub URL from check ID."""
         import re as _re
-        if not check_id or "iac-branch" in check_id:
+        if not check_id:
             return ""
         name = _re.sub(r"^prowler-[a-z]+-", "", check_id)
-        name = _re.sub(r"-\d{12}.*$", "", name)  # AWS account ID
-        name = _re.sub(r"-[0-9a-f]{5,}$", "", name)  # hex hash
+        name = _re.sub(r"-iac-branch-\.[a-z0-9/]+$", "", name)
+        name = _re.sub(r"-\d{12}.*$", "", name)
+        name = _re.sub(r"-[0-9a-f]{5,}$", "", name)
+        # Skip blocklisted patterns
+        if any(bl in name for bl in _PROWLER_HUB_BLOCKLIST):
+            return ""
+        # Fix known truncated names
+        name = _PROWLER_NAME_FIX.get(name, name)
         return f"https://hub.prowler.com/check/{name}" if name else ""
 
     fail_sev = {}
@@ -187,12 +201,17 @@ def collect_prowler():
         fail_sev[s] = fail_sev.get(s, 0) + 1
 
     samples = []
+    seen_msgs = set()
     for f in failures:
         if _is_critical_or_high(f):
+            msg = f.get("message", f.get("status_detail", ""))[:150]
+            if msg in seen_msgs:
+                continue
+            seen_msgs.add(msg)
             um = f.get("unmapped", {})
             check_id = (f.get("finding_info", {}).get("uid", "") if isinstance(f.get("finding_info"), dict) else "")[:60]
             samples.append({
-                "message": f.get("message", f.get("status_detail", ""))[:150],
+                "message": msg,
                 "severity": f.get("severity", "High"),
                 "provider": um.get("provider", "") if isinstance(um, dict) else "",
                 "check": check_id,
@@ -949,6 +968,14 @@ def main():
     scan_path = ROOT / "scan-report.json"
     if scan_path.exists():
         scan = json.loads(scan_path.read_text())
+        # Normalize: scanner outputs "results", dashboard expects "findings"
+        if "results" in scan and "findings" not in scan:
+            scan["findings"] = scan.pop("results")
+        # Flatten summary fields to top level for dashboard compatibility
+        summary = scan.get("summary", {})
+        for k in ("score", "grade", "passed", "failed", "warnings", "skipped"):
+            if k not in scan and k in summary:
+                scan[k] = summary[k]
         print(f"  ClaudeSec: {scan.get('grade')}/{scan.get('score')}")
 
     scan_history = collect_scan_history()
