@@ -680,43 +680,49 @@ function renderAsset(d){
   var authMap={};saas.forEach(function(s){var a=s.auth||'N/A';authMap[a]=(authMap[a]||0)+1});
   var ai=Object.entries(authMap).sort(function(a,b){return b[1]-a[1]}).map(function(e){return{l:e[0],v:e[1],t:e[1]+'\uAC1C ('+Math.round(e[1]/saas.length*100)+'%)',color:e[0].toLowerCase().includes('okta')?'var(--blue)':e[0].toLowerCase().includes('google')?'var(--accent)':'var(--red)'}});
   mkBar($('auth-bars'),ai,Math.max.apply(null,ai.map(function(x){return x.v}).concat([1])));
-  /* Jamf Pro PC table */
+  /* ── Apple 디바이스 (Jamf Pro) — Mac + iOS 통합 ── */
   var jamfPcs=d.jamf_pcs||[];
-  if(jamfPcs.length){
-    el.innerHTML+='<div class="cd"><h3>\uD83D\uDCBB PC \uC790\uC0B0 (Jamf Pro) <span class="bg" id="pc-c"></span></h3><div style="padding:4px 16px 8px"><input id="pc-search" class="search-input" placeholder="PC 검색 (사용자, 모델, IP)..." aria-label="PC 검색"></div><div class="fb" id="pc-fb"></div><div class="stbl"><table id="t-pc"></table></div></div>';
-    var depts={};jamfPcs.forEach(function(p){var dd=p.department||'N/A';depts[dd]=(depts[dd]||0)+1});
-    $('pc-fb').innerHTML='<span class="fb-btn on" onclick="window._fpc(\'all\',this)">\uC804\uCCB4</span>'+Object.keys(depts).sort().map(function(dd){return'<span class="fb-btn" onclick="window._fpc(\''+esc(dd)+'\',this)">'+esc(dd)+' ('+depts[dd]+')</span>'}).join('');
-    window._jamfAll=jamfPcs;
-    /* Build S1 lookup for cross-verification */
-    var s1Map={};s1.forEach(function(a){var n=(a.name||'').toLowerCase();s1Map[n]={threats:a.threats||0,group:a.group||'',last:a.last_seen||''}});
-    window._renderPc=function(pcs){mkT($('t-pc'),['사용자','이름','모델','EDR','Zscaler','Okta','체크인','상태'],pcs.map(function(p){
-      var c=p.last_checkin||'';var days=c?Math.floor((Date.now()-new Date(c.replace('T',' ')).getTime())/86400e3):999;
-      var departed=p.status==='departed';
-      var statusCell=departed?ch('퇴사','r'):(days>30?ch('미접속 '+days+'일','r'):(days>7?ch(days+'일 전','y'):ch('정상','g')));
-      var zCell=(p.zscaler_status||'').indexOf('Not logged')>=0?ch('미접속','r'):(p.zscaler_status||'').indexOf('Zscaler')>=0?ch('접속','g'):ch('-','m');
-      var oktaCell=p.okta_active?ch('활성','g'):ch('미확인','m');
-      /* S1 cross-verify */
-      var pName=(p.name||'').toLowerCase();
-      var s1Info=s1Map[pName];
-      var edrCell=s1Info?(s1Info.threats>0?ch('위협 '+s1Info.threats,'r'):ch('보호','g')):ch('미설치','r');
-      return[esc(p.user||''),esc(p.display_name||'-'),esc(p.model||'').replace(/MacBook Pro /,'MBP '),edrCell,zCell,oktaCell,esc((c||'').substring(0,10)),statusCell]
-    }),{col:6,asc:false});$('pc-c').textContent=pcs.length+'대'};
-    window._renderPc(jamfPcs);
+  var allApple=jamfPcs.concat(jamfMobiles.map(function(m){return Object.assign({},m,{_type:'ios'})}));
+  var s1Map={};s1.forEach(function(a){var n=(a.name||'').toLowerCase();s1Map[n]={threats:a.threats||0,group:a.group||'',last:a.last_seen||''}});
+  if(allApple.length){
+    var macCount=jamfPcs.length,iosCount=jamfMobiles.length;
+    el.innerHTML+='<div class="cd"><h3>\uD83D\uDCBB Apple 디바이스 (Jamf Pro) <span class="bg" id="pc-c"></span></h3>'
+      +'<div style="padding:4px 16px 8px"><input id="pc-search" class="search-input" placeholder="디바이스 검색 (사용자, 모델, 시리얼)..." aria-label="디바이스 검색"></div>'
+      +'<div class="fb" id="pc-fb"></div><div class="stbl"><table id="t-pc"></table></div></div>';
+    $('pc-fb').innerHTML='<span class="fb-btn on" onclick="window._fpc(\'all\',this)">전체 ('+allApple.length+')</span>'
+      +'<span class="fb-btn" onclick="window._fpc(\'mac\',this)">macOS ('+macCount+')</span>'
+      +'<span class="fb-btn" onclick="window._fpc(\'ios\',this)">iOS ('+iosCount+')</span>';
+    window._allApple=allApple;
+    window._renderApple=function(list){
+      mkT($('t-pc'),['사용자','이름','플랫폼','모델','EDR','Okta','체크인','상태'],list.map(function(p){
+        var isIos=p._type==='ios';
+        var c=p.last_checkin||'';var days=c?Math.floor((Date.now()-new Date(c.replace('T',' ')).getTime())/86400e3):999;
+        var departed=p.status==='departed';
+        var statusCell=departed?ch('퇴사','r'):(days>30?ch('미접속 '+days+'일','r'):(days>7?ch(days+'일 전','y'):ch('정상','g')));
+        var platform=isIos?ch('iOS','p'):ch('macOS','b');
+        var pName=(p.name||'').toLowerCase();var s1i=s1Map[pName];
+        var edrCell=isIos?ch('N/A','m'):(s1i?(s1i.threats>0?ch('위협 '+s1i.threats,'r'):ch('보호','g')):ch('미설치','r'));
+        var oktaCell=p.okta_active?ch('활성','g'):(isIos?ch('-','m'):ch('미확인','m'));
+        var userName=isIos?esc(p.name||''):esc(p.user||'');
+        var dispName=isIos?'-':esc(p.display_name||'-');
+        var modelStr=esc(p.model||'').replace(/MacBook Pro /,'MBP ');
+        return[userName,dispName,platform,modelStr,edrCell,oktaCell,esc((c||'').substring(0,10)),statusCell]
+      }),{col:6,asc:false});
+      $('pc-c').textContent=list.length+'대';
+    };
+    window._fpc=function(f,el){
+      document.querySelectorAll('#pc-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
+      if(f==='all')window._renderApple(window._allApple);
+      else if(f==='mac')window._renderApple(window._allApple.filter(function(p){return!p._type}));
+      else if(f==='ios')window._renderApple(window._allApple.filter(function(p){return p._type==='ios'}));
+    };
+    window._renderApple(allApple);
     mkSearch($('pc-search'),$('t-pc'));
-  }
-  /* Jamf Mobile devices (QA) */
-  if(jamfMobiles.length){
-    el.innerHTML+='<div class="cd"><h3>\uD83D\uDCF1 \uBAA8\uBC14\uC77C QA \uAE30\uAE30 (Jamf Pro) <span class="bg" id="mob-c"></span></h3><div class="stbl"><table id="t-mob"></table></div></div>';
-    mkT($('t-mob'),['\uAE30\uAE30\uBA85','\uBAA8\uB378','OS','\uC2DC\uB9AC\uC5BC','IMEI','\uCD5C\uC885 \uC5C5\uB370\uC774\uD2B8'],jamfMobiles.map(function(m){
-      var c=m.last_checkin||'';var old=c&&(new Date()-new Date(c))>14*86400e3;
-      return[esc(m.name||''),esc(m.model||''),'iOS '+esc(m.os||''),esc(m.serial||''),esc(m.imei||'-'),old?ch(c.substring(0,10),'r'):ch(c.substring(0,10),'g')]
-    }));
-    $('mob-c').textContent=jamfMobiles.length+'\uB300';
   }
   /* ── Intune (Windows PC) ── */
   var intunePcs=d.intune_pcs||[];
   if(intunePcs.length){
-    el.innerHTML+='<div class="cd"><h3>\uD83D\uDDA5 Windows PC (Intune) <span class="bg" id="intune-c"></span></h3><div class="stbl"><table id="t-intune"></table></div></div>';
+    el.innerHTML+='<div class="cd"><h3>\uD83D\uDDA5 Windows PC (Intune) <span class="bg" id="intune-c"></span></h3><div style="padding:4px 16px 8px"><input id="intune-search" class="search-input" placeholder="Windows 검색 (기기명, 사용자)..." aria-label="Windows PC 검색"></div><div class="stbl"><table id="t-intune"></table></div></div>';
     mkT($('t-intune'),['기기명','사용자','모델','EDR','컴플라이언스','체크인'],intunePcs.map(function(p){
       var c=p.last_checkin||'';var old=c&&(new Date()-new Date(c))>7*86400e3;
       var comp=p.compliance==='Compliant'?ch('준수','g'):(p.compliance==='Noncompliant'?ch('미준수','r'):ch(p.compliance||'-','m'));
@@ -724,7 +730,8 @@ function renderAsset(d){
       var ec=si?(si.threats>0?ch('위협 '+si.threats,'r'):ch('보호','g')):ch('미설치','r');
       return[esc(p.name||''),esc(p.user_display||p.user||''),esc(p.model||''),ec,comp,old?ch(c.substring(0,10),'r'):ch(c.substring(0,10),'g')]
     }),{col:5,asc:false});
-    $('intune-c').textContent=intunePcs.length+'\uB300';
+    $('intune-c').textContent=intunePcs.length+'대';
+    mkSearch($('intune-search'),$('t-intune'));
   }
   /* S1 위협 상세 — 시간 내림차순 */
   if(s1t.length&&$('t-s1-threats')){
@@ -738,7 +745,6 @@ function renderAsset(d){
   }
 }
 
-window._fpc=function(dept,el){document.querySelectorAll('#pc-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');var list=dept==='all'?window._jamfAll:window._jamfAll.filter(function(p){return(p.department||'N/A')===dept});window._renderPc(list)};
 
 /* ═══ Infra ═══ */
 function renderInfra(d){
