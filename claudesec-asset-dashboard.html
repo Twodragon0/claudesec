@@ -645,8 +645,8 @@ function _renderProwCards(el,rows,defaultColor){
   var html='';
   rows.forEach(function(f){
     var sevColor=f.severity==='Critical'?'var(--red)':f.severity==='High'?'var(--orange)':defaultColor||'var(--yellow)';
-    var checkId=(f.check||'').replace(/^prowler-[^-]+-/,'').replace(/-[a-f0-9]{6,}$/,'');
-    var hubUrl=checkId?'https://hub.prowler.com/check/'+encodeURIComponent(checkId):'';
+    var checkId=(f.check||'').replace(/^prowler-[^-]+-/,'').replace(/-[a-f0-9]{6,}$/,'').replace(/-\d{12}.*$/,'');
+    var hubUrl=f.hub_url||(checkId?'https://hub.prowler.com/check/'+encodeURIComponent(checkId):'');
     html+='<div style="border:1px solid var(--border);border-left:3px solid '+sevColor+';border-radius:8px;margin-bottom:8px;overflow:hidden;cursor:pointer" onclick="var d=this.querySelector(\'.prow-det\');var a=this.querySelector(\'.prow-arrow\');if(d.style.display===\'none\'){d.style.display=\'block\';a.textContent=\'\\u25BE\'}else{d.style.display=\'none\';a.textContent=\'\\u25B8\'}">';
     html+='<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--card2)">';
     html+=sevCh(f.severity)+' '+ch(f.provider||'','b');
