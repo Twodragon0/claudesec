@@ -90,6 +90,11 @@ tmp-*.png
 .claude/agents/
 .claude/hooks/
 
+# Summary/presentation files (internal, not for public repo)
+claudesec-summary-*.md
+claudesec-summary-*.pptx
+claudesec-summary-*.pdf
+
 # Architecture diagrams (auto-generated, may contain scan-specific data)
 docs/architecture/*.svg
 docs/architecture/*.drawio
