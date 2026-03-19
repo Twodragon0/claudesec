@@ -441,7 +441,9 @@ function renderSecUnified(d){
   mkK($('k-sec'),[
     {l:'ClaudeSec',v:sc.grade||'-',s:(sc.score||0)+'점',c:sc.grade==='A'?'g':sc.grade==='B'?'y':'r'},
     {l:'Prowler FAIL',v:pw.fail||0,c:'r',s:'총 '+(pw.total||0)},
+    {l:'Critical',v:sevD.Critical||0,c:(sevD.Critical||0)>0?'r':'g'},
     {l:'High',v:sevD.High||0,c:(sevD.High||0)>0?'r':'y'},
+    {l:'Medium',v:sevD.Medium||0,c:(sevD.Medium||0)>0?'y':'g'},
     {l:'SIEM',v:sigs.length+'건',c:sigs.length>5?'y':'g',s:'14일'},
     {l:'정기점검',v:audits.length+'회',c:'b'},
     {l:'S1 위협',v:(d.sentinelone||[]).reduce(function(a,b){return a+(b.threats||0)},0),c:'r'},
@@ -523,6 +525,7 @@ function renderSec(d){
   mkK($('k-sec'),[
     {l:'ClaudeSec',v:sc.grade||'-',s:(sc.score||0)+'점',c:sc.grade==='A'?'g':sc.grade==='B'?'y':'r'},
     {l:'Prowler FAIL',v:pw.fail||0,c:'r',s:'총 '+(pw.total||0)},
+    {l:'Critical',v:sevD2.Critical||0,c:(sevD2.Critical||0)>0?'r':'g'},
     {l:'High',v:sevD2.High||0,c:(sevD2.High||0)>0?'r':'y'},
     {l:'Prowler PASS',v:pw.pass||0,c:'g'},
     {l:'SIEM 시그널',v:sigs.length,c:'y',s:'14일'},
