@@ -680,12 +680,13 @@ function renderAsset(d){
     var depts={};jamfPcs.forEach(function(p){var dd=p.department||'N/A';depts[dd]=(depts[dd]||0)+1});
     $('pc-fb').innerHTML='<span class="fb-btn on" onclick="window._fpc(\'all\',this)">\uC804\uCCB4</span>'+Object.keys(depts).sort().map(function(dd){return'<span class="fb-btn" onclick="window._fpc(\''+esc(dd)+'\',this)">'+esc(dd)+' ('+depts[dd]+')</span>'}).join('');
     window._jamfAll=jamfPcs;
-    window._renderPc=function(pcs){mkT($('t-pc'),['사용자','모델','OS','IP','Zscaler','부서','체크인','상태'],pcs.map(function(p){
+    window._renderPc=function(pcs){mkT($('t-pc'),['사용자','이름','모델','Zscaler','Okta','체크인','상태'],pcs.map(function(p){
       var c=p.last_checkin||'';var days=c?Math.floor((Date.now()-new Date(c.replace('T',' ')).getTime())/86400e3):999;
       var departed=p.status==='departed';
       var statusCell=departed?ch('퇴사','r'):(days>30?ch('미접속 '+days+'일','r'):(days>7?ch(days+'일 전','y'):ch('정상','g')));
       var zCell=(p.zscaler_status||'').indexOf('Not logged')>=0?ch('미접속','r'):(p.zscaler_status||'').indexOf('Zscaler')>=0?ch('접속','g'):ch('-','m');
-      return[esc(p.user||''),esc(p.model||'').replace(/MacBook Pro /,'MBP '),esc((p.os||'').replace('macOS ','')),esc(p.ip||''),zCell,esc(p.department||'-'),esc((c||'').substring(0,10)),statusCell]
+      var oktaCell=p.okta_active?ch('활성','g'):ch('미확인','m');
+      return[esc(p.user||''),esc(p.display_name||'-'),esc(p.model||'').replace(/MacBook Pro /,'MBP '),zCell,oktaCell,esc((c||'').substring(0,10)),statusCell]
     }),{col:6,asc:false});$('pc-c').textContent=pcs.length+'대'};
     window._renderPc(jamfPcs);
     mkSearch($('pc-search'),$('t-pc'));
