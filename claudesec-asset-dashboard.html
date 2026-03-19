@@ -675,12 +675,19 @@ function renderAsset(d){
   /* Jamf Pro PC table */
   var jamfPcs=d.jamf_pcs||[];
   if(jamfPcs.length){
-    el.innerHTML+='<div class="cd"><h3>\uD83D\uDCBB PC \uC790\uC0B0 (Jamf Pro) <span class="bg" id="pc-c"></span></h3><div class="fb" id="pc-fb"></div><div class="stbl"><table id="t-pc"></table></div></div>';
+    el.innerHTML+='<div class="cd"><h3>\uD83D\uDCBB PC \uC790\uC0B0 (Jamf Pro) <span class="bg" id="pc-c"></span></h3><div style="padding:4px 16px 8px"><input id="pc-search" class="search-input" placeholder="PC 검색 (사용자, 모델, IP)..." aria-label="PC 검색"></div><div class="fb" id="pc-fb"></div><div class="stbl"><table id="t-pc"></table></div></div>';
     var depts={};jamfPcs.forEach(function(p){var dd=p.department||'N/A';depts[dd]=(depts[dd]||0)+1});
     $('pc-fb').innerHTML='<span class="fb-btn on" onclick="window._fpc(\'all\',this)">\uC804\uCCB4</span>'+Object.keys(depts).sort().map(function(dd){return'<span class="fb-btn" onclick="window._fpc(\''+esc(dd)+'\',this)">'+esc(dd)+' ('+depts[dd]+')</span>'}).join('');
     window._jamfAll=jamfPcs;
-    window._renderPc=function(pcs){mkT($('t-pc'),['\uD638\uC2A4\uD2B8\uBA85','\uBAA8\uB378','OS','\uC2DC\uB9AC\uC5BC','\uC0AC\uC6A9\uC790','\uBD80\uC11C','\uCD5C\uC885\uCCB4\uD06C\uC778'],pcs.map(function(p){var c=p.last_checkin||'';var old=c&&(new Date()-new Date(c))>7*86400e3;var departed=p.status==='departed';var nameCell=departed?esc(p.name||'')+' '+ch('\uD1F4\uC0AC','r'):esc(p.name||'');var checkinCell=departed?ch(c.substring(0,10),'r'):(old?ch(c.substring(0,10),'r'):ch(c.substring(0,10),'g'));return[nameCell,esc(p.model||''),esc(p.os||''),esc(p.serial||''),esc(p.user||''),esc(p.department||''),checkinCell]}));$('pc-c').textContent=pcs.length+'\uB300'};
+    window._renderPc=function(pcs){mkT($('t-pc'),['사용자','모델','OS','프로세서','IP','Zscaler','배터리','체크인','상태'],pcs.map(function(p){
+      var c=p.last_checkin||'';var days=c?Math.floor((Date.now()-new Date(c.replace('T',' ')).getTime())/86400e3):999;
+      var statusCell=days>30?ch('미접속 '+days+'일','r'):(days>7?ch(days+'일 전','y'):ch('정상','g'));
+      var zCell=(p.zscaler_status||'').indexOf('Not logged')>=0?ch('미접속','r'):ch('접속','g');
+      var batCell=p.battery_capacity?(parseInt(p.battery_capacity)<=80?ch(p.battery_capacity+'%','r'):ch(p.battery_capacity+'%','g')):ch('-','m');
+      return[esc(p.user||''),esc(p.model||'').replace(/MacBook Pro /,'MBP '),esc((p.os||'').replace('macOS ','')),esc((p.processor||'').replace('Apple ','')),esc(p.ip||''),zCell,batCell,esc((c||'').substring(0,10)),statusCell]
+    }),{col:7,asc:false});$('pc-c').textContent=pcs.length+'대'};
     window._renderPc(jamfPcs);
+    mkSearch($('pc-search'),$('t-pc'));
   }
   /* Jamf Mobile devices (QA) */
   if(jamfMobiles.length){

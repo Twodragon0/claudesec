@@ -17,7 +17,8 @@ import gspread
 
 # ── 설정 ─────────────────────────────────────────────────────────────────────
 
-SHEET_ID   = "YOUR_SHEET_ID"
+import os
+SHEET_ID   = os.environ.get("ASSET_SHEET_ID", "YOUR_SHEET_ID")
 WORKSHEET  = "5.PC"
 HEADER_ROW = 8   # row 8 = 헤더 (1-indexed)
 DATA_START  = 9  # row 9 = 데이터 시작
@@ -31,7 +32,8 @@ print(f"[1/4] Jamf 인벤토리 로드: {INVENTORY_JSON}")
 with open(INVENTORY_JSON, encoding="utf-8") as f:
     all_devices = json.load(f)
 
-computers = [d for d in all_devices if d.get("type") == "computer"]
+# Jamf CSV export has no "type" field — all entries are computers
+computers = [d for d in all_devices if d.get("source") == "jamf" or d.get("serial")]
 print(f"      전체 장치: {len(all_devices)}개  →  computer: {len(computers)}개")
 
 # ── 사용자 이름 기준 정렬 ──────────────────────────────────────────────────────
@@ -40,31 +42,54 @@ computers.sort(key=lambda d: (d.get("user") or "").lower())
 
 # ── 행 데이터 생성 ─────────────────────────────────────────────────────────────
 
-def edr_status(device: dict) -> str:
-    return "설치됨" if device.get("status") == "active" else "퇴사"
+def checkin_status(device: dict) -> str:
+    """30일 이상 미접속이면 경고 표시."""
+    checkin = device.get("last_checkin", "")
+    if not checkin:
+        return "N/A"
+    from datetime import datetime, timedelta, timezone
+    try:
+        dt = datetime.fromisoformat(checkin)
+        days = (datetime.now(timezone(timedelta(hours=9))) - dt.replace(tzinfo=timezone(timedelta(hours=9)))).days
+        if days > 30:
+            return f"미접속 {days}일"
+        return "정상"
+    except Exception:
+        return "정상"
 
 rows = []
 for idx, device in enumerate(computers, start=1):
     row = [
-        idx,                                # A: No
-        "자산",                              # B: (empty header → 자산)
-        "",                                 # C: 고정자산관리번호 (재무팀)
-        "",                                 # D: 자산코드
-        "",                                 # E: 관리번호
-        "",                                 # F: 자산번호
-        "전산장비",                           # G: 자산분류
-        "노트북",                             # H: 자산명
-        "Apple",                            # I: 브랜드
-        device.get("model", ""),            # J: 형식(모델명)
-        "",                                 # K: 모델번호
-        device.get("name", ""),             # L: SentinelOne 기기명
-        device.get("serial", ""),           # M: 시리얼번호
-        edr_status(device),                 # N: EDR 상태
+        idx,                                           # A: No
+        "자산",                                         # B: 구분
+        "",                                            # C: 고정자산관리번호
+        "",                                            # D: 자산코드
+        "",                                            # E: 관리번호
+        "",                                            # F: 자산번호
+        "전산장비",                                      # G: 자산분류
+        "노트북",                                        # H: 자산명
+        "Apple",                                       # I: 브랜드
+        device.get("model", ""),                       # J: 모델명
+        device.get("serial", ""),                      # K: 시리얼번호
+        device.get("name", ""),                        # L: Jamf 기기명
+        device.get("user", ""),                        # M: 사용자
+        device.get("os", ""),                          # N: OS 버전
+        device.get("processor", ""),                   # O: 프로세서
+        device.get("ip", ""),                          # P: IP 주소
+        device.get("mac_address", ""),                 # Q: MAC 주소
+        device.get("last_checkin", "").replace("T", " "),  # R: 마지막 체크인
+        checkin_status(device),                        # S: 접속 상태
+        device.get("battery", ""),                     # T: 배터리
+        str(device.get("battery_capacity", "")),       # U: 배터리 용량
+        device.get("zscaler_status", ""),              # V: Zscaler 상태
+        device.get("location", ""),                    # W: 위치
+        device.get("network", ""),                     # X: 네트워크
+        device.get("compliance", "").replace("\n", " ").strip(),  # Y: 컴플라이언스
     ]
     rows.append(row)
 
-departed_count = sum(1 for d in computers if d.get("status") != "active")
-print(f"      작성 행: {len(rows)}개  (퇴사: {departed_count}개)")
+stale_count = sum(1 for d in computers if "미접속" in checkin_status(d))
+print(f"      작성 행: {len(rows)}개  (30일+ 미접속: {stale_count}개)")
 
 # ── Google Sheets 인증 ────────────────────────────────────────────────────────
 
@@ -100,7 +125,7 @@ if existing_row_count >= DATA_START:
 # 새 데이터 쓰기 (batch_update)
 if rows:
     end_row   = DATA_START + len(rows) - 1
-    end_col   = chr(ord("A") + len(rows[0]) - 1)   # N = 14번째 열
+    end_col   = chr(ord("A") + len(rows[0]) - 1)   # Y = 25번째 열
     write_range = f"A{DATA_START}:{end_col}{end_row}"
 
     ws.update(
@@ -116,6 +141,6 @@ print()
 print("=" * 50)
 print(f"[완료] 5.PC 워크시트 업데이트 성공")
 print(f"  - 총 PC 수      : {len(rows)}대")
-print(f"  - 재직 (설치됨) : {len(rows) - departed_count}대")
-print(f"  - 퇴사          : {departed_count}대")
+print(f"  - 정상 접속     : {len(rows) - stale_count}대")
+print(f"  - 30일+ 미접속  : {stale_count}대")
 print("=" * 50)
