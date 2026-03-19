@@ -4356,6 +4356,22 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             for nr in (items[0].get("native_refs") or []):
                 if nr and nr not in ref_links:
                     ref_links.append(nr)
+            # Auto-generate Prowler Hub link from check ID
+            _check_raw = items[0].get("check", "")
+            if _check_raw and "prowler" in _check_raw.lower():
+                import re as _re
+                _hub_name = _re.sub(r"^prowler-[a-z]+-", "", _check_raw)
+                _hub_name = _re.sub(r"-\d{12}.*$", "", _hub_name)
+                _hub_name = _re.sub(r"-[0-9a-f]{5,}$", "", _hub_name)
+                _HUB_FIX = {
+                    "core_minimize_containers_added_capabiliti": "core_minimize_containers_added_capabilities",
+                    "iam_aws_attached_policy_no_administrative_privil": "iam_aws_attached_policy_no_administrative_privileges",
+                }
+                _hub_name = _HUB_FIX.get(_hub_name, _hub_name)
+                if _hub_name and "iac-branch" not in _hub_name:
+                    _hub_url = f"https://hub.prowler.com/check/{_hub_name}"
+                    if _hub_url not in ref_links:
+                        ref_links.insert(0, _hub_url)
             for rl in ref_links:
                 table += f'<a href="{h(rl)}" target="_blank" rel="noopener" class="ref-link">📖 Reference</a> '
             table += "</div></td></tr>"
