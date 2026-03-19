@@ -555,8 +555,11 @@ function renderSecUnified(d){
       html+='<div class="cs-det" style="display:none;padding:12px 16px;border-top:1px dashed var(--border);background:var(--card)">';
       if(f.details)html+='<div style="font-size:12px;line-height:1.6;margin-bottom:8px"><strong>조치사항:</strong> '+esc(f.details)+'</div>';
       if(f.location)html+='<div style="font-size:11px;color:var(--muted);margin-bottom:6px"><strong>위치:</strong> <code style="font-size:10px;word-break:break-all">'+esc(f.location)+'</code></div>';
-      if(f.category)html+='<span style="font-family:monospace;font-size:10px;color:var(--accent);background:var(--card2);padding:2px 8px;border-radius:4px">'+esc(f.category)+'</span>';
-      html+='</div></div>';
+      var refLinks='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px">';
+      if(f.category)refLinks+='<span style="font-family:monospace;font-size:10px;color:var(--accent);background:var(--card2);padding:2px 8px;border-radius:4px">'+esc(f.category)+'</span>';
+      if(f.ref_url)refLinks+='<a href="'+esc(f.ref_url)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:11px;color:var(--accent);text-decoration:underline">참조 문서 &#x2197;</a>';
+      refLinks+='</div>';
+      html+=refLinks+'</div></div>';
     });
     $('cs-findings-list').innerHTML=html||'<div style="padding:16px;text-align:center;color:var(--muted)">취약점 없음</div>';
   }

@@ -976,6 +976,42 @@ def main():
         for k in ("score", "grade", "passed", "failed", "warnings", "skipped"):
             if k not in scan and k in summary:
                 scan[k] = summary[k]
+        # Add best practices reference URLs to findings
+        _CS_REF_MAP = {
+            "TRIVY-CRIT": "https://aquasecurity.github.io/trivy/latest/docs/scanner/vulnerability/",
+            "TRIVY-HIGH": "https://aquasecurity.github.io/trivy/latest/docs/scanner/vulnerability/",
+            "TRIVY-MED": "https://aquasecurity.github.io/trivy/latest/docs/scanner/vulnerability/",
+            "CICD-005": "https://owasp.org/www-project-devsecops-guideline/latest/02a-Static-Application-Security-Testing",
+            "MAC-005": "https://support.apple.com/guide/mac-help/keep-your-mac-up-to-date-mchlpx1065/mac",
+            "MAC-006": "https://support.apple.com/guide/mac-help/require-a-password-after-waking-your-mac-mchlp2270/mac",
+            "MAC-007": "https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac",
+            "CIS-001": "https://www.cisecurity.org/benchmark/apple_os",
+            "CIS-002": "https://www.cisecurity.org/benchmark/apple_os",
+            "CIS-003": "https://www.cisecurity.org/benchmark/apple_os",
+            "CIS-004": "https://www.cisecurity.org/benchmark/apple_os",
+            "CIS-009": "https://www.cisecurity.org/benchmark/apple_os",
+            "AI-005": "https://owasp.org/www-project-top-10-for-large-language-model-applications/",
+            "AI-008": "https://owasp.org/www-project-top-10-for-large-language-model-applications/",
+            "NET-001": "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/09-Testing_for_Weak_Cryptography/01-Testing_for_Weak_Transport_Layer_Security",
+            "CLOUD-010": "https://cloud.google.com/logging/docs/audit",
+            "IAM-002": "https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files",
+            "SECRETS-004": "https://owasp.org/www-community/vulnerabilities/Use_of_hard-coded_password",
+            "CODE-SEC-008": "https://owasp.org/www-community/vulnerabilities/Race_condition",
+            "SAAS-001": "https://docs.github.com/en/code-security/getting-started/github-security-features",
+            "SAAS-002": "https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions",
+            "SAAS-API-001": "https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository",
+            "SAAS-API-002": "https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs",
+            "SAAS-ZIA-002": "https://help.zscaler.com/zia/user-management",
+            "SAAS-ZIA-003": "https://help.zscaler.com/zia/security-policy-settings",
+            "SAAS-ZIA-004": "https://help.zscaler.com/zia/api-key-management",
+            "SAAS-ZIA-006": "https://help.zscaler.com/zia/nss-deployment-guide",
+            "SAAS-ZIA-007": "https://help.zscaler.com/zia/configuring-saml",
+            "PROWLER-GCP-000": "https://docs.prowler.com/projects/prowler-open-source/en/latest/tutorials/gcp/authentication/",
+        }
+        for f in scan.get("findings", []):
+            fid = f.get("id", "")
+            if fid in _CS_REF_MAP and "ref_url" not in f:
+                f["ref_url"] = _CS_REF_MAP[fid]
         print(f"  ClaudeSec: {scan.get('grade')}/{scan.get('score')}")
 
     scan_history = collect_scan_history()

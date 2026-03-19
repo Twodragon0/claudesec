@@ -162,19 +162,45 @@ html_escape() {
   echo "$s"
 }
 
+_finding_ref_url() {
+  local id="$1"
+  case "$id" in
+    CODE-INJ-*) echo "https://owasp.org/Top10/A03_2021-Injection/" ;;
+    CODE-SEC-001) echo "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/" ;;
+    CODE-SEC-002) echo "https://owasp.org/Top10/A08_2021-Software_and_Data_Integrity_Failures/" ;;
+    CODE-SEC-003|SECRETS-*) echo "https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/" ;;
+    CODE-SEC-*) echo "https://owasp.org/Top10/" ;;
+    CICD-*) echo "https://owasp.org/www-project-top-10-ci-cd-security-risks/" ;;
+    AI-*|LLM-*) echo "https://owasp.org/www-project-top-10-for-large-language-model-applications/" ;;
+    IAM-*) echo "https://owasp.org/Top10/A01_2021-Broken_Access_Control/" ;;
+    NET-*|TLS-*) echo "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/" ;;
+    INFRA-*|DOCKER-*) echo "https://www.cisecurity.org/benchmark/docker" ;;
+    MAC-*|CIS-*) echo "https://www.cisecurity.org/benchmark/apple_os" ;;
+    WIN-*|KISA-*) echo "https://www.kisa.or.kr/2060305/form?postSeq=12" ;;
+    CLOUD-*|AWS-*) echo "https://docs.aws.amazon.com/securityhub/latest/userguide/what-is-securityhub.html" ;;
+    SAAS-ZIA-*) echo "https://help.zscaler.com/zia/about-zscaler-internet-access" ;;
+    SAAS-API-*|SAAS-*) echo "https://owasp.org/Top10/A01_2021-Broken_Access_Control/" ;;
+    TRIVY-*) echo "https://aquasecurity.github.io/trivy/" ;;
+    PROWLER-*) echo "https://hub.prowler.com/" ;;
+    *) echo "" ;;
+  esac
+}
+
 append_json() {
   local id="$1" title="$2" status="$3" details="$4" severity="${5:-}" location="${6:-}"
   # Escape JSON strings
   title="${title//\\/\\\\}"; title="${title//\"/\\\"}"
   details="${details//\\/\\\\}"; details="${details//\"/\\\"}"
   location="${location//\\/\\\\}"; location="${location//\"/\\\"}"
-  local category
+  local category ref_url
   category="$(_finding_id_to_category "$id")"
+  ref_url="$(_finding_ref_url "$id")"
   local entry="{\"id\":\"$id\",\"status\":\"$status\",\"title\":\"$title\""
   [[ -n "$severity" ]] && entry+=",\"severity\":\"$severity\""
   [[ -n "$category" ]] && entry+=",\"category\":\"$category\""
   [[ -n "$details" ]] && entry+=",\"details\":\"$details\""
   [[ -n "$location" ]] && entry+=",\"location\":\"$location\""
+  [[ -n "$ref_url" ]] && entry+=",\"ref_url\":\"$ref_url\""
   entry+="}"
   if [[ "$JSON_RESULTS" == "[]" ]]; then
     JSON_RESULTS="[$entry]"
