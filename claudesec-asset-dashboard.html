@@ -491,16 +491,43 @@ function renderSecUnified(d){
   };
   _renderProw(allProwSamples);
 
-  /* ClaudeSec findings */
-  var fhtml='';
-  findings.forEach(function(f){
-    var sevColor=f.severity==='critical'||f.severity==='high'?'var(--red)':'var(--yellow)';
-    fhtml+='<div style="border:1px solid var(--border);border-left:3px solid '+sevColor+';border-radius:8px;margin:0 0 8px;padding:10px 14px;font-size:12px">';
-    fhtml+=sevCh(f.severity)+' <strong>'+esc(f.id||'')+'</strong> '+esc(f.title||'');
-    if(f.details)fhtml+='<div style="color:var(--muted);margin-top:4px;font-size:11px">'+esc(f.details.substring(0,120))+'</div>';
-    fhtml+='</div>';
-  });
-  $('scan-tbl-wrap').innerHTML=fhtml||'<div style="padding:16px;text-align:center;color:var(--muted)">취약점 없음</div>';
+  /* ClaudeSec findings — Prowler-style with severity filter + expandable details */
+  var csFc={critical:0,high:0,medium:0,warning:0};
+  findings.forEach(function(f){var s=(f.severity||'').toLowerCase();if(csFc[s]!==undefined)csFc[s]++;});
+  window._csFindings=findings;
+  var csFb='<div class="fb" id="cs-sev-fb">'
+    +'<span class="fb-btn on" onclick="window._fCsSev(\'all\',this)">전체 '+findings.length+'</span>'
+    +(csFc.critical?'<span class="fb-btn" style="border-color:var(--red)" onclick="window._fCsSev(\'critical\',this)">Critical '+csFc.critical+'</span>':'')
+    +(csFc.high?'<span class="fb-btn" style="border-color:var(--orange)" onclick="window._fCsSev(\'high\',this)">High '+csFc.high+'</span>':'')
+    +(csFc.medium?'<span class="fb-btn" style="border-color:var(--yellow)" onclick="window._fCsSev(\'medium\',this)">Medium '+csFc.medium+'</span>':'')
+    +(csFc.warning?'<span class="fb-btn" style="border-color:var(--blue)" onclick="window._fCsSev(\'warning\',this)">Warning '+csFc.warning+'</span>':'')
+    +'</div>';
+  $('scan-tbl-wrap').innerHTML=csFb+'<div id="cs-findings-list"></div>';
+  window._fCsSev=function(sev,el){
+    document.querySelectorAll('#cs-sev-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
+    var filtered=sev==='all'?window._csFindings:window._csFindings.filter(function(f){return(f.severity||'').toLowerCase()===sev});
+    _renderCsFindings(filtered);
+  };
+  function _renderCsFindings(items){
+    var html='';
+    items.forEach(function(f){
+      var s=(f.severity||'medium').toLowerCase();
+      var sevColor=s==='critical'?'var(--red)':s==='high'?'var(--orange)':s==='medium'?'var(--yellow)':'var(--blue)';
+      var bg=s==='critical'?'rgba(220,38,38,.10)':s==='high'?'rgba(239,68,68,.06)':'transparent';
+      html+='<div style="border:1px solid var(--border);border-left:4px solid '+sevColor+';border-radius:8px;margin-bottom:8px;overflow:hidden;cursor:pointer;background:'+bg+'" onclick="var d=this.querySelector(\'.cs-det\');var a=this.querySelector(\'.cs-arrow\');if(d.style.display===\'none\'){d.style.display=\'block\';a.textContent=\'\\u25BE\'}else{d.style.display=\'none\';a.textContent=\'\\u25B8\'}">';
+      html+='<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--card2)">';
+      html+=sevCh(f.severity)+' <strong style="font-size:12px;color:var(--accent)">'+esc(f.id||'')+'</strong>';
+      html+='<span style="flex:1;font-size:12px;font-weight:600;line-height:1.4">'+esc(f.title||'')+'</span>';
+      html+='<span class="cs-arrow" style="color:var(--muted);font-size:10px">\u25B8</span></div>';
+      html+='<div class="cs-det" style="display:none;padding:12px 16px;border-top:1px dashed var(--border);background:var(--card)">';
+      if(f.details)html+='<div style="font-size:12px;line-height:1.6;margin-bottom:8px"><strong>조치사항:</strong> '+esc(f.details)+'</div>';
+      if(f.location)html+='<div style="font-size:11px;color:var(--muted);margin-bottom:6px"><strong>위치:</strong> <code style="font-size:10px;word-break:break-all">'+esc(f.location)+'</code></div>';
+      if(f.category)html+='<span style="font-family:monospace;font-size:10px;color:var(--accent);background:var(--card2);padding:2px 8px;border-radius:4px">'+esc(f.category)+'</span>';
+      html+='</div></div>';
+    });
+    $('cs-findings-list').innerHTML=html||'<div style="padding:16px;text-align:center;color:var(--muted)">취약점 없음</div>';
+  }
+  _renderCsFindings(findings);
   $('scan-fc').textContent=findings.length+'건';
 
   /* Policies */
