@@ -394,35 +394,68 @@ function renderISMS(d,s){
     var circle='<div class="pdca-step '+st.cls+'"><div class="phase">'+st.p+'</div><div class="title">'+st.name+'</div><div class="score" style="color:'+st.color+'">'+st.score+'%</div><div class="items">'+st.items+'</div></div>';
     return circle+(i<arr.length-1?'<div class="pdca-arrow">\u2192</div>':'<div class="pdca-arrow">\u21BB</div>');
   }).join('');
-  var line=function(icon,txt){return'<div style="padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)">'+icon+' '+esc(txt)+'</div>';};
-  $('pdca-plan').innerHTML=[
-    '\uC790\uC0B0 \uBD84\uB958 \uC644\uB8CC: '+Object.keys(ac).length+'\uAC1C \uCE74\uD14C\uACE0\uB9AC, \uCD1D '+s.totalAssets+'\uAC74',
-    '\uC815\uBCF4\uBCF4\uD638\uC2DC\uC2A4\uD15C: '+(ac['\uC815\uBCF4\uBCF4\uD638\uC2DC\uC2A4\uD15C']||0)+'\uAC1C \uC6B4\uC601 \uC911',
-    'SaaS \uC790\uC0B0: '+saas.length+'\uAC1C \uB4F1\uB85D, \uC778\uC99D \uAD00\uB9AC '+s.ssoCount+'\uAC1C SSO \uC5F0\uB3D9',
-    '\uB77C\uC774\uC120\uC2A4: '+lic.length+'\uAC1C \uB4F1\uB85D (\uD65C\uC131 '+s.activeL+', \uBBF8\uC0AC\uC6A9 '+(lic.length-s.activeL)+')',
-    '\uAC1C\uC778\uC815\uBCF4: '+(ac['\uAC1C\uC778\uC815\uBCF4']||0)+'\uAC74 \uC2DD\uBCC4'
-  ].map(function(x){return line('\u2713',x)}).join('');
-  $('pdca-do').innerHTML=[
-    'Okta SSO \uC5F0\uB3D9: '+s.ssoCount+'/'+saas.length+' ('+Math.round(s.ssoCount/Math.max(saas.length,1)*100)+'%)',
-    'Datadog \uBAA8\uB2C8\uD130\uB9C1: '+hosts.length+'\uAC1C \uD638\uC2A4\uD2B8 \uAC10\uC2DC \uC911',
-    'GuardDuty \uB7F0\uD0C0\uC784 \uD0D0\uC9C0: \uD65C\uC131','Kyverno \uC815\uCC45: 9\uAC1C (Enforce 1, Audit 8)',
-    'Zscaler \uC81C\uB85C\uD2B8\uB7EC\uC2A4\uD2B8: ZIA/ZPA \uC6B4\uC601 \uC911','SentinelOne EDR: \uC5D4\uB4DC\uD3EC\uC778\uD2B8 \uBCF4\uD638 \uD65C\uC131'
-  ].map(function(x){return line('\u25B6',x)}).join('');
-  $('pdca-check').innerHTML=[
-    'ClaudeSec \uC2A4\uCE94: '+(sc.grade||'-')+'\uB4F1\uAE09 ('+(sc.score||0)+'\uC810/100) \u2014 \uD1B5\uACFC '+(sc.passed||0)+', \uC2E4\uD328 '+(sc.failed||0)+', \uACBD\uACE0 '+(sc.warnings||0),
-    'Prowler \uD074\uB77C\uC6B0\uB4DC \uBCF4\uC548: \uCD1D '+(pw.total||0)+'\uAC74 \uC2A4\uCE94 (PASS '+(pw.pass||0)+', FAIL '+(pw.fail||0)+')',
-    'Datadog SIEM: '+sigs.length+'\uAC74 \uBCF4\uC548 \uC2DC\uADF8\uB110 (\uCD5C\uADFC 7\uC77C)',
-    '\uBCF4\uC548 \uCDE8\uC57D\uC810: High '+((pw.fail_by_severity||{}).High||0)+'\uAC74 \uD0D0\uC9C0'
-  ].map(function(x){return line('\u25C9',x)}).join('');
-  var actArr=[];
-  if(s.idpwCount>0)actArr.push('<span style="color:var(--red)">\u26A0</span> ID/PW \uC778\uC99D SaaS '+s.idpwCount+'\uAC1C \u2192 Okta SSO \uC804\uD658 \uD544\uC694');
-  if((pw.fail||0)>100)actArr.push('<span style="color:var(--red)">\u26A0</span> Prowler FAIL '+pw.fail+'\uAC74 \u2192 K8s \uBCF4\uC548 \uC124\uC815 \uAC15\uD654 \uD544\uC694');
-  if((sc.failed||0)>0)actArr.push('<span style="color:var(--yellow)">\u25B3</span> ClaudeSec \uC2E4\uD328 '+sc.failed+'\uAC74 \u2192 CI/CD \uBCF4\uC548 \uC2A4\uCE90\uB2DD \uCD94\uAC00');
+  /* Best-practice PDCA card builder: goal / status / progress bar / items */
+  function pdcaCard(el,goal,items,score,color){
+    var pct=Math.min(score,100);
+    var barColor=pct>=80?'var(--green)':pct>=60?'var(--yellow)':'var(--red)';
+    var html='<div style="margin-bottom:12px;padding:10px 14px;background:var(--card2);border-radius:8px;border-left:4px solid '+color+'">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+    html+='<span style="font-size:12px;font-weight:700;color:var(--fg)">'+esc(goal)+'</span>';
+    html+='<span style="font-size:11px;font-weight:700;color:'+barColor+'">'+pct+'%</span></div>';
+    html+='<div style="height:4px;background:var(--border);border-radius:2px;margin-bottom:8px"><div style="height:100%;width:'+pct+'%;background:'+barColor+';border-radius:2px;transition:width .3s"></div></div>';
+    items.forEach(function(it){
+      var icon=it.ok?'<span style="color:var(--green)">&#x2713;</span>':'<span style="color:var(--red)">&#x2717;</span>';
+      html+='<div style="padding:4px 0;font-size:12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px">'+icon+' '+it.text+'</div>';
+    });
+    html+='</div>';
+    el.innerHTML+=html;
+  }
+  var catCount=Object.keys(ac).length;var saasLen=saas.length;
+  var ssoPct=Math.round(s.ssoCount/Math.max(saasLen,1)*100);
   var unusedLic=lic.filter(function(l){return l.status==='\uBBF8\uC0AC\uC6A9'}).length;
-  if(unusedLic>0)actArr.push('<span style="color:var(--yellow)">\u25B3</span> \uBBF8\uC0AC\uC6A9 \uB77C\uC774\uC120\uC2A4 '+unusedLic+'\uAC74 \u2192 \uBE44\uC6A9 \uC808\uAC10 \uAC80\uD1A0');
-  actArr.push('\u25CB Kyverno Audit \uC815\uCC45 8\uAC1C \u2192 Enforce \uC804\uD658 \uB2E8\uACC4\uC801 \uC9C4\uD589');
-  actArr.push('\u25CB Datadog APM Production \uD65C\uC131\uD654 \u2192 \uC11C\uBE44\uC2A4 \uC131\uB2A5 \uAC00\uC2DC\uC131 \uD655\uBCF4');
-  $('pdca-act').innerHTML=actArr.map(function(x){return'<div style="padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)">'+x+'</div>'}).join('');
+
+  /* Plan */
+  $('pdca-plan').innerHTML='';
+  pdcaCard($('pdca-plan'),'\uBAA9\uD45C: \uC790\uC0B0 \uC2DD\uBCC4 \uBC0F \uBD84\uB958 100% \uC644\uB8CC',[
+    {ok:true,text:'\uC790\uC0B0 \uBD84\uB958: '+catCount+'\uAC1C \uCE74\uD14C\uACE0\uB9AC, \uCD1D '+s.totalAssets+'\uAC74 \uB4F1\uB85D'},
+    {ok:true,text:'\uC815\uBCF4\uBCF4\uD638\uC2DC\uC2A4\uD15C: '+(ac['\uC815\uBCF4\uBCF4\uD638\uC2DC\uC2A4\uD15C']||0)+'\uAC1C \uC6B4\uC601 \uC911'},
+    {ok:saasLen>0,text:'SaaS \uC790\uC0B0: '+saasLen+'\uAC1C \uB4F1\uB85D, SSO '+s.ssoCount+'\uAC1C \uC5F0\uB3D9'},
+    {ok:true,text:'\uB77C\uC774\uC120\uC2A4: '+lic.length+'\uAC1C (\uD65C\uC131 '+s.activeL+', \uBBF8\uC0AC\uC6A9 '+unusedLic+')'},
+    {ok:(ac['\uAC1C\uC778\uC815\uBCF4']||0)>0,text:'\uAC1C\uC778\uC815\uBCF4: '+(ac['\uAC1C\uC778\uC815\uBCF4']||0)+'\uAC74 \uC2DD\uBCC4'}
+  ],s.planScore,'var(--blue)');
+
+  /* Do */
+  $('pdca-do').innerHTML='';
+  pdcaCard($('pdca-do'),'\uBAA9\uD45C: \uBCF4\uD638\uB300\uCC45 \uAD6C\uD604\uB960 90% \uC774\uC0C1',[
+    {ok:ssoPct>=80,text:'Okta SSO \uC5F0\uB3D9: '+s.ssoCount+'/'+saasLen+' ('+ssoPct+'%)'},
+    {ok:hosts.length>0,text:'Datadog \uBAA8\uB2C8\uD130\uB9C1: '+hosts.length+'\uAC1C \uD638\uC2A4\uD2B8 \uAC10\uC2DC'},
+    {ok:true,text:'GuardDuty \uB7F0\uD0C0\uC784 \uD0D0\uC9C0: \uD65C\uC131'},
+    {ok:true,text:'Kyverno \uC815\uCC45: 9\uAC1C (Enforce 1, Audit 8)'},
+    {ok:true,text:'Zscaler ZIA/ZPA: \uC81C\uB85C\uD2B8\uB7EC\uC2A4\uD2B8 \uC6B4\uC601 \uC911'},
+    {ok:true,text:'SentinelOne EDR: \uC5D4\uB4DC\uD3EC\uC778\uD2B8 \uBCF4\uD638 \uD65C\uC131'}
+  ],s.doScore,'var(--green)');
+
+  /* Check */
+  $('pdca-check').innerHTML='';
+  var prowPassRate=pw.total?Math.round((pw.pass||0)/pw.total*100):0;
+  pdcaCard($('pdca-check'),'\uBAA9\uD45C: \uCDE8\uC57D\uC810 Critical 0\uAC74, FAIL\uB960 20% \uBBF8\uB9CC',[
+    {ok:(sc.score||0)>=80,text:'ClaudeSec: '+(sc.grade||'-')+' ('+(sc.score||0)+'\uC810) \u2014 PASS '+(sc.passed||0)+', FAIL '+(sc.failed||0)+', WARN '+(sc.warnings||0)},
+    {ok:prowPassRate>=80,text:'Prowler: '+(pw.total||0)+'\uAC74 (PASS '+(pw.pass||0)+', FAIL '+(pw.fail||0)+') \u2014 \uD1B5\uACFC\uB960 '+prowPassRate+'%'},
+    {ok:sigs.length<=5,text:'Datadog SIEM: '+sigs.length+'\uAC74 \uC2DC\uADF8\uB110 (\uCD5C\uADFC 14\uC77C)'},
+    {ok:((pw.fail_by_severity||{}).Critical||0)===0,text:'Critical: '+((pw.fail_by_severity||{}).Critical||0)+'\uAC74, High: '+((pw.fail_by_severity||{}).High||0)+'\uAC74'}
+  ],s.checkScore,'var(--yellow)');
+
+  /* Act — auto-prioritized improvement items */
+  $('pdca-act').innerHTML='';
+  var actItems=[];
+  if(s.idpwCount>0)actItems.push({ok:false,text:'[P1] ID/PW \uC778\uC99D SaaS '+s.idpwCount+'\uAC1C \u2192 Okta SSO \uC804\uD658 \uD544\uC694'});
+  if(((pw.fail_by_severity||{}).Critical||0)>0)actItems.push({ok:false,text:'[P0] Prowler Critical '+((pw.fail_by_severity||{}).Critical||0)+'\uAC74 \u2192 \uC989\uC2DC \uC870\uCE58 \uD544\uC694'});
+  if((pw.fail||0)>100)actItems.push({ok:false,text:'[P1] Prowler FAIL '+pw.fail+'\uAC74 \u2192 K8s/\uD074\uB77C\uC6B0\uB4DC \uBCF4\uC548 \uAC15\uD654'});
+  if((sc.failed||0)>0)actItems.push({ok:false,text:'[P2] ClaudeSec \uC2E4\uD328 '+sc.failed+'\uAC74 \u2192 CI/CD \uBCF4\uC548 \uC2A4\uCE90\uB2DD \uCD94\uAC00'});
+  if(unusedLic>0)actItems.push({ok:false,text:'[P3] \uBBF8\uC0AC\uC6A9 \uB77C\uC774\uC120\uC2A4 '+unusedLic+'\uAC74 \u2192 \uBE44\uC6A9 \uC808\uAC10 \uAC80\uD1A0'});
+  actItems.push({ok:false,text:'[P2] Kyverno Audit \uC815\uCC45 8\uAC1C \u2192 Enforce \uC804\uD658 \uB2E8\uACC4\uC801 \uC9C4\uD589'});
+  actItems.push({ok:false,text:'[P3] Datadog APM Production \uD65C\uC131\uD654 \u2192 \uC11C\uBE44\uC2A4 \uAC00\uC2DC\uC131 \uD655\uBCF4'});
+  pdcaCard($('pdca-act'),'\uBAA9\uD45C: \uAC1C\uC120 \uACFC\uC81C '+actItems.length+'\uAC74 \uC870\uCE58',actItems,s.actScore,'var(--red)');
 }
 
 /* ═══ ClaudeSec Scan ═══ */
