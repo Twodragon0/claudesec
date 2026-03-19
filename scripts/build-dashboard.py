@@ -220,15 +220,18 @@ def collect_prowler():
                     "check": f.get("finding_info", {}).get("uid", "")[:60] if isinstance(f.get("finding_info"), dict) else "",
                 })
 
-    # Medium severity samples
+    # Medium + High severity samples (not already in critical_fails_sample)
     medium_samples = []
+    critical_msgs = {s["message"] for s in samples}
     for f in failures:
-        if f.get("severity") == "Medium" and len(medium_samples) < 20:
+        msg = f.get("message", f.get("status_detail", ""))[:150]
+        if f.get("severity") in ("Medium", "High") and msg not in critical_msgs and len(medium_samples) < 50:
             um = f.get("unmapped", {})
             medium_samples.append({
-                "message": f.get("message", f.get("status_detail", ""))[:150],
-                "severity": "Medium",
+                "message": msg,
+                "severity": f.get("severity", "Medium"),
                 "provider": um.get("provider", "") if isinstance(um, dict) else "",
+                "check": (f.get("finding_info", {}).get("uid", "") if isinstance(f.get("finding_info"), dict) else "")[:60],
             })
 
     # Normalize provider keys: merge kubernetes/k8s, keep iac as "IaC"

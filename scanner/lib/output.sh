@@ -9,6 +9,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+# shellcheck disable=SC2034
 MAGENTA='\033[0;35m'
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -167,8 +168,11 @@ append_json() {
   title="${title//\\/\\\\}"; title="${title//\"/\\\"}"
   details="${details//\\/\\\\}"; details="${details//\"/\\\"}"
   location="${location//\\/\\\\}"; location="${location//\"/\\\"}"
+  local category
+  category="$(_finding_id_to_category "$id")"
   local entry="{\"id\":\"$id\",\"status\":\"$status\",\"title\":\"$title\""
   [[ -n "$severity" ]] && entry+=",\"severity\":\"$severity\""
+  [[ -n "$category" ]] && entry+=",\"category\":\"$category\""
   [[ -n "$details" ]] && entry+=",\"details\":\"$details\""
   [[ -n "$location" ]] && entry+=",\"location\":\"$location\""
   entry+="}"
@@ -486,14 +490,14 @@ _prowler_dashboard_summary() {
       *) label="$provider" ;;
     esac
     total=$(grep -c '"status_code": *"FAIL"' "$f" 2>/dev/null || echo 0)
-    read c h m l <<< $(awk '
+    read c h m l <<< "$(awk '
       BEGIN { c=0; h=0; m=0; l=0 }
       /"severity":/ { gsub(/.*"severity": *"/,""); gsub(/".*/, ""); sev=$0 }
       /"status_code": *"FAIL"/ {
         if (sev=="Critical") c++; else if (sev=="High") h++; else if (sev=="Medium") m++; else if (sev=="Low") l++
       }
       END { print c+0, h+0, m+0, l+0 }
-    ' "$f" 2>/dev/null)
+    ' "$f" 2>/dev/null)"
     c=${c:-0}; h=${h:-0}; m=${m:-0}; l=${l:-0}
     echo "  <tr><td style=\"padding:0.5rem 0.75rem;border-bottom:1px solid var(--border)\">$label</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border)\">$total</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border);color:#dc2626\">$c</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border);color:#ef4444\">$h</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border);color:#eab308\">$m</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border);color:var(--muted)\">$l</td></tr>"
   done <<< "$files"
@@ -611,8 +615,8 @@ generate_html_dashboard() {
 
   _emit_finding_json() {
     local f_sev_label="$1"
-    local f_id f_title f_sev f_fix f_details f_loc
-    IFS='|' read -r f_id f_title f_sev f_fix f_details f_loc <<< "$2"
+    local f_id f_title _f_sev f_fix f_details f_loc
+    IFS='|' read -r f_id f_title _f_sev f_fix f_details f_loc <<< "$2"
     f_title="${f_title//\"/\\\"}"
     f_fix="${f_fix//\"/\\\"}"
     f_loc="${f_loc//\"/\\\"}"
