@@ -166,6 +166,11 @@ def collect_prowler():
             pass
 
     failures = [f for f in findings if f.get("status_code") == "FAIL"]
+
+    # Use Prowler's severity text as-is (trusted), include Critical+High in samples
+    def _is_critical_or_high(f):
+        return (f.get("severity") or "").lower() in ("high", "critical")
+
     fail_sev = {}
     for f in failures:
         s = f.get("severity", "unknown")
@@ -173,13 +178,16 @@ def collect_prowler():
 
     samples = []
     for f in failures:
-        if f.get("severity") in ("High", "Critical"):
+        if _is_critical_or_high(f):
             um = f.get("unmapped", {})
             samples.append({
                 "message": f.get("message", f.get("status_detail", ""))[:150],
-                "severity": f.get("severity"),
+                "severity": f.get("severity", "High"),
                 "provider": um.get("provider", "") if isinstance(um, dict) else "",
+                "check": (f.get("finding_info", {}).get("uid", "") if isinstance(f.get("finding_info"), dict) else "")[:60],
             })
+    # Sort: Critical first, then High
+    samples.sort(key=lambda x: (0 if x["severity"] == "Critical" else 1, x["message"]))
 
     # Group by provider
     by_provider = {}
@@ -202,13 +210,13 @@ def collect_prowler():
 
     # Add critical fails samples per provider
     for f in failures:
-        if f.get("severity") in ("High", "Critical"):
+        if _is_critical_or_high(f):
             um = f.get("unmapped", {})
             prov = (um.get("provider", "") if isinstance(um, dict) else "").lower() or "unknown"
             if prov in by_provider and len(by_provider[prov]["critical_fails"]) < 10:
                 by_provider[prov]["critical_fails"].append({
                     "message": f.get("message", f.get("status_detail", ""))[:150],
-                    "severity": f.get("severity"),
+                    "severity": f.get("severity", "High"),
                     "check": f.get("finding_info", {}).get("uid", "")[:60] if isinstance(f.get("finding_info"), dict) else "",
                 })
 

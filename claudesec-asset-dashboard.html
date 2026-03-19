@@ -948,16 +948,21 @@ function renderCost(d){
   var noSum=cs.filter(function(x){return!x.software.match(/\uD569\uACC4/)});
   /* Dynamic month columns from data keys */
   var monthKeys=Object.keys(md).sort();
+  /* Map details keys (2026-01) to summary field names (jan) */
+  var MONTH_NAMES=['','jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  var monthLabels=['','1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+  function mkField(mk){var m=parseInt((mk||'').split('-')[1])||0;return MONTH_NAMES[m]||mk}
+  function mkLabel(mk){var m=parseInt((mk||'').split('-')[1])||0;return monthLabels[m]||(m+'월')}
+  function getMonthVal(obj,mk){var field=mkField(mk);return obj[field]||obj[mk]||0}
   var monthTotals=monthKeys.map(function(mk){
-    var key=mk.replace(/[^a-z0-9]/gi,'').toLowerCase();
-    return{key:mk,total:noSum.reduce(function(a,b){return a+(b[key]||b[mk]||0)},0)};
+    return{key:mk,label:mkLabel(mk),field:mkField(mk),total:noSum.reduce(function(a,b){return a+getMonthVal(b,mk)},0)};
   });
-  var kpiItems=[{l:'\uCD1D SaaS \uBE44\uC6A9',v:'\u20A9'+fmt(totalCost),c:'a'},{l:'\uC18C\uD504\uD2B8\uC6E8\uC5B4',v:csF.length+'\uC885',c:'b'}];
+  var kpiItems=[{l:'총 SaaS 비용',v:'\u20A9'+fmt(totalCost),c:'a'},{l:'소프트웨어',v:csF.length+'종',c:'b'}];
   var barColors=['var(--blue)','var(--accent)','var(--yellow)','var(--green)','var(--cyan)','var(--pink)'];
-  monthTotals.forEach(function(mt,i){kpiItems.push({l:mt.key,v:'\u20A9'+fmt(mt.total),c:i===monthTotals.length-1?'y':'b'})});
-  kpiItems.push({l:'\uC6D4\uBCC4 \uC0C1\uC138',v:allD.length+'\uAC74',c:'c'});
+  monthTotals.forEach(function(mt,i){kpiItems.push({l:mt.label,v:'\u20A9'+fmt(mt.total),c:i===monthTotals.length-1?'y':'b'})});
+  kpiItems.push({l:'월별 상세',v:allD.length+'건',c:'c'});
   mkK($('k-cost'),kpiItems);
-  monthBars(monthTotals.map(function(mt,i){return{label:mt.key,value:mt.total,color:barColors[i%barColors.length]}}),$('cost-mch'));
+  monthBars(monthTotals.map(function(mt,i){return{label:mt.label,value:mt.total,color:barColors[i%barColors.length]}}),$('cost-mch'));
   var deptData=(cost.by_department||[]).filter(function(x){return(x.total||0)>0}).sort(function(a,b){return(b.total||0)-(a.total||0)});
   var di=deptData.map(function(x){return{l:x.department||x.name||'',v:x.total||0,t:'\u20A9'+fmt(x.total||0),color:'var(--cyan)'}});
   if(!di.length){/* fallback to detail aggregation */
@@ -969,12 +974,12 @@ function renderCost(d){
   var t15=csF.slice(0,15),mc=t15.length?t15[0].total:1;
   mkBar($('cost-bars'),t15.map(function(x){return{l:x.software,v:x.total,t:'\u20A9'+fmt(x.total),color:'var(--accent)'}}),mc);
   /* Software × Month comparison table */
-  var swHdrs=['\uC18C\uD504\uD2B8\uC6E8\uC5B4'];
-  monthKeys.forEach(function(mk){swHdrs.push(mk)});
-  swHdrs.push('\uD569\uACC4');swHdrs.push('\uCD94\uC774');
+  var swHdrs=['소프트웨어'];
+  monthTotals.forEach(function(mt){swHdrs.push(mt.label)});
+  swHdrs.push('합계');swHdrs.push('추이');
   var swRows=csF.map(function(x){
     var row=[esc(x.software)];
-    var vals=monthKeys.map(function(mk){var key=mk.replace(/[^a-z0-9]/gi,'').toLowerCase();return x[key]||x[mk]||0});
+    var vals=monthKeys.map(function(mk){return getMonthVal(x,mk)});
     vals.forEach(function(v){row.push('\u20A9'+fmt(v))});
     row.push('\u20A9'+fmt(x.total||0));
     var trend=vals.length>=2?(vals[vals.length-1]>vals[vals.length-2]?ch('\u25B2','r'):(vals[vals.length-1]<vals[vals.length-2]?ch('\u25BC','g'):ch('-','m'))):ch('-','m');
@@ -985,17 +990,17 @@ function renderCost(d){
   $('sw-c').textContent=csF.length+'\uC885';
   /* User cost table */
   var byUser=(cost.by_user||[]).filter(function(u){return(u.total||0)>0}).sort(function(a,b){return(b.total||0)-(a.total||0)});
-  var userHdrs=['\uC0AC\uC6A9\uC790'];monthKeys.forEach(function(mk){userHdrs.push(mk)});userHdrs.push('\uD569\uACC4');
-  mkT($('t-user-cost'),userHdrs,byUser.map(function(u){var row=[esc(u.user||u.name||'')];monthKeys.forEach(function(mk){var key=mk.replace(/[^a-z0-9]/gi,'').toLowerCase();row.push('\u20A9'+fmt(u[key]||u[mk]||0))});row.push('\u20A9'+fmt(u.total||0));return row}),{col:userHdrs.length-1,asc:false});
+  var userHdrs=['사용자'];monthTotals.forEach(function(mt){userHdrs.push(mt.label)});userHdrs.push('합계');
+  mkT($('t-user-cost'),userHdrs,byUser.map(function(u){var row=[esc(u.user||u.name||'')];monthKeys.forEach(function(mk){row.push('\u20A9'+fmt(getMonthVal(u,mk)))});row.push('\u20A9'+fmt(u.total||0));return row}),{col:userHdrs.length-1,asc:false});
   $('user-cost-c').textContent=byUser.length+'\uBA85';
   /* Department cost table */
   var byDept=(cost.by_department||[]).filter(function(x){return(x.total||0)>0}).sort(function(a,b){return(b.total||0)-(a.total||0)});
-  var deptHdrs=['\uBD80\uC11C'];monthKeys.forEach(function(mk){deptHdrs.push(mk)});deptHdrs.push('\uD569\uACC4');
-  mkT($('t-dept-cost'),deptHdrs,byDept.map(function(x){var row=[esc(x.department||x.name||'')];monthKeys.forEach(function(mk){var key=mk.replace(/[^a-z0-9]/gi,'').toLowerCase();row.push('\u20A9'+fmt(x[key]||x[mk]||0))});row.push('\u20A9'+fmt(x.total||0));return row}));
+  var deptHdrs=['부서'];monthTotals.forEach(function(mt){deptHdrs.push(mt.label)});deptHdrs.push('합계');
+  mkT($('t-dept-cost'),deptHdrs,byDept.map(function(x){var row=[esc(x.department||x.name||'')];monthKeys.forEach(function(mk){row.push('\u20A9'+fmt(getMonthVal(x,mk)))});row.push('\u20A9'+fmt(x.total||0));return row}));
   $('dept-cost-c').textContent=byDept.length+'\uBD80\uC11C';
   /* Month filter for detail table */
   var months=Object.keys(md).sort();
-  $('cost-fb').innerHTML='<span class="fb-btn on" onclick="window._fCost(\'all\',this)">\uC804\uCCB4</span>'+months.map(function(m){return'<span class="fb-btn" onclick="window._fCost(\''+esc(m)+'\',this)">'+esc(m)+'</span>'}).join('');
+  $('cost-fb').innerHTML='<span class="fb-btn on" onclick="window._fCost(\'all\',this)">전체</span>'+months.map(function(m){return'<span class="fb-btn" onclick="window._fCost(\''+esc(m)+'\',this)">'+esc(mkLabel(m))+'</span>'}).join('');
   window._allCostD=allD;
   window._fCost=function(m,el){
     document.querySelectorAll('#cost-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
