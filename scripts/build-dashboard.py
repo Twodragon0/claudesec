@@ -171,6 +171,16 @@ def collect_prowler():
     def _is_critical_or_high(f):
         return (f.get("severity") or "").lower() in ("high", "critical")
 
+    def _prowler_hub_url(check_id: str) -> str:
+        """Generate validated Prowler Hub URL from check ID."""
+        import re as _re
+        if not check_id or "iac-branch" in check_id:
+            return ""
+        name = _re.sub(r"^prowler-[a-z]+-", "", check_id)
+        name = _re.sub(r"-\d{12}.*$", "", name)  # AWS account ID
+        name = _re.sub(r"-[0-9a-f]{5,}$", "", name)  # hex hash
+        return f"https://hub.prowler.com/check/{name}" if name else ""
+
     fail_sev = {}
     for f in failures:
         s = f.get("severity", "unknown")
@@ -180,11 +190,13 @@ def collect_prowler():
     for f in failures:
         if _is_critical_or_high(f):
             um = f.get("unmapped", {})
+            check_id = (f.get("finding_info", {}).get("uid", "") if isinstance(f.get("finding_info"), dict) else "")[:60]
             samples.append({
                 "message": f.get("message", f.get("status_detail", ""))[:150],
                 "severity": f.get("severity", "High"),
                 "provider": um.get("provider", "") if isinstance(um, dict) else "",
-                "check": (f.get("finding_info", {}).get("uid", "") if isinstance(f.get("finding_info"), dict) else "")[:60],
+                "check": check_id,
+                "hub_url": _prowler_hub_url(check_id),
             })
     # Sort: Critical first, then High
     samples.sort(key=lambda x: (0 if x["severity"] == "Critical" else 1, x["message"]))
@@ -214,10 +226,12 @@ def collect_prowler():
             um = f.get("unmapped", {})
             prov = (um.get("provider", "") if isinstance(um, dict) else "").lower() or "unknown"
             if prov in by_provider and len(by_provider[prov]["critical_fails"]) < 10:
+                cid = f.get("finding_info", {}).get("uid", "")[:60] if isinstance(f.get("finding_info"), dict) else ""
                 by_provider[prov]["critical_fails"].append({
                     "message": f.get("message", f.get("status_detail", ""))[:150],
                     "severity": f.get("severity", "High"),
-                    "check": f.get("finding_info", {}).get("uid", "")[:60] if isinstance(f.get("finding_info"), dict) else "",
+                    "check": cid,
+                    "hub_url": _prowler_hub_url(cid),
                 })
 
     # Medium + High severity samples (not already in critical_fails_sample)
@@ -227,11 +241,13 @@ def collect_prowler():
         msg = f.get("message", f.get("status_detail", ""))[:150]
         if f.get("severity") in ("Medium", "High") and msg not in critical_msgs and len(medium_samples) < 50:
             um = f.get("unmapped", {})
+            mid = (f.get("finding_info", {}).get("uid", "") if isinstance(f.get("finding_info"), dict) else "")[:60]
             medium_samples.append({
                 "message": msg,
                 "severity": f.get("severity", "Medium"),
                 "provider": um.get("provider", "") if isinstance(um, dict) else "",
-                "check": (f.get("finding_info", {}).get("uid", "") if isinstance(f.get("finding_info"), dict) else "")[:60],
+                "check": mid,
+                "hub_url": _prowler_hub_url(mid),
             })
 
     # Normalize provider keys: merge kubernetes/k8s, keep iac as "IaC"
