@@ -18,7 +18,7 @@ fi
 
 # NET-002: TLS configuration (nginx/apache)
 if has_file "nginx.conf" || files_contain "*.conf" "server" 2>/dev/null; then
-  if files_contain "*.conf" "ssl_protocols\s+TLSv1\b|ssl_protocols\s+TLSv1\.0|SSLv3"; then
+  if files_contain "*.conf" "ssl_protocols\s+TLSv1(\s|;|$)|ssl_protocols\s.*TLSv1\.0|ssl_protocols\s.*TLSv1\.1(\s|;|$)|SSLv3"; then
     fail "NET-002" "Deprecated TLS versions enabled" "high" \
       "TLS 1.0/1.1 and SSLv3 are deprecated and insecure" \
       "Use 'ssl_protocols TLSv1.2 TLSv1.3;'"

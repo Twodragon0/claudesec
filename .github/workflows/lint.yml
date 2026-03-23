@@ -83,6 +83,10 @@ jobs:
         run: bash scanner/tests/test_check_code_injection.sh
       - name: Run bash unit tests (access-control checks)
         run: bash scanner/tests/test_check_access_control.sh
+      - name: Run bash unit tests (network/tls checks)
+        run: bash scanner/tests/test_check_network_tls.sh
+      - name: Run bash unit tests (cicd/pipeline checks)
+        run: bash scanner/tests/test_check_cicd_pipeline.sh
       - name: Run scanner unittest baseline (JUnit XML)
         id: scanner_tests
         env:
