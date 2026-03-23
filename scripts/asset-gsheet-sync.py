@@ -26,13 +26,16 @@ ClaudeSec — Google Sheets 자산관리 양방향 연동 스크립트
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 try:
     import gspread
     from google.oauth2.service_account import Credentials as ServiceCredentials
+    from gspread.utils import ValueInputOption
 except ImportError:
     print(
         "ERROR: gspread 및 google-auth 패키지가 필요합니다.\n"
@@ -66,6 +69,8 @@ CATEGORY_MAP = {
     "prowler": "Prowler 스캔",
 }
 
+HEADER_SCAN_ROWS = 10
+
 
 def get_google_client() -> gspread.Client:
     """Google Sheets 클라이언트 인증 및 반환"""
@@ -80,13 +85,15 @@ def get_google_client() -> gspread.Client:
     sa_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT", "")
     if sa_json:
         import json as _json
+
         info = _json.loads(sa_json)
         creds = ServiceCredentials.from_service_account_info(info, scopes=SCOPES)
         return gspread.authorize(creds)
 
     # 방법 3: OAuth2 (로컬 개발용)
     oauth_path = os.environ.get(
-        "GOOGLE_OAUTH_CREDENTIALS", str(Path.home() / ".config" / "gspread" / "credentials.json")
+        "GOOGLE_OAUTH_CREDENTIALS",
+        str(Path.home() / ".config" / "gspread" / "credentials.json"),
     )
     if Path(oauth_path).exists():
         gc = gspread.oauth(credentials_filename=oauth_path, scopes=SCOPES)
@@ -100,10 +107,97 @@ def get_google_client() -> gspread.Client:
     sys.exit(1)
 
 
-def read_assets(spreadsheet: gspread.Spreadsheet) -> dict:
+def detect_header_row(rows: list[list[str]], scan_rows: int = HEADER_SCAN_ROWS) -> int:
+    candidates = []
+    for idx, row in enumerate(rows[:scan_rows]):
+        normalized = [cell.strip() for cell in row]
+        non_empty = [cell for cell in normalized if cell]
+        if not non_empty:
+            continue
+
+        unique_non_empty = len(set(non_empty))
+        duplicate_penalty = len(non_empty) - unique_non_empty
+        score = (len(non_empty) * 3) - (duplicate_penalty * 2) - idx
+        candidates.append((score, len(non_empty), -idx, idx))
+
+    if not candidates:
+        return 0
+
+    return max(candidates)[-1]
+
+
+def sanitize_headers(headers: list[str]) -> tuple[list[str], list[str], list[str]]:
+    safe_headers = []
+    warnings = []
+    counts: dict[str, int] = {}
+    blank_columns = []
+    duplicate_names = set()
+
+    for idx, raw_header in enumerate(headers, start=1):
+        cleaned = re.sub(r"\s+", " ", raw_header.strip())
+        if not cleaned:
+            cleaned = f"blank_col_{idx}"
+            blank_columns.append(idx)
+
+        counts[cleaned] = counts.get(cleaned, 0) + 1
+        if counts[cleaned] > 1:
+            duplicate_names.add(cleaned)
+            safe_headers.append(f"{cleaned}__dup{counts[cleaned]}")
+        else:
+            safe_headers.append(cleaned)
+
+    if blank_columns:
+        warnings.append(f"blank headers at columns {blank_columns}")
+    if duplicate_names:
+        names = ", ".join(sorted(duplicate_names))
+        warnings.append(f"duplicate headers normalized: {names}")
+
+    return headers, safe_headers, warnings
+
+
+def parse_worksheet_records(ws: gspread.Worksheet) -> dict[str, Any]:
+    all_values = ws.get_all_values()
+    if not all_values:
+        return {
+            "row_count": 0,
+            "headers": [],
+            "safe_headers": [],
+            "data": [],
+            "header_row": None,
+            "header_warnings": [],
+        }
+
+    header_row_index = detect_header_row(all_values)
+    raw_headers, safe_headers, warnings = sanitize_headers(all_values[header_row_index])
+    width = len(safe_headers)
+    records = []
+
+    for row_number, row in enumerate(
+        all_values[header_row_index + 1 :], start=header_row_index + 2
+    ):
+        padded = row + [""] * max(0, width - len(row))
+        padded = padded[:width]
+        if not any(cell.strip() for cell in padded):
+            continue
+
+        record = {safe_headers[idx]: padded[idx] for idx in range(width)}
+        record["_row"] = row_number
+        records.append(record)
+
+    return {
+        "row_count": len(records),
+        "headers": raw_headers,
+        "safe_headers": safe_headers,
+        "data": records,
+        "header_row": header_row_index + 1,
+        "header_warnings": warnings,
+    }
+
+
+def read_assets(spreadsheet: gspread.Spreadsheet) -> dict[str, Any]:
     """Google Sheets에서 자산 목록 읽기"""
 
-    result = {
+    result: dict[str, Any] = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "sheets": {},
         "summary": {},
@@ -111,13 +205,13 @@ def read_assets(spreadsheet: gspread.Spreadsheet) -> dict:
 
     for ws in spreadsheet.worksheets():
         title = ws.title
-        records = ws.get_all_records()
-        result["sheets"][title] = {
-            "row_count": len(records),
-            "headers": ws.row_values(1) if records else [],
-            "data": records,
-        }
-        print(f"  읽기 완료: '{title}' ({len(records)} 행)")
+        parsed = parse_worksheet_records(ws)
+        result["sheets"][title] = parsed
+        if parsed["header_warnings"]:
+            joined = "; ".join(parsed["header_warnings"])
+            print(f"  읽기 완료: '{title}' ({parsed['row_count']} 행, 경고: {joined})")
+        else:
+            print(f"  읽기 완료: '{title}' ({parsed['row_count']} 행)")
 
     # 요약 통계 생성
     total_assets = 0
@@ -132,7 +226,7 @@ def read_assets(spreadsheet: gspread.Spreadsheet) -> dict:
     return result
 
 
-def load_scan_report(scan_dir: str) -> dict | None:
+def load_scan_report(scan_dir: str) -> dict[str, Any] | None:
     """ClaudeSec 스캔 리포트 로드"""
     report_path = Path(scan_dir) / SCAN_REPORT
     if not report_path.exists():
@@ -142,10 +236,10 @@ def load_scan_report(scan_dir: str) -> dict | None:
         return json.load(f)
 
 
-def load_prowler_results(scan_dir: str) -> list:
+def load_prowler_results(scan_dir: str) -> list[dict[str, Any]]:
     """Prowler OCSF 결과 파일 로드"""
     prowler_dir = Path(scan_dir) / PROWLER_DIR
-    results = []
+    results: list[dict[str, Any]] = []
     if not prowler_dir.exists():
         return results
 
@@ -157,21 +251,31 @@ def load_prowler_results(scan_dir: str) -> list:
                     results.extend(data)
                 else:
                     results.append(data)
-            print(f"  Prowler 결과 로드: {f.name} ({len(data) if isinstance(data, list) else 1} 항목)")
+            print(
+                f"  Prowler 결과 로드: {f.name} ({len(data) if isinstance(data, list) else 1} 항목)"
+            )
         except (json.JSONDecodeError, IOError) as e:
             print(f"  경고: {f.name} 파싱 실패: {e}", file=sys.stderr)
 
     return results
 
 
-def ensure_worksheet(spreadsheet: gspread.Spreadsheet, title: str, headers: list) -> gspread.Worksheet:
+def ensure_worksheet(
+    spreadsheet: gspread.Spreadsheet, title: str, headers: list[str]
+) -> gspread.Worksheet:
     """워크시트 확인 또는 생성"""
     try:
         ws = spreadsheet.worksheet(title)
     except gspread.WorksheetNotFound:
         ws = spreadsheet.add_worksheet(title=title, rows=100, cols=len(headers))
-        ws.update("A1", [headers])
-        ws.format("A1:Z1", {"textFormat": {"bold": True}, "backgroundColor": {"red": 0.2, "green": 0.3, "blue": 0.5}})
+        ws.update(range_name="A1", values=[headers])
+        ws.format(
+            "A1:Z1",
+            {
+                "textFormat": {"bold": True},
+                "backgroundColor": {"red": 0.2, "green": 0.3, "blue": 0.5},
+            },
+        )
         print(f"  새 시트 생성: '{title}'")
     return ws
 
@@ -197,8 +301,10 @@ def sync_scan_results(spreadsheet: gspread.Spreadsheet, scan_dir: str) -> None:
             report.get("skipped", 0),
             report.get("total", 0),
         ]
-        ws.append_row(row, value_input_option="USER_ENTERED")
-        print(f"  스캔 결과 동기화 완료: 등급 {report.get('grade')}, 점수 {report.get('score')}")
+        ws.append_row(row, value_input_option=ValueInputOption.user_entered)
+        print(
+            f"  스캔 결과 동기화 완료: 등급 {report.get('grade')}, 점수 {report.get('score')}"
+        )
 
     # 2. 취약점 상세 시트
     if report and report.get("findings"):
@@ -207,23 +313,33 @@ def sync_scan_results(spreadsheet: gspread.Spreadsheet, scan_dir: str) -> None:
 
         rows = []
         for f in report["findings"]:
-            rows.append([
-                now,
-                f.get("id", ""),
-                f.get("title", "")[:200],  # 시트 셀 길이 제한
-                f.get("severity", ""),
-                CATEGORY_MAP.get(f.get("category", ""), f.get("category", "")),
-                f.get("details", "")[:300],
-            ])
+            rows.append(
+                [
+                    now,
+                    f.get("id", ""),
+                    f.get("title", "")[:200],  # 시트 셀 길이 제한
+                    f.get("severity", ""),
+                    CATEGORY_MAP.get(f.get("category", ""), f.get("category", "")),
+                    f.get("details", "")[:300],
+                ]
+            )
 
         if rows:
-            ws.append_rows(rows, value_input_option="USER_ENTERED")
+            ws.append_rows(rows, value_input_option=ValueInputOption.user_entered)
             print(f"  취약점 {len(rows)}건 동기화 완료")
 
     # 3. Prowler 결과 시트
     prowler_results = load_prowler_results(scan_dir)
     if prowler_results:
-        headers = ["스캔일시", "Provider", "심각도", "상태", "리소스", "메시지", "컴플라이언스"]
+        headers = [
+            "스캔일시",
+            "Provider",
+            "심각도",
+            "상태",
+            "리소스",
+            "메시지",
+            "컴플라이언스",
+        ]
         ws = ensure_worksheet(spreadsheet, "Prowler 스캔결과", headers)
 
         rows = []
@@ -243,7 +359,9 @@ def sync_scan_results(spreadsheet: gspread.Spreadsheet, scan_dir: str) -> None:
             compliance_info = ""
             if isinstance(unmapped, dict) and "compliance" in unmapped:
                 comp = unmapped["compliance"]
-                compliance_info = ", ".join(f"{k}: {','.join(v)}" for k, v in comp.items())
+                compliance_info = ", ".join(
+                    f"{k}: {','.join(v)}" for k, v in comp.items()
+                )
 
             # 리소스 정보
             resource = ""
@@ -253,15 +371,27 @@ def sync_scan_results(spreadsheet: gspread.Spreadsheet, scan_dir: str) -> None:
                 if isinstance(res, dict):
                     resource = res.get("uid", res.get("name", ""))
 
-            rows.append([now, provider, severity, status, resource[:200], message, compliance_info[:300]])
+            rows.append(
+                [
+                    now,
+                    provider,
+                    severity,
+                    status,
+                    resource[:200],
+                    message,
+                    compliance_info[:300],
+                ]
+            )
 
         if rows:
             # 최대 500행 제한 (시트 과부하 방지)
-            ws.append_rows(rows[:500], value_input_option="USER_ENTERED")
+            ws.append_rows(rows[:500], value_input_option=ValueInputOption.user_entered)
             print(f"  Prowler 결과 {min(len(rows), 500)}건 동기화 완료")
 
 
-def generate_asset_report(spreadsheet: gspread.Spreadsheet, scan_dir: str) -> dict:
+def generate_asset_report(
+    spreadsheet: gspread.Spreadsheet, scan_dir: str
+) -> dict[str, Any]:
     """자산 현황 요약 JSON 생성 (ClaudeSec 대시보드 연동용)"""
 
     assets = read_assets(spreadsheet)
