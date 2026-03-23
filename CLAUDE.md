@@ -27,6 +27,17 @@ All documentation is in Markdown. No build system required.
 - hooks/ — Claude Code security hooks
 - examples/ — Example projects and configs
 
+## Project Agents (`.claude/agents/`)
+
+| Agent | Model | Role |
+|-------|-------|------|
+| `sec-orchestrator` | opus | 프로젝트 조율, 보안 워크플로우 관리 |
+| `sec-researcher` | sonnet | 보안 리서치, 위협 분석 |
+| `sec-implementer` | sonnet | 보안 가이드/도구 구현 |
+| `sec-reviewer` | sonnet | 보안 문서/코드 리뷰 |
+| `architect` | opus | 문서 구조 설계, 스캐너 아키텍처, 컴플라이언스 체계 |
+| `test-engineer` | sonnet | 문서 검증, 링크 무결성, 스캐너 테스트 |
+
 ## Quality Gates
 
 - All Markdown must pass markdownlint
