@@ -77,6 +77,12 @@ jobs:
         run: bash scanner/tests/test_kube_discovery.sh
       - name: Run bash unit tests (output.sh functions)
         run: bash scanner/tests/test_output_functions.sh
+      - name: Run bash unit tests (infra/docker checks)
+        run: bash scanner/tests/test_check_infra_docker.sh
+      - name: Run bash unit tests (code/injection checks)
+        run: bash scanner/tests/test_check_code_injection.sh
+      - name: Run bash unit tests (access-control checks)
+        run: bash scanner/tests/test_check_access_control.sh
       - name: Run scanner unittest baseline (JUnit XML)
         id: scanner_tests
         env:
