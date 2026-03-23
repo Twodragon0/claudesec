@@ -67,9 +67,29 @@ RUN apk add --no-cache \
     curl \
     git \
     jq \
+    nmap \
     python3 \
     py3-pip \
     kubectl
+
+ARG TRIVY_VERSION=0.69.3
+# Trivy vulnerability scanner (used by ClaudeSec network checks)
+# Install by downloading the prebuilt Linux binary asset with checksum verification.
+RUN set -eux; \
+  arch="$(uname -m)"; \
+  case "$arch" in \
+    x86_64) asset_arch="Linux-64bit" ;; \
+    aarch64) asset_arch="Linux-ARM64" ;; \
+    *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL -o /tmp/trivy.tar.gz \
+    "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_${asset_arch}.tar.gz"; \
+  curl -fsSL -o /tmp/trivy_checksums.txt \
+    "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"; \
+  cd /tmp && grep "trivy_${TRIVY_VERSION}_${asset_arch}.tar.gz" trivy_checksums.txt | sha256sum -c -; \
+  tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin/ trivy; \
+  chmod +x /usr/local/bin/trivy; \
+  rm -f /tmp/trivy.tar.gz /tmp/trivy_checksums.txt
 
 # Copy pre-built prowler from builder (unused providers stripped)
 COPY --from=builder /install /usr

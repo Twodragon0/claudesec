@@ -17,7 +17,7 @@
 </style>
 <rect class="bg" x="0" y="0" width="1100" height="720"/>
 <text class="txt title" x="30" y="38">ClaudeSec Overview Architecture</text>
-<text class="txt muted" x="30" y="60">Scan: total 40, failed 3, warnings 4 · Score 78% (Grade C) · Prowler fail 7455 · Network targets 1 (header issues 6)</text>
+<text class="txt muted" x="30" y="60">Scan: total 178, failed 1, warnings 7 · Score 85% (Grade B) · Prowler fail 7455 · Network targets 1 (header issues 6)</text>
 <rect class="card" x="20" y="90" width="520" height="290" rx="12"/>
 <rect class="card" x="560" y="90" width="520" height="290" rx="12"/>
 <rect class="card" x="20" y="400" width="1060" height="290" rx="12"/>
