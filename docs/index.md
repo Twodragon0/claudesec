@@ -18,12 +18,12 @@ npx claudesec dashboard       # Full scan + dashboard
 
 | Section | Description |
 |---------|-------------|
-| [Getting Started](guides/getting-started) | Installation, first scan, dashboard setup |
-| [DevSecOps](devsecops/pipeline) | CI/CD pipeline, supply chain, threat modeling |
-| [AI Security](ai/llm-security-checklist) | LLM Top 10, MITRE ATLAS, prompt injection |
-| [Compliance](compliance/isms-p) | ISMS-P, ISO 27001, NIST CSF, ISO 42001 |
+| [Getting Started](guides/getting-started.md) | Installation, first scan, dashboard setup |
+| [DevSecOps](devsecops/pipeline.md) | CI/CD pipeline, supply chain, threat modeling |
+| [AI Security](ai/llm-security-checklist.md) | LLM Top 10, MITRE ATLAS, prompt injection |
+| [Compliance](compliance/isms-p.md) | ISMS-P, ISO 27001, NIST CSF, ISO 42001 |
 | [Architecture](architecture/) | System diagrams, scan flow, security domains |
-| [GitHub Security](github/security-features) | Actions security, branch protection, CodeQL |
+| [GitHub Security](github/security-features.md) | Actions security, branch protection, CodeQL |
 
 ## Features
 
