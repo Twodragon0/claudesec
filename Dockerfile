@@ -82,14 +82,15 @@ RUN set -eux; \
     aarch64) asset_arch="Linux-ARM64" ;; \
     *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
   esac; \
-  curl -fsSL -o /tmp/trivy.tar.gz \
-    "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_${asset_arch}.tar.gz"; \
+  trivy_file="trivy_${TRIVY_VERSION}_${asset_arch}.tar.gz"; \
+  curl -fsSL -o "/tmp/${trivy_file}" \
+    "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${trivy_file}"; \
   curl -fsSL -o /tmp/trivy_checksums.txt \
     "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"; \
-  cd /tmp && grep "trivy_${TRIVY_VERSION}_${asset_arch}.tar.gz" trivy_checksums.txt | sha256sum -c -; \
-  tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin/ trivy; \
+  cd /tmp && grep "${trivy_file}" trivy_checksums.txt | sha256sum -c -; \
+  tar -xzf "/tmp/${trivy_file}" -C /usr/local/bin/ trivy; \
   chmod +x /usr/local/bin/trivy; \
-  rm -f /tmp/trivy.tar.gz /tmp/trivy_checksums.txt
+  rm -f "/tmp/${trivy_file}" /tmp/trivy_checksums.txt
 
 # Copy pre-built prowler from builder (unused providers stripped)
 COPY --from=builder /install /usr
