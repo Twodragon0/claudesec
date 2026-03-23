@@ -14,9 +14,7 @@ services:
   scan:
     build: { context: ., dockerfile: Dockerfile }
     image: claudesec:local
-    # Override entrypoint so non-zero exit (findings found) does not block pipeline
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["/opt/claudesec/scanner/claudesec scan -d /workspace -c all; exit 0"]
+    command: ["scan", "-d", "/workspace", "-c", "all"]
     volumes: [".:/workspace"]
     working_dir: /workspace
 

@@ -103,7 +103,8 @@ if [[ "$MODE" == "quick" ]]; then
 fi
 
 if [[ "$SERVE" == "1" ]]; then
-  cmd+=( --serve --host 0.0.0.0 --port "$PORT" )
+  # Bind to 127.0.0.1 inside container; Docker port mapping handles external access
+  cmd+=( --serve --host 127.0.0.1 --port "$PORT" )
 elif [[ "$MODE" != "quick" ]]; then
   cmd+=( --all )
 fi
