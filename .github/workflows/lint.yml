@@ -32,6 +32,20 @@ jobs:
       - name: npm audit
         run: npm audit --audit-level=high
 
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.11'
+      - name: Install pip-audit and project dependencies
+        run: |
+          python3 -m pip install --upgrade pip-audit
+          python3 -m pip install -r requirements-ci.txt
+      - name: Run pip-audit
+        run: pip-audit --strict --desc
+
   shell-lint:
     runs-on: ubuntu-latest
     steps:
