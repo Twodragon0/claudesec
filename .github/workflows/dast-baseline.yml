@@ -1,0 +1,44 @@
+name: DAST Baseline Scan
+
+on:
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  security-events: write
+
+jobs:
+  dast-baseline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start application (docker-compose)
+        run: |
+          docker compose -f docker-compose.staging.yml up -d
+          timeout 60 bash -c 'until curl -sf http://localhost:8080/health; do sleep 2; done'
+
+      - name: ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: "http://localhost:8080"
+          rules_file_name: ".zap/rules.tsv"
+          cmd_options: "-a"
+          fail_action: true
+
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-baseline-report
+          path: report_html.html
+          retention-days: 30
+
+      - name: Teardown
+        if: always()
+        run: docker compose -f docker-compose.staging.yml down

@@ -1,0 +1,55 @@
+name: DAST Full Scan (Nightly)
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "Target URL for DAST scan"
+        required: true
+        default: "https://staging.example.com"
+
+permissions:
+  contents: read
+  issues: write
+  security-events: write
+
+jobs:
+  dast-full:
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: ZAP Full Scan
+        uses: zaproxy/action-full-scan@v0.10.0
+        with:
+          target: ${{ github.event.inputs.target_url || 'https://staging.example.com' }}
+          rules_file_name: ".zap/rules.tsv"
+          cmd_options: >-
+            -z "-config scanner.maxScanDurationInMins=30"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue_title: "ZAP Full Scan Report"
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif
+          category: "DAST"
+
+      - name: Notify on Critical Findings
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '[DAST] Critical vulnerability detected - ' + new Date().toISOString().split('T')[0],
+              labels: ['security', 'dast', 'critical'],
+              body: 'DAST Full Scan found critical vulnerabilities. Check workflow artifacts for details.'
+            })
