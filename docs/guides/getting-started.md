@@ -28,7 +28,7 @@ Expected output: security scan starts and creates `scan-report.json` in the proj
 ### Prerequisites
 
 - Git
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
+- [Claude Code](https://code.claude.com/docs) CLI
 - A project repository to secure
 
 ### Clone and run

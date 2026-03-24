@@ -130,6 +130,6 @@ For organizations needing prescriptive controls (vs. CSF's outcome-based approac
 
 - [NIST CSF 2.0 Official](https://www.nist.gov/cyberframework)
 - [NIST CSF 2.0 PDF](https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf)
-- [NIST SP 800-53 Rev 5](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final)
+- [NIST SP 800-53 Rev 5](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final)
 - [NIST SP 800-218 (SSDF)](https://csrc.nist.gov/publications/detail/sp/800-218/final)
 - [NIST AI RMF](https://www.nist.gov/artificial-intelligence)

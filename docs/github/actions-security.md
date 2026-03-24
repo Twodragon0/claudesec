@@ -180,7 +180,7 @@ jobs:
 
 ## References
 
-- [GitHub Actions Security Hardening](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions)
+- [GitHub Actions Security Hardening](https://docs.github.com/en/actions/reference/security/secure-use)
 - [OpenSSF Secure Supply Chain Best Practices](https://best.openssf.org/)
 - [StepSecurity — Harden Runner](https://github.com/step-security/harden-runner)
 - [OWASP CI/CD Security Top 10](https://owasp.org/www-project-top-10-ci-cd-security-risks/)

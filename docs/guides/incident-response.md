@@ -13,7 +13,7 @@ tags: [incident-response, nist, iso27035, security-operations, playbook]
 - [NIST SP 800-61r2](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-61r2.pdf) — Computer Security Incident Handling Guide
 - [NIST CSF 2.0](https://www.nist.gov/cyberframework) — Cybersecurity Framework, Respond (RS) Function
 - [ISO/IEC 27035](https://www.iso.org/standard/78973.html) — Information Security Incident Management
-- [SANS Incident Handler's Handbook](https://www.sans.org/white-papers/33901/) — Incident Handling Step-by-Step
+- [SANS Incident Handler's Handbook](https://www.sans.org/white-papers/33901) — Incident Handling Step-by-Step
 
 ---
 
@@ -440,10 +440,10 @@ behavior:
 | NIST SP 800-61r2 | <https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-61r2.pdf> |
 | NIST CSF 2.0 Respond Function | <https://www.nist.gov/cyberframework> |
 | ISO/IEC 27035 | <https://www.iso.org/standard/78973.html> |
-| SANS Incident Handler's Handbook | <https://www.sans.org/white-papers/33901/> |
+| SANS Incident Handler's Handbook | <https://www.sans.org/white-papers/33901> |
 | MITRE ATT&CK | <https://attack.mitre.org> |
 | KrCERT/CC 침해사고 신고 | <https://www.krcert.or.kr> |
-| 개인정보보호위원회 | <https://www.pipc.go.kr> |
+| 개인정보보호위원회 | <https://www.pipc.go.kr/np/> |
 | OWASP Incident Response | <https://owasp.org/www-community/Incident_Response> |
 
 ## 관련 문서

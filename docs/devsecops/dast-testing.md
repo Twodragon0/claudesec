@@ -14,7 +14,7 @@ DAST(Dynamic Application Security Testing)는 실행 중인 애플리케이션�
 
 - [OWASP Testing Guide v4.2](https://owasp.org/www-project-web-security-testing-guide/)
 - [OWASP ZAP](https://www.zaproxy.org/)
-- [NIST SP 800-53 SA-11](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final) — Developer Testing and Evaluation
+- [NIST SP 800-53 SA-11](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final) — Developer Testing and Evaluation
 - [CIS Controls v8](https://www.cisecurity.org/controls/v8) — Control 16: Application Software Security
 
 ---
@@ -496,7 +496,7 @@ NIST SP 800-53 SA-11 기반 조직 성숙도 단계:
 - [OWASP Testing Guide v4.2](https://owasp.org/www-project-web-security-testing-guide/)
 - [OWASP ZAP Documentation](https://www.zaproxy.org/docs/)
 - [OWASP ZAP GitHub Actions](https://github.com/zaproxy/action-full-scan)
-- [NIST SP 800-53 Rev. 5 — SA-11](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final)
+- [NIST SP 800-53 Rev. 5 — SA-11](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final)
 - [CIS Controls v8 — Control 16](https://www.cisecurity.org/controls/v8)
 - [OWASP Top 10:2025](https://owasp.org/Top10/)
 - [DevSecOps Pipeline Guide](pipeline.md)
