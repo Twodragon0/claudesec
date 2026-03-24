@@ -183,3 +183,6 @@ jobs:
 - [GitHub Actions Security Hardening](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions)
 - [OpenSSF Secure Supply Chain Best Practices](https://best.openssf.org/)
 - [StepSecurity — Harden Runner](https://github.com/step-security/harden-runner)
+- [OWASP CI/CD Security Top 10](https://owasp.org/www-project-top-10-ci-cd-security-risks/)
+- [NIST SP 800-53 SA-11: Developer Testing and Evaluation](https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_0/home?element=SA-11)
+- [CIS Software Supply Chain Security Guide](https://www.cisecurity.org/insights/white-papers/cis-software-supply-chain-security-guide)

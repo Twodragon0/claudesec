@@ -123,3 +123,6 @@ For deployment environments:
 
 - [GitHub Branch Protection](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)
 - [GitHub CODEOWNERS](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners)
+- [NIST SP 800-53 AC-3: Access Enforcement](https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_0/home?element=AC-3)
+- [NIST SP 800-53 AC-6: Least Privilege](https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_0/home?element=AC-6)
+- [CIS Controls v8 Control 6: Access Control Management](https://www.cisecurity.org/controls/access-control-management)

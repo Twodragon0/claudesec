@@ -1,3 +1,9 @@
+---
+title: Workflow Components
+description: Reusable composite actions for ClaudeSec CI/CD workflow templates
+tags: [ci-cd, github-actions, workflow, security]
+---
+
 # Workflow Components
 
 ClaudeSec workflow templates share reusable composite actions to reduce duplication and keep policy behavior consistent.
@@ -52,3 +58,8 @@ ClaudeSec workflow templates share reusable composite actions to reduce duplicat
 - `.github/actions/token-expiry-gate/action.yml`
 - `.github/actions/datadog-ci-collect/action.yml`
 - `scripts/token-expiry-gate.py`
+
+## References
+
+- [NIST SP 800-53 SA-15: Development Process, Standards, and Tools](https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_0/home?element=SA-15)
+- [OWASP CI/CD Security Top 10](https://owasp.org/www-project-top-10-ci-cd-security-risks/)
