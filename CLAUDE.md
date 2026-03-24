@@ -37,6 +37,58 @@ All documentation is in Markdown. No build system required.
 | `sec-reviewer` | sonnet | 보안 문서/코드 리뷰 |
 | `architect` | opus | 문서 구조 설계, 스캐너 아키텍처, 컴플라이언스 체계 |
 | `test-engineer` | sonnet | 문서 검증, 링크 무결성, 스캐너 테스트 |
+| `docs-writer` | sonnet | DevSecOps 가이드, 컴플라이언스 문서, AI 보안 콘텐츠 작성 |
+| `ci-pipeline` | sonnet | GitHub Actions, 보안 스캔 자동화, 품질 게이트 관리 |
+
+### Agent Responsibilities
+
+| Agent | Primary Files | Key Tools |
+|-------|--------------|-----------|
+| `sec-orchestrator` | All — coordination role | Read, Grep, Glob, Bash, Write, Edit |
+| `sec-researcher` | docs/ai/, docs/devsecops/, docs/compliance/ | Read, Grep, Glob, Bash |
+| `sec-implementer` | scanner/, hooks/, templates/, docs/guides/ | Read, Grep, Glob, Bash, Write, Edit |
+| `sec-reviewer` | All docs and code | Read, Grep, Glob, Bash |
+| `architect` | docs/architecture/, scanner/ design | Read, Grep, Glob, Bash |
+| `test-engineer` | All — validation role | Read, Grep, Glob, Bash, Write, Edit |
+| `docs-writer` | docs/devsecops/, docs/github/, docs/ai/, docs/compliance/ | Read, Grep, Glob, Bash, Write, Edit |
+| `ci-pipeline` | .github/workflows/, scripts/, Dockerfile | Read, Grep, Glob, Bash, Write, Edit |
+
+## Multi-Agent Workflow Patterns
+
+### New Security Guide (end-to-end)
+```
+sec-researcher  →  sec-implementer  →  docs-writer  →  sec-reviewer  →  test-engineer
+(research)         (scanner/hooks)     (write guide)    (verify claims)   (lint + links)
+```
+
+### Scanner Feature Development
+```
+architect  →  sec-implementer  →  test-engineer  →  ci-pipeline
+(design)      (build feature)     (test + validate)   (add to CI)
+```
+
+### Compliance Document
+```
+sec-researcher  →  docs-writer  →  sec-reviewer  →  test-engineer
+(framework gap)    (draft guide)    (accuracy check)   (quality gate)
+```
+
+### Full DevSecOps Pipeline Review
+```
+sec-orchestrator coordinates:
+  sec-researcher   (threat landscape)
+  architect        (pipeline design gaps)
+  sec-reviewer     (existing doc audit)
+  ci-pipeline      (workflow gaps)
+  → sec-implementer (fix + implement)
+  → test-engineer   (validate all changes)
+```
+
+### Hotfix / Urgent Security Update
+```
+sec-researcher  →  sec-implementer  →  sec-reviewer
+(CVE/threat)       (patch guide/hook)   (fast review)
+```
 
 ## Quality Gates
 
