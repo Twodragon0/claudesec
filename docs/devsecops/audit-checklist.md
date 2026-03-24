@@ -199,5 +199,5 @@ aws iam generate-credential-report
 
 - [querypie/audit-points](https://github.com/querypie/audit-points) — DevSecOps tool audit points
 - [CIS Benchmarks](https://www.cisecurity.org/cis-benchmarks)
-- [NIST SP 800-53](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final)
+- [NIST SP 800-53](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final)
 - [SOC 2 Trust Services Criteria](https://www.aicpa-cima.com/resources/landing/system-and-organization-controls-soc-suite-of-services)
