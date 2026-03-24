@@ -73,3 +73,25 @@ claudesec/
 - **Security Scan**: CodeQL (GitHub default setup)
 
 See [docs/guides/claude-lead-agents-and-best-practices.md](docs/guides/claude-lead-agents-and-best-practices.md) for full best practices and Cursor rules alignment.
+
+## Project Agents (`.claude/agents/`)
+
+These agent definition files provide specialized roles for Claude Code:
+
+| Agent File | Model | Role |
+|-----------|-------|------|
+| `sec-orchestrator.md` | opus | 프로젝트 조율, 보안 워크플로우 관리 |
+| `sec-researcher.md` | sonnet | 보안 리서치, 위협 분석 |
+| `sec-implementer.md` | sonnet | 보안 가이드/도구 구현 |
+| `sec-reviewer.md` | sonnet | 보안 문서/코드 리뷰 |
+| `architect.md` | opus | 문서 구조 설계, 스캐너 아키텍처 |
+| `test-engineer.md` | sonnet | 문서 검증, 링크 무결성, 스캐너 테스트 |
+| `docs-writer.md` | sonnet | DevSecOps 가이드, 컴플라이언스 문서 작성 |
+| `ci-pipeline.md` | sonnet | GitHub Actions, 보안 스캔 자동화 |
+
+### Multi-Agent Workflow Patterns
+
+- **Security Guide**: sec-researcher → sec-implementer → docs-writer → sec-reviewer → test-engineer
+- **Scanner Feature**: architect → sec-implementer → test-engineer → ci-pipeline
+- **Compliance Doc**: sec-researcher → docs-writer → sec-reviewer → test-engineer
+- **Pipeline Review**: sec-orchestrator coordinates all agents in parallel
