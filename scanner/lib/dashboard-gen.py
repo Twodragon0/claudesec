@@ -1005,7 +1005,6 @@ _TEMPLATE_KEYS = [
     "ARCH_OVERVIEW_HTML",
     "NETWORK_SUMMARY_HTML",
     "POLICIES_HTML",
-    "ISMS_PDCA_HTML",
 ]
 
 
@@ -1101,149 +1100,6 @@ def _get_architecture_diagram_html(output_file, scan_dir: str = ""):
             except Exception:
                 continue
     return f'<div class="arch-diagram-wrap">{_INLINE_ARCH_SVG}</div>'
-
-
-def _build_isms_pdca_html(
-    score, grade, passed, failed, warnings, total,
-    prov_summary, all_findings, findings_list, compliance_map,
-):
-    """Build ISMS PDCA dashboard HTML with phase scores and action items."""
-    total_prowler_fail = sum(v["total_fail"] for v in prov_summary.values())
-    total_prowler_pass = sum(v["total_pass"] for v in prov_summary.values())
-    n_crit = sum(v["critical"] for v in prov_summary.values())
-    n_high = sum(v["high"] for v in prov_summary.values())
-
-    # --- Phase scores ---
-    # Plan: asset inventory + policy coverage
-    plan_score = min(78, 80) if total > 50 else 60
-    # Do: tool integration (connected providers, scanner pass rate)
-    do_pass_rate = round(passed / max(total, 1) * 100)
-    do_score = min(82, max(50, do_pass_rate))
-    # Check: scan grade + prowler pass rate
-    prowler_total = total_prowler_fail + total_prowler_pass
-    prowler_pass_pct = round(total_prowler_pass / max(prowler_total, 1) * 100)
-    check_base = {"A": 90, "B": 80, "C": 70, "D": 60}.get(grade, 50)
-    check_score = round((check_base + prowler_pass_pct) / 2)
-    # Act: improvement rate (lower critical = higher score)
-    act_score = max(40, min(70, 70 - min(n_crit, 30)))
-    overall = round((plan_score + do_score + check_score + act_score) / 4)
-
-    def _bar(pct):
-        color = "#22c55e" if pct >= 80 else "#eab308" if pct >= 60 else "#ef4444"
-        return f'<div style="flex:1;background:var(--card-bg);border-radius:4px;height:8px;overflow:hidden"><div style="width:{pct}%;height:100%;background:{color};border-radius:4px;transition:width .3s"></div></div>'
-
-    def _phase_card(icon, name, sub, pct, items):
-        items_html = "".join(f'<li style="margin-bottom:.25rem;font-size:.82rem;color:var(--text)">{h(i)}</li>' for i in items)
-        return (
-            f'<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:1.25rem;flex:1;min-width:220px">'
-            f'<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">'
-            f'<span style="font-size:1.5rem">{icon}</span>'
-            f'<div><div style="font-weight:700;font-size:.95rem">{name}</div><div style="font-size:.75rem;color:var(--muted)">{sub}</div></div>'
-            f'<div style="margin-left:auto;font-size:1.4rem;font-weight:800;color:{"#22c55e" if pct >= 80 else "#eab308" if pct >= 60 else "#ef4444"}">{pct}%</div>'
-            f'</div>{_bar(pct)}'
-            f'<ul style="margin:.75rem 0 0;padding-left:1.2rem;list-style:disc">{items_html}</ul></div>'
-        )
-
-    # Phase cards
-    phases_html = '<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">'
-    phases_html += _phase_card("📋", "Plan (계획)", "자산·정책·리스크", plan_score, [
-        f"스캔 체크 {total}건 (활성 {total - int(findings_list is not None and 0)}건)",
-        "자산 식별 및 위협 분석 체계 수립",
-        "보안 정책·지침 문서화",
-    ])
-    phases_html += _phase_card("🔧", "Do (이행)", "보안 통제 적용", do_score, [
-        f"ClaudeSec Pass Rate: {do_pass_rate}%",
-        f"Prowler Pass: {total_prowler_pass:,}/{prowler_total:,}",
-        "Okta SSO, Datadog, Zscaler, SentinelOne 운영",
-    ])
-    phases_html += _phase_card("🔍", "Check (점검)", "모니터링·감사", check_score, [
-        f"ClaudeSec Score: {score}/100 (Grade {grade})",
-        f"Prowler Pass Rate: {prowler_pass_pct}%",
-        f"Critical {n_crit:,}건 / High {n_high:,}건",
-    ])
-    phases_html += _phase_card("🔄", "Act (개선)", "조치·개선·환류", act_score, [
-        f"Critical 조치 대상: {n_crit:,}건",
-        "Git history 시크릿 제거 필요",
-        "CI 보안 스캐닝 파이프라인 추가 필요",
-    ])
-    phases_html += '</div>'
-
-    # Overall score card
-    overall_color = "#22c55e" if overall >= 80 else "#eab308" if overall >= 60 else "#ef4444"
-    header_html = (
-        f'<div class="card" style="margin-bottom:1.5rem">'
-        f'<div class="card-title">ISMS PDCA 종합 현황</div>'
-        f'<div style="padding:1.25rem;display:flex;align-items:center;gap:2rem;flex-wrap:wrap">'
-        f'<div style="text-align:center">'
-        f'<div style="font-size:3rem;font-weight:900;color:{overall_color}">{overall}%</div>'
-        f'<div style="font-size:.85rem;color:var(--muted)">PDCA 종합 점수</div>'
-        f'</div>'
-        f'<div style="flex:1;min-width:200px">'
-        f'<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem"><span style="width:80px;font-size:.82rem;color:var(--muted)">Plan</span>{_bar(plan_score)}<span style="font-size:.82rem;font-weight:600;width:40px;text-align:right">{plan_score}%</span></div>'
-        f'<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem"><span style="width:80px;font-size:.82rem;color:var(--muted)">Do</span>{_bar(do_score)}<span style="font-size:.82rem;font-weight:600;width:40px;text-align:right">{do_score}%</span></div>'
-        f'<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem"><span style="width:80px;font-size:.82rem;color:var(--muted)">Check</span>{_bar(check_score)}<span style="font-size:.82rem;font-weight:600;width:40px;text-align:right">{check_score}%</span></div>'
-        f'<div style="display:flex;align-items:center;gap:.5rem"><span style="width:80px;font-size:.82rem;color:var(--muted)">Act</span>{_bar(act_score)}<span style="font-size:.82rem;font-weight:600;width:40px;text-align:right">{act_score}%</span></div>'
-        f'</div></div></div>'
-    )
-
-    # Quick-Win action table
-    quick_wins = [
-        ("P0", "Critical", "GitHub branch protection 일괄 적용 (27개 리포)", "~486건 해소", "1-2일"),
-        ("P0", "Critical", "AWS root hardware MFA 등록", "3건 해소", "15분"),
-        ("P0", "Critical", "Datadog Lambda 시크릿 → Secrets Manager 이관", "18건 해소", "반나절"),
-        ("P0", "High", "Git history 시크릿 제거 (SECRETS-003)", "점수 회복", "1일"),
-        ("P0", "High", "CI 보안 스캐닝 추가 — CodeQL/Semgrep (CICD-005)", "점수 회복", "반나절"),
-        ("P1", "High", "GitHub secret scanning 활성화", "198건 해소", "30분"),
-        ("P1", "High", "K8s seccomp 프로파일 적용", "228건 해소", "1-2주"),
-        ("P1", "High", "IAM AdministratorAccess scope-down", "3건 해소", "1-2주"),
-        ("P2", "Medium", "Kyverno Audit → Enforce 전환", "60건 해소", "1개월"),
-        ("P2", "Medium", "CODEOWNERS 파일 생성 (27개 리포)", "414건 해소", "1일"),
-    ]
-    qw_rows = ""
-    for pri, sev, desc, impact, effort in quick_wins:
-        sev_class = "color:#dc2626" if sev == "Critical" else "color:#ef4444" if sev == "High" else "color:#eab308"
-        pri_bg = "#dc2626" if pri == "P0" else "#ef4444" if pri == "P1" else "#eab308"
-        qw_rows += (
-            f'<tr>'
-            f'<td><span style="background:{pri_bg};color:#fff;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:700">{h(pri)}</span></td>'
-            f'<td style="{sev_class};font-weight:600;font-size:.82rem">{h(sev)}</td>'
-            f'<td style="font-size:.85rem">{h(desc)}</td>'
-            f'<td style="font-size:.82rem;color:var(--muted)">{h(impact)}</td>'
-            f'<td style="font-size:.82rem">{h(effort)}</td>'
-            f'</tr>'
-        )
-    action_html = (
-        f'<div class="card">'
-        f'<div class="card-title">Quick-Win 조치 계획</div>'
-        f'<div style="padding:0 1.25rem 1.25rem;overflow-x:auto">'
-        f'<table class="prowler-table" style="width:100%"><thead><tr>'
-        f'<th style="width:60px">우선순위</th><th style="width:80px">심각도</th>'
-        f'<th>조치 항목</th><th style="width:100px">영향</th><th style="width:80px">소요</th>'
-        f'</tr></thead><tbody>{qw_rows}</tbody></table></div></div>'
-    )
-
-    # Compliance framework coverage
-    comp_rows = ""
-    frameworks = [
-        ("NIST CSF 2.0", "120+ checks"),
-        ("ISO 27001:2022", "Full Annex A"),
-        ("KISA ISMS-P v3.0", "102 items"),
-        ("SOC 2 Type II", "CC1~CC9"),
-        ("CIS Benchmarks v4.0", "macOS/Windows/K8s"),
-        ("OWASP Top 10 2025", "Code + AI"),
-    ]
-    for fw, cov in frameworks:
-        comp_rows += f'<tr><td style="font-weight:600;font-size:.85rem">{h(fw)}</td><td style="font-size:.85rem">{h(cov)}</td></tr>'
-    comp_html = (
-        f'<div class="card">'
-        f'<div class="card-title">컴플라이언스 프레임워크 매핑</div>'
-        f'<div style="padding:0 1.25rem 1.25rem;overflow-x:auto">'
-        f'<table class="prowler-table" style="width:100%"><thead><tr>'
-        f'<th>Framework</th><th>Coverage</th>'
-        f'</tr></thead><tbody>{comp_rows}</tbody></table></div></div>'
-    )
-
-    return header_html + phases_html + action_html + comp_html
 
 
 def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
@@ -2229,11 +2085,6 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         print(f"  [policies] no data (scan_dir={scan_dir})")
 
     # ── Assemble Full HTML ───────────────────────────────────────────────
-    isms_pdca_html = _build_isms_pdca_html(
-        score, grade, passed, failed, warnings, total,
-        prov_summary, all_findings, findings_list, compliance_map,
-    )
-
     reps = _build_replacements(
         VERSION,
         now,
@@ -2307,7 +2158,6 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         arch_overview_html,
         net_summary_html,
         policies_html,
-        isms_pdca_html,
     )
     _apply_template_and_write(output_file, _load_html_template(), reps)
 

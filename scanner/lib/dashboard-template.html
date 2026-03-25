@@ -444,6 +444,11 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 
 <!-- ── Tab: Overview ───────────────────────────────────────────────── -->
 <div class="tab-panel active" id="tab-overview" role="tabpanel" aria-label="Overview">
+  <!-- Main dashboard link -->
+  <div style="margin-bottom:1rem;padding:.6rem 1rem;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:space-between">
+    <span style="font-size:.85rem;color:var(--muted)">ISMS PDCA · 자산 관리 · SaaS · 비용 분석은 <strong style="color:var(--text)">메인 대시보드</strong>에서 확인하세요.</span>
+    <a href="/" style="font-size:.82rem;padding:.35rem .9rem;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;text-decoration:none;transition:opacity .15s" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">ISMS 메인 대시보드 →</a>
+  </div>
   <!-- Stat pills -->
   <div class="stats-row">
     <div class="stat-pill sp-total"><div class="sp-icon">📊</div><div><div class="sp-num">{{TOTAL_ISSUES}}</div><div class="sp-label">Findings</div></div></div>
