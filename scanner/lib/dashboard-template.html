@@ -438,6 +438,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
   <button class="tab" role="tab" aria-selected="false" aria-controls="tab-prowler" onclick="switchTab('prowler')">CSPM</button>
   <button class="tab" role="tab" aria-selected="false" aria-controls="tab-github" onclick="switchTab('github')">GitHub</button>
   <button class="tab" role="tab" aria-selected="false" aria-controls="tab-bestpractices" onclick="switchTab('bestpractices')">Code Security</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-isms_pdca" onclick="switchTab('isms_pdca')">ISMS PDCA</button>
   <button class="tab" role="tab" aria-selected="false" aria-controls="tab-arch" onclick="switchTab('arch')">Architecture</button>
   <button class="tab" role="tab" aria-selected="false" aria-controls="tab-networktools" onclick="switchTab('networktools')">Network</button>
 </nav>
@@ -716,6 +717,21 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
   </div>
 </div>
 
+<!-- ── Tab: ISMS PDCA ───────────────────────────────────────────── -->
+<div class="tab-panel" id="tab-isms_pdca" role="tabpanel" aria-label="ISMS PDCA">
+  <div class="card" style="margin-bottom:1.5rem">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>ISMS PDCA 종합 현황</span>
+      <a href="/#isms_pdca" style="font-size:.82rem;padding:.35rem .9rem;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;text-decoration:none;transition:opacity .15s" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">ISMS 메인 대시보드 →</a>
+    </div>
+    <div style="padding:1.25rem;font-size:.9rem;color:var(--muted)">
+      ISMS PDCA 상세 현황, 자산 관리, SaaS·라이선스, 비용 분석은 <a href="/#isms_pdca" style="font-weight:600">메인 대시보드</a>에서 확인하세요.<br>
+      이 페이지에서는 Prowler CSPM, Code Security, Architecture 등 <strong style="color:var(--text)">DevSecOps 기술 상세</strong>를 제공합니다.
+    </div>
+  </div>
+  {{ISMS_PDCA_HTML}}
+</div>
+
 <!-- ── Tab: Architecture ─────────────────────────────────────────── -->
 <div class="tab-panel" id="tab-arch" role="tabpanel" aria-label="Architecture">
   <div class="card">
@@ -855,7 +871,7 @@ function switchTab(id,targetId){
   var panel=document.getElementById('tab-'+id);
   if(panel)panel.classList.add('active');
   var tabs=document.querySelectorAll('.tab');
-  var names=['overview','prowler','github','bestpractices','arch','networktools'];
+  var names=['overview','prowler','github','bestpractices','isms_pdca','arch','networktools'];
   var idx=names.indexOf(id);
   if(idx>=0&&tabs[idx]){tabs[idx].classList.add('active');tabs[idx].setAttribute('aria-selected','true')}
   if(targetId){
@@ -1075,7 +1091,7 @@ function toggleTheme(){var t=document.documentElement;var cur=t.getAttribute('da
 function filterScannerSev(val){var rows=document.querySelectorAll('.scanner-table tbody tr');var shown=0;var total=0;rows.forEach(function(r){if(r.classList.contains('cat-header')||r.classList.contains('row-detail'))return;total++;if(val==='all'){r.style.display='';shown++;return}var show=false;if(val==='critical')show=r.classList.contains('sev-critical');else if(val==='high')show=r.classList.contains('sev-critical')||r.classList.contains('sev-high');else if(val==='warning')show=r.classList.contains('sev-warning');r.style.display=show?'':'none';if(show)shown++});var el=document.getElementById('scannerFilterCount');if(el)el.textContent=val==='all'?'':'('+shown+'/'+total+')'}
 document.addEventListener('DOMContentLoaded',function(){var sel=document.getElementById('scannerSevFilter');if(sel)filterScannerSev(sel.value)})
 /* Hash-based tab navigation (for links from asset dashboard) */
-(function(){var h=location.hash.replace('#','');if(h&&h.startsWith('tab-')){var tab=h.replace('tab-','');setTimeout(function(){switchTab(tab)},100)}window.addEventListener('hashchange',function(){var h2=location.hash.replace('#','');if(h2&&h2.startsWith('tab-'))switchTab(h2.replace('tab-',''))})})();
+(function(){var names=['overview','prowler','github','bestpractices','isms_pdca','arch','networktools'];function resolveTab(s){if(s.startsWith('tab-'))return s.replace('tab-','');if(names.indexOf(s)>=0)return s;return null}var h=location.hash.replace('#','');if(h){var t=resolveTab(h);if(t)setTimeout(function(){switchTab(t)},100)}window.addEventListener('hashchange',function(){var h2=location.hash.replace('#','');if(h2){var t2=resolveTab(h2);if(t2)switchTab(t2)}})})();
 </script>
 </body>
 </html>

@@ -24,8 +24,8 @@ set -uo pipefail
 
 VERSION="0.6.5"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHECKS_DIR="$SCRIPT_DIR/checks"
-LIB_DIR="$SCRIPT_DIR/lib"
+readonly CHECKS_DIR="$SCRIPT_DIR/checks"
+readonly LIB_DIR="$SCRIPT_DIR/lib"
 
 # Source library
 source "$LIB_DIR/output.sh"
@@ -267,6 +267,17 @@ serve_dashboard() {
   local host="${2:-127.0.0.1}"
   local port="${3:-11777}"
   local abs_dir abs_file url direct_url
+
+  # Validate port is numeric (1-65535)
+  if [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+    error "Invalid port: $port (must be 1-65535)"
+    return 1
+  fi
+  # Validate host is a safe hostname/IP
+  if [[ ! "$host" =~ ^[a-zA-Z0-9._:-]+$ ]]; then
+    error "Invalid host: $host"
+    return 1
+  fi
 
   if [[ ! -f "$html_path" ]]; then
     error "Dashboard file not found: $html_path"
@@ -752,13 +763,19 @@ datadog_api_request_with_retry() {
   fi
   tmp_body=$(mktemp 2>/dev/null || echo "")
   tmp_headers=$(mktemp 2>/dev/null || echo "")
-  [[ -n "$tmp_body" && -n "$tmp_headers" ]] || return 1
+  local tmp_curlcfg
+  tmp_curlcfg=$(mktemp 2>/dev/null || echo "")
+  [[ -n "$tmp_body" && -n "$tmp_headers" && -n "$tmp_curlcfg" ]] || return 1
+  chmod 600 "$tmp_curlcfg"
+
+  # Write sensitive headers to curl config file to avoid process list exposure
+  printf 'header = "DD-API-KEY: %s"\n' "${DD_API_KEY:-${DATADOG_API_KEY:-}}" > "$tmp_curlcfg"
+  printf 'header = "DD-APPLICATION-KEY: %s"\n' "${DD_APP_KEY:-}" >> "$tmp_curlcfg"
 
   for attempt in 1 2 3; do
     if [[ -n "$data_file" && -n "$content_type" ]]; then
       http_code=$(run_with_timeout 20 curl -sS -X "$method" "$url" \
-        -H "DD-API-KEY: ${DD_API_KEY:-${DATADOG_API_KEY:-}}" \
-        -H "DD-APPLICATION-KEY: ${DD_APP_KEY:-}" \
+        --config "$tmp_curlcfg" \
         -H "X-Request-ID: ${request_id}" \
         -H "Accept: application/json" \
         -H "Content-Type: ${content_type}" \
@@ -766,8 +783,7 @@ datadog_api_request_with_retry() {
         -D "$tmp_headers" -o "$tmp_body" -w "%{http_code}" || echo "000")
     else
       http_code=$(run_with_timeout 20 curl -sS -X "$method" "$url" \
-        -H "DD-API-KEY: ${DD_API_KEY:-${DATADOG_API_KEY:-}}" \
-        -H "DD-APPLICATION-KEY: ${DD_APP_KEY:-}" \
+        --config "$tmp_curlcfg" \
         -H "X-Request-ID: ${request_id}" \
         -H "Accept: application/json" \
         -D "$tmp_headers" -o "$tmp_body" -w "%{http_code}" || echo "000")
@@ -792,7 +808,7 @@ datadog_api_request_with_retry() {
         echo "[claudesec][debug] datadog request_id=${request_id} success code=${http_code} url=${url}" >&2
       fi
       mv "$tmp_body" "$output_file" 2>/dev/null || cp "$tmp_body" "$output_file"
-      rm -f "$tmp_headers" "$tmp_body"
+      rm -f "$tmp_headers" "$tmp_body" "$tmp_curlcfg"
       return 0
     fi
 
@@ -818,7 +834,7 @@ datadog_api_request_with_retry() {
   done
 
   [[ "$debug_enabled" == "1" ]] && echo "[claudesec][debug] datadog request_id=${request_id} failed code=${last_http_code} url=${url}" >&2
-  rm -f "$tmp_headers" "$tmp_body"
+  rm -f "$tmp_headers" "$tmp_body" "$tmp_curlcfg"
   return 1
 }
 

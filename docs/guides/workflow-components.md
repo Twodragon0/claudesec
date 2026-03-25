@@ -1,3 +1,9 @@
+---
+title: Workflow Components
+description: Reusable composite actions for ClaudeSec CI/CD workflows
+tags: [ci-cd, github-actions, workflow, automation]
+---
+
 # Workflow Components
 
 ClaudeSec workflow templates share reusable composite actions to reduce duplication and keep policy behavior consistent.
