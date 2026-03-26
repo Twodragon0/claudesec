@@ -1,0 +1,64 @@
+# Dashboard Auto-Refresh
+# Rebuilds scan report and dashboard HTML on a schedule.
+# Runs daily at 00:00 UTC (09:00 KST) and on manual dispatch.
+
+name: Dashboard Refresh
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dashboard-refresh
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    name: Scan & Rebuild Dashboard
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python3 -m pip install --upgrade -r requirements-ci.txt
+
+      - name: Build scanner image
+        run: docker build -t claudesec:local .
+
+      - name: Run scan and generate dashboard
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            -e SCAN_DIR=/workspace \
+            -e HOME=/tmp \
+            claudesec:local dashboard -d /workspace -c all --no-serve
+
+      - name: Verify dashboard generated
+        run: |
+          test -f claudesec-dashboard.html
+          size=$(wc -c < claudesec-dashboard.html)
+          echo "Dashboard size: $size bytes"
+          if [ "$size" -lt 1000 ]; then
+            echo "::error::Dashboard file too small ($size bytes)"
+            exit 1
+          fi
+
+      - name: Upload dashboard artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: dashboard-${{ github.run_id }}
+          path: claudesec-dashboard.html
+          retention-days: 7

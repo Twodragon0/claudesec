@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   dependency-review:
     runs-on: ubuntu-latest
@@ -44,7 +48,8 @@ jobs:
           python3 -m pip install --upgrade pip-audit
           python3 -m pip install -r requirements-ci.txt
       - name: Run pip-audit
-        run: pip-audit --strict --desc
+        # CVE-2026-4539: pygments <=2.19.2 local ReDoS — no fix available yet
+        run: pip-audit --strict --desc --ignore-vuln CVE-2026-4539
 
   shell-lint:
     runs-on: ubuntu-latest

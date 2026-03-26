@@ -71,6 +71,17 @@ else
   echo "  ⚠ scan-report.json not found, skipping HTML generation"
 fi
 
+# Step 4: Reload nginx if running in Docker
+echo ""
+echo "[4/4] Reloading dashboard nginx..."
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'claudesec-dashboard'; then
+  docker exec "$(docker ps --filter name=claudesec-dashboard --format '{{.Names}}' | head -1)" nginx -s reload 2>/dev/null \
+    && echo "  ✓ nginx reloaded" \
+    || echo "  ⚠ nginx reload failed (container may not support reload)"
+else
+  echo "  ⚠ claudesec-dashboard container not running, skipping reload"
+fi
+
 echo ""
 echo "=== Sync complete ==="
 echo "  Main dashboard: http://localhost:11777/"
