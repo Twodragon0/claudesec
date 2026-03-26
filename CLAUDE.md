@@ -56,24 +56,28 @@ All documentation is in Markdown. No build system required.
 ## Multi-Agent Workflow Patterns
 
 ### New Security Guide (end-to-end)
+
 ```
 sec-researcher  →  sec-implementer  →  docs-writer  →  sec-reviewer  →  test-engineer
 (research)         (scanner/hooks)     (write guide)    (verify claims)   (lint + links)
 ```
 
 ### Scanner Feature Development
+
 ```
 architect  →  sec-implementer  →  test-engineer  →  ci-pipeline
 (design)      (build feature)     (test + validate)   (add to CI)
 ```
 
 ### Compliance Document
+
 ```
 sec-researcher  →  docs-writer  →  sec-reviewer  →  test-engineer
 (framework gap)    (draft guide)    (accuracy check)   (quality gate)
 ```
 
 ### Full DevSecOps Pipeline Review
+
 ```
 sec-orchestrator coordinates:
   sec-researcher   (threat landscape)
@@ -85,6 +89,7 @@ sec-orchestrator coordinates:
 ```
 
 ### Hotfix / Urgent Security Update
+
 ```
 sec-researcher  →  sec-implementer  →  sec-reviewer
 (CVE/threat)       (patch guide/hook)   (fast review)
