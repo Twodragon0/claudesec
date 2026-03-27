@@ -100,8 +100,8 @@ WORKDIR /opt/claudesec
 COPY scanner ./scanner
 COPY scripts ./scripts
 
-RUN chmod +x /opt/claudesec/scanner/claudesec \
-    && chmod +x /opt/claudesec/scripts/*.sh \
+RUN chmod -R a+rX /opt/claudesec/scanner/ \
+    && chmod -R a+rX /opt/claudesec/scripts/ \
     && adduser -D -u 1000 claudesec
 
 USER claudesec
