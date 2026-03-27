@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; connect-src 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>ClaudeSec — ISMS 통합 보안 대시보드</title>
@@ -25,7 +25,9 @@ a{color:var(--accent);text-decoration:none}
 .conn-dot.ok{background:var(--green);box-shadow:0 0 6px var(--green)}.conn-dot.off{background:var(--muted)}
 .theme-btn{background:var(--card);border:1px solid var(--border);color:var(--text);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:all .2s}
 .theme-btn:hover{border-color:var(--accent);background:var(--accent);color:#fff}
-.tabs{display:flex;gap:0;background:var(--glass);backdrop-filter:blur(10px);border-bottom:2px solid var(--border);padding:0 16px;overflow-x:auto;position:sticky;top:0;z-index:50}
+.tabs{display:flex;gap:0;background:var(--glass);backdrop-filter:blur(10px);border-bottom:2px solid var(--border);padding:0 16px;overflow-x:auto;position:sticky;top:0;z-index:50;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.tabs::-webkit-scrollbar{display:none}
+.tabs::after{content:'';position:sticky;right:0;min-width:24px;background:linear-gradient(to right,transparent,var(--bg));pointer-events:none}
 .tab{padding:11px 14px;cursor:pointer;color:#b0b8cc;border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap;font-weight:600;font-size:13px;transition:all .25s}
 .tab:hover{color:var(--text)}.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 .tab .badge{font-size:9px;background:var(--border);color:#b0b8cc;padding:1px 6px;border-radius:8px;margin-left:4px;font-weight:700;transition:all .2s}
@@ -33,10 +35,10 @@ a{color:var(--accent);text-decoration:none}
 .wrap{padding:20px;max-width:1440px;margin:0 auto}
 .pnl{display:none;animation:fadeIn .3s ease}.pnl.active{display:block}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px;margin-bottom:20px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
 .kpi{background:var(--glass);backdrop-filter:blur(8px);border:1px solid var(--glass-border);border-radius:12px;padding:16px;text-align:center;transition:transform .2s,box-shadow .2s}
 .kpi:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.12)}
-.kpi .v{font-size:28px;font-weight:700;margin:6px 0 2px}.kpi .l{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+.kpi .v{font-size:26px;font-weight:700;margin:6px 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.kpi .l{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
 .kpi .s{color:var(--muted);font-size:10px;margin-top:2px}
 .kpi.g .v{color:var(--green)}.kpi.y .v{color:var(--yellow)}.kpi.r .v{color:var(--red)}.kpi.b .v{color:var(--blue)}.kpi.a .v{color:var(--accent)}.kpi.c .v{color:var(--cyan)}.kpi.p .v{color:var(--pink)}
 .cd{background:var(--glass);backdrop-filter:blur(8px);border:1px solid var(--glass-border);border-radius:12px;overflow:hidden;margin-bottom:20px;transition:box-shadow .2s}
@@ -78,7 +80,8 @@ tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 .pdca-P{border-color:var(--blue)}.pdca-P .phase{color:var(--blue)}
 .pdca-D{border-color:var(--green)}.pdca-D .phase{color:var(--green)}
 .pdca-C{border-color:var(--yellow)}.pdca-C .phase{color:var(--yellow)}
-.pdca-A{border-color:var(--red)}.pdca-A .phase{color:var(--red)}
+.pdca-A{border-color:var(--red);animation:pulse-warn 2s infinite}.pdca-A .phase{color:var(--red)}
+@keyframes pulse-warn{0%,100%{box-shadow:0 0 0 0 rgba(225,112,85,.3)}50%{box-shadow:0 0 16px 4px rgba(225,112,85,.15)}}
 .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
 .bar-label{min-width:120px;font-size:12px;text-align:right;color:var(--muted)}
 .bar-track{flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden}
@@ -207,7 +210,7 @@ document.getElementById('tabs').addEventListener('keydown',function(e){
 var $=function(id){return document.getElementById(id)};
 function esc(s){if(s==null)return'';var d=document.createElement('div');d.textContent=String(s);return d.innerHTML;}
 function ch(t,c){return'<span class="ch ch-'+esc(c)+'">'+esc(t)+'</span>';}
-function sevCh(s){var m={critical:'r',high:'r',medium:'y',low:'b',warning:'y',info:'b'};return ch(s,m[(s||'').toLowerCase()]||'m');}
+function sevCh(s){s=typeof s==='string'?s:String(s||'');var m={critical:'r',high:'r',medium:'y',low:'b',warning:'y',info:'b'};return ch(s,m[s.toLowerCase()]||'m');}
 function authCh(a,sso){if(!a)return ch('N/A','m');var l=a.toLowerCase();var isSso=sso||l==='okta'||l==='okta sso'||l==='google';if(l.includes('okta'))return ch('Okta SSO','b')+(isSso?' '+ch('SSO','g'):'');if(l==='google')return ch('Google','a')+' '+ch('SSO','g');if(l.includes('mfa'))return ch('MFA','g');if(l.match(/id\/pw|ip\/pw/))return ch('ID/PW','r');return ch(a,'m');}
 function stCh(s){return s==='\uC0AC\uC6A9 \uC911'?ch(s,'g'):s==='\uBBF8\uC0AC\uC6A9'?ch(s,'r'):ch(s||'','y');}
 function fmt(n){return typeof n==='number'?n.toLocaleString('ko-KR'):n;}
