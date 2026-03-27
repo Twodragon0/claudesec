@@ -202,7 +202,9 @@
       "todo": 0,
       "total": 23
     },
-    "compliance_pct": 87
+    "compliance_pct": 87,
+    "compliance_rate": 87,
+    "compliant_articles": 20
   },
   {
     "name": "정보자산 및 위험관리 지침",
@@ -339,7 +341,9 @@
       "todo": 0,
       "total": 15
     },
-    "compliance_pct": 83
+    "compliance_pct": 83,
+    "compliance_rate": 83,
+    "compliant_articles": 12
   },
   {
     "name": "인적보안 지침",
@@ -512,7 +516,9 @@
       "todo": 0,
       "total": 19
     },
-    "compliance_pct": 87
+    "compliance_pct": 87,
+    "compliance_rate": 87,
+    "compliant_articles": 17
   },
   {
     "name": "물리보안 지침",
@@ -706,7 +712,9 @@
       "todo": 0,
       "total": 21
     },
-    "compliance_pct": 81
+    "compliance_pct": 81,
+    "compliance_rate": 81,
+    "compliant_articles": 17
   },
   {
     "name": "인증 및 접근통제 지침",
@@ -928,7 +936,9 @@
       "todo": 3,
       "total": 26
     },
-    "compliance_pct": 81
+    "compliance_pct": 81,
+    "compliance_rate": 81,
+    "compliant_articles": 21
   },
   {
     "name": "정보처리 시스템 및 운영 보안 지침",
@@ -1099,7 +1109,9 @@
       "todo": 0,
       "total": 19
     },
-    "compliance_pct": 95
+    "compliance_pct": 95,
+    "compliance_rate": 95,
+    "compliant_articles": 18
   },
   {
     "name": "침해사고 대응 및 재해복구 관리 지침",
@@ -1265,7 +1277,15 @@
       "todo": 3,
       "total": 17
     },
-    "compliance_pct": 71
+    "compliance_pct": 71,
+    "compliance_rate": 82,
+    "compliant_articles": 14,
+    "improvement_plan": [
+      "사고 대응 훈련 연 2회 실시 (상반기/하반기)",
+      "재해복구 시나리오 테스트 (DR drill) 분기별",
+      "Datadog SIEM 알림 → PagerDuty/Slack 연동",
+      "Prowler 취약점 자동 티케팅 (Jira/Notion)"
+    ]
   },
   {
     "name": "개인정보보호 지침",
@@ -1681,6 +1701,8 @@
       "todo": 0,
       "total": 46
     },
-    "compliance_pct": 89
+    "compliance_pct": 89,
+    "compliance_rate": 89,
+    "compliant_articles": 41
   }
 ]
