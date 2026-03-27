@@ -103,7 +103,7 @@ jobs:
   lighthouse:
     name: Lighthouse Audit
     needs: scan
-    if: always() && needs.scan.result != 'cancelled'
+    if: needs.scan.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
