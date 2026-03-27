@@ -40,7 +40,7 @@ if has_dir ".github/workflows"; then
   fi
 
   # CICD-005: SAST/Security scanning in CI
-  if files_contain ".github/workflows/*.yml" "(codeql|semgrep|sonar|snyk|trivy)" 2>/dev/null; then
+  if files_contain ".github/workflows/*.yml" "(codeql|semgrep|sonar|snyk|trivy|gitleaks|pip-audit|npm.audit|shellcheck)" 2>/dev/null; then
     pass "CICD-005" "Security scanning (SAST/SCA) configured in CI"
   else
     fail "CICD-005" "No security scanning in CI pipeline" "high" \
