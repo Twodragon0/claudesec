@@ -20,7 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Dependency Review
-        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
+        # NOTE: actions/dependency-review-action v4.9.0 (SHA 2031cfc) still uses node20.
+        # Monitor upstream for a node24 release and upgrade when available.
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48  # v4.9.0
         with:
           fail-on-severity: high
           deny-licenses: GPL-3.0, AGPL-3.0
@@ -56,6 +58,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Run ShellCheck (pinned action + pinned engine version)
+        # NOTE: ludeeus/action-shellcheck@00cae500 still uses node20 (deprecated June 2, 2026).
+        # Latest upstream release (2.0.0) has no node24 update yet; upgrade when available.
         uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38
         env:
           SHELLCHECK_OPTS: -x
@@ -106,14 +110,14 @@ jobs:
           exit 0
       - name: Publish scanner unittest report
         if: always()
-        uses: mikepenz/action-junit-report@v6
+        uses: mikepenz/action-junit-report@49b2ca06f62aa7ef83ae6769a2179271e160d8e4  # v6.3.1
         with:
           report_paths: 'test-reports/*.xml'
           fail_on_failure: false
           require_tests: false
       - name: Upload scanner unittest XML artifacts
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7
         with:
           name: scanner-unit-test-xml-${{ github.run_id }}
           path: test-reports/*.xml
@@ -218,7 +222,10 @@ jobs:
         with:
           fetch-depth: 0
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
+        # NOTE: gitleaks-action v2.3.9 still uses node20 (deprecated by GitHub June 2, 2026).
+        # Upstream tracking issue: https://github.com/gitleaks/gitleaks-action/issues
+        # Upgrade to node24 version when released by upstream.
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
