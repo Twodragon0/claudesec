@@ -92,7 +92,7 @@ Based on the [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-t
 
 ## Architecture Security
 
-```
+```text
 ┌─────────────────────────────────────────────────┐
 │                 Application Layer                │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │

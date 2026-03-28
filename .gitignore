@@ -84,6 +84,25 @@ run-all.sh
 tmp-*.svg
 tmp-*.png
 
+# MCP / Orchestration (local tool configs)
+.mcp.json
+.omc/
+scanner/lib/.omc/
+.playwright-mcp/
+
+# Docker logs (may contain internal paths)
+docker-full.log
+docker-*.log
+
+# Screenshots (may contain internal dashboards)
+isms-*.png
+main-*.png
+main-snapshot.md
+
+# Internal documents (seminar, architecture PDFs — may contain company info)
+docs/seminar/
+docs/architecture/*.pdf
+
 # Claude Code (local settings, agents, hooks — commands are shared)
 .claude/settings.json
 .claude/settings.local.json

@@ -1,6 +1,7 @@
 import importlib.util
 import io
 import json
+import sys
 import tempfile
 import unittest
 import urllib.error
@@ -16,6 +17,10 @@ if SPEC is None or SPEC.loader is None:
     raise RuntimeError(f"Failed to load module spec for {MODULE_PATH}")
 dashboard_gen = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(dashboard_gen)
+
+# Sub-modules (for patching internal cross-module references)
+_dac = sys.modules["dashboard_api_client"]
+_ddl = sys.modules["dashboard_data_loader"]
 
 
 class DashboardGenSmokeTest(unittest.TestCase):
@@ -53,7 +58,7 @@ class DashboardGenSmokeTest(unittest.TestCase):
                     clear=False,
                 ),
                 patch.object(
-                    dashboard_gen,
+                    _ddl,
                     "_fetch_microsoft_best_practices_from_github",
                     side_effect=AssertionError(
                         "network fetch should not run for fresh cache"
@@ -174,12 +179,12 @@ class DashboardGenSmokeTest(unittest.TestCase):
 
         with (
             patch.object(
-                dashboard_gen,
+                _dac,
                 "MS_BEST_PRACTICES_REPO_SOURCES",
                 fake_sources,
             ),
             patch.object(
-                dashboard_gen,
+                _dac,
                 "_fetch_repo_focus_files",
                 return_value={
                     "repo": "x/y",
@@ -248,7 +253,7 @@ class DashboardGenSmokeTest(unittest.TestCase):
                     clear=False,
                 ),
                 patch.object(
-                    dashboard_gen,
+                    _ddl,
                     "_fetch_microsoft_best_practices_from_github",
                     return_value=fresh,
                 ) as mocked_fetch,
@@ -293,12 +298,12 @@ class DashboardGenSmokeTest(unittest.TestCase):
 
         with (
             patch.object(
-                dashboard_gen,
+                _dac,
                 "MS_BEST_PRACTICES_REPO_SOURCES",
                 fake_sources,
             ),
             patch.object(
-                dashboard_gen,
+                _dac,
                 "_fetch_repo_focus_files",
                 return_value={
                     "repo": "x/y",
@@ -349,12 +354,12 @@ class DashboardGenSmokeTest(unittest.TestCase):
 
         with (
             patch.object(
-                dashboard_gen,
+                _dac,
                 "MS_BEST_PRACTICES_REPO_SOURCES",
                 fake_sources,
             ),
             patch.object(
-                dashboard_gen,
+                _dac,
                 "_fetch_repo_focus_files",
                 return_value={
                     "repo": "x/y",
