@@ -310,20 +310,54 @@ def _build_scanner_section(findings_list):
     return scanner_rows, scanner_cat_summary, scanner_insights_html
 
 
-def _build_overview_blocks(
-    prov_summary,
-    all_findings,
-    envs,
-    net_data,
-    datadog_data,
-    passed,
-    total_prowler_pass,
-    warnings,
-    findings_list=None,
-):
-    findings_list = findings_list or []
-    datadog_data = datadog_data or {}
-    net_data = net_data or {}
+# ── Helper functions extracted from _build_overview_blocks ─────────────────
+
+
+def _redact_target(value: str) -> str:
+    show = os.environ.get("CLAUDESEC_DASHBOARD_SHOW_IDENTIFIERS", "0") == "1"
+    v = (value or "").strip()
+    if show or not v:
+        return v
+    h10 = hashlib.sha256(v.encode("utf-8")).hexdigest()[:10]
+    return f"target-{h10}"
+
+
+def _rel_link(path: str, label: str | None = None) -> str:
+    # Keep links relative so they work under `python -m http.server` and file://.
+    p = (path or "").lstrip("/")
+    text = label or p
+    return f'<a href="{h(p)}" class="mono" style="color:var(--accent);text-decoration:underline">{h(text)}</a>'
+
+
+def _has_cmd(cmd: str) -> bool:
+    try:
+        return shutil.which(cmd) is not None
+    except Exception:
+        return False
+
+
+def _cmd_pill(name: str, present: bool, note: str = "") -> str:
+    cls = "env-on" if present else "env-off"
+    dot = (
+        '<span class="ep-st on">●</span>'
+        if present
+        else '<span class="ep-st off">○</span>'
+    )
+    note_html = (
+        f'<div style="margin-top:.2rem;color:var(--muted);font-size:.72rem">{h(note)}</div>'
+        if note
+        else ""
+    )
+    return (
+        f'<div class="env-pill {cls}" style="display:block">'
+        f'<div style="display:flex;align-items:center;gap:.4rem">'
+        f'<span class="ep-name">{h(name)}</span>{dot}'
+        f"</div>{note_html}</div>"
+    )
+
+
+def _compute_severity_counts(prov_summary, findings_list):
+    """Compute severity counts from provider summary and scanner findings."""
     n_crit = sum(v["critical"] for v in prov_summary.values())
     n_high = sum(v["high"] for v in prov_summary.values())
     n_med = sum(v["medium"] for v in prov_summary.values())
@@ -344,6 +378,18 @@ def _build_overview_blocks(
             n_med += 1
         elif sev == "low":
             n_low += 1
+    return {
+        "n_crit": n_crit,
+        "n_high": n_high,
+        "n_med": n_med,
+        "n_low": n_low,
+        "n_info": n_info,
+        "policy_022_top": policy_022_top,
+    }
+
+
+def _build_provider_cards(prov_summary):
+    """Build provider card HTML snippets."""
     prov_cards = ""
     prov_icons = {
         "aws": "☁",
@@ -386,12 +432,23 @@ def _build_overview_blocks(
         if pdata["medium"] > 0:
             prov_cards += f'<span class="pcs-med">{pdata["medium"]}M</span>'
         prov_cards += "</div></div>"
+    return prov_cards
+
+
+def _compute_severity_bars(n_crit, n_high, n_med, n_low, warnings):
+    """Compute severity bar percentages."""
     sev_total = max(n_crit + n_high + n_med + n_low + warnings, 1)
-    bar_crit = round(n_crit / sev_total * 100, 1)
-    bar_high = round(n_high / sev_total * 100, 1)
-    bar_med = round(n_med / sev_total * 100, 1)
-    bar_warn = round(warnings / sev_total * 100, 1)
-    bar_low = round(n_low / sev_total * 100, 1)
+    return {
+        "bar_crit": round(n_crit / sev_total * 100, 1),
+        "bar_high": round(n_high / sev_total * 100, 1),
+        "bar_med": round(n_med / sev_total * 100, 1),
+        "bar_warn": round(warnings / sev_total * 100, 1),
+        "bar_low": round(n_low / sev_total * 100, 1),
+    }
+
+
+def _build_top_findings(findings_list, all_findings):
+    """Build top findings HTML from scanner and Prowler findings."""
     # Top findings: merge scanner critical/high with Prowler; group by (severity, check, provider) and sort by severity then count
     top_findings_html = ""
     grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -464,86 +521,42 @@ def _build_overview_blocks(
         top_findings_html += f'<div class="top-finding" onclick="{tab_click}"><div class="tf-badge">{sev_badge(severity_text)}</div><div class="tf-body"><div class="tf-check"><code>{h(check_text)}</code><span class="tf-prov">{h(provider_text.upper())}</span>{cnt_html}</div><div class="tf-msg">{h(message_text[:150])}</div>{res_html}{action_html}</div></div>'
     if not top_findings_html:
         top_findings_html = '<div class="top-finding" style="border-color:var(--border)"><div class="tf-body" style="color:var(--muted);font-size:.9rem">No critical or high findings from the scanner or Prowler in this scan. Check the Scanner and Prowler CSPM tabs for full results.</div></div>'
-    env_connected = sum(1 for e in envs if e["connected"])
-    env_total = len(envs)
-    ts = net_data["trivy_summary"]
-    trivy_total = ts["critical"] + ts["high"] + ts["medium"] + ts["low"]
-    dd_total = datadog_data["summary"].get("total", 0)
-    dd_signal_total = datadog_data["signal_summary"].get("total", 0)
-    dd_case_total = datadog_data["case_summary"].get("total", 0)
-    network_total = trivy_total + dd_total
-    network_total += dd_signal_total + dd_case_total
-    has_network_artifacts = bool(net_data["nmap_scans"] or net_data["sslscan_results"])
-    network_tools_badge = (
-        str(network_total) if network_total else ("✓" if has_network_artifacts else "—")
-    )
-    network_tools_html = ""
+    return top_findings_html
 
-    def _redact_target(value: str) -> str:
-        show = os.environ.get("CLAUDESEC_DASHBOARD_SHOW_IDENTIFIERS", "0") == "1"
-        v = (value or "").strip()
-        if show or not v:
-            return v
-        h10 = hashlib.sha256(v.encode("utf-8")).hexdigest()[:10]
-        return f"target-{h10}"
 
-    def _rel_link(path: str, label: str | None = None) -> str:
-        # Keep links relative so they work under `python -m http.server` and file://.
-        p = (path or "").lstrip("/")
-        text = label or p
-        return f'<a href="{h(p)}" class="mono" style="color:var(--accent);text-decoration:underline">{h(text)}</a>'
-
-    def _has_cmd(cmd: str) -> bool:
-        try:
-            return shutil.which(cmd) is not None
-        except Exception:
-            return False
-
-    def _cmd_pill(name: str, present: bool, note: str = "") -> str:
-        cls = "env-on" if present else "env-off"
-        dot = (
-            '<span class="ep-st on">●</span>'
-            if present
-            else '<span class="ep-st off">○</span>'
-        )
-        note_html = (
-            f'<div style="margin-top:.2rem;color:var(--muted);font-size:.72rem">{h(note)}</div>'
-            if note
-            else ""
-        )
-        return (
-            f'<div class="env-pill {cls}" style="display:block">'
-            f'<div style="display:flex;align-items:center;gap:.4rem">'
-            f'<span class="ep-name">{h(name)}</span>{dot}'
-            f"</div>{note_html}</div>"
-        )
-
-    # Always show a "cockpit" card so this tab is useful even without artifacts.
+def _build_network_config_section():
+    """Build the network configuration cockpit card."""
+    html = ""
     net_enabled = os.environ.get("CLAUDESEC_NETWORK_SCAN_ENABLED", "0")
     net_targets = os.environ.get("CLAUDESEC_NETWORK_SCAN_TARGETS", "")
     trivy_enabled = os.environ.get("CLAUDESEC_TRIVY_ENABLED", "1")
-    network_tools_html += '<div class="card"><div class="card-title">Network &amp; Security — Configuration</div><div style="padding:1rem 1.25rem">'
-    network_tools_html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;margin-bottom:.9rem">'
-    network_tools_html += f'<div class="ssb-item"><strong>network_scan_enabled</strong><div class="mono" style="margin-top:.25rem">{h(net_enabled)}</div></div>'
-    network_tools_html += f'<div class="ssb-item"><strong>network_scan_targets</strong><div class="mono" style="margin-top:.25rem;word-break:break-all">{h(net_targets or "(empty)")}</div></div>'
-    network_tools_html += f'<div class="ssb-item"><strong>trivy_enabled</strong><div class="mono" style="margin-top:.25rem">{h(trivy_enabled)}</div></div>'
-    network_tools_html += "</div>"
-    network_tools_html += (
+    html += '<div class="card"><div class="card-title">Network &amp; Security — Configuration</div><div style="padding:1rem 1.25rem">'
+    html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;margin-bottom:.9rem">'
+    html += f'<div class="ssb-item"><strong>network_scan_enabled</strong><div class="mono" style="margin-top:.25rem">{h(net_enabled)}</div></div>'
+    html += f'<div class="ssb-item"><strong>network_scan_targets</strong><div class="mono" style="margin-top:.25rem;word-break:break-all">{h(net_targets or "(empty)")}</div></div>'
+    html += f'<div class="ssb-item"><strong>trivy_enabled</strong><div class="mono" style="margin-top:.25rem">{h(trivy_enabled)}</div></div>'
+    html += "</div>"
+    html += (
         '<div style="color:var(--muted);font-size:.82rem;line-height:1.6">'
     )
-    network_tools_html += "<div><strong>Enable network scanning</strong></div>"
-    network_tools_html += '<div class="mono" style="margin-top:.35rem;white-space:pre-wrap;border:1px solid var(--border);border-radius:10px;padding:.75rem;background:rgba(255,255,255,.02)">'
-    network_tools_html += "# Add to .claudesec.yml or export as environment variables\n"
-    network_tools_html += "export CLAUDESEC_NETWORK_SCAN_ENABLED=1\n"
-    network_tools_html += (
+    html += "<div><strong>Enable network scanning</strong></div>"
+    html += '<div class="mono" style="margin-top:.35rem;white-space:pre-wrap;border:1px solid var(--border);border-radius:10px;padding:.75rem;background:rgba(255,255,255,.02)">'
+    html += "# Add to .claudesec.yml or export as environment variables\n"
+    html += "export CLAUDESEC_NETWORK_SCAN_ENABLED=1\n"
+    html += (
         'export CLAUDESEC_NETWORK_SCAN_TARGETS="your-domain.com:443"\n'
     )
-    network_tools_html += "./run --quick    # or ./run-all.sh\n"
-    network_tools_html += "</div>"
-    network_tools_html += '<div style="margin-top:.6rem">Results are saved to <code>.claudesec-network/</code>. Targets are redacted by default.</div>'
-    network_tools_html += "</div>"
-    network_tools_html += "</div></div>"
+    html += "./run --quick    # or ./run-all.sh\n"
+    html += "</div>"
+    html += '<div style="margin-top:.6rem">Results are saved to <code>.claudesec-network/</code>. Targets are redacted by default.</div>'
+    html += "</div>"
+    html += "</div></div>"
+    return html, net_enabled, net_targets, trivy_enabled
 
+
+def _build_tooling_readiness_section(net_data, net_enabled, net_targets, trivy_enabled):
+    """Build tooling detection, guidance, and install commands card."""
+    html = ""
     # Tooling detection + guidance (why empty / how to fill).
     has_targets = bool((net_targets or "").strip())
     is_net_enabled = str(net_enabled).strip() in ("1", "true", "yes", "on")
@@ -556,22 +569,22 @@ def _build_overview_blocks(
     has_curl = _has_cmd("curl")
     has_python = _has_cmd("python3")
 
-    network_tools_html += '<div class="card"><div class="card-title">Tooling readiness (auto-detected)</div><div style="padding:1rem 1.25rem">'
-    network_tools_html += '<div class="env-grid" style="padding:0">'
-    network_tools_html += _cmd_pill(
+    html += '<div class="card"><div class="card-title">Tooling readiness (auto-detected)</div><div style="padding:1rem 1.25rem">'
+    html += '<div class="env-grid" style="padding:0">'
+    html += _cmd_pill(
         "python3", has_python, "required for normalization + dashboard"
     )
-    network_tools_html += _cmd_pill("curl", has_curl, "required for HTTP header scan")
-    network_tools_html += _cmd_pill(
+    html += _cmd_pill("curl", has_curl, "required for HTTP header scan")
+    html += _cmd_pill(
         "trivy", has_trivy, "filesystem/config scan (.claudesec-network/trivy-*.json)"
     )
-    network_tools_html += _cmd_pill(
+    html += _cmd_pill(
         "nmap", has_nmap, "optional port scan (when enabled + targets set)"
     )
-    network_tools_html += _cmd_pill(
+    html += _cmd_pill(
         "sslscan", has_sslscan, "optional TLS scan (when enabled + targets set)"
     )
-    network_tools_html += "</div>"
+    html += "</div>"
 
     # Why sections are empty (explain with concrete next steps).
     missing_notes: list[str] = []
@@ -623,30 +636,35 @@ def _build_overview_blocks(
         )
 
     if missing_notes:
-        network_tools_html += '<div style="margin-top:.85rem;border-top:1px solid var(--border);padding-top:.85rem">'
-        network_tools_html += (
+        html += '<div style="margin-top:.85rem;border-top:1px solid var(--border);padding-top:.85rem">'
+        html += (
             '<div style="font-weight:800;margin-bottom:.35rem">Next steps</div>'
         )
-        network_tools_html += (
+        html += (
             '<ul style="margin-left:1.1rem;color:var(--muted);line-height:1.7">'
         )
         for m in missing_notes[:8]:
-            network_tools_html += f"<li>{h(m)}</li>"
-        network_tools_html += "</ul>"
-        network_tools_html += "</div>"
+            html += f"<li>{h(m)}</li>"
+        html += "</ul>"
+        html += "</div>"
 
-    network_tools_html += '<div style="margin-top:.9rem;border-top:1px solid var(--border);padding-top:.85rem">'
-    network_tools_html += '<div style="font-weight:800;margin-bottom:.35rem">Recommended install commands</div>'
-    network_tools_html += '<div class="mono" style="white-space:pre-wrap;border:1px solid var(--border);border-radius:10px;padding:.75rem;background:rgba(255,255,255,.02)">'
-    network_tools_html += "# macOS (Homebrew)\n"
-    network_tools_html += "brew install curl nmap sslscan\n"
-    network_tools_html += "brew install aquasecurity/trivy/trivy\n"
-    network_tools_html += "</div>"
-    network_tools_html += '<div style="margin-top:.5rem;color:var(--muted);font-size:.78rem;line-height:1.6">'
-    network_tools_html += "Tip: in CI, prefer pinned tool versions and run with least privilege. Only scan explicitly configured external targets."
-    network_tools_html += "</div></div>"
-    network_tools_html += "</div></div>"
+    html += '<div style="margin-top:.9rem;border-top:1px solid var(--border);padding-top:.85rem">'
+    html += '<div style="font-weight:800;margin-bottom:.35rem">Recommended install commands</div>'
+    html += '<div class="mono" style="white-space:pre-wrap;border:1px solid var(--border);border-radius:10px;padding:.75rem;background:rgba(255,255,255,.02)">'
+    html += "# macOS (Homebrew)\n"
+    html += "brew install curl nmap sslscan\n"
+    html += "brew install aquasecurity/trivy/trivy\n"
+    html += "</div>"
+    html += '<div style="margin-top:.5rem;color:var(--muted);font-size:.78rem;line-height:1.6">'
+    html += "Tip: in CI, prefer pinned tool versions and run with least privilege. Only scan explicitly configured external targets."
+    html += "</div></div>"
+    html += "</div></div>"
+    return html
 
+
+def _build_artifact_links_section():
+    """Build artifact quick links card."""
+    html = ""
     # Artifact links (best-effort)
     artifacts = [
         ".claudesec-network/network-report.v1.json",
@@ -664,18 +682,23 @@ def _build_overview_blocks(
         except Exception:
             pass
     if existing:
-        network_tools_html += '<div class="card"><div class="card-title">Artifacts (quick links)</div><div style="padding:1rem 1.25rem">'
-        network_tools_html += '<ul style="margin-left:1.2rem;line-height:1.7">'
+        html += '<div class="card"><div class="card-title">Artifacts (quick links)</div><div style="padding:1rem 1.25rem">'
+        html += '<ul style="margin-left:1.2rem;line-height:1.7">'
         for rel in existing:
-            network_tools_html += f"<li>{_rel_link(rel)}</li>"
-        network_tools_html += "</ul></div></div>"
+            html += f"<li>{_rel_link(rel)}</li>"
+        html += "</ul></div></div>"
+    return html
 
+
+def _build_target_posture_table(net_data):
+    """Build the target posture (HTTP/TLS/DNS summary) table."""
+    html = ""
     # Target posture table from normalized network report (preferred)
     report = net_data.get("network_report")
     targets = report.get("targets", []) if isinstance(report, dict) else []
     if isinstance(targets, list) and targets:
-        network_tools_html += '<div class="card"><div class="card-title">Target posture (HTTP/TLS/DNS summary)</div><div style="max-height:60vh;overflow-y:auto">'
-        network_tools_html += '<table><thead><tr><th style="width:170px">Target</th><th style="width:70px">DNS</th><th style="width:70px">TLS</th><th style="width:70px">HTTP</th><th style="width:80px">HSTS</th><th style="width:110px">CSP</th><th class="r" style="width:90px">Header issues</th></tr></thead><tbody>'
+        html += '<div class="card"><div class="card-title">Target posture (HTTP/TLS/DNS summary)</div><div style="max-height:60vh;overflow-y:auto">'
+        html += '<table><thead><tr><th style="width:170px">Target</th><th style="width:70px">DNS</th><th style="width:70px">TLS</th><th style="width:70px">HTTP</th><th style="width:80px">HSTS</th><th style="width:110px">CSP</th><th class="r" style="width:90px">Header issues</th></tr></thead><tbody>'
         for t in targets[:50]:
             if not isinstance(t, dict):
                 continue
@@ -732,18 +755,24 @@ def _build_overview_blocks(
 
             onclick = ' onclick="toggleRow(this)"' if detail else ""
             row_cls = ' class="expandable"' if detail else ""
-            network_tools_html += f'<tr{row_cls}{onclick}><td class="mono">{h(label)}</td><td>{dns_cnt}</td><td class="mono">{h(tls_grade)}</td><td class="mono">{h(str(http_status))}</td><td class="mono">{h(hsts_txt)}</td><td class="mono">{h(csp_q)}</td><td class="r">{issue_cnt}</td></tr>'
+            html += f'<tr{row_cls}{onclick}><td class="mono">{h(label)}</td><td>{dns_cnt}</td><td class="mono">{h(tls_grade)}</td><td class="mono">{h(str(http_status))}</td><td class="mono">{h(hsts_txt)}</td><td class="mono">{h(csp_q)}</td><td class="r">{issue_cnt}</td></tr>'
             if detail:
-                network_tools_html += f'<tr class="row-detail"><td colspan="7"><div class="detail-panel">{detail}</div></td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
+                html += f'<tr class="row-detail"><td colspan="7"><div class="detail-panel">{detail}</div></td></tr>'
+        html += "</tbody></table></div></div>"
+    return html
+
+
+def _build_trivy_section(net_data, ts):
+    """Build Trivy, Nmap, and SSL/TLS scan cards."""
+    html = ""
     if (
         net_data["trivy_fs"] is not None
         or net_data["nmap_scans"]
         or net_data["sslscan_results"]
     ):
-        network_tools_html += '<div class="card"><div class="card-title">Trivy (vulnerabilities &amp; config)</div><div style="padding:1rem 1.25rem">'
-        network_tools_html += f'<table><thead><tr><th>Severity</th><th class="r">Count</th></tr></thead><tbody>'
-        network_tools_html += f'<tr><td><span class="badge critical">Critical</span></td><td class="r">{ts["critical"]}</td></tr><tr><td><span class="badge high">High</span></td><td class="r">{ts["high"]}</td></tr><tr><td><span class="badge medium">Medium</span></td><td class="r">{ts["medium"]}</td></tr><tr><td><span class="badge low">Low</span></td><td class="r">{ts["low"]}</td></tr></tbody></table></div></div>'
+        html += '<div class="card"><div class="card-title">Trivy (vulnerabilities &amp; config)</div><div style="padding:1rem 1.25rem">'
+        html += f'<table><thead><tr><th>Severity</th><th class="r">Count</th></tr></thead><tbody>'
+        html += f'<tr><td><span class="badge critical">Critical</span></td><td class="r">{ts["critical"]}</td></tr><tr><td><span class="badge high">High</span></td><td class="r">{ts["high"]}</td></tr><tr><td><span class="badge medium">Medium</span></td><td class="r">{ts["medium"]}</td></tr><tr><td><span class="badge low">Low</span></td><td class="r">{ts["low"]}</td></tr></tbody></table></div></div>'
         vulns = sorted(
             net_data["trivy_vulns"],
             key=lambda x: {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}.get(
@@ -751,8 +780,8 @@ def _build_overview_blocks(
             ),
         )[:50]
         if vulns:
-            network_tools_html += '<div class="card"><div class="card-title">Trivy findings (top 50)</div><div style="max-height:50vh;overflow-y:auto">'
-            network_tools_html += '<table><thead><tr><th style="width:80px">Severity</th><th style="width:100px">ID</th><th>Target/Package</th><th>Title</th></tr></thead><tbody>'
+            html += '<div class="card"><div class="card-title">Trivy findings (top 50)</div><div style="max-height:50vh;overflow-y:auto">'
+            html += '<table><thead><tr><th style="width:80px">Severity</th><th style="width:100px">ID</th><th>Target/Package</th><th>Title</th></tr></thead><tbody>'
             for v in vulns:
                 sev = (v.get("severity") or "UNKNOWN").upper()
                 sev_cls = (
@@ -760,36 +789,41 @@ def _build_overview_blocks(
                     if sev not in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
                     else sev.lower()
                 )
-                network_tools_html += f'<tr><td><span class="badge {sev_cls}">{sev}</span></td><td class="mono">{h(v.get("id", ""))}</td><td class="mono">{h((v.get("target") or "") + " " + (v.get("pkg") or v.get("message", ""))[:60])}</td><td>{h((v.get("title") or "")[:80])}</td></tr>'
-            network_tools_html += "</tbody></table></div></div>"
+                html += f'<tr><td><span class="badge {sev_cls}">{sev}</span></td><td class="mono">{h(v.get("id", ""))}</td><td class="mono">{h((v.get("target") or "") + " " + (v.get("pkg") or v.get("message", ""))[:60])}</td><td>{h((v.get("title") or "")[:80])}</td></tr>'
+            html += "</tbody></table></div></div>"
         if net_data["nmap_scans"]:
-            network_tools_html += '<div class="card"><div class="card-title">Nmap scan summary</div><div style="padding:1rem 1.25rem">'
+            html += '<div class="card"><div class="card-title">Nmap scan summary</div><div style="padding:1rem 1.25rem">'
             for scan in net_data["nmap_scans"]:
-                network_tools_html += f'<div style="margin-bottom:1rem"><strong>{h(scan["name"])}</strong><ul style="margin:.5rem 0 0 1rem">'
+                html += f'<div style="margin-bottom:1rem"><strong>{h(scan["name"])}</strong><ul style="margin:.5rem 0 0 1rem">'
                 for hst in scan["hosts"][:10]:
                     ports = ", ".join(hst["ports"][:15]) if hst["ports"] else "(none)"
-                    network_tools_html += (
+                    html += (
                         f"<li>{h(hst['addr']) or 'host'}: {ports}</li>"
                     )
-                network_tools_html += "</ul></div>"
-            network_tools_html += "</div></div>"
+                html += "</ul></div>"
+            html += "</div></div>"
         if net_data["sslscan_results"]:
-            network_tools_html += '<div class="card"><div class="card-title">SSL/TLS scan</div><div style="padding:1rem 1.25rem">'
+            html += '<div class="card"><div class="card-title">SSL/TLS scan</div><div style="padding:1rem 1.25rem">'
             for s in net_data["sslscan_results"]:
-                network_tools_html += f'<div><strong>{h(s["name"])}</strong> <span style="color:var(--muted)">(JSON data available)</span></div>'
-            network_tools_html += "</div></div>"
+                html += f'<div><strong>{h(s["name"])}</strong> <span style="color:var(--muted)">(JSON data available)</span></div>'
+            html += "</div></div>"
+    return html
 
+
+def _build_datadog_logs_section(datadog_data):
+    """Build Datadog CI log summary and log table cards."""
+    html = ""
     dd_summary = datadog_data.get("summary") or {}
     if dd_summary.get("total", 0) > 0:
-        network_tools_html += '<div class="card"><div class="card-title">Datadog CI log summary</div><div style="padding:1rem 1.25rem">'
-        network_tools_html += '<table><thead><tr><th>Level</th><th class="r">Count</th></tr></thead><tbody>'
-        network_tools_html += f'<tr><td><span class="badge high">Error</span></td><td class="r">{dd_summary.get("error", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge warning">Warning</span></td><td class="r">{dd_summary.get("warning", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge info">Info</span></td><td class="r">{dd_summary.get("info", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge low">Unknown</span></td><td class="r">{dd_summary.get("unknown", 0)}</td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
-        network_tools_html += '<div class="card"><div class="card-title">Datadog CI logs (latest 100)</div><div style="max-height:50vh;overflow-y:auto">'
-        network_tools_html += '<table><thead><tr><th style="width:160px">Timestamp</th><th style="width:100px">Level</th><th style="width:160px">Source</th><th>Message</th></tr></thead><tbody>'
+        html += '<div class="card"><div class="card-title">Datadog CI log summary</div><div style="padding:1rem 1.25rem">'
+        html += '<table><thead><tr><th>Level</th><th class="r">Count</th></tr></thead><tbody>'
+        html += f'<tr><td><span class="badge high">Error</span></td><td class="r">{dd_summary.get("error", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge warning">Warning</span></td><td class="r">{dd_summary.get("warning", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge info">Info</span></td><td class="r">{dd_summary.get("info", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge low">Unknown</span></td><td class="r">{dd_summary.get("unknown", 0)}</td></tr>'
+        html += "</tbody></table></div></div>"
+        html += '<div class="card"><div class="card-title">Datadog CI logs (latest 100)</div><div style="max-height:50vh;overflow-y:auto">'
+        html += '<table><thead><tr><th style="width:160px">Timestamp</th><th style="width:100px">Level</th><th style="width:160px">Source</th><th>Message</th></tr></thead><tbody>'
         for row in (datadog_data.get("logs") or [])[:100]:
             sev = row.get("severity", "unknown")
             sev_cls = (
@@ -801,20 +835,25 @@ def _build_overview_blocks(
                     else ("high" if sev == "error" else "info")
                 )
             )
-            network_tools_html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("source", "-"))}</td><td>{h(row.get("message", ""))}</td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
+            html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("source", "-"))}</td><td>{h(row.get("message", ""))}</td></tr>'
+        html += "</tbody></table></div></div>"
+    return html
 
+
+def _build_datadog_signals_section(datadog_data):
+    """Build Datadog Cloud Security signals cards."""
+    html = ""
     dd_signal_summary = datadog_data.get("signal_summary") or {}
     if dd_signal_summary.get("total", 0) > 0:
-        network_tools_html += '<div class="card"><div class="card-title">Datadog Cloud Security signals summary</div><div style="padding:1rem 1.25rem">'
-        network_tools_html += '<table><thead><tr><th>Severity</th><th class="r">Count</th></tr></thead><tbody>'
-        network_tools_html += f'<tr><td><span class="badge critical">Critical</span></td><td class="r">{dd_signal_summary.get("critical", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge high">High</span></td><td class="r">{dd_signal_summary.get("high", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge medium">Medium</span></td><td class="r">{dd_signal_summary.get("medium", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge low">Low</span></td><td class="r">{dd_signal_summary.get("low", 0)}</td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
-        network_tools_html += '<div class="card"><div class="card-title">Datadog Cloud Security signals (critical/high first)</div><div style="max-height:50vh;overflow-y:auto">'
-        network_tools_html += '<table><thead><tr><th style="width:150px">Timestamp</th><th style="width:90px">Severity</th><th style="width:110px">Status</th><th style="width:180px">Rule</th><th>Title</th></tr></thead><tbody>'
+        html += '<div class="card"><div class="card-title">Datadog Cloud Security signals summary</div><div style="padding:1rem 1.25rem">'
+        html += '<table><thead><tr><th>Severity</th><th class="r">Count</th></tr></thead><tbody>'
+        html += f'<tr><td><span class="badge critical">Critical</span></td><td class="r">{dd_signal_summary.get("critical", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge high">High</span></td><td class="r">{dd_signal_summary.get("high", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge medium">Medium</span></td><td class="r">{dd_signal_summary.get("medium", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge low">Low</span></td><td class="r">{dd_signal_summary.get("low", 0)}</td></tr>'
+        html += "</tbody></table></div></div>"
+        html += '<div class="card"><div class="card-title">Datadog Cloud Security signals (critical/high first)</div><div style="max-height:50vh;overflow-y:auto">'
+        html += '<table><thead><tr><th style="width:150px">Timestamp</th><th style="width:90px">Severity</th><th style="width:110px">Status</th><th style="width:180px">Rule</th><th>Title</th></tr></thead><tbody>'
         for row in (datadog_data.get("signals") or [])[:100]:
             sev = row.get("severity", "unknown")
             sev_cls = {
@@ -824,20 +863,25 @@ def _build_overview_blocks(
                 "low": "low",
                 "info": "info",
             }.get(sev, "low")
-            network_tools_html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("status", ""))}</td><td class="mono">{h(row.get("rule", ""))}</td><td>{h(row.get("title", ""))}</td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
+            html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("status", ""))}</td><td class="mono">{h(row.get("rule", ""))}</td><td>{h(row.get("title", ""))}</td></tr>'
+        html += "</tbody></table></div></div>"
+    return html
 
+
+def _build_datadog_cases_section(datadog_data):
+    """Build Datadog case management cards."""
+    html = ""
     dd_case_summary = datadog_data.get("case_summary") or {}
     if dd_case_summary.get("total", 0) > 0:
-        network_tools_html += '<div class="card"><div class="card-title">Datadog case management summary</div><div style="padding:1rem 1.25rem">'
-        network_tools_html += '<table><thead><tr><th>Priority/Severity</th><th class="r">Count</th></tr></thead><tbody>'
-        network_tools_html += f'<tr><td><span class="badge critical">Critical/P1</span></td><td class="r">{dd_case_summary.get("critical", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge high">High/P2</span></td><td class="r">{dd_case_summary.get("high", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge medium">Medium/P3</span></td><td class="r">{dd_case_summary.get("medium", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge low">Low/P4+</span></td><td class="r">{dd_case_summary.get("low", 0)}</td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
-        network_tools_html += '<div class="card"><div class="card-title">Datadog cases (critical/high first)</div><div style="max-height:50vh;overflow-y:auto">'
-        network_tools_html += '<table><thead><tr><th style="width:150px">Updated</th><th style="width:90px">Severity</th><th style="width:120px">Status</th><th style="width:160px">Type</th><th>Title</th></tr></thead><tbody>'
+        html += '<div class="card"><div class="card-title">Datadog case management summary</div><div style="padding:1rem 1.25rem">'
+        html += '<table><thead><tr><th>Priority/Severity</th><th class="r">Count</th></tr></thead><tbody>'
+        html += f'<tr><td><span class="badge critical">Critical/P1</span></td><td class="r">{dd_case_summary.get("critical", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge high">High/P2</span></td><td class="r">{dd_case_summary.get("high", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge medium">Medium/P3</span></td><td class="r">{dd_case_summary.get("medium", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge low">Low/P4+</span></td><td class="r">{dd_case_summary.get("low", 0)}</td></tr>'
+        html += "</tbody></table></div></div>"
+        html += '<div class="card"><div class="card-title">Datadog cases (critical/high first)</div><div style="max-height:50vh;overflow-y:auto">'
+        html += '<table><thead><tr><th style="width:150px">Updated</th><th style="width:90px">Severity</th><th style="width:120px">Status</th><th style="width:160px">Type</th><th>Title</th></tr></thead><tbody>'
         for row in datadog_data["cases"][:100]:
             sev = row.get("severity", "unknown")
             sev_cls = {
@@ -847,8 +891,71 @@ def _build_overview_blocks(
                 "low": "low",
                 "info": "info",
             }.get(sev, "low")
-            network_tools_html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("status", ""))}</td><td class="mono">{h(row.get("rule", ""))}</td><td>{h(row.get("title", ""))}</td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
+            html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("status", ""))}</td><td class="mono">{h(row.get("rule", ""))}</td><td>{h(row.get("title", ""))}</td></tr>'
+        html += "</tbody></table></div></div>"
+    return html
+
+
+def _build_overview_blocks(
+    prov_summary,
+    all_findings,
+    envs,
+    net_data,
+    datadog_data,
+    passed,
+    total_prowler_pass,
+    warnings,
+    findings_list=None,
+):
+    findings_list = findings_list or []
+    datadog_data = datadog_data or {}
+    net_data = net_data or {}
+
+    sev = _compute_severity_counts(prov_summary, findings_list)
+    n_crit = sev["n_crit"]
+    n_high = sev["n_high"]
+    n_med = sev["n_med"]
+    n_low = sev["n_low"]
+    n_info = sev["n_info"]
+    policy_022_top = sev["policy_022_top"]
+
+    prov_cards = _build_provider_cards(prov_summary)
+
+    bars = _compute_severity_bars(n_crit, n_high, n_med, n_low, warnings)
+
+    top_findings_html = _build_top_findings(findings_list, all_findings)
+
+    env_connected = sum(1 for e in envs if e["connected"])
+    env_total = len(envs)
+    ts = net_data["trivy_summary"]
+    trivy_total = ts["critical"] + ts["high"] + ts["medium"] + ts["low"]
+    dd_total = datadog_data["summary"].get("total", 0)
+    dd_signal_total = datadog_data["signal_summary"].get("total", 0)
+    dd_case_total = datadog_data["case_summary"].get("total", 0)
+    network_total = trivy_total + dd_total
+    network_total += dd_signal_total + dd_case_total
+    has_network_artifacts = bool(net_data["nmap_scans"] or net_data["sslscan_results"])
+    network_tools_badge = (
+        str(network_total) if network_total else ("✓" if has_network_artifacts else "—")
+    )
+
+    # Always show a "cockpit" card so this tab is useful even without artifacts.
+    config_html, net_enabled, net_targets, trivy_enabled = _build_network_config_section()
+    network_tools_html = config_html
+
+    network_tools_html += _build_tooling_readiness_section(net_data, net_enabled, net_targets, trivy_enabled)
+
+    network_tools_html += _build_artifact_links_section()
+
+    network_tools_html += _build_target_posture_table(net_data)
+
+    network_tools_html += _build_trivy_section(net_data, ts)
+
+    network_tools_html += _build_datadog_logs_section(datadog_data)
+
+    network_tools_html += _build_datadog_signals_section(datadog_data)
+
+    network_tools_html += _build_datadog_cases_section(datadog_data)
 
     # network_tools_html always contains at least the cockpit card now.
     return {
@@ -859,11 +966,11 @@ def _build_overview_blocks(
         "n_info": n_info,
         "policy_022_top": policy_022_top,
         "prov_cards": prov_cards,
-        "bar_crit": bar_crit,
-        "bar_high": bar_high,
-        "bar_med": bar_med,
-        "bar_warn": bar_warn,
-        "bar_low": bar_low,
+        "bar_crit": bars["bar_crit"],
+        "bar_high": bars["bar_high"],
+        "bar_med": bars["bar_med"],
+        "bar_warn": bars["bar_warn"],
+        "bar_low": bars["bar_low"],
         "top_findings_html": top_findings_html,
         "env_connected": env_connected,
         "env_total": env_total,
