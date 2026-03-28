@@ -127,6 +127,7 @@ jobs:
 
   dashboard-regression-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Set up Docker Buildx
@@ -162,8 +163,10 @@ jobs:
           mkdir -p "$tmp_scan"
           rsync -a --delete --exclude '.git' ./ "$tmp_scan"/
       - name: Docker quick dashboard generation (no-serve)
+        timeout-minutes: 5
         run: ./scripts/run-dashboard-docker.sh --image claudesec:ci --scan-dir "$RUNNER_TEMP/claudesec-scan" --quick --no-serve --no-build
       - name: Docker full dashboard generation (no-serve)
+        timeout-minutes: 10
         run: ./scripts/run-dashboard-docker.sh --image claudesec:ci --scan-dir "$RUNNER_TEMP/claudesec-scan" --no-serve --no-build
       - name: Validate dashboard file exists
         run: test -f "$RUNNER_TEMP/claudesec-scan/claudesec-dashboard.html"
