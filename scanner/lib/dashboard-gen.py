@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ClaudeSec Dashboard Generator v0.5.0
+ClaudeSec Dashboard Generator v0.6.5
 Generates a tabbed HTML security dashboard from scan results and Prowler OCSF data.
 
 Modules:
@@ -14,6 +14,7 @@ Modules:
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -1389,10 +1390,9 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             # Auto-generate Prowler Hub link from check ID
             _check_raw = items[0].get("check", "")
             if _check_raw and "prowler" in _check_raw.lower():
-                import re as _re
-                _hub_name = _re.sub(r"^prowler-[a-z]+-", "", _check_raw)
-                _hub_name = _re.sub(r"-\d{12}.*$", "", _hub_name)
-                _hub_name = _re.sub(r"-[0-9a-f]{5,}$", "", _hub_name)
+                _hub_name = re.sub(r"^prowler-[a-z]+-", "", _check_raw)
+                _hub_name = re.sub(r"-\d{12}.*$", "", _hub_name)
+                _hub_name = re.sub(r"-[0-9a-f]{5,}$", "", _hub_name)
                 _HUB_FIX = {
                     "core_minimize_containers_added_capabiliti": "core_minimize_containers_added_capabilities",
                     "iam_aws_attached_policy_no_administrative_privil": "iam_aws_attached_policy_no_administrative_privileges",

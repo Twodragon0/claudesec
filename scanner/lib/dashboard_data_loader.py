@@ -5,9 +5,7 @@ Data loading functions extracted from dashboard-gen.py for reuse across scanner 
 
 import json
 import os
-import sys
 import glob
-import time
 from datetime import datetime, timezone
 from collections import defaultdict
 from pathlib import Path

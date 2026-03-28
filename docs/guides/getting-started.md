@@ -121,8 +121,8 @@ Expected output: dashboard is generated and served locally at `http://127.0.0.1:
 ```bash
 ./scanner/claudesec scan -c saas
 
-export GH_TOKEN_EXPIRES_AT="2026-03-13T08:30:00Z"
-export OKTA_OAUTH_TOKEN_EXPIRES_AT="2026-03-13T09:00:00Z"
+export GH_TOKEN_EXPIRES_AT="2026-04-30T08:30:00Z"
+export OKTA_OAUTH_TOKEN_EXPIRES_AT="2026-04-30T09:00:00Z"
 export CLAUDESEC_TOKEN_EXPIRY_WARNING_24H="24h"
 export CLAUDESEC_TOKEN_EXPIRY_WARNING_7D="7d"
 
