@@ -242,6 +242,7 @@ jobs:
             --exclude 'isms-p.or.kr'
             --exclude 'privacy.go.kr'
             --exclude 'law.go.kr'
+            --exclude 'pipc.go.kr'
             --exclude 'atlas.mitre.org'
             --exclude 'airc.nist.gov'
             --exclude 'media.defense.gov'
