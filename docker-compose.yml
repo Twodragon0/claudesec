@@ -21,9 +21,8 @@ services:
     image: claudesec-dashboard:local
     ports: ["11777:8080"]
     volumes:
-      - ./claudesec-dashboard.html:/usr/share/nginx/html/index.html:ro
+      - ./claudesec-asset-dashboard.html:/usr/share/nginx/html/index.html:ro
       - ./claudesec-dashboard.html:/usr/share/nginx/html/scan.html:ro
-      - ./claudesec-asset-dashboard.html:/usr/share/nginx/html/assets.html:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 30s
