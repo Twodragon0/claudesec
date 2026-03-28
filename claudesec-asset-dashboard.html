@@ -212,7 +212,7 @@ document.getElementById('tabs').addEventListener('keydown',function(e){
 
 /* === Helpers === */
 var $=function(id){return document.getElementById(id)};
-function esc(s){if(s==null)return'';var d=document.createElement('div');d.textContent=String(s);return d.innerHTML;}
+function esc(s){if(s==null)return'';var d=document.createElement('div');d.textContent=String(s);return d.innerHTML.replace(/'/g,'&#39;');}
 function ch(t,c){return'<span class="ch ch-'+esc(c)+'">'+esc(t)+'</span>';}
 function sevCh(s){s=typeof s==='string'?s:String(s||'');var m={critical:'r',high:'r',medium:'y',low:'b',warning:'y',info:'b'};return ch(s,m[s.toLowerCase()]||'m');}
 function authCh(a,sso){if(!a)return ch('N/A','m');var l=a.toLowerCase();var isSso=sso||l==='okta'||l==='okta sso'||l==='google';if(l.includes('okta'))return ch('Okta SSO','b')+(isSso?' '+ch('SSO','g'):'');if(l==='google')return ch('Google','a')+' '+ch('SSO','g');if(l.includes('mfa'))return ch('MFA','g');if(l.match(/id\/pw|ip\/pw/))return ch('ID/PW','r');return ch(a,'m');}
@@ -1209,8 +1209,9 @@ function mergeScanReport(d,sr){
   if(typeof sr.duration==='number')sc.duration=sr.duration;
   /* surface scan timestamp for the header bar */
   d.timestamps=d.timestamps||{};
-  d.timestamps.claudesec_scan=d.timestamps.claudesec_scan||new Date().toISOString();
+  if(sr.timestamp) d.timestamps.claudesec_scan=sr.timestamp;
 }
+function showLoadError(msg){document.getElementById('p-isms').innerHTML='<div class="load-error"><div class="icon">⚠</div><div>대시보드 데이터 로딩 실패</div><div class="msg">'+esc(msg||'알 수 없는 오류')+'</div><div class="msg" style="margin-top:12px">python3 scripts/build-dashboard.py 실행 후 다시 시도하세요.</div></div>';}
 function renderWithScan(d){
   fetch('/scan-report.json').then(function(r){return r.ok?r.json():null}).then(function(sr){
     mergeScanReport(d,sr);
@@ -1222,8 +1223,8 @@ else fetch('.claudesec-assets/dashboard-data.json').then(function(r){if(!r.ok)th
   /* If full dashboard data fails, try scan-report.json alone for a minimal view */
   fetch('/scan-report.json').then(function(r){return r.ok?r.json():null}).then(function(sr){
     if(sr){var stub={claudesec:{}};mergeScanReport(stub,sr);render(stub);}
-    else{document.getElementById('p-isms').innerHTML='<div class="load-error"><div class="icon">⚠</div><div>대시보드 데이터 로딩 실패</div><div class="msg">'+esc(e.message||'알 수 없는 오류')+'</div><div class="msg" style="margin-top:12px">python3 scripts/build-dashboard.py 실행 후 다시 시도하세요.</div></div>';}
-  }).catch(function(){document.getElementById('p-isms').innerHTML='<div class="load-error"><div class="icon">⚠</div><div>대시보드 데이터 로딩 실패</div><div class="msg">'+esc(e.message||'알 수 없는 오류')+'</div><div class="msg" style="margin-top:12px">python3 scripts/build-dashboard.py 실행 후 다시 시도하세요.</div></div>';});
+    else{showLoadError(e.message);}
+  }).catch(function(){showLoadError(e.message);});
 });
 </script>
 <script id="jd" type="application/json">__DASHBOARD_DATA__</script>

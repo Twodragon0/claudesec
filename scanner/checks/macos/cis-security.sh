@@ -194,6 +194,7 @@ fi
 #   /System/Volumes/         — APFS volume mount points (Preboot, Update, Data)
 #   /System/Library/AssetsV2 — system asset update staging (SIP-protected)
 # On SIP-enabled systems /System/Library is protected regardless of permission bits.
+# Note: -not -path uses literal matching; symlinks resolving to these paths are already excluded by -not -type l
 ww_count=$(find /System -maxdepth 4 -perm -0002 -not -type l \
   -not -path '/System/Volumes/*' \
   -not -path '/System/Library/AssetsV2/*' \
