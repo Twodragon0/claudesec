@@ -35,6 +35,7 @@ jobs:
   scan:
     name: Run Security Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       security-events: write
@@ -60,6 +61,7 @@ jobs:
       # Generate the standalone HTML dashboard (--no-serve exits after writing
       # the file rather than starting a long-lived HTTP server).
       - name: Generate dashboard
+        timeout-minutes: 10
         run: |
           docker run --rm \
             --user "$(id -u):$(id -g)" \
