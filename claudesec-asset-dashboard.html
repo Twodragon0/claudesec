@@ -213,6 +213,8 @@ document.getElementById('tabs').addEventListener('keydown',function(e){
 /* === Helpers === */
 var $=function(id){return document.getElementById(id)};
 function esc(s){if(s==null)return'';var d=document.createElement('div');d.textContent=String(s);return d.innerHTML.replace(/'/g,'&#39;');}
+function safeHref(u){u=esc(u);return /^https?:\/\//i.test(u)||u===''||u.charAt(0)==='#'?u:'';}
+function safeColor(c){return /^[a-zA-Z0-9#(),.\-\s%\/]+$/.test(c)?c:'var(--accent)';}
 function ch(t,c){return'<span class="ch ch-'+esc(c)+'">'+esc(t)+'</span>';}
 function sevCh(s){s=typeof s==='string'?s:String(s||'');var m={critical:'r',high:'r',medium:'y',low:'b',warning:'y',info:'b'};return ch(s,m[s.toLowerCase()]||'m');}
 function authCh(a,sso){if(!a)return ch('N/A','m');var l=a.toLowerCase();var isSso=sso||l==='okta'||l==='okta sso'||l==='google';if(l.includes('okta'))return ch('Okta SSO','b')+(isSso?' '+ch('SSO','g'):'');if(l==='google')return ch('Google','a')+' '+ch('SSO','g');if(l.includes('mfa'))return ch('MFA','g');if(l.match(/id\/pw|ip\/pw/))return ch('ID/PW','r');return ch(a,'m');}
@@ -284,7 +286,7 @@ function mkK(el,items){
 function mkBar(el,items,maxVal){
   el.innerHTML=items.map(function(i){
     var pct=maxVal?Math.min(Math.round(i.v/maxVal*100),100):0;
-    return'<div class="bar-row"><div class="bar-label">'+esc(i.l)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;background:'+(i.color||'var(--accent)')+'"></div></div><div class="bar-val">'+(i.t||esc(fmt(i.v)))+'</div></div>';
+    return'<div class="bar-row"><div class="bar-label">'+esc(i.l)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;background:'+safeColor(i.color||'var(--accent)')+'"></div></div><div class="bar-val">'+(i.t||esc(fmt(i.v)))+'</div></div>';
   }).join('');
 }
 
@@ -328,7 +330,7 @@ function monthBars(months,el){
   var max=Math.max.apply(null,months.map(function(m){return m.value}))||1;
   el.innerHTML='<div class="month-bars">'+months.map(function(m){
     var h=Math.max(Math.round(m.value/max*100),2);
-    return'<div class="month-col"><div class="month-amt">\u20A9'+fmt(m.value)+'</div><div class="month-bar" style="height:'+h+'px;background:'+(m.color||'var(--accent)')+'"></div><div class="month-lbl">'+esc(m.label)+'</div></div>';
+    return'<div class="month-col"><div class="month-amt">\u20A9'+fmt(m.value)+'</div><div class="month-bar" style="height:'+h+'px;background:'+safeColor(m.color||'var(--accent)')+'"></div><div class="month-lbl">'+esc(m.label)+'</div></div>';
   }).join('')+'</div>';
 }
 
@@ -580,7 +582,7 @@ function renderSecUnified(d){
     var impN=parseInt(a.impact)||0;
     auditHtml+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px">';
     auditHtml+='<span style="min-width:80px;color:var(--muted)">'+esc(a.date||'')+'</span>';
-    auditHtml+='<a href="'+esc(a.url||'')+'" target="_blank" style="flex:1;color:var(--accent);font-weight:600">'+esc(a.title||'')+'</a>';
+    auditHtml+='<a href="'+safeHref(a.url||'')+'" target="_blank" style="flex:1;color:var(--accent);font-weight:600">'+esc(a.title||'')+'</a>';
     auditHtml+=impN>=8?ch(a.impact,'r'):impN>=5?ch(a.impact,'y'):ch(a.impact,'g');
     auditHtml+='</div>';
   });
@@ -663,7 +665,7 @@ function _renderProwCards(el,rows,defaultColor){
     html+='<div class="prow-det" style="display:none;padding:12px 16px;border-top:1px dashed var(--border);background:var(--card)">';
     html+='<div style="font-size:13px;line-height:1.6;margin-bottom:8px">'+esc(f.message||'')+'</div>';
     if(checkId){html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-family:monospace;font-size:11px;color:var(--accent);background:var(--card2);padding:2px 8px;border-radius:4px">'+esc(checkId)+'</span>';}
-    if(hubUrl){html+='<a href="'+esc(hubUrl)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:11px;color:var(--accent);text-decoration:underline">Prowler Hub \u2197</a>';}
+    if(hubUrl){html+='<a href="'+safeHref(hubUrl)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:11px;color:var(--accent);text-decoration:underline">Prowler Hub \u2197</a>';}
     if(checkId){html+='</div>';}
     html+='</div></div>';
   });
@@ -693,7 +695,7 @@ function _renderPolicies(d){
       var pctColor=pct>=80?'var(--green)':pct>=60?'var(--yellow)':'var(--red)';
       ph+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">\uD83D\uDCC4 <strong>'+esc(p.name)+'</strong>';
       ph+='<span style="color:var(--muted);font-size:10px">'+p.total_chapters+'\uC7A5 '+p.total_articles+'\uC870</span>';
-      if(url)ph+=' <a href="'+esc(url)+'" target="_blank" style="font-size:10px;color:var(--accent);margin-left:auto">\uC6D0\uBB38\u2197</a>';
+      if(url)ph+=' <a href="'+safeHref(url)+'" target="_blank" style="font-size:10px;color:var(--accent);margin-left:auto">\uC6D0\uBB38\u2197</a>';
       ph+='</div>';
       /* Compliance gauge */
       ph+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">';
@@ -1171,7 +1173,7 @@ function renderSig(d){
     auditHtml+='<div class="audit-detail" style="display:'+(impN>=8?'block':'none')+';padding:14px 16px;border-top:1px dashed var(--border);background:var(--card)">';
     auditHtml+='<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">';
     auditHtml+=ch(a.status||'','g')+' '+tagHtml;
-    if(hasUrl)auditHtml+=' <a href="'+url+'" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px;text-decoration:underline;text-underline-offset:2px;margin-left:auto" onclick="event.stopPropagation()">Notion에서 열기 ↗</a>';
+    if(hasUrl)auditHtml+=' <a href="'+safeHref(url)+'" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px;text-decoration:underline;text-underline-offset:2px;margin-left:auto" onclick="event.stopPropagation()">Notion에서 열기 ↗</a>';
     auditHtml+='</div>';
     if(a.summary){
       auditHtml+='<div style="font-size:13px;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-word">'+esc(a.summary)+'</div>';
