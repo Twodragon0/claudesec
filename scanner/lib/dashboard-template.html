@@ -1029,6 +1029,8 @@ var SETUP_CONFIGS={
   datadog:{title:'\uD83D\uDCCA Datadog setup (recommended)',methods:[{type:'apikey',label:'API Key (recommended)',desc:'Use scoped API keys with least privilege.',cmds:['export DD_API_KEY=<your-api-key>','# Optional: use DD_APP_KEY instead']},{type:'apikey',label:'Application Key',desc:'For management operations and dashboard keys.',cmds:['export DD_APP_KEY=<your-app-key>']}],docs:'https://docs.datadoghq.com/account_management/api-app-keys/',warn:'Recommended: set API/App Key via env only; add .env to .gitignore. Least privilege (NIST AC-6).'}
 };
 function _esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function _safeHref(u){return/^https?:\/\//.test(u)?u:''}
+/* SAFETY: insertAdjacentHTML c.title values are hardcoded emoji+text in SETUP_CONFIGS — do NOT use user-supplied data */
 function openSetup(provider){
   var c=SETUP_CONFIGS[provider];if(!c)return;
   document.getElementById('setupModalTitle').textContent='';
@@ -1042,7 +1044,7 @@ function openSetup(provider){
     html+='</div>';
   });
   if(c.warn)html+='<div class="setup-warning"><span>\uD83D\uDD12</span><span>'+_esc(c.warn)+'</span></div>';
-  if(c.docs)html+='<div style="margin-top:1rem;text-align:center"><a href="'+_esc(c.docs)+'" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem;text-decoration:underline">View documentation</a></div>';
+  if(c.docs)html+='<div style="margin-top:1rem;text-align:center"><a href="'+_safeHref(c.docs)+'" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem;text-decoration:underline">View documentation</a></div>';
   body.innerHTML=html;
   document.getElementById('setupModal').classList.add('open');document.body.style.overflow='hidden';
   body.querySelector('.setup-modal-close,button')&&body.querySelector('.setup-modal-close,button').focus();
