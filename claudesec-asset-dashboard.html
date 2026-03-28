@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-{{CSP_NONCE}}' 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:; connect-src 'self';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>ClaudeSec — ISMS 통합 보안 대시보드</title>
@@ -160,7 +160,7 @@ tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 <div class="pnl" id="p-ai" role="tabpanel" aria-labelledby="tab-ai"></div>
 </main>
 
-<script>
+<script nonce="{{CSP_NONCE}}">
 const D=/*__DATA__*/null;
 
 /* === Theme === */
@@ -668,7 +668,7 @@ function _renderProwCards(el,rows,defaultColor){
     html+='<div class="prow-det" style="display:none;padding:12px 16px;border-top:1px dashed var(--border);background:var(--card)">';
     html+='<div style="font-size:13px;line-height:1.6;margin-bottom:8px">'+esc(f.message||'')+'</div>';
     if(checkId){html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-family:monospace;font-size:11px;color:var(--accent);background:var(--card2);padding:2px 8px;border-radius:4px">'+esc(checkId)+'</span>';}
-    if(hubUrl){html+='<a href="'+safeHref(hubUrl)+'" target="_blank" rel="noopener" data-stop-propagation="1" style="font-size:11px;color:var(--accent);text-decoration:underline">Prowler Hub \u2197</a>';}
+    if(hubUrl){html+='<a href="'+safeHref(hubUrl)+'" target="_blank" rel="noopener" data-no-action="1" style="font-size:11px;color:var(--accent);text-decoration:underline">Prowler Hub \u2197</a>';}
     if(checkId){html+='</div>';}
     html+='</div></div>';
   });
@@ -1169,12 +1169,12 @@ function renderSig(d){
     auditHtml+='</div>';
     auditHtml+='<span>'+priCh+'</span>';
     auditHtml+='<span style="min-width:24px;text-align:center">'+impCh+'</span>';
-    auditHtml+='<span style="font-size:11px;color:var(--muted)">'+(impN>=8?'\u25BE':'\u25B8')+'</span>';
+    auditHtml+='<span class="audit-arrow" style="font-size:11px;color:var(--muted)">'+(impN>=8?'\u25BE':'\u25B8')+'</span>';
     auditHtml+='</div>';
     auditHtml+='<div class="audit-detail" style="display:'+(impN>=8?'block':'none')+';padding:14px 16px;border-top:1px dashed var(--border);background:var(--card)">';
     auditHtml+='<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">';
     auditHtml+=ch(a.status||'','g')+' '+tagHtml;
-    if(hasUrl)auditHtml+=' <a href="'+safeHref(url)+'" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px;text-decoration:underline;text-underline-offset:2px;margin-left:auto" data-stop-propagation="1">Notion에서 열기 ↗</a>';
+    if(hasUrl)auditHtml+=' <a href="'+safeHref(url)+'" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px;text-decoration:underline;text-underline-offset:2px;margin-left:auto" data-no-action="1">Notion에서 열기 ↗</a>';
     auditHtml+='</div>';
     if(a.summary){
       auditHtml+='<div style="font-size:13px;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-word">'+esc(a.summary)+'</div>';
@@ -1214,9 +1214,9 @@ function renderWithScan(d){
 }
 /* === Event delegation for data-action buttons === */
 document.addEventListener('click',function(e){
-  /* Stop propagation for links with data-stop-propagation */
-  var spEl=e.target.closest('[data-stop-propagation]');
-  if(spEl){e.stopPropagation();return;}
+  /* Skip action dispatch for elements marked data-no-action (e.g. links inside toggle cards) */
+  var spEl=e.target.closest('[data-no-action]');
+  if(spEl)return;
 
   var btn=e.target.closest('[data-action]');
   if(!btn)return;
@@ -1233,7 +1233,7 @@ document.addEventListener('click',function(e){
   if(action==='_fCost'&&window._fCost){window._fCost(arg,btn);return;}
 
   if(action==='toggle-cs-det'){
-    var card=btn.closest('[data-action="toggle-cs-det"]')||btn;
+    var card=btn;
     var det=card.querySelector('.cs-det');
     var arr=card.querySelector('.cs-arrow');
     if(!det)return;
@@ -1242,7 +1242,7 @@ document.addEventListener('click',function(e){
     return;
   }
   if(action==='toggle-prow-det'){
-    var card=btn.closest('[data-action="toggle-prow-det"]')||btn;
+    var card=btn;
     var det=card.querySelector('.prow-det');
     var arr=card.querySelector('.prow-arrow');
     if(!det)return;
@@ -1251,9 +1251,9 @@ document.addEventListener('click',function(e){
     return;
   }
   if(action==='toggle-audit'){
-    var card=btn.closest('[data-action="toggle-audit"]')||btn;
+    var card=btn;
     var det=card.querySelector('.audit-detail');
-    var arrow=card.querySelector('div:first-child span:last-child');
+    var arrow=card.querySelector('.audit-arrow');
     if(!det)return;
     if(det.style.display==='none'){det.style.display='block';if(arrow)arrow.textContent='\u25BE';}
     else{det.style.display='none';if(arrow)arrow.textContent='\u25B8';}
