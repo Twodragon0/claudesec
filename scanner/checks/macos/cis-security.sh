@@ -190,13 +190,20 @@ else
 fi
 
 # CIS-004: No world-writable files in /System
-ww_count=$(find /System -maxdepth 4 -perm -0002 -not -type l 2>/dev/null | wc -l | tr -d ' ')
+# Exclude known-legitimate macOS world-writable paths:
+#   /System/Volumes/         — APFS volume mount points (Preboot, Update, Data)
+#   /System/Library/AssetsV2 — system asset update staging (SIP-protected)
+# On SIP-enabled systems /System/Library is protected regardless of permission bits.
+ww_count=$(find /System -maxdepth 4 -perm -0002 -not -type l \
+  -not -path '/System/Volumes/*' \
+  -not -path '/System/Library/AssetsV2/*' \
+  2>/dev/null | wc -l | tr -d ' ')
 if [[ "$ww_count" -eq 0 ]]; then
-  pass "CIS-004" "No world-writable files found in /System"
+  pass "CIS-004" "No world-writable files found in /System (SIP-managed paths excluded)"
 else
   fail "CIS-004" "World-writable files found in /System (${ww_count} files)" "high" \
     "World-writable system files can be modified by any user, enabling privilege escalation" \
-    "Review with: sudo find /System -maxdepth 4 -perm -0002 -not -type l"
+    "Review with: sudo find /System -maxdepth 4 -perm -0002 -not -type l -not -path '/System/Volumes/*'"
 fi
 
 # CIS-005: Homebrew security (outdated packages)
