@@ -4,8 +4,6 @@ Provides GitHub API fetching utilities and best-practice source definitions
 extracted from dashboard-gen.py for reuse across scanner modules.
 """
 
-import base64
-import hashlib
 import json
 import os
 import time

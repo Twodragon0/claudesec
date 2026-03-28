@@ -136,7 +136,7 @@ async function executeAction(action: AgentAction): Promise<void> {
 
 ### Step 1: Identify AI Components
 
-```
+```text
 System: Customer Support Chatbot
 AI Components:
 ├── LLM (GPT-4 via API) — text generation
