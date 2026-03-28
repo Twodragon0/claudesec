@@ -214,7 +214,7 @@ def _github_api_json(url: str, _max_retries: int = 3) -> Any:
                 if retry_after and retry_after.isdigit():
                     wait = min(int(retry_after), 60)
                 else:
-                    wait = min(2 ** attempt, 30)
+                    wait = min(2 ** attempt, 5)
                 time.sleep(wait)
                 continue
             raise

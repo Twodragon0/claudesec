@@ -23,7 +23,7 @@ services:
     volumes:
       - ./claudesec-asset-dashboard.html:/usr/share/nginx/html/index.html:ro
       - ./claudesec-dashboard.html:/usr/share/nginx/html/scan.html:ro
-      - ./scan-report.json:/usr/share/nginx/html/scan-report.json:ro
+      - ./scan-report.default.json:/usr/share/nginx/html/scan-report.json:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 30s
