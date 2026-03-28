@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="generator" content="ClaudeSec v{{VERSION}}">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: blob:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-{{CSP_NONCE}}' 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:;">
 <meta name="theme-color" content="#0f172a">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>ClaudeSec DevSecOps Dashboard</title>
@@ -760,7 +760,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
   </div>
 </div>
 
-<script>var HIST_DATA={{HISTORY_JSON}};
+<script nonce="{{CSP_NONCE}}">var HIST_DATA={{HISTORY_JSON}};
 /* Provider sub-tab switching within Prowler CSPM */
 var _provPanels,_provTabs;
 function switchProvTab(id){
@@ -1056,15 +1056,12 @@ function copyCmd(btn){var code=btn.previousElementSibling;navigator.clipboard.wr
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeSetup()});
 /* === Event delegation for data-action buttons === */
 document.addEventListener('click',function(e){
-  /* Setup modal overlay: close when clicking backdrop */
-  var overlay=e.target.closest('[data-action="close-setup-overlay"]');
-  if(overlay&&e.target===overlay){closeSetup();return;}
-
   var btn=e.target.closest('[data-action]');
   if(!btn)return;
   var action=btn.dataset.action;
   var arg=btn.dataset.arg;
 
+  if(action==='close-setup-overlay'){if(e.target===btn)closeSetup();return;}
   if(action==='switchTab'){switchTab(arg,btn.dataset.scroll||undefined);return;}
   if(action==='switchProvTab'){switchProvTab(arg);return;}
   if(action==='scroll-top'){window.scrollTo({top:0,behavior:'smooth'});return;}

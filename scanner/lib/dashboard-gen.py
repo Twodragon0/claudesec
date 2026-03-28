@@ -27,6 +27,8 @@ _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
+from csp_utils import generate_nonce, inject_csp_nonce
+
 # ── Module imports (extracted from monolithic dashboard-gen.py) ──────────────
 from dashboard_utils import (  # noqa: F401
     VERSION,
@@ -1123,6 +1125,9 @@ def _build_replacements(*values):
 def _apply_template_and_write(output_file, template, replacements):
     for k, v in replacements.items():
         template = template.replace(f"{{{{{k}}}}}", v)
+    # CSP nonce 주입 (빌드마다 새로운 랜덤 nonce 생성)
+    nonce = generate_nonce()
+    template = inject_csp_nonce(template, nonce)
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(template)
 

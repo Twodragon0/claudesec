@@ -13,11 +13,15 @@ Google Sheets 3개 + Datadog + Prowler + ClaudeSec 스캔 결과를
 import json
 import os
 import subprocess
+import sys
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, TypedDict
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scanner" / "lib"))
+from csp_utils import generate_nonce, inject_csp_nonce
 
 import gspread
 
@@ -1483,6 +1487,10 @@ def main():
     # 템플릿 내 placeholder 교체
     html = html.replace("__DASHBOARD_DATA__", json_str)
     html = html.replace("const D=/*__DATA__*/null;", f"const D={json_str};")
+
+    # CSP nonce 주입 (빌드마다 새로운 랜덤 nonce 생성)
+    nonce = generate_nonce()
+    html = inject_csp_nonce(html, nonce)
 
     out_path = ROOT / "claudesec-asset-dashboard-live.html"
     out_path.write_text(html)
