@@ -1,9 +1,12 @@
 name: DAST Baseline Scan
 
 on:
-  pull_request:
-    branches: [main, develop]
   workflow_dispatch:
+    inputs:
+      target_url:
+        description: "Target URL for DAST scan (default: docker-compose app)"
+        required: false
+        default: "http://localhost:8080"
 
 permissions:
   contents: read
@@ -19,15 +22,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Start application (docker-compose)
+        if: env.APP_IMAGE != ''
         run: |
           docker compose -f docker-compose.staging.yml up -d
-          timeout 60 bash -c 'until curl -sf http://localhost:8080/health; do sleep 2; done'
+          timeout 60 bash -c 'until curl -sf ${{ inputs.target_url || 'http://localhost:8080' }}/health; do sleep 2; done'
 
       - name: ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.12.0
         with:
-          target: "http://localhost:8080"
-          rules_file_name: ".zap/rules.tsv"
+          target: ${{ inputs.target_url || 'http://localhost:8080' }}
+          rules_file_name: "templates/zap-rules.tsv"
           cmd_options: "-a"
           fail_action: true
 
@@ -40,5 +44,5 @@ jobs:
           retention-days: 30
 
       - name: Teardown
-        if: always()
+        if: always() && env.APP_IMAGE != ''
         run: docker compose -f docker-compose.staging.yml down
