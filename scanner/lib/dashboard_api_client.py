@@ -221,7 +221,9 @@ def _github_api_json(url: str, _max_retries: int = 3) -> Any:
         except (urllib.error.URLError, OSError) as exc:
             last_exc = exc
             if attempt < _max_retries - 1:
-                time.sleep(min(2 ** attempt, 30))
+                # Use a short back-off for network/connection errors (not rate-limits):
+                # they fail fast in CI (no internet) and long sleeps cause timeouts.
+                time.sleep(min(2 ** attempt, 5))
                 continue
             raise
     if last_exc is not None:

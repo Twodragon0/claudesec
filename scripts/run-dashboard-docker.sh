@@ -109,6 +109,9 @@ elif [[ "$MODE" != "quick" ]]; then
   cmd+=( --all )
 fi
 
+# Skip GitHub API calls for best-practice content to avoid blocking on
+# unauthenticated rate-limits (60 req/hr) and retry back-off sleeps in CI.
+# Override by setting CLAUDESEC_DASHBOARD_OFFLINE=0 in the calling environment.
 docker_args=(
   run --rm
   --user "$(id -u):$(id -g)"
@@ -116,6 +119,7 @@ docker_args=(
   -w /workspace
   -e SCAN_DIR=/workspace
   -e CLAUDESEC_ENV_FILE=/workspace/.claudesec.env
+  -e CLAUDESEC_DASHBOARD_OFFLINE="${CLAUDESEC_DASHBOARD_OFFLINE:-1}"
 )
 
 if [[ "$SERVE" == "1" ]]; then

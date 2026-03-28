@@ -37,6 +37,8 @@ jobs:
         run: docker build -t claudesec:local .
 
       - name: Run scan and generate dashboard
+        # CLAUDESEC_DASHBOARD_OFFLINE=1 skips GitHub API calls for best-practice
+        # content that block in CI due to unauthenticated rate-limits and retries.
         run: |
           docker run --rm \
             --user "$(id -u):$(id -g)" \
@@ -44,6 +46,7 @@ jobs:
             -w /workspace \
             -e SCAN_DIR=/workspace \
             -e HOME=/tmp \
+            -e CLAUDESEC_DASHBOARD_OFFLINE=1 \
             claudesec:local dashboard -d /workspace -c all --no-serve
 
       - name: Verify dashboard generated
