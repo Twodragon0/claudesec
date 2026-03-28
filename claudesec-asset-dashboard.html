@@ -124,6 +124,8 @@ tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 .xv-stat{display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap}
 .xv-stat>div{flex:1;min-width:120px;text-align:center;padding:12px;background:var(--card);border-radius:8px;border:1px solid var(--border)}
 .xv-stat .xv-num{font-size:24px;font-weight:700}.xv-stat .xv-lbl{font-size:10px;color:var(--muted);text-transform:uppercase}
+.scan-dash-link:hover{background:var(--accent)!important;color:#fff!important}
+.pol-card:hover{border-color:var(--accent)!important}
 </style>
 </head>
 <body>
@@ -132,7 +134,7 @@ tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 <div class="sub">ISMS 자산관리 · 취약점 점검 · PDCA 관리 체계</div></div>
 <div class="hdr-right">
 <div class="conn-dots" id="conn-dots"></div>
-<a href="/scan.html" style="font-size:12px;padding:5px 12px;border:1px solid var(--border);border-radius:7px;color:var(--accent);text-decoration:none;font-weight:600;transition:all .2s" onmouseover="this.style.background='var(--accent)';this.style.color='#fff'" onmouseout="this.style.background='';this.style.color='var(--accent)'">ClaudeSec 스캔 대시보드</a>
+<a href="/scan.html" class="scan-dash-link" style="font-size:12px;padding:5px 12px;border:1px solid var(--border);border-radius:7px;color:var(--accent);text-decoration:none;font-weight:600;transition:all .2s">ClaudeSec 스캔 대시보드</a>
 <div class="ts" id="ts"></div>
 <button class="theme-btn" id="theme-toggle"></button>
 </div>
@@ -512,7 +514,7 @@ function renderSecUnified(d){
   /* Provider bars */
   if(Object.keys(byProv).length){
     var pe=Object.entries(byProv);
-    $('sec-fb').innerHTML='<span class="fb-btn on" onclick="window._fprow(\'all\',this)">전체</span>'+pe.map(function(e){return'<span class="fb-btn" onclick="window._fprow(\''+esc(e[0])+'\',this)">'+esc(e[0].toUpperCase())+'</span>'}).join('');
+    $('sec-fb').innerHTML='<span class="fb-btn on" data-action="_fprow" data-arg="all">전체</span>'+pe.map(function(e){return'<span class="fb-btn" data-action="_fprow" data-arg="'+esc(e[0])+'">'+esc(e[0].toUpperCase())+'</span>'}).join('');
     mkBar($('sec-prov'),pe.map(function(e){return{l:e[0].toUpperCase(),v:e[1].fail||0,t:'FAIL '+(e[1].fail||0)+' / PASS '+(e[1].pass||0),color:(e[1].fail||0)>10?'var(--red)':(e[1].fail||0)>0?'var(--yellow)':'var(--green)'}}),Math.max.apply(null,pe.map(function(e){return e[1].fail||0}).concat([1])));
   }
 
@@ -524,10 +526,10 @@ function renderSecUnified(d){
     var cCount=allProwSamples.filter(function(s){return s.severity==='Critical'}).length;
     var hCount=allProwSamples.filter(function(s){return s.severity==='High'}).length;
     var mCount=allProwSamples.filter(function(s){return s.severity==='Medium'}).length;
-    sevFb.innerHTML='<span class="fb-btn on" onclick="window._fProwSev(\'all\',this)">전체 '+allProwSamples.length+'</span>'
-      +(cCount?'<span class="fb-btn" style="border-color:var(--red)" onclick="window._fProwSev(\'Critical\',this)">Critical '+cCount+'</span>':'')
-      +(hCount?'<span class="fb-btn" style="border-color:var(--orange)" onclick="window._fProwSev(\'High\',this)">High '+hCount+'</span>':'')
-      +(mCount?'<span class="fb-btn" style="border-color:var(--yellow)" onclick="window._fProwSev(\'Medium\',this)">Medium '+mCount+'</span>':'');
+    sevFb.innerHTML='<span class="fb-btn on" data-action="_fProwSev" data-arg="all">전체 '+allProwSamples.length+'</span>'
+      +(cCount?'<span class="fb-btn" style="border-color:var(--red)" data-action="_fProwSev" data-arg="Critical">Critical '+cCount+'</span>':'')
+      +(hCount?'<span class="fb-btn" style="border-color:var(--orange)" data-action="_fProwSev" data-arg="High">High '+hCount+'</span>':'')
+      +(mCount?'<span class="fb-btn" style="border-color:var(--yellow)" data-action="_fProwSev" data-arg="Medium">Medium '+mCount+'</span>':'');
   }
   window._fProwSev=function(sev,el){
     document.querySelectorAll('#prow-sev-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
@@ -540,11 +542,11 @@ function renderSecUnified(d){
   findings.forEach(function(f){var s=(f.severity||'').toLowerCase();if(csFc[s]!==undefined)csFc[s]++;});
   window._csFindings=findings;
   var csFb='<div class="fb" id="cs-sev-fb">'
-    +'<span class="fb-btn on" onclick="window._fCsSev(\'all\',this)">전체 '+findings.length+'</span>'
-    +(csFc.critical?'<span class="fb-btn" style="border-color:var(--red)" onclick="window._fCsSev(\'critical\',this)">Critical '+csFc.critical+'</span>':'')
-    +(csFc.high?'<span class="fb-btn" style="border-color:var(--orange)" onclick="window._fCsSev(\'high\',this)">High '+csFc.high+'</span>':'')
-    +(csFc.medium?'<span class="fb-btn" style="border-color:var(--yellow)" onclick="window._fCsSev(\'medium\',this)">Medium '+csFc.medium+'</span>':'')
-    +(csFc.warning?'<span class="fb-btn" style="border-color:var(--blue)" onclick="window._fCsSev(\'warning\',this)">Warning '+csFc.warning+'</span>':'')
+    +'<span class="fb-btn on" data-action="_fCsSev" data-arg="all">전체 '+findings.length+'</span>'
+    +(csFc.critical?'<span class="fb-btn" style="border-color:var(--red)" data-action="_fCsSev" data-arg="critical">Critical '+csFc.critical+'</span>':'')
+    +(csFc.high?'<span class="fb-btn" style="border-color:var(--orange)" data-action="_fCsSev" data-arg="high">High '+csFc.high+'</span>':'')
+    +(csFc.medium?'<span class="fb-btn" style="border-color:var(--yellow)" data-action="_fCsSev" data-arg="medium">Medium '+csFc.medium+'</span>':'')
+    +(csFc.warning?'<span class="fb-btn" style="border-color:var(--blue)" data-action="_fCsSev" data-arg="warning">Warning '+csFc.warning+'</span>':'')
     +'</div>';
   $('scan-tbl-wrap').innerHTML=csFb+'<div id="cs-findings-list"></div>';
   window._fCsSev=function(sev,el){
@@ -558,7 +560,7 @@ function renderSecUnified(d){
       var s=(f.severity||'medium').toLowerCase();
       var sevColor=s==='critical'?'var(--red)':s==='high'?'var(--orange)':s==='medium'?'var(--yellow)':'var(--blue)';
       var bg=s==='critical'?'rgba(220,38,38,.10)':s==='high'?'rgba(239,68,68,.06)':'transparent';
-      html+='<div style="border:1px solid var(--border);border-left:4px solid '+sevColor+';border-radius:8px;margin-bottom:8px;overflow:hidden;cursor:pointer;background:'+bg+'" onclick="var d=this.querySelector(\'.cs-det\');var a=this.querySelector(\'.cs-arrow\');if(d.style.display===\'none\'){d.style.display=\'block\';a.textContent=\'\\u25BE\'}else{d.style.display=\'none\';a.textContent=\'\\u25B8\'}">';
+      html+='<div style="border:1px solid var(--border);border-left:4px solid '+sevColor+';border-radius:8px;margin-bottom:8px;overflow:hidden;cursor:pointer;background:'+bg+'" data-action="toggle-cs-det">';
       html+='<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--card2)">';
       html+=sevCh(f.severity)+' <strong style="font-size:12px;color:var(--accent)">'+esc(f.id||'')+'</strong>';
       html+='<span style="flex:1;font-size:12px;font-weight:600;line-height:1.4">'+esc(f.title||'')+'</span>';
@@ -626,7 +628,7 @@ function renderSec(d){
   ]);
   if(Object.keys(byProv).length){
     var pe=Object.entries(byProv);
-    $('sec-fb').innerHTML='<span class="fb-btn on" onclick="window._fprow(\'all\',this)">\uC804\uCCB4</span>'+pe.map(function(e){return'<span class="fb-btn" onclick="window._fprow(\''+esc(e[0])+'\',this)">'+esc(e[0].toUpperCase())+'</span>'}).join('');
+    $('sec-fb').innerHTML='<span class="fb-btn on" data-action="_fprow" data-arg="all">\uC804\uCCB4</span>'+pe.map(function(e){return'<span class="fb-btn" data-action="_fprow" data-arg="'+esc(e[0])+'">'+esc(e[0].toUpperCase())+'</span>'}).join('');
     mkBar($('sec-prov'),pe.map(function(e){return{l:e[0].toUpperCase(),v:e[1].fail||0,t:'FAIL '+(e[1].fail||0)+' / PASS '+(e[1].pass||0),color:(e[1].fail||0)>10?'var(--red)':(e[1].fail||0)>0?'var(--yellow)':'var(--green)'}}),Math.max.apply(null,pe.map(function(e){return e[1].fail||0}).concat([1])));
   }
   var sevD=pw.fail_by_severity||{};
@@ -639,10 +641,10 @@ function renderSec(d){
     var cc=allProw2.filter(function(s){return s.severity==='Critical'}).length;
     var hh=allProw2.filter(function(s){return s.severity==='High'}).length;
     var mm=allProw2.filter(function(s){return s.severity==='Medium'}).length;
-    sfb2.innerHTML='<span class="fb-btn on" onclick="window._fPS2(\'all\',this)">전체 '+allProw2.length+'</span>'
-      +(cc?'<span class="fb-btn" style="border-color:var(--red)" onclick="window._fPS2(\'Critical\',this)">Critical '+cc+'</span>':'')
-      +(hh?'<span class="fb-btn" style="border-color:var(--orange)" onclick="window._fPS2(\'High\',this)">High '+hh+'</span>':'')
-      +(mm?'<span class="fb-btn" style="border-color:var(--yellow)" onclick="window._fPS2(\'Medium\',this)">Medium '+mm+'</span>':'');
+    sfb2.innerHTML='<span class="fb-btn on" data-action="_fPS2" data-arg="all">전체 '+allProw2.length+'</span>'
+      +(cc?'<span class="fb-btn" style="border-color:var(--red)" data-action="_fPS2" data-arg="Critical">Critical '+cc+'</span>':'')
+      +(hh?'<span class="fb-btn" style="border-color:var(--orange)" data-action="_fPS2" data-arg="High">High '+hh+'</span>':'')
+      +(mm?'<span class="fb-btn" style="border-color:var(--yellow)" data-action="_fPS2" data-arg="Medium">Medium '+mm+'</span>':'');
   }
   window._fPS2=function(sev,el){
     document.querySelectorAll('#prow-sev-fb2 .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
@@ -658,7 +660,7 @@ function _renderProwCards(el,rows,defaultColor){
     var sevColor=safeColor(f.severity==='Critical'?'var(--red)':f.severity==='High'?'var(--orange)':defaultColor||'var(--yellow)');
     var checkId=(f.check||'').replace(/^prowler-[^-]+-/,'').replace(/-[a-f0-9]{6,}$/,'').replace(/-\d{12}.*$/,'');
     var hubUrl=f.hub_url||(checkId?'https://hub.prowler.com/check/'+encodeURIComponent(checkId):'');
-    html+='<div style="border:1px solid var(--border);border-left:3px solid '+sevColor+';border-radius:8px;margin-bottom:8px;overflow:hidden;cursor:pointer" onclick="var d=this.querySelector(\'.prow-det\');var a=this.querySelector(\'.prow-arrow\');if(d.style.display===\'none\'){d.style.display=\'block\';a.textContent=\'\\u25BE\'}else{d.style.display=\'none\';a.textContent=\'\\u25B8\'}">';
+    html+='<div style="border:1px solid var(--border);border-left:3px solid '+sevColor+';border-radius:8px;margin-bottom:8px;overflow:hidden;cursor:pointer" data-action="toggle-prow-det">';
     html+='<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--card2)">';
     html+=sevCh(f.severity)+' '+ch(f.provider||'','b');
     html+='<span style="flex:1;font-size:12px;font-weight:600;line-height:1.4">'+esc((f.message||'').substring(0,120))+'</span>';
@@ -666,7 +668,7 @@ function _renderProwCards(el,rows,defaultColor){
     html+='<div class="prow-det" style="display:none;padding:12px 16px;border-top:1px dashed var(--border);background:var(--card)">';
     html+='<div style="font-size:13px;line-height:1.6;margin-bottom:8px">'+esc(f.message||'')+'</div>';
     if(checkId){html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-family:monospace;font-size:11px;color:var(--accent);background:var(--card2);padding:2px 8px;border-radius:4px">'+esc(checkId)+'</span>';}
-    if(hubUrl){html+='<a href="'+safeHref(hubUrl)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:11px;color:var(--accent);text-decoration:underline">Prowler Hub \u2197</a>';}
+    if(hubUrl){html+='<a href="'+safeHref(hubUrl)+'" target="_blank" rel="noopener" data-stop-propagation="1" style="font-size:11px;color:var(--accent);text-decoration:underline">Prowler Hub \u2197</a>';}
     if(checkId){html+='</div>';}
     html+='</div></div>';
   });
@@ -690,7 +692,7 @@ function _renderPolicies(d){
       var arts=p.articles||[];
       var noteArts=arts.filter(function(a){return a.note});
       var partialArts=arts.filter(function(a){return a.status==='partial'||a.status==='todo'});
-      ph+='<div style="padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:12px;transition:border-color .2s" onmouseover="this.style.borderColor=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border)\'">';
+      ph+='<div class="pol-card" style="padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:12px;transition:border-color .2s">';
       var pct=p.compliance_pct||0;var cs=p.compliance_summary||{};
       var pctColor=pct>=80?'var(--green)':pct>=60?'var(--yellow)':'var(--red)';
       ph+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">\uD83D\uDCC4 <strong>'+esc(p.name)+'</strong>';
@@ -758,9 +760,9 @@ function renderAsset(d){
     el.innerHTML+='<div class="cd"><h3>\uD83D\uDCBB Apple 디바이스 (Jamf Pro) <span class="bg" id="pc-c"></span></h3>'
       +'<div style="padding:4px 16px 8px"><input id="pc-search" class="search-input" placeholder="디바이스 검색 (사용자, 모델, 시리얼)..." aria-label="디바이스 검색"></div>'
       +'<div class="fb" id="pc-fb"></div><div class="stbl"><table id="t-pc"></table></div></div>';
-    $('pc-fb').innerHTML='<span class="fb-btn on" onclick="window._fpc(\'all\',this)">전체 ('+allApple.length+')</span>'
-      +'<span class="fb-btn" onclick="window._fpc(\'mac\',this)">macOS ('+macCount+')</span>'
-      +'<span class="fb-btn" onclick="window._fpc(\'ios\',this)">iOS ('+iosCount+')</span>';
+    $('pc-fb').innerHTML='<span class="fb-btn on" data-action="_fpc" data-arg="all">전체 ('+allApple.length+')</span>'
+      +'<span class="fb-btn" data-action="_fpc" data-arg="mac">macOS ('+macCount+')</span>'
+      +'<span class="fb-btn" data-action="_fpc" data-arg="ios">iOS ('+iosCount+')</span>';
     window._allApple=allApple;
     window._renderApple=function(list){
       mkT($('t-pc'),['사용자','이름','플랫폼','모델','EDR','Okta','체크인','상태'],list.map(function(p){
@@ -894,9 +896,9 @@ function renderInfra(d){
     $('srv-unified-c').textContent=list.length+'\uB300';
   };
 
-  $('infra-fb').innerHTML='<span class="fb-btn on" onclick="window._fInfra(\'all\',this)">\uC804\uCCB4</span>'
-    +'<span class="fb-btn" onclick="window._fInfra(\'unregistered\',this)">\uBBF8\uB4F1\uB85D</span>'
-    +envs.map(function(e){return'<span class="fb-btn" onclick="window._fInfra(\''+esc(e)+'\',this)">'+esc(e)+'</span>'}).join('');
+  $('infra-fb').innerHTML='<span class="fb-btn on" data-action="_fInfra" data-arg="all">\uC804\uCCB4</span>'
+    +'<span class="fb-btn" data-action="_fInfra" data-arg="unregistered">\uBBF8\uB4F1\uB85D</span>'
+    +envs.map(function(e){return'<span class="fb-btn" data-action="_fInfra" data-arg="'+esc(e)+'">'+esc(e)+'</span>'}).join('');
   window._fInfra=function(f,el){
     document.querySelectorAll('#infra-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
     if(f==='all')window._renderUnified(window._unified);
@@ -961,7 +963,7 @@ function renderSaaS(d){
   $('saas-gauges').innerHTML=gauge(ssoCount,saas.length,'SSO \uCEE4\uBC84\uB9AC\uC9C0','var(--blue)')+(totalAcct?gauge(activeAcct,totalAcct,'\uB77C\uC774\uC120\uC2A4 \uD65C\uC6A9\uB960 ('+activeAcct+'/'+totalAcct+')',utilColor):'');
   var cats=[];var cSeen={};saas.forEach(function(s){var c=s.category;if(c&&!cSeen[c]){cSeen[c]=1;cats.push(c)}});
   window._saas=saas;window._saasCat='all';
-  $('saas-cats').innerHTML='<span class="cat-chip on" onclick="window._fSaaS(\'all\',this)">\uC804\uCCB4</span>'+cats.map(function(c){return'<span class="cat-chip" onclick="window._fSaaS(\''+esc(c)+'\',this)">'+esc(c)+'</span>'}).join('');
+  $('saas-cats').innerHTML='<span class="cat-chip on" data-action="_fSaaS" data-arg="all">\uC804\uCCB4</span>'+cats.map(function(c){return'<span class="cat-chip" data-action="_fSaaS" data-arg="'+esc(c)+'">'+esc(c)+'</span>'}).join('');
   _renderSaaST(saas);$('saas-c').textContent=saas.length+'\uAC1C';
   mkT($('t-lic'),['\uD504\uB85C\uADF8\uB7A8','\uC124\uBA85','\uC0C1\uD0DC','\uBD80\uC11C','\uACC4\uC815\uC218','\uBE44\uC6A9','\uC8FC\uAE30','\uACC4\uC57D\uAE30\uAC04'],lic.map(function(l){return[esc(l.name),esc(l.description||''),stCh(l.status),esc(l.department||''),esc(l.accounts||''),esc(l.cost||''),esc(l.cycle||''),esc(l.contract_period||'-')]}));
   $('lic-c').textContent=lic.length+'\uAC1C';
@@ -1104,7 +1106,7 @@ function renderCost(d){
   $('dept-cost-c').textContent=byDept.length+'\uBD80\uC11C';
   /* Month filter for detail table */
   var months=Object.keys(md).sort();
-  $('cost-fb').innerHTML='<span class="fb-btn on" onclick="window._fCost(\'all\',this)">전체</span>'+months.map(function(m){return'<span class="fb-btn" onclick="window._fCost(\''+esc(m)+'\',this)">'+esc(mkLabel(m))+'</span>'}).join('');
+  $('cost-fb').innerHTML='<span class="fb-btn on" data-action="_fCost" data-arg="all">전체</span>'+months.map(function(m){return'<span class="fb-btn" data-action="_fCost" data-arg="'+esc(m)+'">'+esc(mkLabel(m))+'</span>'}).join('');
   window._allCostD=allD;
   window._fCost=function(m,el){
     document.querySelectorAll('#cost-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
@@ -1159,7 +1161,7 @@ function renderSig(d){
     var tagHtml=(a.tags||[]).map(function(t){return ch(t,'b')}).join(' ');
     var url=esc(a.url||'');
     var hasUrl=url&&url!=='';
-    auditHtml+='<div class="audit-card" onclick="this.classList.toggle(\'open\')" style="border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;cursor:pointer;transition:all .2s;'+(impN>=8?'border-left:3px solid var(--red)':impN>=5?'border-left:3px solid var(--yellow)':'border-left:3px solid var(--green)')+'">';
+    auditHtml+='<div class="audit-card" data-action="toggle-audit" style="border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;cursor:pointer;transition:all .2s;'+(impN>=8?'border-left:3px solid var(--red)':impN>=5?'border-left:3px solid var(--yellow)':'border-left:3px solid var(--green)')+'">';
     auditHtml+='<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--card2)">';
     auditHtml+='<span style="min-width:80px;font-size:12px;color:var(--muted);font-weight:600">'+esc(a.date||'')+'</span>';
     auditHtml+='<div style="flex:1"><div style="font-size:13px;font-weight:600">'+esc(a.title||'')+'</div>';
@@ -1172,7 +1174,7 @@ function renderSig(d){
     auditHtml+='<div class="audit-detail" style="display:'+(impN>=8?'block':'none')+';padding:14px 16px;border-top:1px dashed var(--border);background:var(--card)">';
     auditHtml+='<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">';
     auditHtml+=ch(a.status||'','g')+' '+tagHtml;
-    if(hasUrl)auditHtml+=' <a href="'+safeHref(url)+'" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px;text-decoration:underline;text-underline-offset:2px;margin-left:auto" onclick="event.stopPropagation()">Notion에서 열기 ↗</a>';
+    if(hasUrl)auditHtml+=' <a href="'+safeHref(url)+'" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px;text-decoration:underline;text-underline-offset:2px;margin-left:auto" data-stop-propagation="1">Notion에서 열기 ↗</a>';
     auditHtml+='</div>';
     if(a.summary){
       auditHtml+='<div style="font-size:13px;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-word">'+esc(a.summary)+'</div>';
@@ -1181,15 +1183,6 @@ function renderSig(d){
   });
   auditEl.innerHTML=auditHtml||'<div style="padding:20px;color:var(--muted);text-align:center">점검 이력이 없습니다.</div>';
   $('audit-c').textContent=audits.length+'회';
-  /* Toggle audit card expand */
-  auditEl.querySelectorAll('.audit-card').forEach(function(card){
-    card.addEventListener('click',function(){
-      var det=this.querySelector('.audit-detail');
-      var arrow=this.querySelector('div:first-child span:last-child');
-      if(det.style.display==='none'){det.style.display='block';if(arrow)arrow.textContent='▾'}
-      else{det.style.display='none';if(arrow)arrow.textContent='▸'}
-    });
-  });
   mkT($('t-sig'),['\uBC1C\uC0DD\uC2DC\uAC01','\uC2EC\uAC01\uB3C4','\uC0C1\uD0DC','\uC81C\uBAA9','\uD0DC\uADF8'],sigs.map(function(s){return[esc(s.timestamp||''),sevCh(s.severity),esc(s.status||''),esc(s.title||''),(s.tags||[]).map(function(t){return esc(t)}).join(', ')]}),{col:0,asc:false});
   $('sig-c').textContent=sigs.length+'건';
 }
@@ -1219,6 +1212,55 @@ function renderWithScan(d){
     render(d);
   }).catch(function(){render(d);});
 }
+/* === Event delegation for data-action buttons === */
+document.addEventListener('click',function(e){
+  /* Stop propagation for links with data-stop-propagation */
+  var spEl=e.target.closest('[data-stop-propagation]');
+  if(spEl){e.stopPropagation();return;}
+
+  var btn=e.target.closest('[data-action]');
+  if(!btn)return;
+  var action=btn.dataset.action;
+  var arg=btn.dataset.arg;
+
+  if(action==='_fprow'&&window._fprow){window._fprow(arg,btn);return;}
+  if(action==='_fProwSev'&&window._fProwSev){window._fProwSev(arg,btn);return;}
+  if(action==='_fPS2'&&window._fPS2){window._fPS2(arg,btn);return;}
+  if(action==='_fCsSev'&&window._fCsSev){window._fCsSev(arg,btn);return;}
+  if(action==='_fpc'&&window._fpc){window._fpc(arg,btn);return;}
+  if(action==='_fInfra'&&window._fInfra){window._fInfra(arg,btn);return;}
+  if(action==='_fSaaS'&&window._fSaaS){window._fSaaS(arg,btn);return;}
+  if(action==='_fCost'&&window._fCost){window._fCost(arg,btn);return;}
+
+  if(action==='toggle-cs-det'){
+    var card=btn.closest('[data-action="toggle-cs-det"]')||btn;
+    var det=card.querySelector('.cs-det');
+    var arr=card.querySelector('.cs-arrow');
+    if(!det)return;
+    if(det.style.display==='none'){det.style.display='block';if(arr)arr.textContent='\u25BE';}
+    else{det.style.display='none';if(arr)arr.textContent='\u25B8';}
+    return;
+  }
+  if(action==='toggle-prow-det'){
+    var card=btn.closest('[data-action="toggle-prow-det"]')||btn;
+    var det=card.querySelector('.prow-det');
+    var arr=card.querySelector('.prow-arrow');
+    if(!det)return;
+    if(det.style.display==='none'){det.style.display='block';if(arr)arr.textContent='\u25BE';}
+    else{det.style.display='none';if(arr)arr.textContent='\u25B8';}
+    return;
+  }
+  if(action==='toggle-audit'){
+    var card=btn.closest('[data-action="toggle-audit"]')||btn;
+    var det=card.querySelector('.audit-detail');
+    var arrow=card.querySelector('div:first-child span:last-child');
+    if(!det)return;
+    if(det.style.display==='none'){det.style.display='block';if(arrow)arrow.textContent='\u25BE';}
+    else{det.style.display='none';if(arrow)arrow.textContent='\u25B8';}
+    return;
+  }
+});
+
 if(D){renderWithScan(D);}
 else fetch('.claudesec-assets/dashboard-data.json').then(function(r){if(!r.ok)throw new Error(r.status+' '+r.statusText);return r.json()}).then(renderWithScan).catch(function(e){
   /* If full dashboard data fails, try scan-report.json alone for a minimal view */

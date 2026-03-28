@@ -418,6 +418,8 @@ footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem
 /* Focus styles for accessibility */
 button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .expandable:focus-visible,.owasp-header:focus-visible,.arch-header:focus-visible,.comp-title:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px}
+.isms-dash-link:hover{background:var(--accent)!important;color:#fff!important}
+.isms-main-link:hover{opacity:.85}
 /* Print styles */
 @media print{body{background:#fff;color:#111}.container{max-width:100%}header,.tabs,.quick-nav,.scroll-top,.toast,.setup-modal-overlay,.env-grid,.trend-section{display:none!important}.tab-panel{display:block!important;page-break-inside:avoid}.card{border:1px solid #ccc;break-inside:avoid;margin-bottom:1rem}.badge.critical,.badge.high{background:#dc2626;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.sev-bar div{-webkit-print-color-adjust:exact;print-color-adjust:exact}footer{text-align:center;border-top:1px solid #ccc;padding-top:1rem;color:#666}}
 </style>
@@ -427,19 +429,19 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 <header>
   <h1><span>◆</span> ClaudeSec DevSecOps Dashboard <span class="ver">v{{VERSION}}</span></h1>
   <div class="header-right">
-    <a href="/" style="font-size:.82rem;padding:.35rem .7rem;border:1px solid var(--border);border-radius:8px;color:var(--accent);text-decoration:none;font-weight:600;transition:all .15s" onmouseover="this.style.background='var(--accent)';this.style.color='#fff'" onmouseout="this.style.background='';this.style.color='var(--accent)'" title="ISMS 통합 대시보드">ISMS Dashboard</a>
+    <a href="/" class="isms-dash-link" style="font-size:.82rem;padding:.35rem .7rem;border:1px solid var(--border);border-radius:8px;color:var(--accent);text-decoration:none;font-weight:600;transition:all .15s" title="ISMS 통합 대시보드">ISMS Dashboard</a>
     <div class="meta">Scan: {{NOW}} · {{DURATION}}s</div>
-    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme">🌓</button>
+    <button class="theme-toggle" id="themeToggleBtn" title="Toggle theme" aria-label="Toggle theme">🌓</button>
   </div>
 </header>
 
 <nav class="tabs" id="mainTabs" role="tablist" aria-label="Dashboard sections">
-  <button class="tab active" role="tab" aria-selected="true" aria-controls="tab-overview" onclick="switchTab('overview')">Overview</button>
-  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-prowler" onclick="switchTab('prowler')">CSPM</button>
-  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-github" onclick="switchTab('github')">GitHub</button>
-  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-bestpractices" onclick="switchTab('bestpractices')">Code Security</button>
-  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-arch" onclick="switchTab('arch')">Architecture</button>
-  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-networktools" onclick="switchTab('networktools')">Network</button>
+  <button class="tab active" role="tab" aria-selected="true" aria-controls="tab-overview" data-action="switchTab" data-arg="overview">Overview</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-prowler" data-action="switchTab" data-arg="prowler">CSPM</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-github" data-action="switchTab" data-arg="github">GitHub</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-bestpractices" data-action="switchTab" data-arg="bestpractices">Code Security</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-arch" data-action="switchTab" data-arg="arch">Architecture</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-networktools" data-action="switchTab" data-arg="networktools">Network</button>
 </nav>
 
 <!-- ── Tab: Overview ───────────────────────────────────────────────── -->
@@ -447,7 +449,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
   <!-- Main dashboard link -->
   <div style="margin-bottom:1rem;padding:.6rem 1rem;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:space-between">
     <span style="font-size:.85rem;color:var(--muted)">ISMS PDCA · 자산 관리 · SaaS · 비용 분석은 <strong style="color:var(--text)">메인 대시보드</strong>에서 확인하세요.</span>
-    <a href="/" style="font-size:.82rem;padding:.35rem .9rem;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;text-decoration:none;transition:opacity .15s" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">ISMS 메인 대시보드 →</a>
+    <a href="/" class="isms-main-link" style="font-size:.82rem;padding:.35rem .9rem;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;text-decoration:none;transition:opacity .15s">ISMS 메인 대시보드 →</a>
   </div>
   <!-- Stat pills -->
   <div class="stats-row">
@@ -509,7 +511,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 
   <!-- Architecture domains overview -->
   <div class="card" style="margin-bottom:0">
-    <div class="card-title">🏗 Architecture Security Domains <span style="font-size:.75rem;color:var(--muted);font-weight:400;cursor:pointer" onclick="switchTab('arch')">View details →</span></div>
+    <div class="card-title">🏗 Architecture Security Domains <span style="font-size:.75rem;color:var(--muted);font-weight:400;cursor:pointer" data-action="switchTab" data-arg="arch">View details →</span></div>
     <div style="padding:.75rem 1rem">
       {{ARCH_OVERVIEW_HTML}}
     </div>
@@ -517,7 +519,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 
   <!-- Network tools overview -->
   <div class="card" style="margin-bottom:0">
-    <div class="card-title">🔬 Network &amp; Security Tools <span style="font-size:.75rem;color:var(--muted);font-weight:400;cursor:pointer" onclick="switchTab('networktools')">View details →</span></div>
+    <div class="card-title">🔬 Network &amp; Security Tools <span style="font-size:.75rem;color:var(--muted);font-weight:400;cursor:pointer" data-action="switchTab" data-arg="networktools">View details →</span></div>
     <div style="padding:.75rem 1rem">
       {{NETWORK_SUMMARY_HTML}}
     </div>
@@ -525,12 +527,12 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 
   <!-- Quick nav -->
   <div class="quick-nav">
-    <div class="qn-card" onclick="switchTab('overview','scanner-section')"><span class="qn-icon">🛡</span><span class="qn-text">Scanner</span><span class="qn-badge">{{SCANNER_ISSUES}}</span></div>
-    <div class="qn-card" onclick="switchTab('prowler')"><span class="qn-icon">☁</span><span class="qn-text">Prowler CSPM</span><span class="qn-badge">{{TOTAL_PROWLER_FAIL}}</span></div>
-    <div class="qn-card" onclick="switchTab('github')"><span class="qn-icon">🐙</span><span class="qn-text">GitHub Security</span><span class="qn-badge">{{GH_TOTAL}}</span></div>
-    <div class="qn-card" onclick="switchTab('bestpractices')"><span class="qn-icon">📚</span><span class="qn-text">Best Practices</span></div>
-    <div class="qn-card" onclick="switchTab('arch')"><span class="qn-icon">🏗</span><span class="qn-text">Architecture</span></div>
-    <div class="qn-card" onclick="switchTab('networktools')"><span class="qn-icon">🔬</span><span class="qn-text">Network &amp; security tools</span><span class="qn-badge">{{NETWORK_TOOLS_BADGE}}</span></div>
+    <div class="qn-card" data-action="switchTab" data-arg="overview" data-scroll="scanner-section"><span class="qn-icon">🛡</span><span class="qn-text">Scanner</span><span class="qn-badge">{{SCANNER_ISSUES}}</span></div>
+    <div class="qn-card" data-action="switchTab" data-arg="prowler"><span class="qn-icon">☁</span><span class="qn-text">Prowler CSPM</span><span class="qn-badge">{{TOTAL_PROWLER_FAIL}}</span></div>
+    <div class="qn-card" data-action="switchTab" data-arg="github"><span class="qn-icon">🐙</span><span class="qn-text">GitHub Security</span><span class="qn-badge">{{GH_TOTAL}}</span></div>
+    <div class="qn-card" data-action="switchTab" data-arg="bestpractices"><span class="qn-icon">📚</span><span class="qn-text">Best Practices</span></div>
+    <div class="qn-card" data-action="switchTab" data-arg="arch"><span class="qn-icon">🏗</span><span class="qn-text">Architecture</span></div>
+    <div class="qn-card" data-action="switchTab" data-arg="networktools"><span class="qn-icon">🔬</span><span class="qn-text">Network &amp; security tools</span><span class="qn-badge">{{NETWORK_TOOLS_BADGE}}</span></div>
   </div>
 
   <!-- Top Critical/High findings -->
@@ -559,7 +561,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
   <!-- Scanner findings (categorized) -->
   <div class="card scanner-card" id="scanner-section">
     <div class="card-title scanner-card-title">
-      <span><a class="scanner-title-link" href="#scanner-section" onclick="document.getElementById('scanner-section').scrollIntoView({behavior:'smooth'});return false;">🛡️ ClaudeSec Local Security Scanner</a> <span class="ver" style="font-size:.65rem">{{SCANNER_TOTAL}} checks</span></span>
+      <span><a class="scanner-title-link" href="#scanner-section" data-action="scroll-to" data-target="scanner-section">🛡️ ClaudeSec Local Security Scanner</a> <span class="ver" style="font-size:.65rem">{{SCANNER_TOTAL}} checks</span></span>
       <span class="scanner-subtitle">Static analysis of project source, config, CI workflows, and environment artifacts</span>
     </div>
     <div class="scanner-summary-bar">
@@ -583,7 +585,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
     {{SCANNER_INSIGHTS_HTML}}
     <div style="padding:.5rem 1.25rem;display:flex;align-items:center;gap:.5rem;border-bottom:1px solid var(--border)">
       <label for="scannerSevFilter" style="font-size:.78rem;color:var(--muted);font-weight:600">Filter:</label>
-      <select class="scope-select" id="scannerSevFilter" onchange="filterScannerSev(this.value)" style="font-size:.78rem" aria-label="Filter by severity">
+      <select class="scope-select" id="scannerSevFilter" style="font-size:.78rem" aria-label="Filter by severity">
         <option value="all">All severities</option>
         <option value="critical">Critical only</option>
         <option value="high" selected>Critical + High</option>
@@ -610,13 +612,13 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 
   <!-- Provider sub-tabs -->
   <div class="prov-subtabs" style="display:flex;flex-wrap:wrap;gap:.4rem;margin:1rem 0;padding:0 .25rem">
-    <button class="prov-subtab active" onclick="switchProvTab('aws')" id="provtab-aws" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">☁ AWS ({{AWS_TOTAL}})</button>
-    <button class="prov-subtab" onclick="switchProvTab('gcp')" id="provtab-gcp" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">◈ GCP ({{GCP_TOTAL}})</button>
-    <button class="prov-subtab" onclick="switchProvTab('gws')" id="provtab-gws" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">🏢 Google Workspace ({{GWS_TOTAL}})</button>
-    <button class="prov-subtab" onclick="switchProvTab('k8s')" id="provtab-k8s" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">⎈ Kubernetes ({{K8S_TOTAL}})</button>
-    <button class="prov-subtab" onclick="switchProvTab('azure')" id="provtab-azure" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">◇ Azure ({{AZURE_TOTAL}})</button>
-    <button class="prov-subtab" onclick="switchProvTab('m365')" id="provtab-m365" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">📧 M365 ({{M365_TOTAL}})</button>
-    <button class="prov-subtab" onclick="switchProvTab('iac')" id="provtab-iac" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">📋 IaC ({{IAC_TOTAL}})</button>
+    <button class="prov-subtab active" data-action="switchProvTab" data-arg="aws" id="provtab-aws" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">☁ AWS ({{AWS_TOTAL}})</button>
+    <button class="prov-subtab" data-action="switchProvTab" data-arg="gcp" id="provtab-gcp" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">◈ GCP ({{GCP_TOTAL}})</button>
+    <button class="prov-subtab" data-action="switchProvTab" data-arg="gws" id="provtab-gws" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">🏢 Google Workspace ({{GWS_TOTAL}})</button>
+    <button class="prov-subtab" data-action="switchProvTab" data-arg="k8s" id="provtab-k8s" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">⎈ Kubernetes ({{K8S_TOTAL}})</button>
+    <button class="prov-subtab" data-action="switchProvTab" data-arg="azure" id="provtab-azure" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">◇ Azure ({{AZURE_TOTAL}})</button>
+    <button class="prov-subtab" data-action="switchProvTab" data-arg="m365" id="provtab-m365" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">📧 M365 ({{M365_TOTAL}})</button>
+    <button class="prov-subtab" data-action="switchProvTab" data-arg="iac" id="provtab-iac" style="padding:.35rem .8rem;font-size:.78rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s">📋 IaC ({{IAC_TOTAL}})</button>
   </div>
 
   <div class="prov-panel active" id="provpanel-aws">
@@ -744,15 +746,15 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 
 <footer>Generated by ClaudeSec v{{VERSION}} · {{NOW}}</footer>
 </div>
-<button class="scroll-top" id="scrollTopBtn" aria-label="Scroll to top" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
+<button class="scroll-top" id="scrollTopBtn" aria-label="Scroll to top" data-action="scroll-top">↑</button>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <!-- Setup Modal -->
-<div id="setupModal" class="setup-modal-overlay" onclick="if(event.target===this)closeSetup()" role="dialog" aria-modal="true" aria-labelledby="setupModalTitle">
+<div id="setupModal" class="setup-modal-overlay" data-action="close-setup-overlay" role="dialog" aria-modal="true" aria-labelledby="setupModalTitle">
   <div class="setup-modal">
     <div class="setup-modal-header">
       <h3 id="setupModalTitle">Provider setup</h3>
-      <button class="setup-modal-close" onclick="closeSetup()" aria-label="Close modal">&times;</button>
+      <button class="setup-modal-close" data-action="closeSetup" aria-label="Close modal">&times;</button>
     </div>
     <div class="setup-modal-body" id="setupModalBody"></div>
   </div>
@@ -1040,7 +1042,7 @@ function openSetup(provider){
     var bc=m.type==='oauth'?'oauth':m.type==='cli'?'cli':'apikey';
     var bl=m.type==='oauth'?'OAuth':m.type==='cli'?'CLI':'API Key';
     html+='<div class="setup-method"><div class="setup-method-label"><span class="method-badge '+bc+'">'+_esc(bl)+'</span> '+_esc(m.label)+'</div><p>'+_esc(m.desc)+'</p>';
-    if(m.cmds&&m.cmds.length>0){html+='<div class="setup-cmd"><code>'+_esc(m.cmds.join('\n'))+'</code><button class="setup-cmd-copy" onclick="copyCmd(this)">Copy</button></div>'}
+    if(m.cmds&&m.cmds.length>0){html+='<div class="setup-cmd"><code>'+_esc(m.cmds.join('\n'))+'</code><button class="setup-cmd-copy" data-action="copyCmd">Copy</button></div>'}
     html+='</div>';
   });
   if(c.warn)html+='<div class="setup-warning"><span>\uD83D\uDD12</span><span>'+_esc(c.warn)+'</span></div>';
@@ -1052,6 +1054,28 @@ function openSetup(provider){
 function closeSetup(){document.getElementById('setupModal').classList.remove('open');document.body.style.overflow=''}
 function copyCmd(btn){var code=btn.previousElementSibling;navigator.clipboard.writeText(code.textContent).then(function(){btn.textContent='Copied';btn.classList.add('copied');showToast('Command copied to clipboard');setTimeout(function(){btn.textContent='Copy';btn.classList.remove('copied')},2000)})}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeSetup()});
+/* === Event delegation for data-action buttons === */
+document.addEventListener('click',function(e){
+  /* Setup modal overlay: close when clicking backdrop */
+  var overlay=e.target.closest('[data-action="close-setup-overlay"]');
+  if(overlay&&e.target===overlay){closeSetup();return;}
+
+  var btn=e.target.closest('[data-action]');
+  if(!btn)return;
+  var action=btn.dataset.action;
+  var arg=btn.dataset.arg;
+
+  if(action==='switchTab'){switchTab(arg,btn.dataset.scroll||undefined);return;}
+  if(action==='switchProvTab'){switchProvTab(arg);return;}
+  if(action==='scroll-top'){window.scrollTo({top:0,behavior:'smooth'});return;}
+  if(action==='scroll-to'){
+    var target=document.getElementById(btn.dataset.target);
+    if(target){target.scrollIntoView({behavior:'smooth'});e.preventDefault();}
+    return;
+  }
+  if(action==='closeSetup'){closeSetup();return;}
+  if(action==='copyCmd'){copyCmd(btn);return;}
+});
 /* Keyboard navigation for tabs */
 document.getElementById('mainTabs').addEventListener('keydown',function(e){
   if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
@@ -1066,6 +1090,16 @@ document.getElementById('mainTabs').addEventListener('keydown',function(e){
 var _apFilterTimer;
 var _origApFilter=apFilterProducts;
 apFilterProducts=function(q){clearTimeout(_apFilterTimer);_apFilterTimer=setTimeout(function(){_origApFilter(q)},150)};
+/* Wire up scannerSevFilter change via addEventListener */
+(function(){
+  var sel=document.getElementById('scannerSevFilter');
+  if(sel)sel.addEventListener('change',function(){filterScannerSev(this.value)});
+})();
+/* Wire up themeToggleBtn */
+(function(){
+  var btn=document.getElementById('themeToggleBtn');
+  if(btn)btn.addEventListener('click',toggleTheme);
+})();
 /* Scroll-to-top and sticky header */
 var _scrollTopBtn=document.getElementById('scrollTopBtn');
 var _header=document.querySelector('header');
