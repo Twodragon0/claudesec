@@ -2,6 +2,7 @@
   // Ignore Claude Code internal files, venvs, and generated files
   "ignores": [
     ".claude/commands/**",
+    ".claude/agents/**",
     ".venv*/**",
     "node_modules/**",
     "main-snapshot.md",
