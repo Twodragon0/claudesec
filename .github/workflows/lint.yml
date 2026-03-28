@@ -167,10 +167,10 @@ jobs:
           mkdir -p "$tmp_scan"
           rsync -a --delete --exclude '.git' ./ "$tmp_scan"/
       - name: Docker quick dashboard generation (no-serve)
-        timeout-minutes: 5
+        timeout-minutes: 3
         run: ./scripts/run-dashboard-docker.sh --image claudesec:ci --scan-dir "$RUNNER_TEMP/claudesec-scan" --quick --no-serve --no-build
       - name: Docker full dashboard generation (no-serve)
-        timeout-minutes: 10
+        timeout-minutes: 5
         run: ./scripts/run-dashboard-docker.sh --image claudesec:ci --scan-dir "$RUNNER_TEMP/claudesec-scan" --no-serve --no-build
       - name: Validate dashboard file exists
         run: test -f "$RUNNER_TEMP/claudesec-scan/claudesec-dashboard.html"

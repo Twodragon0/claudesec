@@ -60,8 +60,11 @@ jobs:
 
       # Generate the standalone HTML dashboard (--no-serve exits after writing
       # the file rather than starting a long-lived HTTP server).
+      # CLAUDESEC_DASHBOARD_OFFLINE=1 skips GitHub API calls for best-practice
+      # content (audit-points, MS/SaaS repos) that block indefinitely in CI
+      # due to unauthenticated rate-limits (60 req/hr) and retry back-off sleeps.
       - name: Generate dashboard
-        timeout-minutes: 10
+        timeout-minutes: 3
         run: |
           docker run --rm \
             --user "$(id -u):$(id -g)" \
@@ -69,6 +72,7 @@ jobs:
             -w /workspace \
             -e SCAN_DIR=/workspace \
             -e HOME=/tmp \
+            -e CLAUDESEC_DASHBOARD_OFFLINE=1 \
             claudesec:local dashboard -d /workspace -c all --no-serve
           ls -la "${{ github.workspace }}/claudesec-dashboard.html" || echo "Dashboard file not found in workspace"
 
