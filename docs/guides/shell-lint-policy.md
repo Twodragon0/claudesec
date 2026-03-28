@@ -44,3 +44,8 @@ ClaudeSec uses the same shell lint scope in local development and CI to reduce m
 ```
 
 See also: [CI Operations Playbook](../github/ci-operations-playbook.md)
+
+## References
+
+- [NIST SP 800-53 SA-11: Developer Testing and Evaluation](https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_0/home?element=SA-11)
+- [CIS Controls v8 Control 16: Application Software Security](https://www.cisecurity.org/controls/application-software-security)

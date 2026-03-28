@@ -192,3 +192,5 @@ Use OpenSSF Scorecard to assess your repository:
 - [GitHub Security Documentation](https://docs.github.com/en/code-security)
 - [GitHub Advisory Database](https://github.com/advisories)
 - [OpenSSF Scorecard](https://securityscorecards.dev/)
+- [NIST SP 800-53 RA-5: Vulnerability Monitoring and Scanning](https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_0/home?element=RA-5)
+- [OWASP Application Security Verification Standard (ASVS)](https://owasp.org/www-project-application-security-verification-standard/)

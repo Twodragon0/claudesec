@@ -219,6 +219,25 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  frontmatter-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Check YAML frontmatter in docs
+        run: |
+          failed=0
+          for f in $(find docs -name '*.md' -not -path '*/node_modules/*'); do
+            if ! head -1 "$f" | grep -q '^---$'; then
+              echo "::error file=$f::Missing YAML frontmatter"
+              failed=1
+            fi
+          done
+          if [ "$failed" -eq 1 ]; then
+            echo "::error::Some docs files are missing YAML frontmatter (title, description, tags)"
+            exit 1
+          fi
+          echo "All docs files have YAML frontmatter"
+
   markdown-lint:
     runs-on: ubuntu-latest
     steps:
