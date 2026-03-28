@@ -1,4 +1,11 @@
 {
-  // Ignore Claude Code slash command files (frontmatter-only format)
-  "ignores": [".claude/commands/**"]
+  // Ignore Claude Code internal files, venvs, and generated files
+  "ignores": [
+    ".claude/commands/**",
+    ".claude/agents/**",
+    ".venv*/**",
+    "node_modules/**",
+    "main-snapshot.md",
+    "claudesec-summary-*.md"
+  ]
 }

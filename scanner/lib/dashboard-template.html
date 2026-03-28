@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="generator" content="ClaudeSec v{{VERSION}}">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: blob:;">
 <meta name="theme-color" content="#0f172a">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>ClaudeSec DevSecOps Dashboard</title>
@@ -444,6 +444,11 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 
 <!-- ── Tab: Overview ───────────────────────────────────────────────── -->
 <div class="tab-panel active" id="tab-overview" role="tabpanel" aria-label="Overview">
+  <!-- Main dashboard link -->
+  <div style="margin-bottom:1rem;padding:.6rem 1rem;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:space-between">
+    <span style="font-size:.85rem;color:var(--muted)">ISMS PDCA · 자산 관리 · SaaS · 비용 분석은 <strong style="color:var(--text)">메인 대시보드</strong>에서 확인하세요.</span>
+    <a href="/" style="font-size:.82rem;padding:.35rem .9rem;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;text-decoration:none;transition:opacity .15s" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">ISMS 메인 대시보드 →</a>
+  </div>
   <!-- Stat pills -->
   <div class="stats-row">
     <div class="stat-pill sp-total"><div class="sp-icon">📊</div><div><div class="sp-num">{{TOTAL_ISSUES}}</div><div class="sp-label">Findings</div></div></div>
@@ -1075,7 +1080,7 @@ function toggleTheme(){var t=document.documentElement;var cur=t.getAttribute('da
 function filterScannerSev(val){var rows=document.querySelectorAll('.scanner-table tbody tr');var shown=0;var total=0;rows.forEach(function(r){if(r.classList.contains('cat-header')||r.classList.contains('row-detail'))return;total++;if(val==='all'){r.style.display='';shown++;return}var show=false;if(val==='critical')show=r.classList.contains('sev-critical');else if(val==='high')show=r.classList.contains('sev-critical')||r.classList.contains('sev-high');else if(val==='warning')show=r.classList.contains('sev-warning');r.style.display=show?'':'none';if(show)shown++});var el=document.getElementById('scannerFilterCount');if(el)el.textContent=val==='all'?'':'('+shown+'/'+total+')'}
 document.addEventListener('DOMContentLoaded',function(){var sel=document.getElementById('scannerSevFilter');if(sel)filterScannerSev(sel.value)})
 /* Hash-based tab navigation (for links from asset dashboard) */
-(function(){var h=location.hash.replace('#','');if(h&&h.startsWith('tab-')){var tab=h.replace('tab-','');setTimeout(function(){switchTab(tab)},100)}window.addEventListener('hashchange',function(){var h2=location.hash.replace('#','');if(h2&&h2.startsWith('tab-'))switchTab(h2.replace('tab-',''))})})();
+(function(){var names=['overview','prowler','github','bestpractices','arch','networktools'];function resolveTab(s){if(s.startsWith('tab-'))return s.replace('tab-','');if(names.indexOf(s)>=0)return s;return null}var h=location.hash.replace('#','');if(h){var t=resolveTab(h);if(t)setTimeout(function(){switchTab(t)},100)}window.addEventListener('hashchange',function(){var h2=location.hash.replace('#','');if(h2){var t2=resolveTab(h2);if(t2)switchTab(t2)}})})();
 </script>
 </body>
 </html>

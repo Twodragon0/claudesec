@@ -22,6 +22,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ---------------------------------------------------------------------------
   # Job: scan
@@ -37,7 +41,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
 
       # Build the scanner image from the repo's Dockerfile so the scan always
       # reflects the current scanner version rather than a cached registry image.
@@ -48,7 +52,7 @@ jobs:
       - name: Run full security scan
         run: |
           docker run --rm \
-            -v ${{ github.workspace }}:/workspace \
+            -v "${{ github.workspace }}:/workspace" \
             -e SCAN_DIR=/workspace \
             claudesec:local scan -d /workspace -c all \
             | tee scan-output.txt
@@ -59,19 +63,19 @@ jobs:
         run: |
           docker run --rm \
             --user "$(id -u):$(id -g)" \
-            -v ${{ github.workspace }}:/workspace \
+            -v "${{ github.workspace }}:/workspace" \
             -w /workspace \
             -e SCAN_DIR=/workspace \
             -e HOME=/tmp \
             claudesec:local dashboard -d /workspace -c all --no-serve
-          ls -la ${{ github.workspace }}/claudesec-dashboard.html || echo "Dashboard file not found in workspace"
+          ls -la "${{ github.workspace }}/claudesec-dashboard.html" || echo "Dashboard file not found in workspace"
 
       # Upload the dashboard so the lighthouse job (and humans) can download it.
       - name: Upload dashboard artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7
         with:
           name: security-dashboard
-          path: ${{ github.workspace }}/claudesec-dashboard.html
+          path: "${{ github.workspace }}/claudesec-dashboard.html"
           retention-days: 30
           if-no-files-found: warn
 
@@ -99,16 +103,16 @@ jobs:
   lighthouse:
     name: Lighthouse Audit
     needs: scan
-    if: always() && needs.scan.result != 'cancelled'
+    if: needs.scan.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
 
       # Retrieve the dashboard HTML produced by the scan job.
       - name: Download dashboard artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
         with:
           name: security-dashboard
 

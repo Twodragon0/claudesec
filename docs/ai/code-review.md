@@ -14,7 +14,7 @@ Human reviewers excel at business logic and architectural concerns but can miss 
 
 ### OWASP-Aligned Review Checklist
 
-```
+```text
 1. Injection (SQL, NoSQL, OS, LDAP)
    □ All user inputs parameterized?
    □ ORMs used correctly (no raw queries with interpolation)?

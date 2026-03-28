@@ -1,3061 +1,92 @@
 #!/usr/bin/env python3
 """
-ClaudeSec Dashboard Generator v0.5.0
+ClaudeSec Dashboard Generator v0.6.5
 Generates a tabbed HTML security dashboard from scan results and Prowler OCSF data.
+
+Modules:
+  - dashboard_utils: Constants, TypedDicts, utility functions
+  - dashboard_mapping: OWASP/Compliance/Architecture mapping data
+  - dashboard_api_client: GitHub API communication
+  - dashboard_data_loader: File-based data loading and parsing
+  - dashboard_auth: Authentication/token expiry summary
 """
 
-import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
-import glob
-import time
-import urllib.request
-import urllib.error
-import urllib.parse
 from datetime import datetime, timezone
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, TypedDict
-
-# QueryPie Audit Points repo (SaaS/DevSecOps audit checklists)
-AUDIT_POINTS_REPO = "querypie/audit-points"
-AUDIT_POINTS_CACHE_TTL_HOURS = 24
-CLAUDESEC_DASHBOARD_OFFLINE_ENV = "CLAUDESEC_DASHBOARD_OFFLINE"
-
-MS_BEST_PRACTICES_CACHE_TTL_HOURS = 24
-MS_INCLUDE_SCUBAGEAR_ENV = "CLAUDESEC_MS_INCLUDE_SCUBAGEAR"
-MS_SOURCE_FILTER_ENV = "CLAUDESEC_MS_SOURCE_FILTER"
-TRUST_LEVEL_ORDER = {"Microsoft Official": 0, "Government": 1, "Community": 2}
-TRUST_LEVEL_FILTER_MAP = {
-    "official": {"Microsoft Official"},
-    "gov": {"Government"},
-    "community": {"Community"},
-    "none": set(),
-    "all": set(TRUST_LEVEL_ORDER.keys()),
-}
-TRUST_FILTER_TOKEN_ORDER = ("official", "gov", "community")
-MS_BEST_PRACTICES_REPO_SOURCES = [
-    {
-        "product": "Windows",
-        "repo": "microsoft/SecCon-Framework",
-        "label": "Microsoft SecCon Framework",
-        "trust_level": "Microsoft Official",
-        "reason": "Microsoft guidance for Windows security configuration baselines.",
-        "focus_paths": ["README.md"],
-    },
-    {
-        "product": "Windows",
-        "repo": "nsacyber/Windows-Secure-Host-Baseline",
-        "label": "NSA Windows Secure Host Baseline",
-        "trust_level": "Government",
-        "reason": "Widely referenced hardening baseline for Windows hosts.",
-        "focus_paths": ["README.md", "Documentation"],
-    },
-    {
-        "product": "Windows",
-        "repo": "microsoft/PowerStig",
-        "label": "PowerStig (Windows STIG automation)",
-        "trust_level": "Microsoft Official",
-        "reason": "Microsoft-maintained STIG automation for Windows and related platforms; widely used for compliance automation.",
-        "focus_paths": ["README.md", "docs"],
-    },
-    {
-        "product": "Windows",
-        "repo": "microsoft/SCAR",
-        "label": "SCAR (STIG Compliance Automation)",
-        "trust_level": "Microsoft Official",
-        "reason": "Microsoft-maintained repository for automating STIG compliance workflows and artifacts.",
-        "focus_paths": ["README.md", "docs"],
-    },
-    {
-        "product": "Intune",
-        "repo": "MicrosoftDocs/memdocs",
-        "label": "Microsoft Endpoint Manager Docs",
-        "trust_level": "Microsoft Official",
-        "reason": "Official Microsoft Intune documentation source repository.",
-        "focus_paths": ["intune/protect", "intune/fundamentals", "README.md"],
-    },
-    {
-        "product": "Intune",
-        "repo": "microsoftgraph/powershell-intune-samples",
-        "label": "Microsoft Graph Intune Samples",
-        "trust_level": "Microsoft Official",
-        "reason": "Official Intune automation samples for policy and endpoint security.",
-        "focus_paths": [
-            "EndpointSecurity",
-            "CompliancePolicy",
-            "DeviceConfiguration",
-            "Readme.md",
-        ],
-    },
-    {
-        "product": "Office 365",
-        "repo": "MicrosoftDocs/microsoft-365-docs",
-        "label": "Microsoft 365 Docs",
-        "trust_level": "Microsoft Official",
-        "reason": "Official Microsoft 365 security and compliance guidance.",
-        "focus_paths": [
-            "microsoft-365/security",
-            "microsoft-365/compliance",
-            "README.md",
-        ],
-    },
-    {
-        "product": "Office 365",
-        "repo": "microsoft/Microsoft365DSC",
-        "label": "Microsoft365DSC",
-        "trust_level": "Microsoft Official",
-        "reason": "Microsoft-backed configuration-as-code baselines for M365 workloads.",
-        "focus_paths": ["docs", "Modules", "README.md"],
-    },
-    {
-        "product": "Office 365",
-        "repo": "cisagov/ScubaGear",
-        "label": "CISA ScubaGear",
-        "trust_level": "Government",
-        "reason": "CISA baseline and policy artifacts for Microsoft 365 security posture assessment.",
-        "focus_paths": ["baselines", "PowerShell", "README.md"],
-        "optional_env": MS_INCLUDE_SCUBAGEAR_ENV,
-    },
-]
-
-SAAS_BEST_PRACTICES_SOURCES = [
-    {
-        "product": "Okta",
-        "repo": "okta/okta-developer-docs",
-        "label": "Okta Developer Docs (Security best practices)",
-        "trust_level": "Vendor Official",
-        "reason": "Official Okta documentation covering MFA, SSO, lifecycle management, and API token security.",
-        "focus_paths": ["packages/@okta/vuepress-site/docs/guides", "README.md"],
-    },
-    {
-        "product": "Okta",
-        "repo": "OktaSecurityLabs/sgt",
-        "label": "Okta Security Guard Toolkit",
-        "trust_level": "Vendor Official",
-        "reason": "Okta Security Labs toolkit for identity threat detection and event monitoring.",
-        "focus_paths": ["README.md", "docs"],
-    },
-    {
-        "product": "Okta",
-        "repo": "cisagov/ScubaGoggles",
-        "label": "CISA ScubaGoggles (GWS + Identity)",
-        "trust_level": "Government",
-        "reason": "CISA baseline assessment for Google Workspace and identity provider security, applicable to Okta SSO.",
-        "focus_paths": ["baselines", "README.md"],
-    },
-    {
-        "product": "QueryPie",
-        "repo": "querypie/audit-points",
-        "label": "QueryPie Audit Points (SaaS security checklists)",
-        "trust_level": "Vendor Official",
-        "reason": "Official QueryPie repository for SaaS and DevSecOps audit checklists, covering database access, privilege management, and audit logging.",
-        "focus_paths": ["README.md"],
-    },
-    {
-        "product": "QueryPie",
-        "repo": "querypie/querypie-docs",
-        "label": "QueryPie Documentation",
-        "trust_level": "Vendor Official",
-        "reason": "Official QueryPie documentation covering DAC (Database Access Control), SAC (System Access Control), and audit policies.",
-        "focus_paths": ["docs", "README.md"],
-    },
-    {
-        "product": "ArgoCD",
-        "repo": "argoproj/argo-cd",
-        "label": "Argo CD Official Repository",
-        "trust_level": "CNCF Official",
-        "reason": "Official Argo CD repository with RBAC configuration, SSO integration, and security best practices documentation.",
-        "focus_paths": ["docs/operator-manual/rbac.md", "docs/operator-manual/security.md", "docs/operator-manual/user-management", "README.md"],
-    },
-    {
-        "product": "ArgoCD",
-        "repo": "argoproj/argo-cd",
-        "label": "Argo CD RBAC & Policy Configuration",
-        "trust_level": "CNCF Official",
-        "reason": "RBAC policies, project roles, and JWT token management for Argo CD multi-tenant environments.",
-        "focus_paths": ["docs/operator-manual/rbac.md", "docs/operator-manual/project.md"],
-    },
-    {
-        "product": "IDE",
-        "repo": "nicedoc/vscode-security",
-        "label": "VS Code Security Best Practices",
-        "trust_level": "Community",
-        "reason": "Community-maintained guidance on Visual Studio Code security settings, extension review, and workspace trust.",
-        "focus_paths": ["README.md"],
-    },
-]
-
-VERSION = "0.5.0"
-
-
-class AuditPointFile(TypedDict):
-    name: str
-    url: str
-    raw_url: str
-
-
-class AuditPointProduct(TypedDict):
-    name: str
-    tree_url: str
-    files: list[AuditPointFile]
-
-
-class AuditPointsData(TypedDict):
-    products: list[AuditPointProduct]
-    fetched_at: str
-
-
-class TrivySummary(TypedDict):
-    critical: int
-    high: int
-    medium: int
-    low: int
-
-
-class TrivyVuln(TypedDict, total=False):
-    target: str
-    severity: str
-    id: str
-    title: str
-    pkg: str
-    message: str
-
-
-class NmapHost(TypedDict):
-    addr: str
-    ports: list[str]
-
-
-class NmapScan(TypedDict):
-    name: str
-    hosts: list[NmapHost]
-
-
-class SSLScanResult(TypedDict):
-    name: str
-    data: dict[str, Any]
-
-
-class NetworkToolResult(TypedDict):
-    trivy_fs: dict[str, Any] | None
-    trivy_config: dict[str, Any] | None
-    trivy_summary: TrivySummary
-    trivy_vulns: list[TrivyVuln]
-    nmap_scans: list[NmapScan]
-    sslscan_results: list[SSLScanResult]
-    network_report: dict[str, Any] | None
-
-
-class DatadogLogEntry(TypedDict):
-    severity: str
-    message: str
-    source: str
-    timestamp: str
-
-
-class DatadogSummary(TypedDict):
-    error: int
-    warning: int
-    info: int
-    unknown: int
-    total: int
-
-
-class DatadogSeveritySummary(TypedDict):
-    critical: int
-    high: int
-    medium: int
-    low: int
-    info: int
-    unknown: int
-    total: int
-
-
-class DatadogLogsData(TypedDict):
-    logs: list[DatadogLogEntry]
-    summary: DatadogSummary
-    signals: list[dict[str, str]]
-    signal_summary: DatadogSeveritySummary
-    cases: list[dict[str, str]]
-    case_summary: DatadogSeveritySummary
-
-
-class GitHubContentItem(TypedDict, total=False):
-    type: str
-    name: str
-    path: str
-    html_url: str
-    download_url: str
-
-
-class RepoFocusFile(TypedDict):
-    name: str
-    path: str
-    url: str
-    raw_url: str
-
-
-class RepoFocusData(TypedDict):
-    repo: str
-    repo_url: str
-    default_branch: str
-    updated_at: str
-    archived: bool
-    files: list[RepoFocusFile]
-
-
-class MicrosoftBestPracticeSource(TypedDict):
-    product: str
-    label: str
-    trust_level: str
-    reason: str
-    repo: str
-    repo_url: str
-    default_branch: str
-    updated_at: str
-    archived: bool
-    files: list[RepoFocusFile]
-
-
-class MicrosoftBestPracticesData(TypedDict):
-    fetched_at: str
-    source_filter: str
-    scubagear_enabled: bool
-    sources: list[MicrosoftBestPracticeSource]
-
-
-# ── Data Loading ─────────────────────────────────────────────────────────────
-
-
-def load_scan_results(path: str) -> dict[str, Any]:
-    if not path or not os.path.isfile(path):
-        return {
-            "passed": 0,
-            "failed": 0,
-            "warnings": 0,
-            "skipped": 0,
-            "total": 0,
-            "score": 0,
-            "grade": "F",
-            "findings": [],
-        }
-    with open(path) as f:
-        return json.load(f)
-
-
-def _parse_ocsf_json(content: str) -> list[dict[str, Any]]:
-    """Parse OCSF JSON that may be a single array, multiple concatenated arrays, or NDJSON."""
-    items: list[dict[str, Any]] = []
-    decoder = json.JSONDecoder()
-    idx = 0
-    while idx < len(content):
-        while idx < len(content) and content[idx] in " \t\n\r":
-            idx += 1
-        if idx >= len(content):
-            break
-        try:
-            obj, end = decoder.raw_decode(content, idx)
-            if isinstance(obj, list):
-                items.extend(o for o in obj if isinstance(o, dict))
-            elif isinstance(obj, dict):
-                items.append(obj)
-            idx = end
-        except json.JSONDecodeError:
-            idx += 1
-    return items
-
-
-def _normalize_provider(name: str) -> str:
-    """Normalize provider names so k8s/kubernetes/eks variants merge into 'kubernetes'."""
-    if name.startswith("k8s") or name.startswith("kubernetes") or "eks" in name:
-        return "kubernetes"
-    return name
-
-
-def load_prowler_files(prowler_dir: str) -> dict[str, list[dict[str, Any]]]:
-    providers: dict[str, list[dict[str, Any]]] = {}
-    if not os.path.isdir(prowler_dir):
-        return providers
-    for fpath in sorted(glob.glob(os.path.join(prowler_dir, "*.ocsf.json"))):
-        raw_name = Path(fpath).stem.replace(".ocsf", "").replace("prowler-", "")
-        name = _normalize_provider(raw_name)
-        try:
-            with open(fpath) as f:
-                content = f.read().strip()
-            items = _parse_ocsf_json(content)
-            if name in providers:
-                providers[name].extend(items)
-            else:
-                providers[name] = items
-        except Exception:
-            if name not in providers:
-                providers[name] = []
-    return providers
-
-
-def load_scan_history(history_dir: str) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    if not os.path.isdir(history_dir):
-        return entries
-    for fpath in sorted(glob.glob(os.path.join(history_dir, "scan-*.json"))):
-        try:
-            with open(fpath, encoding="utf-8") as f:
-                entries.append(json.load(f))
-        except (OSError, json.JSONDecodeError):
-            continue
-    return entries
-
-
-def _fetch_audit_points_from_github() -> AuditPointsData | None:
-    """Fetch product list and file list from querypie/audit-points via GitHub API. Returns dict or None on error."""
-    base = f"https://api.github.com/repos/{AUDIT_POINTS_REPO}/contents"
-    result: AuditPointsData = {
-        "products": [],
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
-    }
-    try:
-        req = urllib.request.Request(
-            base, headers={"Accept": "application/vnd.github.v3+json"}
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:  # nosemgrep: dynamic-urllib-use-detected — trusted GitHub API URL
-            root = json.loads(resp.read().decode("utf-8"))
-        if not isinstance(root, list):
-            return None
-        for item in root:
-            if not isinstance(item, dict):
-                continue
-            if item.get("type") != "dir" or not item.get("name"):
-                continue
-            name = item["name"]
-            if name in ("README.md",):
-                continue
-            product: AuditPointProduct = {
-                "name": name,
-                "tree_url": item.get("html_url", ""),
-                "files": [],
-            }
-            try:
-                sub_req = urllib.request.Request(
-                    f"{base}/{urllib.parse.quote(name, safe='')}",
-                    headers={"Accept": "application/vnd.github.v3+json"},
-                )
-                with urllib.request.urlopen(sub_req, timeout=15) as sub_resp:  # nosemgrep: dynamic-urllib-use-detected
-                    children = json.loads(sub_resp.read().decode("utf-8"))
-                if not isinstance(children, list):
-                    children = []
-                for c in children:
-                    if not isinstance(c, dict):
-                        continue
-                    if c.get("type") == "file" and (c.get("name") or "").endswith(
-                        ".md"
-                    ):
-                        product["files"].append(
-                            {
-                                "name": c["name"],
-                                "url": c.get("html_url", ""),
-                                "raw_url": c.get("download_url", ""),
-                            }
-                        )
-                product["files"].sort(key=lambda x: x["name"])
-            except (
-                urllib.error.URLError,
-                urllib.error.HTTPError,
-                json.JSONDecodeError,
-                OSError,
-            ):
-                pass
-            result["products"].append(product)
-        result["products"].sort(key=lambda p: p["name"])
-        return result
-    except (
-        urllib.error.URLError,
-        urllib.error.HTTPError,
-        json.JSONDecodeError,
-        OSError,
-    ):
-        return None
-
-
-def load_audit_points_detected(scan_dir: str) -> dict[str, Any]:
-    """
-    Load scan result from audit-points scan: .claudesec-audit-points/detected.json.
-    Returns dict with detected_products, items (list of {product, file_name, url}); or empty dict.
-    """
-    detected_path = os.path.join(scan_dir, ".claudesec-audit-points", "detected.json")
-    if not os.path.isfile(detected_path):
-        return {}
-    try:
-        with open(detected_path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
-def load_audit_points(scan_dir: str) -> AuditPointsData:
-    """
-    Load QueryPie audit-points data: from cache if fresh, else fetch from GitHub and cache.
-    Returns dict with keys: products (list of {name, tree_url, files}), fetched_at; or empty dict on error.
-    """
-    cache_dir = os.path.join(scan_dir, ".claudesec-audit-points")
-    cache_file = os.path.join(cache_dir, "cache.json")
-    now = datetime.now(timezone.utc)
-    try:
-        if os.path.isfile(cache_file):
-            with open(cache_file, encoding="utf-8") as f:
-                data = json.load(f)
-            fetched = data.get("fetched_at", "")
-            if fetched:
-                try:
-                    dt = datetime.fromisoformat(fetched.replace("Z", "+00:00"))
-                    if (now - dt).total_seconds() < AUDIT_POINTS_CACHE_TTL_HOURS * 3600:
-                        return data
-                except (ValueError, TypeError):
-                    pass
-        if _is_env_truthy(CLAUDESEC_DASHBOARD_OFFLINE_ENV):
-            return {"products": [], "fetched_at": ""}
-        fresh = _fetch_audit_points_from_github()
-        if fresh:
-            os.makedirs(cache_dir, exist_ok=True)
-            with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump(fresh, f, ensure_ascii=False, indent=2)
-            return fresh
-    except (OSError, json.JSONDecodeError):
-        pass
-    return {"products": [], "fetched_at": ""}
-
-
-def _github_api_json(url: str, _max_retries: int = 3) -> Any:
-    """Fetch JSON from GitHub API with exponential backoff on rate-limit responses."""
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
-    headers: dict[str, str] = {"Accept": "application/vnd.github.v3+json"}
-    if token:
-        headers["Authorization"] = f"token {token}"
-    last_exc: Exception | None = None
-    for attempt in range(_max_retries):
-        req = urllib.request.Request(url, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:  # nosemgrep: dynamic-urllib-use-detected
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            last_exc = exc
-            if exc.code in (403, 429):
-                retry_after = exc.headers.get("Retry-After")
-                if retry_after and retry_after.isdigit():
-                    wait = min(int(retry_after), 60)
-                else:
-                    wait = min(2 ** attempt, 30)
-                time.sleep(wait)
-                continue
-            raise
-        except (urllib.error.URLError, OSError) as exc:
-            last_exc = exc
-            if attempt < _max_retries - 1:
-                time.sleep(min(2 ** attempt, 30))
-                continue
-            raise
-    if last_exc is not None:
-        raise last_exc
-    raise RuntimeError("_github_api_json: unreachable")
-
-
-def _is_best_practice_file(name: str) -> bool:
-    lower = (name or "").lower()
-    if not lower:
-        return False
-    exts = (".md", ".markdown", ".txt", ".yml", ".yaml", ".json", ".ps1")
-    if lower.endswith(exts):
-        return True
-    return lower in ("readme", "readme.md", "security.md")
-
-
-def _is_env_truthy(var_name: str) -> bool:
-    return os.environ.get(var_name, "").strip().lower() in ("1", "true", "yes", "on")
-
-
-def _resolve_source_filter(raw_value: str) -> tuple[str, set[str]]:
-    raw = (raw_value or "").strip().lower()
-    if not raw:
-        return "all", set(TRUST_LEVEL_FILTER_MAP["all"])
-    tokens = []
-    for token in raw.split(","):
-        t = token.strip().lower()
-        if not t:
-            continue
-        if t == "all":
-            return "all", set(TRUST_LEVEL_FILTER_MAP["all"])
-        if t == "none":
-            return "none", set()
-        if t in ("official", "gov", "community") and t not in tokens:
-            tokens.append(t)
-    if not tokens:
-        return "all", set(TRUST_LEVEL_FILTER_MAP["all"])
-    ordered_tokens = [t for t in TRUST_FILTER_TOKEN_ORDER if t in tokens]
-    allowed_levels = set()
-    for token in ordered_tokens:
-        allowed_levels.update(TRUST_LEVEL_FILTER_MAP[token])
-    return ",".join(ordered_tokens), allowed_levels
-
-
-def _normalized_source_filter() -> str:
-    raw = os.environ.get(MS_SOURCE_FILTER_ENV, "all")
-    normalized, _ = _resolve_source_filter(raw)
-    return normalized
-
-
-def _trust_token_from_level(level: str) -> str:
-    return {
-        "Microsoft Official": "official",
-        "Government": "gov",
-        "Community": "community",
-    }.get(level, "community")
-
-
-def _fetch_repo_focus_files(repo: str, focus_paths: list[str]) -> RepoFocusData:
-    result: RepoFocusData = {
-        "repo": repo,
-        "repo_url": f"https://github.com/{repo}",
-        "default_branch": "",
-        "updated_at": "",
-        "archived": False,
-        "files": [],
-    }
-    try:
-        repo_meta = _github_api_json(f"https://api.github.com/repos/{repo}")
-    except (
-        urllib.error.URLError,
-        urllib.error.HTTPError,
-        json.JSONDecodeError,
-        OSError,
-    ):
-        return result
-
-    if not isinstance(repo_meta, dict):
-        return result
-    result["default_branch"] = str(repo_meta.get("default_branch", ""))
-    result["updated_at"] = (
-        repo_meta.get("pushed_at") or repo_meta.get("updated_at") or ""
-    )
-    result["archived"] = bool(repo_meta.get("archived"))
-
-    seen: set[str] = set()
-    collected: list[RepoFocusFile] = []
-
-    def add_file_item(item: dict[str, Any]) -> None:
-        path = item.get("path") or item.get("name") or ""
-        if not path or path in seen:
-            return
-        seen.add(path)
-        collected.append(
-            {
-                "name": str(item.get("name") or path),
-                "path": path,
-                "url": str(item.get("html_url", "")),
-                "raw_url": str(item.get("download_url", "")),
-            }
-        )
-
-    for focus_path in focus_paths:
-        qpath = urllib.parse.quote(focus_path, safe="/")
-        try:
-            payload = _github_api_json(
-                f"https://api.github.com/repos/{repo}/contents/{qpath}"
-            )
-        except (
-            urllib.error.URLError,
-            urllib.error.HTTPError,
-            json.JSONDecodeError,
-            OSError,
-        ):
-            continue
-
-        entries: list[dict[str, Any]]
-        if isinstance(payload, list):
-            entries = [e for e in payload if isinstance(e, dict)]
-        elif isinstance(payload, dict):
-            entries = [payload]
-        else:
-            entries = []
-        for entry in entries:
-            etype = entry.get("type")
-            name = entry.get("name", "")
-            if etype == "file" and _is_best_practice_file(name):
-                add_file_item(entry)
-            elif etype == "dir":
-                sub_path = entry.get("path") or ""
-                if not sub_path:
-                    continue
-                sub_qpath = urllib.parse.quote(sub_path, safe="/")
-                try:
-                    children = _github_api_json(
-                        f"https://api.github.com/repos/{repo}/contents/{sub_qpath}"
-                    )
-                except (
-                    urllib.error.URLError,
-                    urllib.error.HTTPError,
-                    json.JSONDecodeError,
-                    OSError,
-                ):
-                    continue
-                if not isinstance(children, list):
-                    continue
-                for child in children[:120]:
-                    if not isinstance(child, dict):
-                        continue
-                    if child.get("type") != "file":
-                        continue
-                    if not _is_best_practice_file(child.get("name", "")):
-                        continue
-                    add_file_item(child)
-
-    result["files"] = sorted(collected, key=lambda x: x["path"])[:80]
-    return result
-
-
-def _fetch_microsoft_best_practices_from_github() -> MicrosoftBestPracticesData:
-    sources: list[MicrosoftBestPracticeSource] = []
-    source_filter, allowed_levels = _resolve_source_filter(
-        os.environ.get(MS_SOURCE_FILTER_ENV, "all")
-    )
-    scubagear_enabled = _is_env_truthy(MS_INCLUDE_SCUBAGEAR_ENV)
-    for src in MS_BEST_PRACTICES_REPO_SOURCES:
-        trust_level = src.get("trust_level", "Community")
-        if trust_level not in allowed_levels:
-            continue
-        optional_env_raw = src.get("optional_env", "")
-        optional_env = optional_env_raw if isinstance(optional_env_raw, str) else ""
-        if optional_env and not _is_env_truthy(optional_env):
-            continue
-        repo_raw = src.get("repo", "")
-        if not isinstance(repo_raw, str) or not repo_raw:
-            continue
-        focus_paths_raw = src.get("focus_paths", [])
-        focus_paths = (
-            [p for p in focus_paths_raw if isinstance(p, str)]
-            if isinstance(focus_paths_raw, list)
-            else []
-        )
-        repo_data = _fetch_repo_focus_files(repo_raw, focus_paths)
-        # Best Practices list should be high-signal; drop archived repos entirely.
-        # (Archived repos often contain outdated guidance and confuse UI/UX.)
-        if repo_data.get("archived"):
-            continue
-        sources.append(
-            {
-                "product": str(src["product"]),
-                "label": str(src["label"]),
-                "trust_level": trust_level,
-                "reason": str(src["reason"]),
-                "repo": repo_data["repo"],
-                "repo_url": repo_data["repo_url"],
-                "default_branch": repo_data["default_branch"],
-                "updated_at": repo_data["updated_at"],
-                "archived": repo_data["archived"],
-                "files": repo_data["files"],
-            }
-        )
-    sources.sort(
-        key=lambda s: (
-            TRUST_LEVEL_ORDER.get(s.get("trust_level", "Community"), 9),
-            s.get("product", ""),
-            s.get("label", ""),
-        )
-    )
-    return {
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
-        "source_filter": source_filter,
-        "scubagear_enabled": scubagear_enabled,
-        "sources": sources,
-    }
-
-
-def load_microsoft_best_practices(scan_dir: str) -> MicrosoftBestPracticesData:
-    cache_dir = os.path.join(scan_dir, ".claudesec-ms-best-practices")
-    cache_file = os.path.join(cache_dir, "cache.json")
-    now = datetime.now(timezone.utc)
-    expected_filter = _normalized_source_filter()
-    expected_scubagear = _is_env_truthy(MS_INCLUDE_SCUBAGEAR_ENV)
-    try:
-        if os.path.isfile(cache_file):
-            with open(cache_file, encoding="utf-8") as f:
-                data = json.load(f)
-            fetched = data.get("fetched_at", "")
-            if fetched:
-                try:
-                    dt = datetime.fromisoformat(fetched.replace("Z", "+00:00"))
-                    cache_filter = data.get("source_filter", "all")
-                    cache_scubagear = bool(data.get("scubagear_enabled", False))
-                    if (
-                        now - dt
-                    ).total_seconds() < MS_BEST_PRACTICES_CACHE_TTL_HOURS * 3600 and (
-                        cache_filter == expected_filter
-                        and cache_scubagear == expected_scubagear
-                    ):
-                        return data
-                except (ValueError, TypeError):
-                    pass
-        if _is_env_truthy(CLAUDESEC_DASHBOARD_OFFLINE_ENV) or expected_filter == "none":
-            return {
-                "fetched_at": "",
-                "source_filter": expected_filter,
-                "scubagear_enabled": expected_scubagear,
-                "sources": [],
-            }
-        fresh = _fetch_microsoft_best_practices_from_github()
-        os.makedirs(cache_dir, exist_ok=True)
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump(fresh, f, ensure_ascii=False, indent=2)
-        return fresh
-    except (OSError, json.JSONDecodeError):
-        return {
-            "fetched_at": "",
-            "source_filter": expected_filter,
-            "scubagear_enabled": expected_scubagear,
-            "sources": [],
-        }
-
-
-SAAS_BEST_PRACTICES_CACHE_TTL_HOURS = 24
-
-
-def _fetch_saas_best_practices_from_github():
-    """Fetch SaaS best practice files from GitHub repos (Okta, QueryPie, ArgoCD, IDE)."""
-    sources = []
-    for src in SAAS_BEST_PRACTICES_SOURCES:
-        repo_raw = src.get("repo", "")
-        if not isinstance(repo_raw, str) or not repo_raw:
-            continue
-        focus_paths_raw = src.get("focus_paths", [])
-        focus_paths = (
-            [p for p in focus_paths_raw if isinstance(p, str)]
-            if isinstance(focus_paths_raw, list)
-            else []
-        )
-        repo_data = _fetch_repo_focus_files(repo_raw, focus_paths)
-        if repo_data.get("archived"):
-            continue
-        sources.append(
-            {
-                "product": str(src.get("product", "")),
-                "label": str(src.get("label", "")),
-                "trust_level": str(src.get("trust_level", "Community")),
-                "reason": str(src.get("reason", "")),
-                "repo": repo_data["repo"],
-                "repo_url": repo_data["repo_url"],
-                "default_branch": repo_data["default_branch"],
-                "updated_at": repo_data["updated_at"],
-                "archived": repo_data["archived"],
-                "files": repo_data["files"],
-                "focus_paths": focus_paths,
-            }
-        )
-    sources.sort(
-        key=lambda s: (
-            TRUST_LEVEL_ORDER.get(s.get("trust_level", "Community"), 9),
-            s.get("product", ""),
-            s.get("label", ""),
-        )
-    )
-    return {
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
-        "sources": sources,
-    }
-
-
-def load_saas_best_practices(scan_dir):
-    """Load SaaS best practices with 24h cache (same pattern as MS best practices)."""
-    cache_dir = os.path.join(scan_dir, ".claudesec-saas-best-practices")
-    cache_file = os.path.join(cache_dir, "cache.json")
-    now = datetime.now(timezone.utc)
-    try:
-        if os.path.isfile(cache_file):
-            with open(cache_file, encoding="utf-8") as f:
-                data = json.load(f)
-            fetched = data.get("fetched_at", "")
-            if fetched:
-                try:
-                    dt = datetime.fromisoformat(fetched.replace("Z", "+00:00"))
-                    if (now - dt).total_seconds() < SAAS_BEST_PRACTICES_CACHE_TTL_HOURS * 3600:
-                        return data
-                except (ValueError, TypeError):
-                    pass
-        if _is_env_truthy(CLAUDESEC_DASHBOARD_OFFLINE_ENV):
-            return {"fetched_at": "", "sources": []}
-        fresh = _fetch_saas_best_practices_from_github()
-        os.makedirs(cache_dir, exist_ok=True)
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump(fresh, f, ensure_ascii=False, indent=2)
-        return fresh
-    except (OSError, json.JSONDecodeError):
-        return {"fetched_at": "", "sources": []}
-
-
-def load_network_tool_results(network_dir: str) -> NetworkToolResult:
-    """Load Trivy, nmap, sslscan results from .claudesec-network/ for dashboard."""
-    out: NetworkToolResult = {
-        "trivy_fs": None,
-        "trivy_config": None,
-        "trivy_summary": {"critical": 0, "high": 0, "medium": 0, "low": 0},
-        "trivy_vulns": [],
-        "nmap_scans": [],
-        "sslscan_results": [],
-        "network_report": None,
-    }
-    if not network_dir or not os.path.isdir(network_dir):
-        return out
-
-    report_path = os.path.join(network_dir, "network-report.v1.json")
-    if os.path.isfile(report_path):
-        try:
-            with open(report_path, encoding="utf-8") as f:
-                obj = json.load(f)
-            if isinstance(obj, dict):
-                out["network_report"] = obj
-        except (OSError, json.JSONDecodeError):
-            pass  # invalid network-report.v1.json
-
-    trivy_fs_path = os.path.join(network_dir, "trivy-fs.json")
-    if os.path.isfile(trivy_fs_path):
-        try:
-            with open(trivy_fs_path) as f:
-                data = json.load(f)
-            for r in data.get("Results", []):
-                for v in r.get("Vulnerabilities", []) or []:
-                    s = (v.get("Severity") or "").upper()
-                    if s == "CRITICAL":
-                        out["trivy_summary"]["critical"] += 1
-                    elif s == "HIGH":
-                        out["trivy_summary"]["high"] += 1
-                    elif s == "MEDIUM":
-                        out["trivy_summary"]["medium"] += 1
-                    elif s == "LOW":
-                        out["trivy_summary"]["low"] += 1
-                    out["trivy_vulns"].append(
-                        {
-                            "target": r.get("Target", ""),
-                            "severity": s or "UNKNOWN",
-                            "id": v.get("VulnerabilityID", ""),
-                            "title": v.get("Title", ""),
-                            "pkg": v.get("PkgName", ""),
-                            "message": v.get("Message", ""),
-                        }
-                    )
-                for v in r.get("Misconfigurations", []) or []:
-                    s = (v.get("Severity") or "").upper()
-                    if s == "CRITICAL":
-                        out["trivy_summary"]["critical"] += 1
-                    elif s == "HIGH":
-                        out["trivy_summary"]["high"] += 1
-                    elif s == "MEDIUM":
-                        out["trivy_summary"]["medium"] += 1
-                    elif s == "LOW":
-                        out["trivy_summary"]["low"] += 1
-                    out["trivy_vulns"].append(
-                        {
-                            "target": r.get("Target", ""),
-                            "severity": s or "UNKNOWN",
-                            "id": v.get("ID", ""),
-                            "title": v.get("Title", ""),
-                            "message": v.get("Message", ""),
-                        }
-                    )
-            out["trivy_fs"] = data
-        except (OSError, json.JSONDecodeError):
-            pass  # skip missing or invalid trivy-fs.json
-    trivy_cfg_path = os.path.join(network_dir, "trivy-config.json")
-    if os.path.isfile(trivy_cfg_path):
-        try:
-            with open(trivy_cfg_path, encoding="utf-8") as f:
-                out["trivy_config"] = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            pass  # skip missing or invalid trivy-config.json
-    import xml.etree.ElementTree as ET
-
-    for fpath in glob.glob(os.path.join(network_dir, "nmap-*.xml")):
-        try:
-            tree = ET.parse(fpath)  # nosemgrep: use-defused-xml-parse — parsing trusted local nmap output files
-            root = tree.getroot()
-            name = os.path.basename(fpath).replace("nmap-", "").replace(".xml", "")
-            hosts = []
-            for host in root.findall(".//host"):
-                addr = host.find("address")
-                h = addr.get("addr", "") if addr is not None else ""
-                ports = []
-                for port in host.findall(".//port[@protocol='tcp']"):
-                    state = port.find("state")
-                    if state is not None and state.get("state") == "open":
-                        ports.append(port.get("port", ""))
-                if h or ports:
-                    hosts.append({"addr": h, "ports": ports[:20]})
-            out["nmap_scans"].append({"name": name, "hosts": hosts})
-        except Exception:
-            out["nmap_scans"].append({"name": os.path.basename(fpath), "hosts": []})
-    for fpath in glob.glob(os.path.join(network_dir, "sslscan-*.json")):
-        try:
-            with open(fpath) as f:
-                out["sslscan_results"].append(
-                    {"name": os.path.basename(fpath), "data": json.load(f)}
-                )
-        except Exception:
-            out["sslscan_results"].append({"name": os.path.basename(fpath), "data": {}})
-    return out
-
-
-def load_datadog_logs(datadog_dir: str) -> DatadogLogsData:
-    logs: list[DatadogLogEntry] = []
-    summary: DatadogSummary = {
-        "error": 0,
-        "warning": 0,
-        "info": 0,
-        "unknown": 0,
-        "total": 0,
-    }
-    signal_summary: DatadogSeveritySummary = {
-        "critical": 0,
-        "high": 0,
-        "medium": 0,
-        "low": 0,
-        "info": 0,
-        "unknown": 0,
-        "total": 0,
-    }
-    case_summary: DatadogSeveritySummary = {
-        "critical": 0,
-        "high": 0,
-        "medium": 0,
-        "low": 0,
-        "info": 0,
-        "unknown": 0,
-        "total": 0,
-    }
-    out: DatadogLogsData = {
-        "logs": logs,
-        "summary": summary,
-        "signals": [],
-        "signal_summary": signal_summary,
-        "cases": [],
-        "case_summary": case_summary,
-    }
-    if not datadog_dir or not os.path.isdir(datadog_dir):
-        return out
-
-    def _normalize_severity(raw):
-        val = (raw or "").strip().lower()
-        if val in ("critical", "crit", "error", "err", "fatal"):
-            return "error"
-        if val in ("warn", "warning"):
-            return "warning"
-        if val in ("info", "notice", "ok", "pass"):
-            return "info"
-        return "unknown"
-
-    def _normalize_log(item: dict[str, Any]) -> DatadogLogEntry:
-        attrs = item.get("attributes", {}) if isinstance(item, dict) else {}
-        nested = attrs.get("attributes", {}) if isinstance(attrs, dict) else {}
-        status = (
-            attrs.get("status")
-            or nested.get("status")
-            or attrs.get("level")
-            or nested.get("level")
-        )
-        severity = _normalize_severity(status)
-        message = (
-            attrs.get("message")
-            or nested.get("message")
-            or item.get("message", "")
-            or ""
-        )
-        source = (
-            attrs.get("service")
-            or nested.get("service")
-            or attrs.get("source")
-            or nested.get("source")
-            or "-"
-        )
-        timestamp = (
-            attrs.get("timestamp")
-            or nested.get("timestamp")
-            or item.get("timestamp", "")
-        )
-        return {
-            "severity": severity,
-            "message": str(message),
-            "source": str(source),
-            "timestamp": str(timestamp),
-        }
-
-    def _normalize_dd_severity(raw: Any) -> str:
-        val = str(raw or "").strip().lower()
-        if val in ("critical", "sev-1", "p1"):
-            return "critical"
-        if val in ("high", "sev-2", "p2"):
-            return "high"
-        if val in ("medium", "med", "sev-3", "p3"):
-            return "medium"
-        if val in ("low", "sev-4", "p4"):
-            return "low"
-        if val in ("info", "informational"):
-            return "info"
-        return "unknown"
-
-    def _inc_sev(counter: DatadogSeveritySummary, sev: str) -> None:
-        if sev == "critical":
-            counter["critical"] += 1
-        elif sev == "high":
-            counter["high"] += 1
-        elif sev == "medium":
-            counter["medium"] += 1
-        elif sev == "low":
-            counter["low"] += 1
-        elif sev == "info":
-            counter["info"] += 1
-        else:
-            counter["unknown"] += 1
-
-    def _extract_items(data: Any) -> list[dict[str, Any]]:
-        if isinstance(data, dict) and isinstance(data.get("data"), list):
-            return [x for x in data["data"] if isinstance(x, dict)]
-        if isinstance(data, list):
-            return [x for x in data if isinstance(x, dict)]
-        return []
-
-    candidates = [
-        "datadog-logs.json",
-        "logs.json",
-        "datadog-logs.jsonl",
-        "logs.jsonl",
-    ]
-    for name in candidates:
-        fpath = os.path.join(datadog_dir, name)
-        if not os.path.isfile(fpath):
-            continue
-        try:
-            if name.endswith(".jsonl"):
-                with open(fpath, encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            obj = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        normalized = _normalize_log(obj)
-                        logs.append(normalized)
-            else:
-                with open(fpath, encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict) and isinstance(data.get("data"), list):
-                    for item in data["data"]:
-                        if isinstance(item, dict):
-                            logs.append(_normalize_log(item))
-                elif isinstance(data, list):
-                    for item in data:
-                        if isinstance(item, dict):
-                            logs.append(_normalize_log(item))
-        except (OSError, json.JSONDecodeError):
-            continue
-
-    if logs:
-        logs = sorted(logs, key=lambda x: x.get("timestamp", ""), reverse=True)[:200]
-        for log in logs:
-            sev = log.get("severity", "unknown")
-            if sev == "error":
-                summary["error"] += 1
-            elif sev == "warning":
-                summary["warning"] += 1
-            elif sev == "info":
-                summary["info"] += 1
-            else:
-                summary["unknown"] += 1
-        summary["total"] = len(logs)
-        out["logs"] = logs
-
-    signal_candidates = [
-        "datadog-cloud-signals-sanitized.json",
-        "datadog-cloud-signals.json",
-        "datadog-signals.json",
-        "cloud-signals.json",
-    ]
-    for name in signal_candidates:
-        fpath = os.path.join(datadog_dir, name)
-        if not os.path.isfile(fpath):
-            continue
-        try:
-            with open(fpath, encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            continue
-        parsed_signals: list[dict[str, str]] = []
-        for item in _extract_items(data):
-            attrs = (
-                item.get("attributes", {})
-                if isinstance(item.get("attributes"), dict)
-                else {}
-            )
-            sev = _normalize_dd_severity(attrs.get("severity"))
-            _inc_sev(signal_summary, sev)
-            parsed_signals.append(
-                {
-                    "severity": sev,
-                    "status": str(
-                        attrs.get("signal_status") or attrs.get("status") or ""
-                    ),
-                    "title": str(
-                        attrs.get("title")
-                        or attrs.get("message")
-                        or item.get("id")
-                        or ""
-                    ),
-                    "rule": str(
-                        attrs.get("security_rule_name") or attrs.get("detection", "")
-                    ),
-                    "source": str(attrs.get("source") or attrs.get("type") or "signal"),
-                    "timestamp": str(
-                        attrs.get("timestamp") or attrs.get("last_seen") or ""
-                    ),
-                }
-            )
-        if parsed_signals:
-            parsed_signals = sorted(
-                parsed_signals,
-                key=lambda x: (
-                    {
-                        "critical": 0,
-                        "high": 1,
-                        "medium": 2,
-                        "low": 3,
-                        "info": 4,
-                        "unknown": 5,
-                    }.get(
-                        x.get("severity", "unknown"),
-                        9,
-                    ),
-                    x.get("timestamp", ""),
-                ),
-            )[:150]
-            signal_summary["total"] = len(parsed_signals)
-            out["signals"] = parsed_signals
-        break
-
-    case_candidates = [
-        "datadog-cases-sanitized.json",
-        "datadog-cases.json",
-        "cases.json",
-    ]
-    for name in case_candidates:
-        fpath = os.path.join(datadog_dir, name)
-        if not os.path.isfile(fpath):
-            continue
-        try:
-            with open(fpath, encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            continue
-        parsed_cases: list[dict[str, str]] = []
-        for item in _extract_items(data):
-            attrs = (
-                item.get("attributes", {})
-                if isinstance(item.get("attributes"), dict)
-                else {}
-            )
-            sev = _normalize_dd_severity(
-                attrs.get("severity")
-                or attrs.get("priority")
-                or attrs.get("case_priority")
-            )
-            _inc_sev(case_summary, sev)
-            parsed_cases.append(
-                {
-                    "severity": sev,
-                    "status": str(
-                        attrs.get("status_name")
-                        or attrs.get("status")
-                        or attrs.get("case_status")
-                        or ""
-                    ),
-                    "title": str(
-                        attrs.get("title") or attrs.get("name") or item.get("id") or ""
-                    ),
-                    "rule": str(attrs.get("type") or "case"),
-                    "source": str(attrs.get("owner") or attrs.get("service") or "case"),
-                    "timestamp": str(
-                        attrs.get("created_at")
-                        or attrs.get("updated_at")
-                        or attrs.get("last_modified")
-                        or ""
-                    ),
-                }
-            )
-        if parsed_cases:
-            parsed_cases = sorted(
-                parsed_cases,
-                key=lambda x: (
-                    {
-                        "critical": 0,
-                        "high": 1,
-                        "medium": 2,
-                        "low": 3,
-                        "info": 4,
-                        "unknown": 5,
-                    }.get(
-                        x.get("severity", "unknown"),
-                        9,
-                    ),
-                    x.get("timestamp", ""),
-                ),
-            )[:150]
-            case_summary["total"] = len(parsed_cases)
-            out["cases"] = parsed_cases
-        break
-
-    return out
-
-
-# ── Prowler Analysis ─────────────────────────────────────────────────────────
-
-
-def analyze_prowler(providers):
-    summary = {}
-    all_findings = []
-    for prov, items in providers.items():
-        fails = [i for i in items if i.get("status_code") == "FAIL"]
-        passes = [i for i in items if i.get("status_code") == "PASS"]
-        by_sev = defaultdict(int)
-        for f in fails:
-            by_sev[f.get("severity", "Unknown")] += 1
-        summary[prov] = {
-            "total_fail": len(fails),
-            "total_pass": len(passes),
-            "critical": by_sev.get("Critical", 0),
-            "high": by_sev.get("High", 0),
-            "medium": by_sev.get("Medium", 0),
-            "low": by_sev.get("Low", 0),
-            "informational": by_sev.get("Informational", 0),
-        }
-        for f in fails:
-            fi = f.get("finding_info", {})
-            res = f.get("resources", [{}])
-            res0 = res[0] if res else {}
-            res0_data = res0.get("data", {})
-            res0_meta = res0_data.get("metadata", {})
-            comp = f.get("unmapped", {}).get("compliance", {})
-            unmapped = f.get("unmapped", {})
-            cloud = f.get("cloud", {})
-            remediation_obj = f.get("remediation", {})
-            # Resource name: prefer data.metadata.name, fallback to res0.name, then region
-            resource_name = (
-                res0_meta.get("name")
-                or res0.get("name")
-                or res0.get("region", "")
-            )
-            # Prowler native remediation (fallback when CHECK_EN_MAP has no entry)
-            native_remediation = (remediation_obj.get("desc") or "").strip()
-            native_refs = remediation_obj.get("references", [])
-            # Region and account for grouping
-            region = res0.get("region") or cloud.get("region", "")
-            account_uid = cloud.get("account", {}).get("uid", "")
-            account_name = cloud.get("account", {}).get("name", "")
-            # Resource type for display
-            resource_type = res0.get("type", "")
-            # K8s-specific: namespace
-            namespace = res0_meta.get("namespace", "")
-            # IaC-specific: code location
-            start_line = res0_meta.get("StartLine", "")
-            # Categories from unmapped
-            categories = unmapped.get("categories", [])
-            all_findings.append(
-                {
-                    "provider": prov,
-                    "severity": f.get("severity", "Unknown"),
-                    "check": f.get("metadata", {}).get("event_code", ""),
-                    "title": fi.get("title", ""),
-                    "message": f.get("message", ""),
-                    "desc": fi.get("desc", ""),
-                    "resource": resource_name,
-                    "resource_type": resource_type,
-                    "region": region,
-                    "account": account_name or account_uid,
-                    "namespace": namespace,
-                    "start_line": str(start_line) if start_line else "",
-                    "categories": categories,
-                    "native_remediation": native_remediation,
-                    "native_refs": native_refs if isinstance(native_refs, list) else [],
-                    "related_url": unmapped.get("related_url", ""),
-                    "compliance": comp,
-                }
-            )
-    return summary, all_findings
-
-
-def github_findings(all_findings):
-    return [f for f in all_findings if f["provider"] == "github"]
-
-
-def aws_findings(all_findings):
-    return [f for f in all_findings if f["provider"] == "aws"]
-
-
-def gcp_findings(all_findings):
-    return [f for f in all_findings if f["provider"] == "gcp"]
-
-
-def gws_findings(all_findings):
-    return [f for f in all_findings if f["provider"] == "googleworkspace"]
-
-
-def k8s_findings(all_findings):
-    return [f for f in all_findings if f["provider"] == "kubernetes"]
-
-
-def azure_findings(all_findings):
-    return [f for f in all_findings if f["provider"] == "azure"]
-
-
-def m365_findings(all_findings):
-    return [f for f in all_findings if f["provider"] == "m365"]
-
-
-def iac_findings(all_findings):
-    return [f for f in all_findings if f["provider"] == "iac"]
-
-
-# Prowler/GitHub check code → English summary & remediation
-CHECK_EN_MAP = {
-    "guardduty_is_enabled": {
-        "summary": "GuardDuty is disabled or not configured per region; threat detection may be missing.",
-        "action": "Enable GuardDuty in each region; configure Finding event alerts (SNS/EventBridge).",
-    },
-    "iam_role_administratoraccess_policy": {
-        "summary": "IAM role has AdministratorAccess policy granting excessive privileges.",
-        "action": "Apply least privilege; replace with custom policy containing only required permissions.",
-    },
-    "awslambda_function_no_secrets_in_variables": {
-        "summary": "Lambda environment variables contain secrets (API keys, tokens, etc.).",
-        "action": "Use Secrets Manager or Parameter Store; remove secrets from environment variables.",
-    },
-    "cloudformation_stack_outputs_find_secrets": {
-        "summary": "CloudFormation stack outputs contain secret strings and may be exposed.",
-        "action": "Remove secrets from outputs; reference sensitive values via SSM/Secrets Manager.",
-    },
-    "s3_bucket_public_access": {
-        "summary": "S3 bucket allows public access or Block Public Access is disabled.",
-        "action": "Enable Block Public Access at account/bucket level; review bucket policies.",
-    },
-    "s3_bucket_no_mfa_delete": {
-        "summary": "S3 bucket versioning allows delete without MFA; accidental or malicious deletion risk.",
-        "action": "Enable MFA delete for versioned buckets; restrict delete permissions.",
-    },
-    "rds_instance_public_access": {
-        "summary": "RDS instance is publicly accessible; increases exposure to network attacks.",
-        "action": "Set RDS to private; use VPC and security groups; access via bastion or VPN.",
-    },
-    "ec2_instance_public_ip": {
-        "summary": "EC2 instance has a public IP; may be exposed to the internet.",
-        "action": "Use private subnets and NAT; restrict security groups; avoid unnecessary public IPs.",
-    },
-    "lambda_function_url_public": {
-        "summary": "Lambda function URL is publicly accessible without auth.",
-        "action": "Add IAM auth or custom auth; restrict via resource policy and VPC.",
-    },
-    "cloudtrail_log_file_validation": {
-        "summary": "CloudTrail log file validation is disabled; integrity of logs cannot be verified.",
-        "action": "Enable log file validation for all trails; monitor and alert on changes.",
-    },
-    "kms_key_rotation": {
-        "summary": "KMS key rotation is disabled; key compromise impact is higher.",
-        "action": "Enable automatic key rotation for customer-managed KMS keys.",
-    },
-    "branch_protection": {
-        "summary": "Default branch has no branch protection; force push and delete are possible.",
-        "action": "Configure branch protection rules; require PR approval, status checks, linear history.",
-    },
-    "require_approval": {
-        "summary": "PR approval and code review are not required before merge.",
-        "action": "Set required number of approvals; apply CODEOWNERS and review policy.",
-    },
-    "secret_scanning": {
-        "summary": "Secret scanning is disabled; committed secrets may not be detected.",
-        "action": "Enable secret scanning and push protection; configure alerts.",
-    },
-    "dependabot": {
-        "summary": "Dependency vulnerability alerts and auto-PRs are not configured.",
-        "action": "Enable Dependabot alerts and security updates; define patch policy.",
-    },
-    "code_scanning": {
-        "summary": "Code scanning (e.g. CodeQL) is not configured; static analysis may be missing.",
-        "action": "Enable CodeQL or equivalent SAST; include scan results in PR checks.",
-    },
-    "vulnerability_alerts": {
-        "summary": "Repository vulnerability alerts are disabled; known CVEs may not be surfaced.",
-        "action": "Enable Dependabot or security alerts; fix or dismiss findings per policy.",
-    },
-    "security_policy": {
-        "summary": "Security policy (SECURITY.md) is missing; contributors lack a clear reporting path.",
-        "action": "Add SECURITY.md with contact and disclosure policy; consider GitHub Advisory.",
-    },
-    "default_branch_deletion": {
-        "summary": "Default branch can be deleted or force-pushed; repository integrity at risk.",
-        "action": "Enable branch protection; disallow force push and branch deletion.",
-    },
-    "repository_private": {
-        "summary": "Repository is public; code and metadata are visible to everyone.",
-        "action": "Make repository private or reduce exposed secrets and metadata.",
-    },
-    "mfa": {
-        "summary": "Multi-factor authentication is not enforced for organization or high-privilege access.",
-        "action": "Enforce MFA for all members; use conditional access and phishing-resistant methods.",
-    },
-    "two_factor": {
-        "summary": "Two-factor authentication is not required; account takeover risk is higher.",
-        "action": "Require 2FA for all users; prefer TOTP or hardware keys.",
-    },
-    "encrypt": {
-        "summary": "Encryption at rest or in transit is missing or weak for sensitive data.",
-        "action": "Enable TLS 1.2+ and strong ciphers; use KMS or managed encryption for data at rest.",
-    },
-    "logging": {
-        "summary": "Logging or audit trail is disabled or insufficient for detection and forensics.",
-        "action": "Enable relevant logging (CloudTrail, VPC flow, app logs); retain and protect logs.",
-    },
-    "backup": {
-        "summary": "Backups are not configured or not tested; recovery may not be possible.",
-        "action": "Enable automated backups; test restore; define RPO/RTO and retention.",
-    },
-    # GCP-specific checks
-    "compute_instance_public_ip": {
-        "summary": "Compute Engine instance has a public IP; direct exposure to internet increases attack surface.",
-        "action": "Use Cloud NAT or IAP for internet access; remove public IPs where not strictly necessary.",
-    },
-    "compute_instance_ip_forwarding": {
-        "summary": "IP forwarding is enabled on instance; may allow packet routing bypass.",
-        "action": "Disable IP forwarding unless the instance is a NAT gateway or load balancer.",
-    },
-    "compute_firewall": {
-        "summary": "Firewall rule allows overly permissive ingress (e.g. 0.0.0.0/0 on sensitive ports).",
-        "action": "Restrict source ranges to known IPs/CIDRs; deny by default; limit ports.",
-    },
-    "iam_sa_key": {
-        "summary": "Service account key is user-managed; higher key leakage risk than workload identity.",
-        "action": "Use Workload Identity Federation instead of long-lived keys; rotate if keys are required.",
-    },
-    "iam_user_mfa": {
-        "summary": "User account lacks MFA; increases risk of credential-based account takeover.",
-        "action": "Enforce 2-Step Verification for all users in Google Admin Console.",
-    },
-    "storage_bucket_public": {
-        "summary": "Cloud Storage bucket is publicly accessible; data exposure risk.",
-        "action": "Remove allUsers/allAuthenticatedUsers; apply uniform bucket-level access.",
-    },
-    "storage_bucket_uniform_access": {
-        "summary": "Bucket does not enforce uniform access; mixed ACL and IAM policies can be confusing.",
-        "action": "Enable uniform bucket-level access and manage permissions via IAM only.",
-    },
-    "sql_instance_public": {
-        "summary": "Cloud SQL instance has a public IP or allows 0.0.0.0/0 access.",
-        "action": "Use private IP and Cloud SQL Proxy; restrict authorized networks.",
-    },
-    "gke_legacy_abac": {
-        "summary": "GKE cluster uses legacy ABAC authorization; less granular than RBAC.",
-        "action": "Disable legacy ABAC; use Kubernetes RBAC (Role-Based Access Control).",
-    },
-    "gke_network_policy": {
-        "summary": "GKE cluster does not enforce network policies; pod-to-pod traffic is unrestricted.",
-        "action": "Enable network policy enforcement; define ingress/egress rules per namespace.",
-    },
-    "gke_private_cluster": {
-        "summary": "GKE cluster nodes have public IPs; increases lateral movement risk.",
-        "action": "Enable private cluster mode; use authorized networks for API server access.",
-    },
-    "dns_dnssec": {
-        "summary": "DNS zone does not have DNSSEC enabled; DNS spoofing risk.",
-        "action": "Enable DNSSEC in Cloud DNS managed zones.",
-    },
-    # Google Workspace-specific checks
-    "gws_admin_mfa": {
-        "summary": "Admin accounts lack 2-Step Verification; high-privilege account takeover risk.",
-        "action": "Enforce 2SV for all admin accounts; prefer security keys.",
-    },
-    "gws_user_mfa": {
-        "summary": "User accounts lack 2-Step Verification; credential-based attack risk.",
-        "action": "Enforce 2SV for all users; set enrollment deadline.",
-    },
-    "gws_oauth_app": {
-        "summary": "Unreviewed third-party OAuth app has access to organizational data.",
-        "action": "Review and restrict third-party app access in Admin Console > Security > API Controls.",
-    },
-    "gws_dlp": {
-        "summary": "Data Loss Prevention rules are not configured; sensitive data may leave the organization.",
-        "action": "Configure DLP rules for Gmail and Drive to detect and protect sensitive data.",
-    },
-    "gws_password_policy": {
-        "summary": "Password policy does not meet minimum complexity or length requirements.",
-        "action": "Set minimum password length (14+); enforce complexity; enable password reuse restrictions.",
-    },
-}
-
-# Fallback when no CHECK_EN_MAP match — so every finding has Summary and Remediation
-DEFAULT_SUMMARY = "Security finding from scan. Review the finding details and reference link below for context."
-DEFAULT_ACTION = "Review the finding, apply security best practices per your risk appetite, and refer to the official documentation for detailed remediation steps."
-
-
-def get_check_en(check_name):
-    """Return English summary and remediation for a check name (or keyword). Always returns at least fallback text."""
-    c = (check_name or "").lower()
-    for key, val in CHECK_EN_MAP.items():
-        if key in c:
-            return {
-                "summary": val.get("summary") or DEFAULT_SUMMARY,
-                "action": val.get("action") or DEFAULT_ACTION,
-            }
-    return {"summary": DEFAULT_SUMMARY, "action": DEFAULT_ACTION}
-
-
-# ── OWASP Top 10:2025 Mapping (Official — released 2025) ─────────────────────
-
-OWASP_2025 = [
-    {
-        "id": "A01:2025",
-        "name": "Broken Access Control",
-        "desc": "CORS misconfiguration, privilege escalation, IDOR, SSRF (CWE-200, CWE-918, CWE-352)",
-        "summary": "Access control failures allow unauthorized resource access; CORS, privilege escalation, IDOR, or SSRF can expose or manipulate data.",
-        "action": "Apply branch protection, PR approval, least privilege; validate and whitelist CORS and SSRF inputs.",
-        "url": "https://owasp.org/Top10/2025/A01_2025-Broken_Access_Control/",
-    },
-    {
-        "id": "A02:2025",
-        "name": "Security Misconfiguration",
-        "desc": "Missing security headers, default values unchanged, unnecessary features enabled (CWE-16, CWE-611 XXE)",
-        "summary": "Default config, unused features, or weak security headers widen attack surface or expose information.",
-        "action": "Apply security headers (CSP, X-Frame-Options); remove default passwords and debug mode; enable minimal features.",
-        "url": "https://owasp.org/Top10/2025/A02_2025-Security_Misconfiguration/",
-    },
-    {
-        "id": "A03:2025",
-        "name": "Software Supply Chain Failures",
-        "desc": "Third-party dependencies, CI/CD pipelines, unmanaged components (CWE-1104, CWE-1395)",
-        "summary": "External libs, build pipelines, or unpatched components can introduce malware or leave known CVEs exploitable.",
-        "action": "Enable Dependabot/CodeQL; SBOM and dependency checks; immutable releases and CODEOWNERS for changes.",
-        "url": "https://owasp.org/Top10/2025/A03_2025-Software_Supply_Chain_Failures/",
-    },
-    {
-        "id": "A04:2025",
-        "name": "Cryptographic Failures",
-        "desc": "Insufficient encryption for sensitive data; weak algorithms",
-        "summary": "Missing encryption in transit or at rest, weak algorithms or fixed keys can leak secrets or PII.",
-        "action": "TLS 1.2+, strong ciphers; KMS and key rotation for stored data; never store secrets in plaintext.",
-        "url": "https://owasp.org/Top10/2025/A04_2025-Cryptographic_Failures/",
-    },
-    {
-        "id": "A05:2025",
-        "name": "Injection",
-        "desc": "SQL, XSS, Command Injection — 37 CWE mappings",
-        "summary": "User input reflected in queries, commands, or output can lead to SQL/OS/code injection or XSS.",
-        "action": "Use parameterized queries and prepared statements; input validation and escaping; output encoding; SAST/CodeQL.",
-        "url": "https://owasp.org/Top10/2025/A05_2025-Injection/",
-    },
-    {
-        "id": "A06:2025",
-        "name": "Insecure Design",
-        "desc": "Design-phase security flaws — missing threat modeling and secure design patterns",
-        "summary": "Missing threat modeling or security requirements at design can enable logic flaws and business logic bypass.",
-        "action": "Perform threat modeling (e.g. STRIDE); security design review; safe defaults and fail-secure design.",
-        "url": "https://owasp.org/Top10/2025/A06_2025-Insecure_Design/",
-    },
-    {
-        "id": "A07:2025",
-        "name": "Authentication Failures",
-        "desc": "MFA not enforced, weak passwords, session management flaws",
-        "summary": "No MFA, weak password policy, or poor session invalidation can enable account takeover and privilege escalation.",
-        "action": "Enforce MFA and SSO; strengthen password policy; session timeout, re-auth, and token invalidation.",
-        "url": "https://owasp.org/Top10/2025/A07_2025-Authentication_Failures/",
-    },
-    {
-        "id": "A08:2025",
-        "name": "Software or Data Integrity Failures",
-        "desc": "Integrity verification failures — CI/CD, auto-updates, deserialization",
-        "summary": "Code applied without signature verification in CI/CD or auto-updates, or deserialization can lead to RCE.",
-        "action": "Verify signatures and checksums; least-privilege deployment; webhook secret/signature verification; block untrusted deserialization.",
-        "url": "https://owasp.org/Top10/2025/A08_2025-Software_or_Data_Integrity_Failures/",
-    },
-    {
-        "id": "A09:2025",
-        "name": "Security Logging & Alerting Failures",
-        "desc": "Insufficient logging and alerting — hinders detection and response",
-        "summary": "Lack of logs, audit trail, or alerts makes detection, response, and forensics difficult.",
-        "action": "Collect auth, access, and change logs; integrate GuardDuty/Security Hub; define alerting and response procedures.",
-        "url": "https://owasp.org/Top10/2025/A09_2025-Security_Logging_and_Alerting_Failures/",
-    },
-    {
-        "id": "A10:2025",
-        "name": "Mishandling of Exceptional Conditions",
-        "desc": "Error handling and logic errors — 24 CWEs (new)",
-        "summary": "Poor exception handling or boundary/logic errors can cause DoS, information disclosure, or unexpected behavior.",
-        "action": "Consistent exception handling and user-friendly messages; logic and boundary checks; log detailed errors only.",
-        "url": "https://owasp.org/Top10/2025/A10_2025-Mishandling_of_Exceptional_Conditions/",
-    },
-]
-
-OWASP_CHECK_MAP = {
-    "A01:2025": [
-        "branch_protection",
-        "require_pull_request",
-        "require_approval",
-        "default_branch_deletion",
-        "admin_permission",
-        "repository_private",
-        "dismiss_stale_review",
-        "iam",
-        "access",
-        "permission",
-        "restrict",
-        "cors",
-        "force_push",
-        "ssrf",
-        "request_forgery",
-    ],
-    "A02:2025": [
-        "configuration",
-        "default",
-        "misconfigur",
-        "hardening",
-        "baseline",
-        "cis",
-        "benchmark",
-        "logging_enabled",
-        "security_policy",
-        "security_header",
-        "xxe",
-        "unnecessary",
-        "enabled_feature",
-    ],
-    "A03:2025": [
-        "dependency",
-        "dependabot",
-        "sbom",
-        "slsa",
-        "provenance",
-        "supply_chain",
-        "vulnerability_alert",
-        "cve",
-        "outdated",
-        "vulnerable",
-        "patch",
-        "version",
-        "eol",
-        "deprecat",
-        "immutable_release",
-        "codeowners",
-    ],
-    "A04:2025": [
-        "encrypt",
-        "tls",
-        "ssl",
-        "certificate",
-        "secret",
-        "kms",
-        "key_rotation",
-        "plaintext",
-        "https",
-        "cryptograph",
-        "weak_cipher",
-        "rotation",
-    ],
-    "A05:2025": [
-        "injection",
-        "input",
-        "sanitiz",
-        "escap",
-        "parameteriz",
-        "codeql",
-        "sast",
-        "xss",
-        "command_injection",
-        "sql",
-    ],
-    "A06:2025": [
-        "design",
-        "architecture",
-        "threat_model",
-        "security_review",
-        "insecure_design",
-    ],
-    "A07:2025": [
-        "authentication",
-        "mfa",
-        "password",
-        "credential",
-        "session",
-        "totp",
-        "sso",
-        "two_factor",
-        "2fa",
-        "login",
-        "brute_force",
-    ],
-    "A08:2025": [
-        "integrity",
-        "signing",
-        "webhook",
-        "deploy_key",
-        "signature",
-        "cicd",
-        "pipeline",
-        "auto_update",
-        "deserialization",
-    ],
-    "A09:2025": [
-        "logging",
-        "monitoring",
-        "audit",
-        "alert",
-        "trace",
-        "observ",
-        "siem",
-        "detection",
-        "guardduty",
-        "securityhub",
-        "cloudtrail",
-    ],
-    "A10:2025": [
-        "error",
-        "exception",
-        "handler",
-        "unhandled",
-        "crash",
-        "panic",
-        "overflow",
-        "boundary",
-        "validation_error",
-        "logic_error",
-    ],
-}
-
-# ── OWASP Top 10 for LLM Applications 2025 ──────────────────────────────────
-
-OWASP_LLM_2025 = [
-    {
-        "id": "LLM01",
-        "name": "Prompt Injection",
-        "desc": "Malicious input causes LLM to perform unintended actions or leak data",
-        "summary": "Adversarial instructions or delimiters can override system prompts and cause the LLM to leak secrets or misbehave.",
-        "action": "Input validation and sanitization; privilege separation and output filtering; protect system prompt and audit logging.",
-        "url": "https://genai.owasp.org/llmrisk/llm01-prompt-injection/",
-    },
-    {
-        "id": "LLM02",
-        "name": "Sensitive Information Disclosure",
-        "desc": "Secrets, PII, or confidential data in responses or logs",
-        "summary": "LLM responses or logs may contain passwords, API keys, or PII and leak via third parties or log pipelines.",
-        "action": "Mask responses and logs; minimize PII collection; use env vars or secret managers for secrets.",
-        "url": "https://genai.owasp.org/llmrisk/llm02-sensitive-information-disclosure/",
-    },
-    {
-        "id": "LLM03",
-        "name": "Supply Chain",
-        "desc": "Risks from model providers, datasets, dependencies, and infrastructure",
-        "summary": "Unverified provenance of models, datasets, SDKs, or infra can introduce backdoors, malware, or licensing risk.",
-        "action": "Use official or verified sources; checksum and signature verification; SBOM and license checks.",
-        "url": "https://genai.owasp.org/llmrisk/llm03-supply-chain/",
-    },
-    {
-        "id": "LLM04",
-        "name": "Data and Model Poisoning",
-        "desc": "Poisoned training or fine-tuning data to manipulate behavior",
-        "summary": "Tampered training or fine-tuning data can make the model learn bias, backdoors, or wrong answers.",
-        "action": "Verify data provenance and quality; inspect data before fine-tuning; version and provenance tracking.",
-        "url": "https://genai.owasp.org/llmrisk/llm04-data-and-model-poisoning/",
-    },
-    {
-        "id": "LLM05",
-        "name": "Improper Output Handling",
-        "desc": "Trusting or executing model output without verification",
-        "summary": "Executing LLM output as code, commands, or queries can lead to injection or privilege escalation.",
-        "action": "Validate and whitelist output; human-in-the-loop and confirmation steps; sandbox and least-privilege execution.",
-        "url": "https://genai.owasp.org/llmrisk/llm05-improper-output-handling/",
-    },
-    {
-        "id": "LLM06",
-        "name": "Excessive Agency",
-        "desc": "AI agents with excessive autonomy or permissions",
-        "summary": "Agents with too much permission or autonomy can cause data loss, cost waste, or policy bypass.",
-        "action": "Least privilege and scope limits; require user confirmation; set cost and call limits.",
-        "url": "https://genai.owasp.org/llmrisk/llm06-excessive-agency/",
-    },
-    {
-        "id": "LLM07",
-        "name": "System Prompt Leakage",
-        "desc": "Extraction of hidden prompts, policy, or tool schemas",
-        "summary": "Attackers can use special inputs to expose system prompt, policy, or tool schema in responses.",
-        "action": "Isolate and protect prompts; filter output to remove internal instructions; regular red-team testing.",
-        "url": "https://genai.owasp.org/llmrisk/llm07-system-prompt-leakage/",
-    },
-    {
-        "id": "LLM08",
-        "name": "Vector and Embedding Weaknesses",
-        "desc": "RAG store or embeddings as attack surface",
-        "summary": "Malicious or poisoned data in RAG or embedding DB can manipulate search results or leak information.",
-        "action": "Validate RAG input and access control; verify embedding source trust; filter queries and results.",
-        "url": "https://genai.owasp.org/llmrisk/llm08-vector-and-embedding-weaknesses/",
-    },
-    {
-        "id": "LLM09",
-        "name": "Misinformation",
-        "desc": "Confidently generated false information causes harm",
-        "summary": "Hallucination or manipulated training can lead to wrong decisions or reputation damage.",
-        "action": "Show sources and confidence in output; fact-check and verification steps; inform users of uncertainty.",
-        "url": "https://genai.owasp.org/llmrisk/llm09-misinformation/",
-    },
-    {
-        "id": "LLM10",
-        "name": "Unbounded Consumption",
-        "desc": "Abuse leads to cost spike, latency, or capacity exhaustion",
-        "summary": "Unlimited use of API, tokens, or resources can cause cost explosion, DoS, or service outage.",
-        "action": "Rate limits and quotas; per-user and daily caps; detect and block anomalous traffic.",
-        "url": "https://genai.owasp.org/llmrisk/llm10-unbounded-consumption/",
-    },
-]
-
-
-def map_findings_to_owasp(all_findings):
-    mapping = {o["id"]: [] for o in OWASP_2025}
-    for f in all_findings:
-        check = f["check"].lower()
-        title = f["title"].lower()
-        msg = f["message"].lower()
-        text = f"{check} {title} {msg}"
-        for oid, keywords in OWASP_CHECK_MAP.items():
-            if any(kw in text for kw in keywords):
-                mapping[oid].append(f)
-                break
-    return mapping
-
-
-# ── Compliance Frameworks ────────────────────────────────────────────────────
-
-COMPLIANCE_FRAMEWORKS = [
-    {
-        "name": "OWASP Top 10:2025",
-        "url": "https://owasp.org/Top10/2025/",
-        "desc": "Web application security risks Top 10 (2025)",
-    },
-    {
-        "name": "OWASP LLM Top 10",
-        "url": "https://genai.owasp.org/resource/owasp-top-10-for-llm-applications-2025/",
-        "desc": "LLM application security risks Top 10 (2025)",
-    },
-    {
-        "name": "NIST 800-53 Rev5",
-        "url": "https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final",
-        "desc": "US federal information system security controls",
-    },
-    {
-        "name": "NIST CSF 2.0",
-        "url": "https://www.nist.gov/cyberframework",
-        "desc": "Cybersecurity Framework 2.0",
-    },
-    {
-        "name": "ISO 27001:2022",
-        "url": "https://www.iso.org/isoiec-27001-information-security.html",
-        "desc": "Information security management system (ISMS) international standard",
-    },
-    {
-        "name": "ISO 27701:2025",
-        "url": "https://www.iso.org/standard/85819.html",
-        "desc": "Privacy information management (PIMS) — certifiable",
-    },
-    {
-        "name": "PCI-DSS v4.0.1",
-        "url": "https://www.pcisecuritystandards.org/document_library/?category=pcidss",
-        "desc": "Payment Card Industry Data Security Standard",
-    },
-    {
-        "name": "KISA ISMS-P",
-        "url": "https://isms.kisa.or.kr/main/ispims/intro/",
-        "desc": "Korea information security and privacy management certification",
-    },
-    {
-        "name": "CIS Benchmarks",
-        "url": "https://www.cisecurity.org/cis-benchmarks",
-        "desc": "Center for Internet Security benchmarks",
-    },
-    {
-        "name": "SLSA v1.0",
-        "url": "https://slsa.dev/spec/v1.0/",
-        "desc": "Supply chain Levels for Software Artifacts",
-    },
-    {
-        "name": "MITRE ATT&CK",
-        "url": "https://attack.mitre.org/",
-        "desc": "Cyber attack tactics, techniques, and procedures (TTP) knowledge base",
-    },
-]
-
-# Import compliance mapping from standalone module (shared with output.sh).
-# Falls back to inline definitions below if the module is unavailable.
-_COMPLIANCE_IMPORTED = False
-try:
-    import importlib.util as _ilu
-
-    _cm_spec = _ilu.spec_from_file_location(
-        "compliance_map",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "compliance-map.py"),
-    )
-    if _cm_spec and _cm_spec.loader:
-        _cm_mod = _ilu.module_from_spec(_cm_spec)
-        _cm_spec.loader.exec_module(_cm_mod)
-        COMPLIANCE_CONTROL_MAP = _cm_mod.COMPLIANCE_CONTROL_MAP
-        _COMPLIANCE_IMPORTED = True
-except Exception:
-    pass
-
-if not _COMPLIANCE_IMPORTED:
-    COMPLIANCE_CONTROL_MAP = {
-    "ISO 27001:2022": [
-        {
-            "control": "A.5.1",
-            "name": "Information security policy",
-            "desc": "Policies documented, shared, and reviewed",
-            "action": "Document policy, periodic review, staff training and approval.",
-            "checks": ["security_policy"],
-            "status": "",
-        },
-        {
-            "control": "A.8.2",
-            "name": "Access control",
-            "desc": "Access to resources and systems restricted by role and need",
-            "action": "Apply RBAC, branch protection, PR approval; minimize admin rights.",
-            "checks": ["branch_protection", "require_approval", "admin"],
-            "status": "",
-        },
-        {
-            "control": "A.8.5",
-            "name": "Secure authentication",
-            "desc": "Strong authentication (MFA, SSO) in use",
-            "action": "Adopt MFA and SSO; strengthen password policy and session management.",
-            "checks": ["mfa", "two_factor", "sso", "authentication"],
-            "status": "",
-        },
-        {
-            "control": "A.8.9",
-            "name": "Configuration management",
-            "desc": "Config and defaults managed per security baseline",
-            "action": "Apply hardening guides; change defaults; disable unnecessary services.",
-            "checks": ["configuration", "misconfigur", "default"],
-            "status": "",
-        },
-        {
-            "control": "A.8.24",
-            "name": "Cryptography",
-            "desc": "Encryption and key management for data in transit and at rest",
-            "action": "Use TLS and KMS; store secrets in secret manager; key rotation.",
-            "checks": ["encrypt", "tls", "ssl", "secret"],
-            "status": "",
-        },
-        {
-            "control": "A.8.28",
-            "name": "Secure coding",
-            "desc": "Secure coding and SAST for vulnerability management",
-            "action": "Adopt CodeQL/SAST, code review; prevent injection and XSS.",
-            "checks": ["code_scanning", "sast", "injection", "codeql"],
-            "status": "",
-        },
-        {
-            "control": "A.8.8",
-            "name": "Technical vulnerability management",
-            "desc": "Dependency, CVE detection, and patching in place",
-            "action": "Dependabot and CVE scanning; patch policy and SBOM.",
-            "checks": ["dependabot", "cve", "vulnerability", "outdated"],
-            "status": "",
-        },
-    ],
-    "KISA ISMS-P": [
-        {
-            "control": "2.6.1",
-            "name": "Access control policy",
-            "desc": "Access control policy and access rights management",
-            "action": "Document access policy; least privilege; periodic permission review.",
-            "checks": ["branch_protection", "access", "permission", "restrict"],
-            "status": "",
-        },
-        {
-            "control": "2.6.2",
-            "name": "Authentication and authorization",
-            "desc": "Strong authentication and separation of duties",
-            "action": "MFA and SSO; separate admin accounts; track permission changes.",
-            "checks": ["mfa", "authentication", "sso", "two_factor", "admin"],
-            "status": "",
-        },
-        {
-            "control": "2.7.1",
-            "name": "Cryptographic policy",
-            "desc": "Encryption and key management policy",
-            "action": "TLS and encryption at rest; key protection and rotation; no plaintext secrets.",
-            "checks": ["encrypt", "tls", "ssl", "secret", "kms"],
-            "status": "",
-        },
-        {
-            "control": "2.9.1",
-            "name": "Change management",
-            "desc": "Change request, review, and approval process",
-            "action": "PR and approval workflow; change log and rollback procedure.",
-            "checks": ["require_approval", "review", "pull_request"],
-            "status": "",
-        },
-        {
-            "control": "2.11.1",
-            "name": "Incident response",
-            "desc": "Detection, response, and recovery",
-            "action": "Logging, monitoring, alerting; response playbook; post-incident analysis.",
-            "checks": ["monitoring", "logging", "alert", "audit"],
-            "status": "",
-        },
-        {
-            "control": "2.12.1",
-            "name": "Privacy protection",
-            "desc": "Prevent exposure of PII and sensitive data",
-            "action": "Secret scanning; no plaintext storage; access log and masking.",
-            "checks": ["secret_scanning", "credential", "plaintext"],
-            "status": "",
-        },
-    ],
-    "PCI-DSS v4.0.1": [
-        {
-            "control": "Req 1",
-            "name": "Network security controls",
-            "desc": "Firewall, network segmentation, TLS",
-            "action": "Firewall policy; DMZ and segmentation; enforce TLS.",
-            "checks": ["firewall", "network", "tls"],
-            "status": "",
-        },
-        {
-            "control": "Req 2",
-            "name": "Secure configuration",
-            "desc": "Hardened system and service settings",
-            "action": "Hardening; change default passwords; remove unnecessary services.",
-            "checks": ["configuration", "default", "hardening", "benchmark"],
-            "status": "",
-        },
-        {
-            "control": "Req 3",
-            "name": "Protect stored data",
-            "desc": "Encryption and key management for cardholder data",
-            "action": "Encrypt at rest; KMS and key rotation; consider tokenization.",
-            "checks": ["encrypt", "kms", "key_rotation"],
-            "status": "",
-        },
-        {
-            "control": "Req 6",
-            "name": "Secure software development",
-            "desc": "Secure SDLC and vulnerability management",
-            "action": "SAST and dependency checks; patching and code review.",
-            "checks": ["code_scanning", "sast", "injection", "vulnerability"],
-            "status": "",
-        },
-        {
-            "control": "Req 7",
-            "name": "Access restriction",
-            "desc": "Access only for those who need it",
-            "action": "RBAC and least privilege; branch protection and approval policy.",
-            "checks": ["branch_protection", "permission", "restrict", "admin"],
-            "status": "",
-        },
-        {
-            "control": "Req 8",
-            "name": "User identification and authentication",
-            "desc": "Strong authentication and account management",
-            "action": "MFA; password policy; account lockout and session management.",
-            "checks": ["mfa", "authentication", "two_factor", "sso"],
-            "status": "",
-        },
-        {
-            "control": "Req 10",
-            "name": "Logging and monitoring",
-            "desc": "Logs and monitoring for access, change, and incidents",
-            "action": "Collect and retain audit logs; detection and alerting; periodic review.",
-            "checks": ["logging", "monitoring", "audit", "alert"],
-            "status": "",
-        },
-    ],
-    "NIST 800-53 Rev5": [
-        {
-            "control": "AC-2",
-            "name": "Account management",
-            "desc": "Manage system accounts, including establishing, activating, modifying, reviewing, disabling, and removing accounts",
-            "action": "Enforce account lifecycle management; periodic access review; disable inactive accounts.",
-            "checks": ["account", "user", "admin", "permission", "iam"],
-            "status": "",
-        },
-        {
-            "control": "AC-6",
-            "name": "Least privilege",
-            "desc": "Employ the principle of least privilege, allowing only authorized accesses necessary for organizational missions",
-            "action": "Implement RBAC; restrict admin privileges; review and minimize permissions regularly.",
-            "checks": ["least_privilege", "rbac", "restrict", "permission", "branch_protection", "admin"],
-            "status": "",
-        },
-        {
-            "control": "AU-2",
-            "name": "Event logging",
-            "desc": "Identify events that the system is capable of logging in support of the audit function",
-            "action": "Enable audit logging for all critical events; configure log retention and integrity checks.",
-            "checks": ["logging", "audit", "log_maxage", "event_log", "monitoring"],
-            "status": "",
-        },
-        {
-            "control": "CA-7",
-            "name": "Continuous monitoring",
-            "desc": "Develop a continuous monitoring strategy and implement a continuous monitoring program",
-            "action": "Deploy SIEM/monitoring tools; continuous vulnerability scanning; automated alerts.",
-            "checks": ["monitoring", "alert", "scan", "vulnerability", "continuous"],
-            "status": "",
-        },
-        {
-            "control": "CM-6",
-            "name": "Configuration settings",
-            "desc": "Establish and document configuration settings for components using security configuration checklists",
-            "action": "Apply CIS benchmarks; enforce secure defaults; automate configuration drift detection.",
-            "checks": ["configuration", "benchmark", "hardening", "default", "baseline"],
-            "status": "",
-        },
-        {
-            "control": "IA-2",
-            "name": "Identification and authentication",
-            "desc": "Uniquely identify and authenticate organizational users and processes",
-            "action": "Enforce MFA for all users; implement SSO; strong password and session policies.",
-            "checks": ["mfa", "authentication", "two_factor", "sso", "identity"],
-            "status": "",
-        },
-        {
-            "control": "RA-5",
-            "name": "Vulnerability monitoring and scanning",
-            "desc": "Monitor and scan for vulnerabilities in the system and hosted applications",
-            "action": "Run SAST/DAST scans; dependency vulnerability checks; prioritize by CVSS severity.",
-            "checks": ["vulnerability", "code_scanning", "sast", "dependency", "cve"],
-            "status": "",
-        },
-        {
-            "control": "SC-8",
-            "name": "Transmission confidentiality and integrity",
-            "desc": "Protect the confidentiality and integrity of transmitted information",
-            "action": "Enforce TLS 1.2+; certificate management; HSTS and secure transport headers.",
-            "checks": ["tls", "ssl", "https", "certificate", "encrypt"],
-            "status": "",
-        },
-        {
-            "control": "SC-28",
-            "name": "Protection of information at rest",
-            "desc": "Protect the confidentiality and integrity of information at rest",
-            "action": "Encrypt data at rest; KMS key management and rotation; secure backup storage.",
-            "checks": ["encrypt", "kms", "key_rotation", "storage", "secret"],
-            "status": "",
-        },
-        {
-            "control": "SI-4",
-            "name": "System monitoring",
-            "desc": "Monitor the system to detect attacks, indicators of potential attacks, and unauthorized connections",
-            "action": "Deploy IDS/IPS; network monitoring; real-time alerting and incident correlation.",
-            "checks": ["monitoring", "detection", "alert", "intrusion", "anomaly"],
-            "status": "",
-        },
-    ],
-    "CIS Benchmarks": [
-        {
-            "control": "CIS-1.1",
-            "name": "Inventory of authorized and unauthorized devices",
-            "desc": "Maintain an accurate and up-to-date inventory of all technology assets",
-            "action": "Automate asset discovery; tag and classify resources; remove unauthorized assets.",
-            "checks": ["inventory", "asset", "resource", "discovery"],
-            "status": "",
-        },
-        {
-            "control": "CIS-4.1",
-            "name": "Secure configuration for network infrastructure",
-            "desc": "Establish and maintain secure network device configurations",
-            "action": "Apply firewall rules; enforce network segmentation; disable unused ports and services.",
-            "checks": ["firewall", "network", "segmentation", "port"],
-            "status": "",
-        },
-        {
-            "control": "CIS-5.1",
-            "name": "Account management policies",
-            "desc": "Establish and maintain an account management process",
-            "action": "Enforce MFA; regular access reviews; promptly disable departed user accounts.",
-            "checks": ["mfa", "account", "authentication", "access", "admin"],
-            "status": "",
-        },
-        {
-            "control": "CIS-6.1",
-            "name": "Audit log management",
-            "desc": "Establish and maintain an audit log management process",
-            "action": "Enable logging on all critical systems; define retention policies; protect log integrity.",
-            "checks": ["logging", "audit", "log_maxage", "retention"],
-            "status": "",
-        },
-        {
-            "control": "CIS-7.1",
-            "name": "Vulnerability management process",
-            "desc": "Establish and maintain a vulnerability management process",
-            "action": "Automate vulnerability scanning; track remediation SLAs; prioritize critical CVEs.",
-            "checks": ["vulnerability", "scan", "patch", "cve", "remediation"],
-            "status": "",
-        },
-        {
-            "control": "CIS-8.1",
-            "name": "Data protection",
-            "desc": "Establish and maintain a data management process including encryption requirements",
-            "action": "Classify data sensitivity; encrypt in transit and at rest; secret scanning enabled.",
-            "checks": ["encrypt", "secret", "kms", "tls", "data_protection"],
-            "status": "",
-        },
-        {
-            "control": "CIS-K8s-1.1",
-            "name": "API server secure configuration",
-            "desc": "Ensure the API server is configured securely per CIS Kubernetes Benchmark",
-            "action": "Enable audit logging; restrict anonymous auth; enforce RBAC; TLS for API server.",
-            "checks": ["apiserver", "kube", "rbac", "anonymous", "kubelet"],
-            "status": "",
-        },
-        {
-            "control": "CIS-K8s-4.1",
-            "name": "Worker node security",
-            "desc": "Ensure worker node components are configured securely",
-            "action": "Restrict kubelet permissions; enable read-only port protection; enforce TLS certificates.",
-            "checks": ["kubelet", "worker", "node", "tls_cert", "readonly"],
-            "status": "",
-        },
-    ],
-}
-
-
-if _COMPLIANCE_IMPORTED:
-    from importlib import import_module as _im  # noqa: F401 (used above)
-
-    _match_prowler_compliance = _cm_mod._match_prowler_compliance
-    map_compliance = _cm_mod.map_compliance
-else:
-
-    def _match_prowler_compliance(finding, framework_key):
-        """Check if a prowler finding's native compliance data references a framework."""
-        comp = finding.get("compliance", {})
-        if not comp:
-            return False
-        fk = framework_key.lower()
-        for key, val in comp.items():
-            k = key.lower()
-            if fk in k or k in fk:
-                return True
-            if isinstance(val, (list, str)) and any(fk in str(v).lower() for v in (val if isinstance(val, list) else [val])):
-                return True
-        return False
-
-    def map_compliance(all_findings):
-        result = {}
-        for framework, controls in COMPLIANCE_CONTROL_MAP.items():
-            mapped = []
-            for ctrl in controls:
-                matching = []
-                for f in all_findings:
-                    text = f"{f['check']} {f['title']} {f['message']}".lower()
-                    keyword_match = any(kw in text for kw in ctrl["checks"])
-                    native_match = _match_prowler_compliance(f, framework)
-                    if keyword_match or native_match:
-                        matching.append(f)
-                status = "PASS" if len(matching) == 0 else "FAIL"
-                mapped.append(
-                    {
-                        **ctrl,
-                        "status": status,
-                        "count": len(matching),
-                        "findings": matching[:5],
-                    }
-                )
-            result[framework] = mapped
-        return result
-
-
-# ── Architecture Security Domains ────────────────────────────────────────────
-
-ARCH_DOMAINS = [
-    {
-        "name": "Network & TLS",
-        "icon": "🌐",
-        "checks": ["tls", "ssl", "https", "certificate", "network", "firewall", "dns"],
-        "summary": "TLS/SSL, certificates, firewall and DNS for secure communication.",
-        "action": "TLS 1.2+ and strong ciphers; monitor cert expiry; block unnecessary ports.",
-    },
-    {
-        "name": "Identity & Access",
-        "icon": "🔑",
-        "checks": [
-            "mfa",
-            "sso",
-            "iam",
-            "access",
-            "permission",
-            "admin",
-            "authentication",
-            "two_factor",
-            "branch_protection",
-            "require_approval",
-        ],
-        "summary": "IAM, MFA, branch protection, PR approval for access control and authentication.",
-        "action": "Apply MFA and SSO; least privilege and RBAC; branch protection and mandatory code review.",
-    },
-    {
-        "name": "Data protection",
-        "icon": "🔒",
-        "checks": [
-            "encrypt",
-            "secret",
-            "kms",
-            "key_rotation",
-            "plaintext",
-            "credential",
-            "secret_scanning",
-        ],
-        "summary": "Encryption, secret and key management, secret scanning to prevent data exposure.",
-        "action": "Encrypt in transit and at rest; KMS and rotation; use secret manager; scan code for secrets.",
-    },
-    {
-        "name": "CI/CD pipeline",
-        "icon": "⚡",
-        "checks": [
-            "pipeline",
-            "workflow",
-            "deploy",
-            "action",
-            "cicd",
-            "webhook",
-            "deploy_key",
-            "signing",
-        ],
-        "summary": "Build and deploy pipelines; webhooks and signing for integrity and safe deployment.",
-        "action": "Least privilege for workflows; webhook signature verification; manage deploy keys and signing; audit logs.",
-    },
-    {
-        "name": "Monitoring & logging",
-        "icon": "📊",
-        "checks": ["logging", "monitoring", "audit", "alert", "detection", "siem"],
-        "summary": "Logs, audit, and alerts for detection and incident response.",
-        "action": "Integrate GuardDuty, Security Hub; collect and retain logs; alerting and response procedures.",
-    },
-    {
-        "name": "Supply chain",
-        "icon": "📦",
-        "checks": [
-            "dependency",
-            "dependabot",
-            "sbom",
-            "slsa",
-            "provenance",
-            "vulnerability_alert",
-            "cve",
-            "outdated",
-        ],
-        "summary": "Dependencies, CVE, and SBOM for supply chain vulnerability management.",
-        "action": "Dependabot and CVE scanning; generate and verify SBOM; immutable releases and patch policy.",
-    },
-    {
-        "name": "Endpoint security",
-        "icon": "💻",
-        "checks": [
-            "edr",
-            "endpoint",
-            "sentinelone",
-            "antivirus",
-            "malware",
-            "mdm",
-            "jamf",
-            "device",
-        ],
-        "summary": "Endpoint Detection and Response (EDR), MDM, and device management for endpoint protection.",
-        "action": "Deploy SentinelOne/EDR on all endpoints; enforce MDM enrollment via Jamf/Intune; monitor threat alerts.",
-    },
-    {
-        "name": "Cloud & K8s security",
-        "icon": "☁",
-        "checks": [
-            "cluster",
-            "pod",
-            "rbac",
-            "karpenter",
-            "eks",
-            "s3",
-            "rds",
-            "vpc",
-            "security_group",
-            "guardduty",
-        ],
-        "summary": "Cloud infrastructure, Kubernetes, and managed services security posture.",
-        "action": "CIS benchmark compliance; Pod Security Standards; least privilege RBAC; encrypt data at rest; enable GuardDuty.",
-    },
-]
-
-# Mapping: architecture domains ↔ OWASP / compliance / scanner categories
-ARCH_DOMAIN_LINKS = [
-    {
-        "owasp": ["A02", "A05", "A09"],
-        "compliance": [
-            ("ISO 27001:2022", "A.8.9"),
-            ("PCI-DSS v4.0.1", "Req 1"),
-            ("PCI-DSS v4.0.1", "Req 2"),
-        ],
-        "scanner": ["network"],
-    },
-    {
-        "owasp": ["A01", "A07"],
-        "compliance": [
-            ("ISO 27001:2022", "A.8.2"),
-            ("ISO 27001:2022", "A.8.5"),
-            ("KISA ISMS-P", "2.6.1"),
-            ("KISA ISMS-P", "2.6.2"),
-            ("PCI-DSS v4.0.1", "Req 7"),
-            ("PCI-DSS v4.0.1", "Req 8"),
-        ],
-        "scanner": ["access-control"],
-    },
-    {
-        "owasp": ["A04", "A02"],
-        "compliance": [
-            ("ISO 27001:2022", "A.8.24"),
-            ("KISA ISMS-P", "2.7.1"),
-            ("PCI-DSS v4.0.1", "Req 3"),
-        ],
-        "scanner": ["access-control", "code"],
-    },
-    {
-        "owasp": ["A03", "A08"],
-        "compliance": [
-            ("ISO 27001:2022", "A.8.28"),
-            ("KISA ISMS-P", "2.9.1"),
-            ("PCI-DSS v4.0.1", "Req 6"),
-        ],
-        "scanner": ["cicd"],
-    },
-    {
-        "owasp": ["A09"],
-        "compliance": [
-            ("ISO 27001:2022", "A.8.2"),
-            ("KISA ISMS-P", "2.11.1"),
-            ("PCI-DSS v4.0.1", "Req 10"),
-        ],
-        "scanner": ["cloud", "infra"],
-    },
-    {
-        "owasp": ["A03", "A08"],
-        "compliance": [("ISO 27001:2022", "A.8.8"), ("PCI-DSS v4.0.1", "Req 6")],
-        "scanner": ["cicd", "code", "infra"],
-    },
-    # Endpoint security
-    {
-        "owasp": ["A05", "A07"],
-        "compliance": [
-            ("ISO 27001:2022", "A.8.1"),
-            ("KISA ISMS-P", "2.10.1"),
-            ("PCI-DSS v4.0.1", "Req 5"),
-        ],
-        "scanner": ["infra"],
-    },
-    # Cloud & K8s security
-    {
-        "owasp": ["A01", "A05", "A09"],
-        "compliance": [
-            ("ISO 27001:2022", "A.8.23"),
-            ("KISA ISMS-P", "2.8.1"),
-            ("PCI-DSS v4.0.1", "Req 1"),
-            ("PCI-DSS v4.0.1", "Req 2"),
-        ],
-        "scanner": ["cloud", "infra", "prowler"],
-    },
-]
-
-# OWASP → related architecture domains (reverse mapping)
-OWASP_TO_ARCH = {
-    "A01": [1, 7],
-    "A02": [0, 2],
-    "A03": [3, 5],
-    "A04": [2],
-    "A05": [0, 6, 7],
-    "A06": [],
-    "A07": [1, 6],
-    "A08": [3, 5],
-    "A09": [0, 4, 7],
-    "A10": [],
-}
-
-
-def map_architecture(all_findings):
-    result = []
-    for i, domain in enumerate(ARCH_DOMAINS):
-        matching = []
-        for f in all_findings:
-            text = f"{f['check']} {f['title']} {f['message']}".lower()
-            if any(kw in text for kw in domain["checks"]):
-                matching.append(f)
-        links = (
-            ARCH_DOMAIN_LINKS[i]
-            if i < len(ARCH_DOMAIN_LINKS)
-            else {"owasp": [], "compliance": [], "scanner": []}
-        )
-        result.append(
-            {
-                **domain,
-                "fail_count": len(matching),
-                "findings": matching[:10],
-                "links": links,
-            }
-        )
-    return result
-
-
-# ── Environment Status ───────────────────────────────────────────────────────
-
-
-def get_env_status():
-    envs = []
-    items = [
-        (
-            "🐙",
-            "GitHub",
-            "CLAUDESEC_ENV_GITHUB_CONNECTED",
-            "github",
-            "GH_TOKEN/GITHUB_TOKEN or gh auth login",
-        ),
-        (
-            "☸",
-            "Kubernetes",
-            "CLAUDESEC_ENV_K8S_CONNECTED",
-            "k8s",
-            "kubeconfig/kubecontext",
-        ),
-        ("☁", "AWS", "CLAUDESEC_ENV_AWS_CONNECTED", "aws", "--aws-profile"),
-        ("◈", "GCP", "CLAUDESEC_ENV_GCP_CONNECTED", "gcp", "gcloud auth login"),
-        ("◇", "Azure", "CLAUDESEC_ENV_AZ_CONNECTED", "azure", "az login"),
-        (
-            "📧",
-            "Microsoft 365",
-            "CLAUDESEC_ENV_M365_CONNECTED",
-            "m365",
-            "AZURE_CLIENT_ID/TENANT_ID/CLIENT_SECRET",
-        ),
-        (
-            "🔐",
-            "Okta",
-            "CLAUDESEC_ENV_OKTA_CONNECTED",
-            "okta",
-            "OKTA_OAUTH_TOKEN or OKTA_API_TOKEN",
-        ),
-        (
-            "🏢",
-            "Google Workspace",
-            "CLAUDESEC_ENV_GWS_CONNECTED",
-            "gws",
-            "GOOGLE_WORKSPACE_CUSTOMER_ID",
-        ),
-        (
-            "🌐",
-            "Cloudflare",
-            "CLAUDESEC_ENV_CF_CONNECTED",
-            "cloudflare",
-            "CLOUDFLARE_API_TOKEN",
-        ),
-        (
-            "☁",
-            "NHN Cloud",
-            "CLAUDESEC_ENV_NHN_CONNECTED",
-            "nhn",
-            "NHN_API_URL/OS_AUTH_URL",
-        ),
-        (
-            "🤖",
-            "LLM",
-            "CLAUDESEC_ENV_LLM_CONNECTED",
-            "llm",
-            "OPENAI_API_KEY/ANTHROPIC_API_KEY",
-        ),
-        (
-            "📊",
-            "Datadog",
-            "CLAUDESEC_ENV_DATADOG_CONNECTED",
-            "datadog",
-            "DD_API_KEY/DD_APP_KEY",
-        ),
-    ]
-    for icon, name, env_var, setup_id, hint in items:
-        connected = os.environ.get(env_var, "false") == "true"
-        envs.append(
-            {
-                "icon": icon,
-                "name": name,
-                "connected": connected,
-                "setup_id": setup_id,
-                "hint": hint,
-            }
-        )
-    return envs
-
-
-def _parse_expiry_datetime(raw_value):
-    if raw_value is None:
-        return None
-    raw = str(raw_value).strip()
-    if not raw:
-        return None
-    try:
-        if raw.isdigit():
-            return datetime.fromtimestamp(int(raw), timezone.utc)
-    except Exception:
-        pass
-    try:
-        norm = raw.replace("Z", "+00:00")
-        parsed = datetime.fromisoformat(norm)
-        if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
-    except Exception:
-        return None
-
-
-def _jwt_expiry_datetime(token_value):
-    token = (token_value or "").strip()
-    parts = token.split(".")
-    if len(parts) < 2:
-        return None
-    payload_b64 = parts[1]
-    payload_b64 += "=" * ((4 - len(payload_b64) % 4) % 4)
-    try:
-        payload_json = base64.urlsafe_b64decode(payload_b64.encode("ascii")).decode(
-            "utf-8"
-        )
-        payload = json.loads(payload_json)
-    except Exception:
-        return None
-    exp = payload.get("exp")
-    try:
-        if exp is None:
-            return None
-        return datetime.fromtimestamp(int(exp), timezone.utc)
-    except Exception:
-        return None
-
-
-def _collect_token_expiry_items():
-    candidates = [
-        (
-            "Okta OAuth",
-            os.environ.get("OKTA_OAUTH_TOKEN_EXPIRES_AT", ""),
-            os.environ.get("OKTA_OAUTH_TOKEN", ""),
-        ),
-        (
-            "GitHub",
-            os.environ.get("GITHUB_TOKEN_EXPIRES_AT", "")
-            or os.environ.get("GH_TOKEN_EXPIRES_AT", ""),
-            "",
-        ),
-    ]
-    out = []
-    for provider, explicit_raw, token in candidates:
-        expiry = _parse_expiry_datetime(explicit_raw)
-        source = "env"
-        if expiry is None and token:
-            expiry = _jwt_expiry_datetime(token)
-            source = "jwt"
-        if expiry is None:
-            continue
-        out.append({"provider": provider, "expiry": expiry, "source": source})
-    return out
-
-
-def _parse_duration_seconds(raw_value, default_seconds, default_unit):
-    raw = (raw_value or "").strip().lower()
-    if not raw:
-        return default_seconds, "default"
-    unit_map = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-    if raw[-1:] in unit_map:
-        num = raw[:-1]
-        if num.isdigit() and int(num) > 0:
-            return int(num) * unit_map[raw[-1]], "env"
-        return default_seconds, "default"
-    if raw.isdigit() and int(raw) > 0:
-        factor = 3600 if default_unit == "h" else 86400
-        return int(raw) * factor, "env"
-    return default_seconds, "default"
-
-
-def _duration_label(seconds):
-    if seconds % 86400 == 0:
-        return f"{seconds // 86400}d"
-    if seconds % 3600 == 0:
-        return f"{seconds // 3600}h"
-    return f"{seconds // 60}m"
-
-
-def _load_saas_sso_stats():
-    """Load SaaS SSO stats from .claudesec-assets/dashboard-data.json if available."""
-    scan_dir = os.environ.get("SCAN_DIR", ".")
-    data_path = os.path.join(scan_dir, ".claudesec-assets", "dashboard-data.json")
-    try:
-        with open(data_path, encoding="utf-8") as f:
-            data = json.load(f)
-        saas = data.get("saas", [])
-        if not saas:
-            return None
-        sso_keywords = ("sso", "okta", "saml")
-        sso_count = sum(
-            1
-            for s in saas
-            if any(k in (s.get("auth", "") or "").lower() for k in sso_keywords)
-        )
-        total = len(saas)
-        pct = round(sso_count / total * 100) if total else 0
-        non_sso = total - sso_count
-        return {
-            "sso_count": sso_count,
-            "total": total,
-            "pct": pct,
-            "non_sso": non_sso,
-        }
-    except (FileNotFoundError, json.JSONDecodeError, KeyError):
-        return None
-
-
-def build_auth_summary_html(envs, findings_list):
-    """Build Auth & SSO posture card with dynamic SaaS data."""
-    auth_finding_count = 0
-    auth_keywords = ("auth", "oauth", "token", "session", "mfa", "login", "sso", "jwt")
-    for f in findings_list or []:
-        text = (
-            str(f.get("id", ""))
-            + " "
-            + str(f.get("title", ""))
-            + " "
-            + str(f.get("details", ""))
-        ).lower()
-        if any(k in text for k in auth_keywords):
-            auth_finding_count += 1
-
-    # Dynamic SSO stats from asset data
-    stats = _load_saas_sso_stats()
-    sso_count = stats["sso_count"] if stats else 0
-    sso_total = stats["total"] if stats else 0
-    sso_pct = stats["pct"] if stats else 0
-    non_sso = stats["non_sso"] if stats else 0
-    sso_label = f"{sso_count}/{sso_total}" if stats else "N/A"
-    pct_label = f"{sso_pct}%" if stats else "N/A"
-
-    practices = [
-        {
-            "title": "Use Authorization Code + PKCE for OAuth clients",
-            "detail": "Avoid implicit/password grants, and enforce PKCE (S256) for browser-based and public clients.",
-            "source_label": "RFC 9700",
-            "source_url": "https://datatracker.ietf.org/doc/html/rfc9700",
-        },
-        {
-            "title": "Enforce MFA for privileged identities",
-            "detail": "Require phishing-resistant MFA for admin or security-sensitive scan integrations.",
-            "source_label": "CIS Controls",
-            "source_url": "https://www.cisecurity.org/controls",
-        },
-    ]
-
-    practices_html = ""
-    for item in practices:
-        practices_html += (
-            '<li style="margin:.45rem 0">'
-            + f"<strong>{h(item['title'])}</strong><br>"
-            + f'<span style="color:var(--muted)">{h(item["detail"])}</span> '
-            + f'<a href="{h(item["source_url"])}" target="_blank" rel="noopener" class="ref-link" style="margin-top:0">{h(item["source_label"])}</a>'
-            + "</li>"
-        )
-
-    sso_pill_class = "sp-pass" if sso_pct >= 70 else ("sp-warn" if sso_pct >= 50 else "sp-fail")
-    policy_text = (
-        f"MFA enforced &middot; SSO coverage {pct_label} &middot; Remaining {non_sso} SaaS apps require direct credential review"
-        if stats
-        else "Run asset collection to populate SSO coverage data"
-    )
-
-    return (
-        '<div class="card">'
-        '<div class="card-title">Authentication &amp; SSO posture</div>'
-        '<div style="padding:1rem 1.25rem">'
-        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.75rem;margin-bottom:1rem">'
-        + f'<div class="stat-pill {sso_pill_class}" style="margin:0"><div class="sp-icon">&#x1f512;</div><div><div class="sp-num">{sso_label}</div><div class="sp-label">SaaS via Okta SSO</div></div></div>'
-        + f'<div class="stat-pill sp-info" style="margin:0"><div class="sp-icon">&#x1f4c8;</div><div><div class="sp-num">{pct_label}</div><div class="sp-label">SSO coverage</div></div></div>'
-        + f'<div class="stat-pill {("sp-warn" if auth_finding_count > 0 else "sp-info")}" style="margin:0"><div class="sp-icon">&#x1f9ea;</div><div><div class="sp-num">{auth_finding_count}</div><div class="sp-label">Auth-related findings</div></div></div>'
-        + "</div>"
-        + f'<div style="margin-bottom:.75rem"><strong>Connected providers</strong>'
-        + '<div style="margin-top:.4rem">'
-        + f'<span class="trust-badge trust-ms" style="margin:0 .35rem .35rem 0">Okta SSO ({sso_label} SaaS)</span>'
-        + '<span class="trust-badge trust-ms" style="margin:0 .35rem .35rem 0">Google (via SSO)</span>'
-        + '<span class="trust-badge trust-ms" style="margin:0 .35rem .35rem 0">Zscaler ZIA/ZPA</span>'
-        + "</div></div>"
-        + '<div style="margin-bottom:.75rem"><strong>Policy</strong>'
-        + f'<div style="margin-top:.4rem;color:var(--muted)">{policy_text}</div>'
-        + "</div>"
-        + '<div><strong>Best-practice improvements</strong><ul style="margin:.5rem 0 0 1.1rem">'
-        + practices_html
-        + "</ul></div>"
-        + "</div></div>"
-    )
+from typing import Any
+
+# Ensure sibling modules are importable when loaded via importlib
+_LIB_DIR = os.path.dirname(os.path.abspath(__file__))
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+# ── Module imports (extracted from monolithic dashboard-gen.py) ──────────────
+from dashboard_utils import (  # noqa: F401
+    VERSION,
+    AUDIT_POINTS_REPO, AUDIT_POINTS_CACHE_TTL_HOURS,
+    CLAUDESEC_DASHBOARD_OFFLINE_ENV,
+    MS_BEST_PRACTICES_CACHE_TTL_HOURS, MS_INCLUDE_SCUBAGEAR_ENV,
+    MS_SOURCE_FILTER_ENV,
+    TRUST_LEVEL_ORDER, TRUST_LEVEL_FILTER_MAP, TRUST_FILTER_TOKEN_ORDER,
+    _ALLOWED_FETCH_HOSTS, SEV_ORDER,
+    AuditPointFile, AuditPointProduct, AuditPointsData,
+    TrivySummary, TrivyVuln,
+    NmapHost, NmapScan, SSLScanResult, NetworkToolResult,
+    DatadogLogEntry, DatadogSummary, DatadogSeveritySummary, DatadogLogsData,
+    GitHubContentItem, RepoFocusFile, RepoFocusData,
+    MicrosoftBestPracticeSource, MicrosoftBestPracticesData,
+    h, _is_env_truthy, _is_best_practice_file,
+    _resolve_source_filter, _normalized_source_filter, _trust_token_from_level,
+    comp_slug, sev_badge,
+)
+
+from dashboard_mapping import (  # noqa: F401
+    CHECK_EN_MAP, DEFAULT_SUMMARY, DEFAULT_ACTION, get_check_en,
+    OWASP_2025, OWASP_CHECK_MAP, OWASP_LLM_2025, map_findings_to_owasp,
+    COMPLIANCE_FRAMEWORKS, COMPLIANCE_CONTROL_MAP,
+    map_compliance, _match_prowler_compliance,
+    ARCH_DOMAINS, ARCH_DOMAIN_LINKS, OWASP_TO_ARCH, map_architecture,
+    CATEGORY_META,
+)
+
+from dashboard_api_client import (  # noqa: F401
+    MS_BEST_PRACTICES_REPO_SOURCES, SAAS_BEST_PRACTICES_SOURCES,
+    SAAS_BEST_PRACTICES_CACHE_TTL_HOURS,
+    _github_api_json, _fetch_audit_points_from_github,
+    _fetch_repo_focus_files,
+    _fetch_microsoft_best_practices_from_github,
+    _fetch_saas_best_practices_from_github,
+    _fetch_markdown_preview,
+)
+
+from dashboard_data_loader import (  # noqa: F401
+    load_scan_results, load_prowler_files, load_scan_history,
+    load_audit_points_detected, load_audit_points,
+    load_microsoft_best_practices, load_saas_best_practices,
+    load_network_tool_results, load_datadog_logs,
+    analyze_prowler, _parse_ocsf_json, _normalize_provider,
+    github_findings, aws_findings, gcp_findings, gws_findings,
+    k8s_findings, azure_findings, m365_findings, iac_findings,
+    get_env_status,
+)
+
+from dashboard_auth import (  # noqa: F401
+    build_auth_summary_html,
+    _parse_expiry_datetime, _jwt_expiry_datetime,
+    _collect_token_expiry_items,
+    _parse_duration_seconds, _duration_label,
+    _load_saas_sso_stats,
+)
 
 
 # ── HTML Generation ──────────────────────────────────────────────────────────
-
-
-def h(s):
-    return (
-        str(s)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
-
-
-def _fetch_markdown_preview(raw_url: str, max_chars: int = 1200, max_lines: int = 20) -> str:
-    """
-    Fetch a small markdown preview for an Audit Points checklist file.
-    Returns sanitized HTML with light formatting for headings and bullet items.
-    Network failures are silently ignored; caller should handle empty string.
-    """
-    if not raw_url or _is_env_truthy(CLAUDESEC_DASHBOARD_OFFLINE_ENV):
-        return ""
-    try:
-        req = urllib.request.Request(
-            raw_url,
-            headers={"Accept": "application/vnd.github.v3.raw"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:  # nosemgrep: dynamic-urllib-use-detected
-            text = resp.read().decode("utf-8", "ignore")
-    except Exception:
-        return ""
-    lines: list[str] = []
-    total = 0
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        lines.append(line.rstrip())
-        total += len(line)
-        if len(lines) >= max_lines or total >= max_chars:
-            break
-    if not lines:
-        return ""
-    parts: list[str] = []
-    for ln in lines:
-        stripped = ln.lstrip()
-        if stripped.startswith(("# ", "## ", "### ")):
-            parts.append(
-                f'<div class="bp-audit-heading">{h(stripped.lstrip("# ").strip())}</div>'
-            )
-        elif stripped.startswith(("- [ ]", "- [x]", "- [X]")):
-            split = stripped.split("]", 1)
-            label = split[1].strip() if len(split) > 1 else ""
-            parts.append(f'<div class="bp-audit-item">• {h(label)}</div>')
-        elif stripped.startswith("- "):
-            parts.append(
-                f'<div class="bp-audit-item">• {h(stripped[2:].strip())}</div>'
-            )
-        else:
-            parts.append(f'<div class="bp-audit-text">{h(stripped)}</div>')
-    return '<div class="bp-audit-preview">' + "".join(parts) + "</div>"
-
-
-def comp_slug(fw):
-    return (
-        "comp-"
-        + "".join(
-            c for c in fw.replace(" ", "-").replace(":", "") if c.isalnum() or c == "-"
-        ).lower()[:25]
-    )
-
-
-def sev_badge(sev):
-    s = sev.lower()
-    cls = {
-        "critical": "critical",
-        "high": "high",
-        "medium": "medium",
-        "warning": "warning",
-        "low": "low",
-        "informational": "info",
-    }.get(s, "info")
-    label = {
-        "critical": "Critical",
-        "high": "High",
-        "medium": "Medium",
-        "warning": "Warning",
-        "low": "Low",
-        "informational": "Info",
-    }.get(s, s)
-    return f'<span class="badge {cls}">{label}</span>'
-
-
-# Scanner category metadata (used by _build_scanner_section)
-CATEGORY_META = {
-    "access-control": {
-        "icon": "🔑",
-        "label": "Access control & IAM",
-        "desc": "Checks for secret exposure, .env handling, auth tokens, cookie security.",
-    },
-    "infra": {
-        "icon": "🏗️",
-        "label": "Infrastructure",
-        "desc": "Docker, Kubernetes, IaC security configuration.",
-    },
-    "network": {
-        "icon": "🌐",
-        "label": "Network security",
-        "desc": "TLS/SSL, certificates, cipher suites.",
-    },
-    "cicd": {
-        "icon": "⚙️",
-        "label": "CI/CD pipeline",
-        "desc": "GitHub Actions workflow permissions, secret exposure, dependency review.",
-    },
-    "code": {
-        "icon": "💻",
-        "label": "Code (SAST)",
-        "desc": "Injection, XSS, hardcoded secrets and other code flaws.",
-    },
-    "ai": {
-        "icon": "🤖",
-        "label": "AI / LLM security",
-        "desc": "Prompt injection, model config, API key protection.",
-    },
-    "cloud": {
-        "icon": "☁️",
-        "label": "Cloud (AWS/GCP/Azure)",
-        "desc": "Cloud infra config, IAM policies, storage access.",
-    },
-    "macos": {
-        "icon": "🍎",
-        "label": "macOS / CIS benchmark",
-        "desc": "FileVault, firewall, SIP, Gatekeeper per CIS.",
-    },
-    "saas": {
-        "icon": "🔌",
-        "label": "SaaS & solutions",
-        "desc": "GitHub, Vercel, ArgoCD, Sentry and other SaaS security.",
-    },
-    "windows": {
-        "icon": "🪟",
-        "label": "Windows (KISA)",
-        "desc": "Windows security policy and settings per KISA.",
-    },
-    "prowler": {
-        "icon": "🔍",
-        "label": "Prowler deep scan",
-        "desc": "Prowler multi-cloud security scan results.",
-    },
-    "other": {"icon": "📋", "label": "Other", "desc": "Uncategorized security checks."},
-}
-SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "warning": 3, "low": 4}
-
 
 def _infer_category(fid):
     prefix = fid.split("-")[0].upper() if "-" in fid else fid.upper()
@@ -3279,20 +310,54 @@ def _build_scanner_section(findings_list):
     return scanner_rows, scanner_cat_summary, scanner_insights_html
 
 
-def _build_overview_blocks(
-    prov_summary,
-    all_findings,
-    envs,
-    net_data,
-    datadog_data,
-    passed,
-    total_prowler_pass,
-    warnings,
-    findings_list=None,
-):
-    findings_list = findings_list or []
-    datadog_data = datadog_data or {}
-    net_data = net_data or {}
+# ── Helper functions extracted from _build_overview_blocks ─────────────────
+
+
+def _redact_target(value: str) -> str:
+    show = os.environ.get("CLAUDESEC_DASHBOARD_SHOW_IDENTIFIERS", "0") == "1"
+    v = (value or "").strip()
+    if show or not v:
+        return v
+    h10 = hashlib.sha256(v.encode("utf-8")).hexdigest()[:10]
+    return f"target-{h10}"
+
+
+def _rel_link(path: str, label: str | None = None) -> str:
+    # Keep links relative so they work under `python -m http.server` and file://.
+    p = (path or "").lstrip("/")
+    text = label or p
+    return f'<a href="{h(p)}" class="mono" style="color:var(--accent);text-decoration:underline">{h(text)}</a>'
+
+
+def _has_cmd(cmd: str) -> bool:
+    try:
+        return shutil.which(cmd) is not None
+    except Exception:
+        return False
+
+
+def _cmd_pill(name: str, present: bool, note: str = "") -> str:
+    cls = "env-on" if present else "env-off"
+    dot = (
+        '<span class="ep-st on">●</span>'
+        if present
+        else '<span class="ep-st off">○</span>'
+    )
+    note_html = (
+        f'<div style="margin-top:.2rem;color:var(--muted);font-size:.72rem">{h(note)}</div>'
+        if note
+        else ""
+    )
+    return (
+        f'<div class="env-pill {cls}" style="display:block">'
+        f'<div style="display:flex;align-items:center;gap:.4rem">'
+        f'<span class="ep-name">{h(name)}</span>{dot}'
+        f"</div>{note_html}</div>"
+    )
+
+
+def _compute_severity_counts(prov_summary, findings_list):
+    """Compute severity counts from provider summary and scanner findings."""
     n_crit = sum(v["critical"] for v in prov_summary.values())
     n_high = sum(v["high"] for v in prov_summary.values())
     n_med = sum(v["medium"] for v in prov_summary.values())
@@ -3313,6 +378,18 @@ def _build_overview_blocks(
             n_med += 1
         elif sev == "low":
             n_low += 1
+    return {
+        "n_crit": n_crit,
+        "n_high": n_high,
+        "n_med": n_med,
+        "n_low": n_low,
+        "n_info": n_info,
+        "policy_022_top": policy_022_top,
+    }
+
+
+def _build_provider_cards(prov_summary):
+    """Build provider card HTML snippets."""
     prov_cards = ""
     prov_icons = {
         "aws": "☁",
@@ -3355,12 +432,23 @@ def _build_overview_blocks(
         if pdata["medium"] > 0:
             prov_cards += f'<span class="pcs-med">{pdata["medium"]}M</span>'
         prov_cards += "</div></div>"
+    return prov_cards
+
+
+def _compute_severity_bars(n_crit, n_high, n_med, n_low, warnings):
+    """Compute severity bar percentages."""
     sev_total = max(n_crit + n_high + n_med + n_low + warnings, 1)
-    bar_crit = round(n_crit / sev_total * 100, 1)
-    bar_high = round(n_high / sev_total * 100, 1)
-    bar_med = round(n_med / sev_total * 100, 1)
-    bar_warn = round(warnings / sev_total * 100, 1)
-    bar_low = round(n_low / sev_total * 100, 1)
+    return {
+        "bar_crit": round(n_crit / sev_total * 100, 1),
+        "bar_high": round(n_high / sev_total * 100, 1),
+        "bar_med": round(n_med / sev_total * 100, 1),
+        "bar_warn": round(warnings / sev_total * 100, 1),
+        "bar_low": round(n_low / sev_total * 100, 1),
+    }
+
+
+def _build_top_findings(findings_list, all_findings):
+    """Build top findings HTML from scanner and Prowler findings."""
     # Top findings: merge scanner critical/high with Prowler; group by (severity, check, provider) and sort by severity then count
     top_findings_html = ""
     grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -3433,86 +521,42 @@ def _build_overview_blocks(
         top_findings_html += f'<div class="top-finding" onclick="{tab_click}"><div class="tf-badge">{sev_badge(severity_text)}</div><div class="tf-body"><div class="tf-check"><code>{h(check_text)}</code><span class="tf-prov">{h(provider_text.upper())}</span>{cnt_html}</div><div class="tf-msg">{h(message_text[:150])}</div>{res_html}{action_html}</div></div>'
     if not top_findings_html:
         top_findings_html = '<div class="top-finding" style="border-color:var(--border)"><div class="tf-body" style="color:var(--muted);font-size:.9rem">No critical or high findings from the scanner or Prowler in this scan. Check the Scanner and Prowler CSPM tabs for full results.</div></div>'
-    env_connected = sum(1 for e in envs if e["connected"])
-    env_total = len(envs)
-    ts = net_data["trivy_summary"]
-    trivy_total = ts["critical"] + ts["high"] + ts["medium"] + ts["low"]
-    dd_total = datadog_data["summary"].get("total", 0)
-    dd_signal_total = datadog_data["signal_summary"].get("total", 0)
-    dd_case_total = datadog_data["case_summary"].get("total", 0)
-    network_total = trivy_total + dd_total
-    network_total += dd_signal_total + dd_case_total
-    has_network_artifacts = bool(net_data["nmap_scans"] or net_data["sslscan_results"])
-    network_tools_badge = (
-        str(network_total) if network_total else ("✓" if has_network_artifacts else "—")
-    )
-    network_tools_html = ""
+    return top_findings_html
 
-    def _redact_target(value: str) -> str:
-        show = os.environ.get("CLAUDESEC_DASHBOARD_SHOW_IDENTIFIERS", "0") == "1"
-        v = (value or "").strip()
-        if show or not v:
-            return v
-        h10 = hashlib.sha256(v.encode("utf-8")).hexdigest()[:10]
-        return f"target-{h10}"
 
-    def _rel_link(path: str, label: str | None = None) -> str:
-        # Keep links relative so they work under `python -m http.server` and file://.
-        p = (path or "").lstrip("/")
-        text = label or p
-        return f'<a href="{h(p)}" class="mono" style="color:var(--accent);text-decoration:underline">{h(text)}</a>'
-
-    def _has_cmd(cmd: str) -> bool:
-        try:
-            return shutil.which(cmd) is not None
-        except Exception:
-            return False
-
-    def _cmd_pill(name: str, present: bool, note: str = "") -> str:
-        cls = "env-on" if present else "env-off"
-        dot = (
-            '<span class="ep-st on">●</span>'
-            if present
-            else '<span class="ep-st off">○</span>'
-        )
-        note_html = (
-            f'<div style="margin-top:.2rem;color:var(--muted);font-size:.72rem">{h(note)}</div>'
-            if note
-            else ""
-        )
-        return (
-            f'<div class="env-pill {cls}" style="display:block">'
-            f'<div style="display:flex;align-items:center;gap:.4rem">'
-            f'<span class="ep-name">{h(name)}</span>{dot}'
-            f"</div>{note_html}</div>"
-        )
-
-    # Always show a "cockpit" card so this tab is useful even without artifacts.
+def _build_network_config_section():
+    """Build the network configuration cockpit card."""
+    html = ""
     net_enabled = os.environ.get("CLAUDESEC_NETWORK_SCAN_ENABLED", "0")
     net_targets = os.environ.get("CLAUDESEC_NETWORK_SCAN_TARGETS", "")
     trivy_enabled = os.environ.get("CLAUDESEC_TRIVY_ENABLED", "1")
-    network_tools_html += '<div class="card"><div class="card-title">Network &amp; Security — Configuration</div><div style="padding:1rem 1.25rem">'
-    network_tools_html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;margin-bottom:.9rem">'
-    network_tools_html += f'<div class="ssb-item"><strong>network_scan_enabled</strong><div class="mono" style="margin-top:.25rem">{h(net_enabled)}</div></div>'
-    network_tools_html += f'<div class="ssb-item"><strong>network_scan_targets</strong><div class="mono" style="margin-top:.25rem;word-break:break-all">{h(net_targets or "(empty)")}</div></div>'
-    network_tools_html += f'<div class="ssb-item"><strong>trivy_enabled</strong><div class="mono" style="margin-top:.25rem">{h(trivy_enabled)}</div></div>'
-    network_tools_html += "</div>"
-    network_tools_html += (
+    html += '<div class="card"><div class="card-title">Network &amp; Security — Configuration</div><div style="padding:1rem 1.25rem">'
+    html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;margin-bottom:.9rem">'
+    html += f'<div class="ssb-item"><strong>network_scan_enabled</strong><div class="mono" style="margin-top:.25rem">{h(net_enabled)}</div></div>'
+    html += f'<div class="ssb-item"><strong>network_scan_targets</strong><div class="mono" style="margin-top:.25rem;word-break:break-all">{h(net_targets or "(empty)")}</div></div>'
+    html += f'<div class="ssb-item"><strong>trivy_enabled</strong><div class="mono" style="margin-top:.25rem">{h(trivy_enabled)}</div></div>'
+    html += "</div>"
+    html += (
         '<div style="color:var(--muted);font-size:.82rem;line-height:1.6">'
     )
-    network_tools_html += "<div><strong>Enable network scanning</strong></div>"
-    network_tools_html += '<div class="mono" style="margin-top:.35rem;white-space:pre-wrap;border:1px solid var(--border);border-radius:10px;padding:.75rem;background:rgba(255,255,255,.02)">'
-    network_tools_html += "# Add to .claudesec.yml or export as environment variables\n"
-    network_tools_html += "export CLAUDESEC_NETWORK_SCAN_ENABLED=1\n"
-    network_tools_html += (
+    html += "<div><strong>Enable network scanning</strong></div>"
+    html += '<div class="mono" style="margin-top:.35rem;white-space:pre-wrap;border:1px solid var(--border);border-radius:10px;padding:.75rem;background:rgba(255,255,255,.02)">'
+    html += "# Add to .claudesec.yml or export as environment variables\n"
+    html += "export CLAUDESEC_NETWORK_SCAN_ENABLED=1\n"
+    html += (
         'export CLAUDESEC_NETWORK_SCAN_TARGETS="your-domain.com:443"\n'
     )
-    network_tools_html += "./run --quick    # or ./run-all.sh\n"
-    network_tools_html += "</div>"
-    network_tools_html += '<div style="margin-top:.6rem">Results are saved to <code>.claudesec-network/</code>. Targets are redacted by default.</div>'
-    network_tools_html += "</div>"
-    network_tools_html += "</div></div>"
+    html += "./run --quick    # or ./run-all.sh\n"
+    html += "</div>"
+    html += '<div style="margin-top:.6rem">Results are saved to <code>.claudesec-network/</code>. Targets are redacted by default.</div>'
+    html += "</div>"
+    html += "</div></div>"
+    return html, net_enabled, net_targets, trivy_enabled
 
+
+def _build_tooling_readiness_section(net_data, net_enabled, net_targets, trivy_enabled):
+    """Build tooling detection, guidance, and install commands card."""
+    html = ""
     # Tooling detection + guidance (why empty / how to fill).
     has_targets = bool((net_targets or "").strip())
     is_net_enabled = str(net_enabled).strip() in ("1", "true", "yes", "on")
@@ -3525,22 +569,22 @@ def _build_overview_blocks(
     has_curl = _has_cmd("curl")
     has_python = _has_cmd("python3")
 
-    network_tools_html += '<div class="card"><div class="card-title">Tooling readiness (auto-detected)</div><div style="padding:1rem 1.25rem">'
-    network_tools_html += '<div class="env-grid" style="padding:0">'
-    network_tools_html += _cmd_pill(
+    html += '<div class="card"><div class="card-title">Tooling readiness (auto-detected)</div><div style="padding:1rem 1.25rem">'
+    html += '<div class="env-grid" style="padding:0">'
+    html += _cmd_pill(
         "python3", has_python, "required for normalization + dashboard"
     )
-    network_tools_html += _cmd_pill("curl", has_curl, "required for HTTP header scan")
-    network_tools_html += _cmd_pill(
+    html += _cmd_pill("curl", has_curl, "required for HTTP header scan")
+    html += _cmd_pill(
         "trivy", has_trivy, "filesystem/config scan (.claudesec-network/trivy-*.json)"
     )
-    network_tools_html += _cmd_pill(
+    html += _cmd_pill(
         "nmap", has_nmap, "optional port scan (when enabled + targets set)"
     )
-    network_tools_html += _cmd_pill(
+    html += _cmd_pill(
         "sslscan", has_sslscan, "optional TLS scan (when enabled + targets set)"
     )
-    network_tools_html += "</div>"
+    html += "</div>"
 
     # Why sections are empty (explain with concrete next steps).
     missing_notes: list[str] = []
@@ -3592,30 +636,35 @@ def _build_overview_blocks(
         )
 
     if missing_notes:
-        network_tools_html += '<div style="margin-top:.85rem;border-top:1px solid var(--border);padding-top:.85rem">'
-        network_tools_html += (
+        html += '<div style="margin-top:.85rem;border-top:1px solid var(--border);padding-top:.85rem">'
+        html += (
             '<div style="font-weight:800;margin-bottom:.35rem">Next steps</div>'
         )
-        network_tools_html += (
+        html += (
             '<ul style="margin-left:1.1rem;color:var(--muted);line-height:1.7">'
         )
         for m in missing_notes[:8]:
-            network_tools_html += f"<li>{h(m)}</li>"
-        network_tools_html += "</ul>"
-        network_tools_html += "</div>"
+            html += f"<li>{h(m)}</li>"
+        html += "</ul>"
+        html += "</div>"
 
-    network_tools_html += '<div style="margin-top:.9rem;border-top:1px solid var(--border);padding-top:.85rem">'
-    network_tools_html += '<div style="font-weight:800;margin-bottom:.35rem">Recommended install commands</div>'
-    network_tools_html += '<div class="mono" style="white-space:pre-wrap;border:1px solid var(--border);border-radius:10px;padding:.75rem;background:rgba(255,255,255,.02)">'
-    network_tools_html += "# macOS (Homebrew)\n"
-    network_tools_html += "brew install curl nmap sslscan\n"
-    network_tools_html += "brew install aquasecurity/trivy/trivy\n"
-    network_tools_html += "</div>"
-    network_tools_html += '<div style="margin-top:.5rem;color:var(--muted);font-size:.78rem;line-height:1.6">'
-    network_tools_html += "Tip: in CI, prefer pinned tool versions and run with least privilege. Only scan explicitly configured external targets."
-    network_tools_html += "</div></div>"
-    network_tools_html += "</div></div>"
+    html += '<div style="margin-top:.9rem;border-top:1px solid var(--border);padding-top:.85rem">'
+    html += '<div style="font-weight:800;margin-bottom:.35rem">Recommended install commands</div>'
+    html += '<div class="mono" style="white-space:pre-wrap;border:1px solid var(--border);border-radius:10px;padding:.75rem;background:rgba(255,255,255,.02)">'
+    html += "# macOS (Homebrew)\n"
+    html += "brew install curl nmap sslscan\n"
+    html += "brew install aquasecurity/trivy/trivy\n"
+    html += "</div>"
+    html += '<div style="margin-top:.5rem;color:var(--muted);font-size:.78rem;line-height:1.6">'
+    html += "Tip: in CI, prefer pinned tool versions and run with least privilege. Only scan explicitly configured external targets."
+    html += "</div></div>"
+    html += "</div></div>"
+    return html
 
+
+def _build_artifact_links_section():
+    """Build artifact quick links card."""
+    html = ""
     # Artifact links (best-effort)
     artifacts = [
         ".claudesec-network/network-report.v1.json",
@@ -3633,18 +682,23 @@ def _build_overview_blocks(
         except Exception:
             pass
     if existing:
-        network_tools_html += '<div class="card"><div class="card-title">Artifacts (quick links)</div><div style="padding:1rem 1.25rem">'
-        network_tools_html += '<ul style="margin-left:1.2rem;line-height:1.7">'
+        html += '<div class="card"><div class="card-title">Artifacts (quick links)</div><div style="padding:1rem 1.25rem">'
+        html += '<ul style="margin-left:1.2rem;line-height:1.7">'
         for rel in existing:
-            network_tools_html += f"<li>{_rel_link(rel)}</li>"
-        network_tools_html += "</ul></div></div>"
+            html += f"<li>{_rel_link(rel)}</li>"
+        html += "</ul></div></div>"
+    return html
 
+
+def _build_target_posture_table(net_data):
+    """Build the target posture (HTTP/TLS/DNS summary) table."""
+    html = ""
     # Target posture table from normalized network report (preferred)
     report = net_data.get("network_report")
     targets = report.get("targets", []) if isinstance(report, dict) else []
     if isinstance(targets, list) and targets:
-        network_tools_html += '<div class="card"><div class="card-title">Target posture (HTTP/TLS/DNS summary)</div><div style="max-height:60vh;overflow-y:auto">'
-        network_tools_html += '<table><thead><tr><th style="width:170px">Target</th><th style="width:70px">DNS</th><th style="width:70px">TLS</th><th style="width:70px">HTTP</th><th style="width:80px">HSTS</th><th style="width:110px">CSP</th><th class="r" style="width:90px">Header issues</th></tr></thead><tbody>'
+        html += '<div class="card"><div class="card-title">Target posture (HTTP/TLS/DNS summary)</div><div style="max-height:60vh;overflow-y:auto">'
+        html += '<table><thead><tr><th style="width:170px">Target</th><th style="width:70px">DNS</th><th style="width:70px">TLS</th><th style="width:70px">HTTP</th><th style="width:80px">HSTS</th><th style="width:110px">CSP</th><th class="r" style="width:90px">Header issues</th></tr></thead><tbody>'
         for t in targets[:50]:
             if not isinstance(t, dict):
                 continue
@@ -3701,18 +755,24 @@ def _build_overview_blocks(
 
             onclick = ' onclick="toggleRow(this)"' if detail else ""
             row_cls = ' class="expandable"' if detail else ""
-            network_tools_html += f'<tr{row_cls}{onclick}><td class="mono">{h(label)}</td><td>{dns_cnt}</td><td class="mono">{h(tls_grade)}</td><td class="mono">{h(str(http_status))}</td><td class="mono">{h(hsts_txt)}</td><td class="mono">{h(csp_q)}</td><td class="r">{issue_cnt}</td></tr>'
+            html += f'<tr{row_cls}{onclick}><td class="mono">{h(label)}</td><td>{dns_cnt}</td><td class="mono">{h(tls_grade)}</td><td class="mono">{h(str(http_status))}</td><td class="mono">{h(hsts_txt)}</td><td class="mono">{h(csp_q)}</td><td class="r">{issue_cnt}</td></tr>'
             if detail:
-                network_tools_html += f'<tr class="row-detail"><td colspan="7"><div class="detail-panel">{detail}</div></td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
+                html += f'<tr class="row-detail"><td colspan="7"><div class="detail-panel">{detail}</div></td></tr>'
+        html += "</tbody></table></div></div>"
+    return html
+
+
+def _build_trivy_section(net_data, ts):
+    """Build Trivy, Nmap, and SSL/TLS scan cards."""
+    html = ""
     if (
         net_data["trivy_fs"] is not None
         or net_data["nmap_scans"]
         or net_data["sslscan_results"]
     ):
-        network_tools_html += '<div class="card"><div class="card-title">Trivy (vulnerabilities &amp; config)</div><div style="padding:1rem 1.25rem">'
-        network_tools_html += f'<table><thead><tr><th>Severity</th><th class="r">Count</th></tr></thead><tbody>'
-        network_tools_html += f'<tr><td><span class="badge critical">Critical</span></td><td class="r">{ts["critical"]}</td></tr><tr><td><span class="badge high">High</span></td><td class="r">{ts["high"]}</td></tr><tr><td><span class="badge medium">Medium</span></td><td class="r">{ts["medium"]}</td></tr><tr><td><span class="badge low">Low</span></td><td class="r">{ts["low"]}</td></tr></tbody></table></div></div>'
+        html += '<div class="card"><div class="card-title">Trivy (vulnerabilities &amp; config)</div><div style="padding:1rem 1.25rem">'
+        html += f'<table><thead><tr><th>Severity</th><th class="r">Count</th></tr></thead><tbody>'
+        html += f'<tr><td><span class="badge critical">Critical</span></td><td class="r">{ts["critical"]}</td></tr><tr><td><span class="badge high">High</span></td><td class="r">{ts["high"]}</td></tr><tr><td><span class="badge medium">Medium</span></td><td class="r">{ts["medium"]}</td></tr><tr><td><span class="badge low">Low</span></td><td class="r">{ts["low"]}</td></tr></tbody></table></div></div>'
         vulns = sorted(
             net_data["trivy_vulns"],
             key=lambda x: {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}.get(
@@ -3720,8 +780,8 @@ def _build_overview_blocks(
             ),
         )[:50]
         if vulns:
-            network_tools_html += '<div class="card"><div class="card-title">Trivy findings (top 50)</div><div style="max-height:50vh;overflow-y:auto">'
-            network_tools_html += '<table><thead><tr><th style="width:80px">Severity</th><th style="width:100px">ID</th><th>Target/Package</th><th>Title</th></tr></thead><tbody>'
+            html += '<div class="card"><div class="card-title">Trivy findings (top 50)</div><div style="max-height:50vh;overflow-y:auto">'
+            html += '<table><thead><tr><th style="width:80px">Severity</th><th style="width:100px">ID</th><th>Target/Package</th><th>Title</th></tr></thead><tbody>'
             for v in vulns:
                 sev = (v.get("severity") or "UNKNOWN").upper()
                 sev_cls = (
@@ -3729,36 +789,41 @@ def _build_overview_blocks(
                     if sev not in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
                     else sev.lower()
                 )
-                network_tools_html += f'<tr><td><span class="badge {sev_cls}">{sev}</span></td><td class="mono">{h(v.get("id", ""))}</td><td class="mono">{h((v.get("target") or "") + " " + (v.get("pkg") or v.get("message", ""))[:60])}</td><td>{h((v.get("title") or "")[:80])}</td></tr>'
-            network_tools_html += "</tbody></table></div></div>"
+                html += f'<tr><td><span class="badge {sev_cls}">{sev}</span></td><td class="mono">{h(v.get("id", ""))}</td><td class="mono">{h((v.get("target") or "") + " " + (v.get("pkg") or v.get("message", ""))[:60])}</td><td>{h((v.get("title") or "")[:80])}</td></tr>'
+            html += "</tbody></table></div></div>"
         if net_data["nmap_scans"]:
-            network_tools_html += '<div class="card"><div class="card-title">Nmap scan summary</div><div style="padding:1rem 1.25rem">'
+            html += '<div class="card"><div class="card-title">Nmap scan summary</div><div style="padding:1rem 1.25rem">'
             for scan in net_data["nmap_scans"]:
-                network_tools_html += f'<div style="margin-bottom:1rem"><strong>{h(scan["name"])}</strong><ul style="margin:.5rem 0 0 1rem">'
+                html += f'<div style="margin-bottom:1rem"><strong>{h(scan["name"])}</strong><ul style="margin:.5rem 0 0 1rem">'
                 for hst in scan["hosts"][:10]:
                     ports = ", ".join(hst["ports"][:15]) if hst["ports"] else "(none)"
-                    network_tools_html += (
+                    html += (
                         f"<li>{h(hst['addr']) or 'host'}: {ports}</li>"
                     )
-                network_tools_html += "</ul></div>"
-            network_tools_html += "</div></div>"
+                html += "</ul></div>"
+            html += "</div></div>"
         if net_data["sslscan_results"]:
-            network_tools_html += '<div class="card"><div class="card-title">SSL/TLS scan</div><div style="padding:1rem 1.25rem">'
+            html += '<div class="card"><div class="card-title">SSL/TLS scan</div><div style="padding:1rem 1.25rem">'
             for s in net_data["sslscan_results"]:
-                network_tools_html += f'<div><strong>{h(s["name"])}</strong> <span style="color:var(--muted)">(JSON data available)</span></div>'
-            network_tools_html += "</div></div>"
+                html += f'<div><strong>{h(s["name"])}</strong> <span style="color:var(--muted)">(JSON data available)</span></div>'
+            html += "</div></div>"
+    return html
 
+
+def _build_datadog_logs_section(datadog_data):
+    """Build Datadog CI log summary and log table cards."""
+    html = ""
     dd_summary = datadog_data.get("summary") or {}
     if dd_summary.get("total", 0) > 0:
-        network_tools_html += '<div class="card"><div class="card-title">Datadog CI log summary</div><div style="padding:1rem 1.25rem">'
-        network_tools_html += '<table><thead><tr><th>Level</th><th class="r">Count</th></tr></thead><tbody>'
-        network_tools_html += f'<tr><td><span class="badge high">Error</span></td><td class="r">{dd_summary.get("error", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge warning">Warning</span></td><td class="r">{dd_summary.get("warning", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge info">Info</span></td><td class="r">{dd_summary.get("info", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge low">Unknown</span></td><td class="r">{dd_summary.get("unknown", 0)}</td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
-        network_tools_html += '<div class="card"><div class="card-title">Datadog CI logs (latest 100)</div><div style="max-height:50vh;overflow-y:auto">'
-        network_tools_html += '<table><thead><tr><th style="width:160px">Timestamp</th><th style="width:100px">Level</th><th style="width:160px">Source</th><th>Message</th></tr></thead><tbody>'
+        html += '<div class="card"><div class="card-title">Datadog CI log summary</div><div style="padding:1rem 1.25rem">'
+        html += '<table><thead><tr><th>Level</th><th class="r">Count</th></tr></thead><tbody>'
+        html += f'<tr><td><span class="badge high">Error</span></td><td class="r">{dd_summary.get("error", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge warning">Warning</span></td><td class="r">{dd_summary.get("warning", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge info">Info</span></td><td class="r">{dd_summary.get("info", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge low">Unknown</span></td><td class="r">{dd_summary.get("unknown", 0)}</td></tr>'
+        html += "</tbody></table></div></div>"
+        html += '<div class="card"><div class="card-title">Datadog CI logs (latest 100)</div><div style="max-height:50vh;overflow-y:auto">'
+        html += '<table><thead><tr><th style="width:160px">Timestamp</th><th style="width:100px">Level</th><th style="width:160px">Source</th><th>Message</th></tr></thead><tbody>'
         for row in (datadog_data.get("logs") or [])[:100]:
             sev = row.get("severity", "unknown")
             sev_cls = (
@@ -3770,20 +835,25 @@ def _build_overview_blocks(
                     else ("high" if sev == "error" else "info")
                 )
             )
-            network_tools_html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("source", "-"))}</td><td>{h(row.get("message", ""))}</td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
+            html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("source", "-"))}</td><td>{h(row.get("message", ""))}</td></tr>'
+        html += "</tbody></table></div></div>"
+    return html
 
+
+def _build_datadog_signals_section(datadog_data):
+    """Build Datadog Cloud Security signals cards."""
+    html = ""
     dd_signal_summary = datadog_data.get("signal_summary") or {}
     if dd_signal_summary.get("total", 0) > 0:
-        network_tools_html += '<div class="card"><div class="card-title">Datadog Cloud Security signals summary</div><div style="padding:1rem 1.25rem">'
-        network_tools_html += '<table><thead><tr><th>Severity</th><th class="r">Count</th></tr></thead><tbody>'
-        network_tools_html += f'<tr><td><span class="badge critical">Critical</span></td><td class="r">{dd_signal_summary.get("critical", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge high">High</span></td><td class="r">{dd_signal_summary.get("high", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge medium">Medium</span></td><td class="r">{dd_signal_summary.get("medium", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge low">Low</span></td><td class="r">{dd_signal_summary.get("low", 0)}</td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
-        network_tools_html += '<div class="card"><div class="card-title">Datadog Cloud Security signals (critical/high first)</div><div style="max-height:50vh;overflow-y:auto">'
-        network_tools_html += '<table><thead><tr><th style="width:150px">Timestamp</th><th style="width:90px">Severity</th><th style="width:110px">Status</th><th style="width:180px">Rule</th><th>Title</th></tr></thead><tbody>'
+        html += '<div class="card"><div class="card-title">Datadog Cloud Security signals summary</div><div style="padding:1rem 1.25rem">'
+        html += '<table><thead><tr><th>Severity</th><th class="r">Count</th></tr></thead><tbody>'
+        html += f'<tr><td><span class="badge critical">Critical</span></td><td class="r">{dd_signal_summary.get("critical", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge high">High</span></td><td class="r">{dd_signal_summary.get("high", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge medium">Medium</span></td><td class="r">{dd_signal_summary.get("medium", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge low">Low</span></td><td class="r">{dd_signal_summary.get("low", 0)}</td></tr>'
+        html += "</tbody></table></div></div>"
+        html += '<div class="card"><div class="card-title">Datadog Cloud Security signals (critical/high first)</div><div style="max-height:50vh;overflow-y:auto">'
+        html += '<table><thead><tr><th style="width:150px">Timestamp</th><th style="width:90px">Severity</th><th style="width:110px">Status</th><th style="width:180px">Rule</th><th>Title</th></tr></thead><tbody>'
         for row in (datadog_data.get("signals") or [])[:100]:
             sev = row.get("severity", "unknown")
             sev_cls = {
@@ -3793,20 +863,25 @@ def _build_overview_blocks(
                 "low": "low",
                 "info": "info",
             }.get(sev, "low")
-            network_tools_html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("status", ""))}</td><td class="mono">{h(row.get("rule", ""))}</td><td>{h(row.get("title", ""))}</td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
+            html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("status", ""))}</td><td class="mono">{h(row.get("rule", ""))}</td><td>{h(row.get("title", ""))}</td></tr>'
+        html += "</tbody></table></div></div>"
+    return html
 
+
+def _build_datadog_cases_section(datadog_data):
+    """Build Datadog case management cards."""
+    html = ""
     dd_case_summary = datadog_data.get("case_summary") or {}
     if dd_case_summary.get("total", 0) > 0:
-        network_tools_html += '<div class="card"><div class="card-title">Datadog case management summary</div><div style="padding:1rem 1.25rem">'
-        network_tools_html += '<table><thead><tr><th>Priority/Severity</th><th class="r">Count</th></tr></thead><tbody>'
-        network_tools_html += f'<tr><td><span class="badge critical">Critical/P1</span></td><td class="r">{dd_case_summary.get("critical", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge high">High/P2</span></td><td class="r">{dd_case_summary.get("high", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge medium">Medium/P3</span></td><td class="r">{dd_case_summary.get("medium", 0)}</td></tr>'
-        network_tools_html += f'<tr><td><span class="badge low">Low/P4+</span></td><td class="r">{dd_case_summary.get("low", 0)}</td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
-        network_tools_html += '<div class="card"><div class="card-title">Datadog cases (critical/high first)</div><div style="max-height:50vh;overflow-y:auto">'
-        network_tools_html += '<table><thead><tr><th style="width:150px">Updated</th><th style="width:90px">Severity</th><th style="width:120px">Status</th><th style="width:160px">Type</th><th>Title</th></tr></thead><tbody>'
+        html += '<div class="card"><div class="card-title">Datadog case management summary</div><div style="padding:1rem 1.25rem">'
+        html += '<table><thead><tr><th>Priority/Severity</th><th class="r">Count</th></tr></thead><tbody>'
+        html += f'<tr><td><span class="badge critical">Critical/P1</span></td><td class="r">{dd_case_summary.get("critical", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge high">High/P2</span></td><td class="r">{dd_case_summary.get("high", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge medium">Medium/P3</span></td><td class="r">{dd_case_summary.get("medium", 0)}</td></tr>'
+        html += f'<tr><td><span class="badge low">Low/P4+</span></td><td class="r">{dd_case_summary.get("low", 0)}</td></tr>'
+        html += "</tbody></table></div></div>"
+        html += '<div class="card"><div class="card-title">Datadog cases (critical/high first)</div><div style="max-height:50vh;overflow-y:auto">'
+        html += '<table><thead><tr><th style="width:150px">Updated</th><th style="width:90px">Severity</th><th style="width:120px">Status</th><th style="width:160px">Type</th><th>Title</th></tr></thead><tbody>'
         for row in datadog_data["cases"][:100]:
             sev = row.get("severity", "unknown")
             sev_cls = {
@@ -3816,8 +891,71 @@ def _build_overview_blocks(
                 "low": "low",
                 "info": "info",
             }.get(sev, "low")
-            network_tools_html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("status", ""))}</td><td class="mono">{h(row.get("rule", ""))}</td><td>{h(row.get("title", ""))}</td></tr>'
-        network_tools_html += "</tbody></table></div></div>"
+            html += f'<tr><td class="mono">{h(row.get("timestamp", ""))}</td><td><span class="badge {sev_cls}">{h(sev.title())}</span></td><td class="mono">{h(row.get("status", ""))}</td><td class="mono">{h(row.get("rule", ""))}</td><td>{h(row.get("title", ""))}</td></tr>'
+        html += "</tbody></table></div></div>"
+    return html
+
+
+def _build_overview_blocks(
+    prov_summary,
+    all_findings,
+    envs,
+    net_data,
+    datadog_data,
+    passed,
+    total_prowler_pass,
+    warnings,
+    findings_list=None,
+):
+    findings_list = findings_list or []
+    datadog_data = datadog_data or {}
+    net_data = net_data or {}
+
+    sev = _compute_severity_counts(prov_summary, findings_list)
+    n_crit = sev["n_crit"]
+    n_high = sev["n_high"]
+    n_med = sev["n_med"]
+    n_low = sev["n_low"]
+    n_info = sev["n_info"]
+    policy_022_top = sev["policy_022_top"]
+
+    prov_cards = _build_provider_cards(prov_summary)
+
+    bars = _compute_severity_bars(n_crit, n_high, n_med, n_low, warnings)
+
+    top_findings_html = _build_top_findings(findings_list, all_findings)
+
+    env_connected = sum(1 for e in envs if e["connected"])
+    env_total = len(envs)
+    ts = net_data["trivy_summary"]
+    trivy_total = ts["critical"] + ts["high"] + ts["medium"] + ts["low"]
+    dd_total = datadog_data["summary"].get("total", 0)
+    dd_signal_total = datadog_data["signal_summary"].get("total", 0)
+    dd_case_total = datadog_data["case_summary"].get("total", 0)
+    network_total = trivy_total + dd_total
+    network_total += dd_signal_total + dd_case_total
+    has_network_artifacts = bool(net_data["nmap_scans"] or net_data["sslscan_results"])
+    network_tools_badge = (
+        str(network_total) if network_total else ("✓" if has_network_artifacts else "—")
+    )
+
+    # Always show a "cockpit" card so this tab is useful even without artifacts.
+    config_html, net_enabled, net_targets, trivy_enabled = _build_network_config_section()
+    network_tools_html = config_html
+
+    network_tools_html += _build_tooling_readiness_section(net_data, net_enabled, net_targets, trivy_enabled)
+
+    network_tools_html += _build_artifact_links_section()
+
+    network_tools_html += _build_target_posture_table(net_data)
+
+    network_tools_html += _build_trivy_section(net_data, ts)
+
+    network_tools_html += _build_datadog_logs_section(datadog_data)
+
+    network_tools_html += _build_datadog_signals_section(datadog_data)
+
+    network_tools_html += _build_datadog_cases_section(datadog_data)
 
     # network_tools_html always contains at least the cockpit card now.
     return {
@@ -3828,11 +966,11 @@ def _build_overview_blocks(
         "n_info": n_info,
         "policy_022_top": policy_022_top,
         "prov_cards": prov_cards,
-        "bar_crit": bar_crit,
-        "bar_high": bar_high,
-        "bar_med": bar_med,
-        "bar_warn": bar_warn,
-        "bar_low": bar_low,
+        "bar_crit": bars["bar_crit"],
+        "bar_high": bars["bar_high"],
+        "bar_med": bars["bar_med"],
+        "bar_warn": bars["bar_warn"],
+        "bar_low": bars["bar_low"],
         "top_findings_html": top_findings_html,
         "env_connected": env_connected,
         "env_total": env_total,
@@ -4359,10 +1497,9 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             # Auto-generate Prowler Hub link from check ID
             _check_raw = items[0].get("check", "")
             if _check_raw and "prowler" in _check_raw.lower():
-                import re as _re
-                _hub_name = _re.sub(r"^prowler-[a-z]+-", "", _check_raw)
-                _hub_name = _re.sub(r"-\d{12}.*$", "", _hub_name)
-                _hub_name = _re.sub(r"-[0-9a-f]{5,}$", "", _hub_name)
+                _hub_name = re.sub(r"^prowler-[a-z]+-", "", _check_raw)
+                _hub_name = re.sub(r"-\d{12}.*$", "", _hub_name)
+                _hub_name = re.sub(r"-[0-9a-f]{5,}$", "", _hub_name)
                 _HUB_FIX = {
                     "core_minimize_containers_added_capabiliti": "core_minimize_containers_added_capabilities",
                     "iam_aws_attached_policy_no_administrative_privil": "iam_aws_attached_policy_no_administrative_privileges",

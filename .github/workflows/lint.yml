@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   dependency-review:
     runs-on: ubuntu-latest
@@ -25,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
           node-version: '20'
           cache: 'npm'
@@ -44,7 +48,8 @@ jobs:
           python3 -m pip install --upgrade pip-audit
           python3 -m pip install -r requirements-ci.txt
       - name: Run pip-audit
-        run: pip-audit --strict --desc
+        # CVE-2026-4539: pygments <=2.19.2 local ReDoS — no fix available yet
+        run: pip-audit --strict --desc --ignore-vuln CVE-2026-4539
 
   shell-lint:
     runs-on: ubuntu-latest
@@ -210,7 +215,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -238,7 +243,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Lint Markdown
-        uses: DavidAnson/markdownlint-cli2-action@07035fd053f7be764496c0f8d8f9f41f98305101
+        uses: DavidAnson/markdownlint-cli2-action@v23
         with:
           globs: "**/*.md"
 
@@ -256,6 +261,7 @@ jobs:
             --exclude 'isms-p.or.kr'
             --exclude 'privacy.go.kr'
             --exclude 'law.go.kr'
+            --exclude 'pipc.go.kr'
             --exclude 'atlas.mitre.org'
             --exclude 'airc.nist.gov'
             --exclude 'media.defense.gov'
