@@ -425,7 +425,7 @@ has_kubectl_access() {
   has_command kubectl || return 1
   local cmd
   cmd=$(_kubectl_cmd)
-  run_with_timeout 10 $cmd cluster-info &>/dev/null
+  run_with_timeout 10 "$cmd" cluster-info &>/dev/null
 }
 
 # List available kubeconfig contexts
@@ -562,7 +562,7 @@ kubectl_ensure_access() {
   if [[ -n "${CLAUDESEC_KUBECONTEXT:-}" ]]; then
     local cmd
     cmd=$(_kubectl_cmd)
-    if run_with_timeout 10 $cmd cluster-info &>/dev/null; then
+    if run_with_timeout 10 "$cmd" cluster-info &>/dev/null; then
       echo -e "  ${GREEN}✓${NC} Connected to cluster (context: ${CLAUDESEC_KUBECONTEXT})"
       return 0
     fi

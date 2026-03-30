@@ -33,9 +33,6 @@ if [[ "$_any_code" != "true" ]]; then
   return 0 2>/dev/null || exit 0
 fi
 
-# Shared exclude paths for find
-_FIND_EXCLUDE='-not -path "*/.git/*" -not -path "*/node_modules/*" -not -path "*/vendor/*" -not -path "*/dist/*" -not -path "*/venv/*" -not -path "*/__pycache__/*" -not -path "*/target/*" -not -path "*/scanner/*" -not -path "*/.claudesec-*" -not -path "*test*" -not -path "*spec*" -not -path "*mock*"'
-
 # Helper: search code files for pattern, return file:line matches
 _code_grep() {
   local pattern="$1" extensions="$2" max_hits="${3:-20}"

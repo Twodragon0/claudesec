@@ -4,6 +4,7 @@ ClaudeSec — Audit Points scan: detect products relevant to the project and
 output checklist items from querypie/audit-points for dashboard/scanner integration.
 """
 
+import glob
 import json
 import os
 import sys
@@ -17,7 +18,6 @@ DETECTED_FILE = "detected.json"
 
 def _has_nexus_indicator(scan_dir):
     """True if pom.xml or build files reference nexus repository."""
-    import glob
     for pattern in ["pom.xml", "**/pom.xml", "build.gradle", "build.gradle.kts"]:
         for p in glob.glob(os.path.join(scan_dir, pattern)):
             if os.path.isfile(p):
@@ -32,13 +32,11 @@ def _has_nexus_indicator(scan_dir):
 
 def _file_contains_any(scan_dir, keywords, suffixes):
     """True if any file with given suffixes contains any keyword."""
-    import glob
     for root, _dirs, files in os.walk(scan_dir):
+        _dirs[:] = [d for d in _dirs if d not in ('.git', 'node_modules', '__pycache__')]
         for name in files:
             if any(name.endswith(s) for s in suffixes):
                 path = os.path.join(root, name)
-                if ".git" in path or "node_modules" in path:
-                    continue
                 try:
                     with open(path, "r", encoding="utf-8", errors="ignore") as f:
                         text = f.read().lower()
@@ -51,7 +49,6 @@ def _file_contains_any(scan_dir, keywords, suffixes):
 
 def _has_scalr_in_terraform(scan_dir):
     """True if .terraform or *.tf reference scalr."""
-    import glob
     for pattern in [".terraform", "**/*.tf", "**/*.tfvars"]:
         for p in glob.glob(os.path.join(scan_dir, pattern)):
             if os.path.isfile(p):
@@ -91,7 +88,6 @@ def detect_products(scan_dir):
         found = False
         for ind in indicators:
             if "*" in ind:
-                import glob
                 if glob.glob(os.path.join(scan_dir, ind)):
                     found = True
                     break

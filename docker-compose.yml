@@ -21,11 +21,12 @@ services:
     image: claudesec-dashboard:local
     ports: ["11777:8080"]
     volumes:
-      - ./claudesec-asset-dashboard.html:/usr/share/nginx/html/index.html:ro
+      - ./claudesec-asset-dashboard-live.html:/usr/share/nginx/html/index.html:ro
       - ./claudesec-dashboard.html:/usr/share/nginx/html/scan.html:ro
-      - ./scan-report.default.json:/usr/share/nginx/html/scan-report.json:ro
+      - ${CLAUDESEC_SCAN_REPORT:-./scan-report.json}:/usr/share/nginx/html/scan-report.json:ro
+      - ./.claudesec-assets:/usr/share/nginx/html/.claudesec-assets:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:8080/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -159,6 +159,7 @@ html_escape() {
   s="${s//</\&lt;}"
   s="${s//>/\&gt;}"
   s="${s//\"/\&quot;}"
+  s="${s//\'/\&#x27;}"
   echo "$s"
 }
 
@@ -515,7 +516,7 @@ _prowler_dashboard_summary() {
       *) label="$provider" ;;
     esac
     total=$(grep -c '"status_code": *"FAIL"' "$f" 2>/dev/null || echo 0)
-    read c h m l <<< "$(awk '
+    read -r c h m l <<< "$(awk '
       BEGIN { c=0; h=0; m=0; l=0 }
       /"severity":/ { gsub(/.*"severity": *"/,""); gsub(/".*/, ""); sev=$0 }
       /"status_code": *"FAIL"/ {

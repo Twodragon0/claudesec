@@ -1,7 +1,6 @@
 """CSP nonce utility for build-time injection."""
 
 import base64
-import re
 import secrets
 
 
