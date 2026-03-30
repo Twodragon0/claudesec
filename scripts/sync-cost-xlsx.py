@@ -53,18 +53,11 @@ ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 KST = timezone(timedelta(hours=9))
 NOW = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
 
-# Google Sheets IDs
-SHEET_IDS = {
-    "자산관리대장": "REDACTED_SHEET_ID",
-    "AI구독현황": "REDACTED_SHEET_ID",
-}
+# Google Sheets IDs (반드시 .env에서 로드 — 코드에 하드코딩 금지)
+SHEET_IDS: dict[str, str] = {}  # load_env() 이후 설정됨
 
-# 기본 Google Drive 동기화 경로
-DEFAULT_XLSX = Path.home() / (
-    "Library/CloudStorage/GoogleDrive-REDACTED_EMAIL/"
-    "Shared drives/REDACTED_COMPANY/Tech Div/DevSecOps Team/"
-    "003. IT ADMIN/소프트웨어_라이선스_현황.xlsx"
-)
+# 기본 비용 xlsx 경로 (환경변수로 설정)
+DEFAULT_XLSX = Path(os.environ.get("COST_XLSX_PATH", str(Path.home() / "Downloads" / "cost-report.xlsx")))
 
 # 유사 소프트웨어명 통합 매핑
 SW_MERGE = {
@@ -1132,6 +1125,15 @@ def main():
 
     print("━━━ ClaudeSec 통합 대시보드 데이터 동기화 ━━━")
     print(f"시각: {NOW}")
+
+    # Sheet IDs를 환경변수에서 로드
+    global SHEET_IDS
+    SHEET_IDS = {
+        "자산관리대장": env_vars.get("ASSET_SHEET_ID", ""),
+        "AI구독현황": env_vars.get("AI_SHEET_ID", ""),
+    }
+    if not SHEET_IDS["자산관리대장"]:
+        print("  ⚠ ASSET_SHEET_ID 환경변수 없음 — .env에 설정 필요")
 
     sheets_data = None
     cost_data = None

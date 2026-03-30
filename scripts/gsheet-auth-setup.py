@@ -72,18 +72,37 @@ def main():
     )
     print("✓ 인증 성공!")
 
-    # 테스트: 자산관리대장 접근
-    try:
-        sp = gc.open_by_key("REDACTED_SHEET_ID")
-        print(f"✓ 자산관리대장 접근 확인: '{sp.title}'")
-    except Exception as e:
-        print(f"✗ 자산관리대장 접근 실패: {e}")
+    # 테스트: 자산관리대장 접근 (환경변수에서 Sheet ID 로드)
+    from pathlib import Path as _P
+    _env = {}
+    for _ep in [_P(os.environ.get("CLAUDESEC_ENV_FILE", "")), _P.cwd() / ".env", _P.home() / "Desktop" / ".env"]:
+        if _ep.exists():
+            for _ln in _ep.read_text().splitlines():
+                if "=" in _ln and not _ln.startswith("#"):
+                    _k, _v = _ln.split("=", 1)
+                    _env[_k.strip()] = _v.strip()
+            break
 
-    try:
-        sp2 = gc.open_by_key("REDACTED_SHEET_ID")
-        print(f"✓ AI 구독 현황 접근 확인: '{sp2.title}'")
-    except Exception as e:
-        print(f"✗ AI 구독 현황 접근 실패: {e}")
+    asset_id = _env.get("ASSET_SHEET_ID", "")
+    ai_id = _env.get("AI_SHEET_ID", "")
+
+    if asset_id:
+        try:
+            sp = gc.open_by_key(asset_id)
+            print(f"✓ 자산관리대장 접근 확인: '{sp.title}'")
+        except Exception as e:
+            print(f"✗ 자산관리대장 접근 실패: {e}")
+    else:
+        print("  ⚠ ASSET_SHEET_ID 미설정 — .env에 추가 필요")
+
+    if ai_id:
+        try:
+            sp2 = gc.open_by_key(ai_id)
+            print(f"✓ AI 구독 현황 접근 확인: '{sp2.title}'")
+        except Exception as e:
+            print(f"✗ AI 구독 현황 접근 실패: {e}")
+    else:
+        print("  ⚠ AI_SHEET_ID 미설정 — .env에 추가 필요")
 
     print("\n━━━ 설정 완료! ━━━")
     print("이제 다음 명령어로 전체 동기화를 실행할 수 있습니다:")

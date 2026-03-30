@@ -34,6 +34,7 @@ test-reports/
 *.local.yaml
 config.local.*
 credentials.json
+authorized_user.json
 secrets/
 credentials/
 kubeconfig
