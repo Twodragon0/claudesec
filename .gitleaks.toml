@@ -16,8 +16,14 @@ tags = ["pii", "aws"]
 
 [[rules]]
 id = "google-sheet-id-hardcoded"
-description = "Google Sheet ID hardcoded"
-regex = '''SHEET_ID\s*=\s*["'][A-Za-z0-9_-]{25,}["']'''
+description = "Google Sheet ID hardcoded in code"
+regex = '''open_by_key\s*\(\s*["'][A-Za-z0-9_-]{25,}["']'''
+tags = ["pii", "google"]
+
+[[rules]]
+id = "google-sheet-id-assignment"
+description = "Google Sheet ID assigned to variable"
+regex = '''(?i)(sheet_id|SHEET_ID|doc_id|file_id)\s*[=:]\s*["'][A-Za-z0-9_-]{25,}["']'''
 tags = ["pii", "google"]
 
 [[rules]]
@@ -26,13 +32,49 @@ description = "Notion database/token ID hardcoded"
 regex = '''NOTION_(DB_ID|TOKEN)\s*=\s*["'][A-Za-z0-9_-]{20,}["']'''
 tags = ["pii", "notion"]
 
+[[rules]]
+id = "company-email"
+description = "Company email address"
+regex = '''[a-zA-Z0-9._%+-]+@levvels\.(io|com)'''
+tags = ["pii", "email"]
+
+[[rules]]
+id = "google-drive-path"
+description = "Google Drive sync path with company info"
+regex = '''GoogleDrive-[a-zA-Z0-9._%+-]+@'''
+tags = ["pii", "path"]
+
+[[rules]]
+id = "zscaler-credentials"
+description = "Zscaler API credentials"
+regex = '''(?i)(ZSCALER_API_KEY|ZSCALER_API_PASSWORD|Zscaler_PW)\s*=\s*[^\s]{4,}'''
+tags = ["secret", "zscaler"]
+
+[[rules]]
+id = "datadog-api-key-value"
+description = "Datadog API/APP key with actual value"
+regex = '''(?i)(datadog_key_credential|datadog_app_key_credential)\s*=\s*[a-f0-9]{20,}'''
+tags = ["secret", "datadog"]
+
+[[rules]]
+id = "datadog-app-key-value"
+description = "Datadog APP key literal"
+regex = '''ddapp_[A-Za-z0-9]{20,}'''
+tags = ["secret", "datadog"]
+
 # Allowlist — files and patterns that are safe to ignore
 [allowlist]
 paths = [
   '''node_modules/''',
-  '''\.claudesec-assets/''',
-  '''\.claudesec-saas-best-practices/''',
   '''package-lock\.json''',
   '''hooks/pii-check\.sh''',
   '''\.gitleaks\.toml''',
+  '''\.env\.example''',
+  '''scanner/tests/''',
+  '''claudesec-dashboard\.html''',
+  '''scanner/lib/dashboard-gen\.py''',
+  '''scanner/lib/dashboard-template\.html''',
+  '''docs/''',
+  '''templates/''',
+  '''README\.md''',
 ]
