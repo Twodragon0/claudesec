@@ -28,7 +28,7 @@ Expected output: security scan starts and creates `scan-report.json` in the proj
 ### Prerequisites
 
 - Git
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
+- [Claude Code](https://code.claude.com/docs) CLI
 - A project repository to secure
 
 ### Clone and run
@@ -147,3 +147,9 @@ DD_API_KEY=<your-dd-api-key> DD_APP_KEY=<your-dd-app-key> DD_SITE=datadoghq.com 
 3. [Branch Protection](../github/branch-protection.md)
 4. [SaaS Best Practices Scans](./saas-best-practices-scans.md)
 5. [Shell Lint Policy](./shell-lint-policy.md)
+
+## References
+
+- [OWASP DevSecOps Guideline](https://owasp.org/www-project-devsecops-guideline/)
+- [NIST Cybersecurity Framework 2.0](https://www.nist.gov/cyberframework)
+- [CIS Controls v8](https://www.cisecurity.org/controls/v8)

@@ -1,0 +1,122 @@
+# Incident Response Contacts Template
+# Reference: NIST SP 800-61r2 Section 2.3.4 (Contacts and Communication)
+# Usage: Copy this file and fill in your organization's contact information.
+#
+# Review and update this list quarterly.
+
+organization:
+  name: "Your Organization Name"
+  domain: "example.com"
+
+# CSIRT (Computer Security Incident Response Team)
+csirt:
+  lead:
+    name: ""
+    role: "Incident Commander"
+    email: ""
+    phone: ""
+    escalation_priority: 1
+
+  members:
+    - name: ""
+      role: "Security Analyst"
+      email: ""
+      phone: ""
+      escalation_priority: 2
+
+    - name: ""
+      role: "Forensic Analyst"
+      email: ""
+      phone: ""
+      escalation_priority: 3
+
+    - name: ""
+      role: "Infrastructure Engineer"
+      email: ""
+      phone: ""
+      escalation_priority: 4
+
+# Management Escalation
+management:
+  - name: ""
+    role: "CISO"
+    email: ""
+    phone: ""
+    notify_on: ["P1", "P2"]
+
+  - name: ""
+    role: "CTO"
+    email: ""
+    phone: ""
+    notify_on: ["P1"]
+
+  - name: ""
+    role: "Legal Counsel"
+    email: ""
+    phone: ""
+    notify_on: ["P1", "P2"]
+
+# External Contacts
+external:
+  # Korean regulatory agencies
+  krcert:
+    name: "KrCERT/CC (한국인터넷진흥원)"
+    url: "https://www.krcert.or.kr"
+    phone: "118"
+    report_url: "https://www.krcert.or.kr/report/incident.do"
+    sla: "24h for critical incidents"
+
+  pipc:
+    name: "개인정보보호위원회"
+    url: "https://www.pipc.go.kr"
+    phone: "1833-6972"
+    report_url: "https://www.pipc.go.kr/np/cop/bbs/selectBoardList.do"
+    sla: "72h for personal data breaches (개인정보보호법 제34조)"
+
+  police_cyber:
+    name: "경찰청 사이버수사국"
+    url: "https://ecrm.police.go.kr"
+    phone: "182"
+    report_url: "https://ecrm.police.go.kr/minwon/main"
+
+  # Cloud provider support (fill in account-specific contacts)
+  cloud_provider:
+    name: ""
+    support_plan: ""  # Basic, Business, Enterprise
+    support_url: ""
+    account_id: ""
+
+# Communication Channels
+channels:
+  primary: "slack"  # slack, teams, discord
+  channel_name: "#incident-response"
+  backup: "email"
+  war_room: ""  # video conference link for P1/P2
+
+# Notification Rules
+notification_rules:
+  P1_critical:
+    notify: ["csirt.lead", "management.ciso", "management.cto", "management.legal"]
+    method: ["phone", "slack"]
+    sla_response: "15m"
+    sla_update: "1h"
+    external_report: ["krcert", "pipc"]
+
+  P2_high:
+    notify: ["csirt.lead", "csirt.members", "management.ciso"]
+    method: ["slack", "email"]
+    sla_response: "1h"
+    sla_update: "4h"
+    external_report: ["krcert"]
+
+  P3_medium:
+    notify: ["csirt.members"]
+    method: ["slack"]
+    sla_response: "4h"
+    sla_update: "24h"
+
+  P4_low:
+    notify: ["csirt.members"]
+    method: ["email"]
+    sla_response: "24h"
+    sla_update: "72h"
