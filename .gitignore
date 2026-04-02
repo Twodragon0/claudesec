@@ -88,6 +88,7 @@ tmp-*.png
 # MCP / Orchestration (local tool configs)
 .mcp.json
 .omc/
+.omx/
 scanner/lib/.omc/
 .playwright-mcp/
 

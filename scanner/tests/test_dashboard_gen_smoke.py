@@ -152,6 +152,13 @@ class DashboardGenSmokeTest(unittest.TestCase):
             # Dashboard must contain core structure
             self.assertIn("ClaudeSec", html)
             self.assertIn("tab-overview", html)
+            self.assertIn("Priority Queue", html)
+            self.assertIn("Service Surface", html)
+            self.assertIn("Function Workspace", html)
+            self.assertIn("Local scanner", html)
+            self.assertIn("scannerSearchInput", html)
+            self.assertIn("prowlerSearchInput", html)
+            self.assertIn("githubSearchInput", html)
             # Auth summary — simplified SSO status
             self.assertIn("SSO", html)
             self.assertIn("MFA", html)
