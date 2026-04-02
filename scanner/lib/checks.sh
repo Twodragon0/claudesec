@@ -166,7 +166,7 @@ aws_sso_login_all_profiles() {
     [[ -z "$profile" ]] && continue
 
     # Check if already authenticated
-    if AWS_PROFILE="$profile" aws sts get-caller-identity &>/dev/null 2>&1; then
+    if AWS_PROFILE="$profile" aws sts get-caller-identity &>/dev/null; then
       already_auth=$((already_auth + 1))
       echo -e "  ${GREEN}✓${NC} ${profile}: already authenticated"
       any_success=true
@@ -274,12 +274,14 @@ aws_sso_ensure_login() {
   if [[ -n "$profile" ]]; then
     echo -e "  ${YELLOW}⟳${NC} AWS SSO session expired for profile ${BOLD}$profile${NC}"
     echo -e "  ${DIM}Running: aws sso login --profile $profile (timeout: ${AWS_SSO_LOGIN_TIMEOUT:-90}s)${NC}"
-    if aws_sso_login_with_timeout "$profile"; then
+    aws_sso_login_with_timeout "$profile" 2>/dev/null
+    local rc=$?
+    if [[ $rc -eq 0 ]]; then
       export AWS_DEFAULT_PROFILE="$profile"
       echo -e "  ${GREEN}✓${NC} AWS SSO login successful (profile: $profile)"
       return 0
     fi
-    if [[ "$?" == "124" ]]; then
+    if [[ $rc -eq 124 ]]; then
       echo -e "  ${YELLOW}⚠${NC} AWS SSO login timed out for profile ${BOLD}$profile${NC}; skipping"
     fi
     return 1
@@ -302,12 +304,14 @@ aws_sso_ensure_login() {
   # Auto-login with the first SSO profile
   if [[ -n "$first_profile" ]]; then
     echo -e "  ${DIM}Running: aws sso login --profile $first_profile (timeout: ${AWS_SSO_LOGIN_TIMEOUT:-90}s)${NC}"
-    if aws_sso_login_with_timeout "$first_profile" 2>/dev/null; then
+    aws_sso_login_with_timeout "$first_profile" 2>/dev/null
+    local rc2=$?
+    if [[ $rc2 -eq 0 ]]; then
       export AWS_PROFILE="$first_profile"
       echo -e "  ${GREEN}✓${NC} AWS SSO login successful (profile: $first_profile)"
       return 0
     fi
-    if [[ "$?" == "124" ]]; then
+    if [[ $rc2 -eq 124 ]]; then
       echo -e "  ${YELLOW}⚠${NC} AWS SSO login timed out for profile ${BOLD}$first_profile${NC}; skipping"
     fi
   fi
@@ -407,7 +411,7 @@ datadog_validate_api_key() {
 
 # Check Azure credentials
 has_azure_credentials() {
-  has_command az && run_with_timeout 10 az account show
+  has_command az && run_with_timeout 10 az account show &>/dev/null
 }
 
 # ── Kubernetes credential helpers ───────────────────────────────────────────
@@ -802,7 +806,7 @@ collect_environment_info() {
   fi
 
   # Azure
-  if has_command az && az account show &>/dev/null 2>&1; then
+  if has_command az && az account show &>/dev/null; then
     export CLAUDESEC_ENV_AZ_CONNECTED="true"
     local az_sub
     az_sub=$(az account show --query name -o tsv 2>/dev/null || echo "unknown")
@@ -815,7 +819,7 @@ collect_environment_info() {
 
   # Microsoft 365 (Prowler m365): SP env auth OR Azure CLI auth
   if [[ -n "${AZURE_CLIENT_ID:-}" && -n "${AZURE_TENANT_ID:-}" && -n "${AZURE_CLIENT_SECRET:-}" ]] || \
-     { has_command az && az account show &>/dev/null 2>&1; }; then
+     { has_command az && az account show &>/dev/null; }; then
     export CLAUDESEC_ENV_M365_CONNECTED="true"
   else
     export CLAUDESEC_ENV_M365_CONNECTED="false"

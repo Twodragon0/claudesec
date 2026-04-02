@@ -39,9 +39,9 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Auto-approve major update (no merge)
+      - name: Comment on major update (requires manual review)
         if: steps.metadata.outputs.update-type == 'version-update:semver-major'
-        run: gh pr review "$PR_URL" --approve --body "Auto-approving major update from Dependabot — manual merge required due to potential breaking changes."
+        run: gh pr comment "$PR_URL" --body "⚠️ Major version update detected — requires manual review and approval due to potential breaking changes."
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -53,9 +53,7 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Auto-merge minor update
-        if: steps.metadata.outputs.update-type == 'version-update:semver-minor'
-        run: gh pr merge "$PR_URL" --squash --auto
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Minor updates require manual merge for supply chain security
+      # - name: Auto-merge minor update
+      #   if: steps.metadata.outputs.update-type == 'version-update:semver-minor'
+      #   run: gh pr merge "$PR_URL" --squash --auto

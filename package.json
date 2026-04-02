@@ -7,9 +7,10 @@
   },
   "scripts": {
     "scan": "./scanner/claudesec scan",
-    "dashboard": "./scripts/quick-start.sh",
+    "dashboard": "./scripts/run-dashboard-safe.sh",
     "setup": "./scripts/setup.sh",
-    "quickstart": "docker compose -f docker-compose.quickstart.yml up"
+    "quickstart": "docker compose -f docker-compose.quickstart.yml up",
+    "test": "python3 -m pytest scanner/tests/ -v --tb=short"
   },
   "files": [
     "bin/",
@@ -42,6 +43,6 @@
     "url": "https://github.com/Twodragon0/claudesec.git"
   },
   "engines": {
-    "node": ">=16"
+    "node": ">=18"
   }
 }
