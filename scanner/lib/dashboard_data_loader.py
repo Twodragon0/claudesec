@@ -56,7 +56,7 @@ def load_scan_results(path: str) -> dict[str, Any]:
             "grade": "F",
             "findings": [],
         }
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -97,7 +97,7 @@ def load_prowler_files(prowler_dir: str) -> dict[str, list[dict[str, Any]]]:
         raw_name = Path(fpath).stem.replace(".ocsf", "").replace("prowler-", "")
         name = _normalize_provider(raw_name)
         try:
-            with open(fpath) as f:
+            with open(fpath, encoding="utf-8") as f:
                 content = f.read().strip()
             items = _parse_ocsf_json(content)
             if name in providers:
@@ -272,7 +272,7 @@ def load_network_tool_results(network_dir: str) -> NetworkToolResult:
     trivy_fs_path = os.path.join(network_dir, "trivy-fs.json")
     if os.path.isfile(trivy_fs_path):
         try:
-            with open(trivy_fs_path) as f:
+            with open(trivy_fs_path, encoding="utf-8") as f:
                 data = json.load(f)
             for r in data.get("Results", []):
                 for v in r.get("Vulnerabilities", []) or []:
@@ -324,11 +324,22 @@ def load_network_tool_results(network_dir: str) -> NetworkToolResult:
                 out["trivy_config"] = json.load(f)
         except (OSError, json.JSONDecodeError):
             pass  # skip missing or invalid trivy-config.json
-    import xml.etree.ElementTree as ET
+    try:
+        import defusedxml.ElementTree as SafeET
+
+        _parse_xml = SafeET.parse
+    except ImportError:
+        import xml.etree.ElementTree as ET
+
+        def _parse_xml(fpath):
+            """Fallback XML parser with DTD/entity resolution disabled."""
+            parser = ET.XMLParser()
+            parser.entity = {}  # type: ignore[attr-defined]
+            return ET.parse(fpath, parser=parser)  # nosemgrep: use-defused-xml-parse
 
     for fpath in glob.glob(os.path.join(network_dir, "nmap-*.xml")):
         try:
-            tree = ET.parse(fpath)  # nosemgrep: use-defused-xml-parse — parsing trusted local nmap output files
+            tree = _parse_xml(fpath)
             root = tree.getroot()
             name = os.path.basename(fpath).replace("nmap-", "").replace(".xml", "")
             hosts = []

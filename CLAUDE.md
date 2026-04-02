@@ -27,73 +27,29 @@ All documentation is in Markdown. No build system required.
 - hooks/ — Claude Code security hooks
 - examples/ — Example projects and configs
 
-## Project Agents (`.claude/agents/`)
+## Agents & Model Routing
 
-| Agent | Model | Role |
-|-------|-------|------|
-| `sec-orchestrator` | opus | 프로젝트 조율, 보안 워크플로우 관리 |
-| `sec-researcher` | sonnet | 보안 리서치, 위협 분석 |
-| `sec-implementer` | sonnet | 보안 가이드/도구 구현 |
-| `sec-reviewer` | sonnet | 보안 문서/코드 리뷰 |
-| `architect` | opus | 문서 구조 설계, 스캐너 아키텍처, 컴플라이언스 체계 |
-| `test-engineer` | sonnet | 문서 검증, 링크 무결성, 스캐너 테스트 |
-| `docs-writer` | sonnet | DevSecOps 가이드, 컴플라이언스 문서, AI 보안 콘텐츠 작성 |
-| `ci-pipeline` | sonnet | GitHub Actions, 보안 스캔 자동화, 품질 게이트 관리 |
+Project agents in `.claude/agents/`. Model selection:
+- **opus**: sec-orchestrator, architect — coordination, architecture, security audit
+- **sonnet**: sec-implementer, sec-researcher, sec-reviewer, ci-pipeline, test-engineer — standard work
+- **haiku**: explore, docs lookup, quick validation — lightweight tasks
 
-### Agent Responsibilities
+Key workflows:
+- Security guide: researcher → implementer → writer → reviewer → test
+- Scanner feature: architect → implementer → test → ci-pipeline
+- Hotfix: researcher → implementer → reviewer
 
-| Agent | Primary Files | Key Tools |
-|-------|--------------|-----------|
-| `sec-orchestrator` | All — coordination role | Read, Grep, Glob, Bash, Write, Edit |
-| `sec-researcher` | docs/ai/, docs/devsecops/, docs/compliance/ | Read, Grep, Glob, Bash |
-| `sec-implementer` | scanner/, hooks/, templates/, docs/guides/ | Read, Grep, Glob, Bash, Write, Edit |
-| `sec-reviewer` | All docs and code | Read, Grep, Glob, Bash |
-| `architect` | docs/architecture/, scanner/ design | Read, Grep, Glob, Bash |
-| `test-engineer` | All — validation role | Read, Grep, Glob, Bash, Write, Edit |
-| `docs-writer` | docs/devsecops/, docs/github/, docs/ai/, docs/compliance/ | Read, Grep, Glob, Bash, Write, Edit |
-| `ci-pipeline` | .github/workflows/, scripts/, Dockerfile | Read, Grep, Glob, Bash, Write, Edit |
+Token budget: prefer haiku subagents for read-only exploration. Use `run_in_background` for scans/builds.
 
-## Multi-Agent Workflow Patterns
+## Token Optimization
 
-### New Security Guide (end-to-end)
-
-```
-sec-researcher  →  sec-implementer  →  docs-writer  →  sec-reviewer  →  test-engineer
-(research)         (scanner/hooks)     (write guide)    (verify claims)   (lint + links)
-```
-
-### Scanner Feature Development
-
-```
-architect  →  sec-implementer  →  test-engineer  →  ci-pipeline
-(design)      (build feature)     (test + validate)   (add to CI)
-```
-
-### Compliance Document
-
-```
-sec-researcher  →  docs-writer  →  sec-reviewer  →  test-engineer
-(framework gap)    (draft guide)    (accuracy check)   (quality gate)
-```
-
-### Full DevSecOps Pipeline Review
-
-```
-sec-orchestrator coordinates:
-  sec-researcher   (threat landscape)
-  architect        (pipeline design gaps)
-  sec-reviewer     (existing doc audit)
-  ci-pipeline      (workflow gaps)
-  → sec-implementer (fix + implement)
-  → test-engineer   (validate all changes)
-```
-
-### Hotfix / Urgent Security Update
-
-```
-sec-researcher  →  sec-implementer  →  sec-reviewer
-(CVE/threat)       (patch guide/hook)   (fast review)
-```
+- Read specific line ranges, not entire files: `Read(file, offset=10, limit=30)`
+- Use Grep/Glob instead of Bash for file search — dedicated tools are cheaper
+- Subagents for exploration: always use `model: "haiku"` for read-only tasks
+- Prefer `run_in_background` for scans, builds, tests — frees context for other work
+- Keep slash command outputs concise — scanner summary, not full report
+- Autocompact at 70%: run `/compact` manually at logical milestones for better quality
+- When compacting, always preserve the full list of modified files and test commands
 
 ## Quality Gates
 

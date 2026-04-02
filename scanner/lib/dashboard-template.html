@@ -288,6 +288,25 @@ tr.arch-highlight td{animation:archPulseTd 1.2s ease 2}
 .trend-section h2{font-size:.95rem;margin-bottom:.75rem}
 .trend-chart{width:100%;height:220px;position:relative}
 .trend-chart canvas{width:100%!important;height:220px!important;cursor:crosshair}
+/* Overview priority + service surface */
+.priority-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem}
+.priority-card{appearance:none;width:100%;border:1px solid var(--border);border-radius:14px;padding:1rem;background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.015));display:flex;flex-direction:column;gap:.55rem;min-height:204px;text-align:left;color:var(--text);font-family:inherit;cursor:pointer;transition:border-color .15s,transform .15s,box-shadow .15s}
+.priority-card:hover{transform:translateY(-1px);border-color:var(--accent);box-shadow:var(--shadow-sm)}
+.priority-kicker{font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.priority-title{font-size:1rem;font-weight:800;line-height:1.35}
+.priority-body{font-size:.82rem;color:var(--muted);line-height:1.6}
+.priority-meta{display:flex;flex-wrap:wrap;gap:.35rem}
+.priority-chip{display:inline-flex;align-items:center;padding:.18rem .48rem;border-radius:999px;border:1px solid var(--border);font-size:.72rem;font-weight:700;background:rgba(255,255,255,.02)}
+.priority-footer{margin-top:auto;font-size:.76rem;font-weight:700;color:var(--accent)}
+.priority-critical{border-color:rgba(239,68,68,.38);background:linear-gradient(180deg,rgba(239,68,68,.12),rgba(255,255,255,.02))}
+.priority-warning{border-color:rgba(245,158,11,.38);background:linear-gradient(180deg,rgba(245,158,11,.10),rgba(255,255,255,.02))}
+.priority-info{border-color:rgba(56,189,248,.35);background:linear-gradient(180deg,rgba(56,189,248,.10),rgba(255,255,255,.02))}
+.priority-success{border-color:rgba(34,197,94,.34);background:linear-gradient(180deg,rgba(34,197,94,.10),rgba(255,255,255,.02))}
+.coverage-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem}
+.coverage-card{border:1px solid var(--border);border-radius:12px;padding:.9rem 1rem;background:rgba(255,255,255,.02);min-height:128px}
+.coverage-label{font-size:.72rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:.45rem}
+.coverage-value{font-size:1.2rem;font-weight:800;color:var(--text);margin-bottom:.35rem}
+.coverage-detail{font-size:.8rem;color:var(--muted);line-height:1.55}
 /* Severity bar */
 .sev-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;margin-bottom:1.5rem;background:var(--border)}
 .sev-bar div{height:100%}
@@ -406,6 +425,7 @@ tr.arch-highlight td{animation:archPulseTd 1.2s ease 2}
 .bp-panel.active{display:block}
 /* Footer */
 footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem}
+@media(max-width:980px){.priority-grid,.coverage-grid{grid-template-columns:1fr}}
 @media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr)}.score-section{flex-direction:column}.tabs{gap:0}.scanner-insights-grid{grid-template-columns:1fr;padding:.6rem .8rem}}
 /* Scroll-to-top button */
 .scroll-top{position:fixed;bottom:2rem;right:2rem;width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--bg);border:none;cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;opacity:0;visibility:hidden;transition:opacity var(--transition),visibility var(--transition),transform var(--transition);box-shadow:var(--shadow-md);z-index:99}
@@ -420,32 +440,148 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 .expandable:focus-visible,.owasp-header:focus-visible,.arch-header:focus-visible,.comp-title:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px}
 .isms-dash-link:hover{background:var(--accent)!important;color:#fff!important}
 .isms-main-link:hover{opacity:.85}
+/* Asset dashboard-inspired shell overrides */
+:root{--bg:#0f1117;--surface:#1a1d27;--surface-alt:#1e2130;--border:#2a2d3a;--text:#e1e4eb;--muted:#8b8fa3;--accent:#6c5ce7;--success:#00b894;--danger:#e17055;--warning:#fdcb6e;--info:#0984e3;--cyan:#00cec9;--glass:rgba(26,29,39,.74);--glass-border:rgba(108,92,231,.18)}
+[data-theme="light"]{--bg:#f0f2f5;--surface:#ffffff;--surface-alt:#f7f8fa;--border:#e0e3ea;--text:#1a1d27;--muted:#6b7085;--accent:#6c5ce7;--glass:rgba(255,255,255,.8);--glass-border:rgba(108,92,231,.12);--success:#0f9f74;--danger:#dc6a4c;--warning:#d79d23;--info:#2d77d0;--cyan:#0aa7a1}
+body{background:
+  radial-gradient(circle at top left,rgba(108,92,231,.16),transparent 24%),
+  radial-gradient(circle at top right,rgba(0,206,201,.10),transparent 18%),
+  var(--bg)}
+.container{max-width:1380px;padding:1.25rem 1.25rem 2rem}
+.hdr{background:linear-gradient(135deg,rgba(26,29,39,.95) 0%,rgba(45,27,105,.85) 52%,rgba(26,29,39,.96) 100%);padding:1.1rem 1.35rem;border:1px solid var(--glass-border);border-radius:18px;backdrop-filter:blur(14px);box-shadow:0 18px 50px rgba(0,0,0,.18)}
+[data-theme="light"] .hdr{background:linear-gradient(135deg,rgba(255,255,255,.94) 0%,rgba(108,92,231,.10) 50%,rgba(255,255,255,.96) 100%)}
+.hdr-copy{display:flex;flex-direction:column;gap:.28rem}
+.hdr-kicker{font-size:.72rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+.hdr-sub{color:var(--muted);font-size:.82rem;line-height:1.5}
+.hdr-meta{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap}
+.meta-pill{display:inline-flex;align-items:center;gap:.35rem;padding:.28rem .6rem;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--glass-border);font-size:.72rem;font-weight:700;color:var(--text)}
+[data-theme="light"] .meta-pill{background:rgba(108,92,231,.06)}
+.tabs{background:var(--glass);border:1px solid var(--glass-border);border-bottom:2px solid var(--border);padding:0 .7rem;border-radius:16px;backdrop-filter:blur(10px);position:sticky;top:.75rem;z-index:80;box-shadow:0 10px 30px rgba(0,0,0,.10)}
+.tab{display:inline-flex;align-items:center;gap:.38rem;padding:.82rem .95rem;border-radius:10px 10px 0 0;font-size:.8rem;color:#b8bfd0}
+.tab:hover{background:rgba(108,92,231,.08)}
+.tab.active{color:#b197fc;border-bottom-color:#b197fc;background:rgba(108,92,231,.08)}
+[data-theme="light"] .tab.active{color:#5b21b6;border-bottom-color:#5b21b6}
+.tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:1.35rem;padding:.08rem .38rem;border-radius:999px;background:rgba(255,255,255,.08);color:var(--muted);font-size:.62rem;font-weight:800;letter-spacing:.02em}
+.tab.active .tab-badge{background:rgba(167,139,250,.2);color:#c4b5fd}
+[data-theme="light"] .tab.active .tab-badge{background:rgba(91,33,182,.12);color:#5b21b6}
+.hero{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(320px,.95fr);gap:1rem;margin-bottom:1rem}
+.hero-main,.hero-side{background:var(--glass);backdrop-filter:blur(10px);border:1px solid var(--glass-border);border-radius:18px;padding:1.15rem 1.2rem;box-shadow:0 14px 38px rgba(0,0,0,.12)}
+.hero-main{background:linear-gradient(140deg,rgba(108,92,231,.18),rgba(26,29,39,.80) 45%,rgba(0,206,201,.10))}
+[data-theme="light"] .hero-main{background:linear-gradient(140deg,rgba(108,92,231,.08),rgba(255,255,255,.92) 48%,rgba(0,206,201,.08))}
+.hero-kicker{font-size:.72rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#d6ccff;margin-bottom:.45rem}
+[data-theme="light"] .hero-kicker{color:#5b21b6}
+.hero-title{font-size:1.6rem;font-weight:800;line-height:1.2;letter-spacing:-.02em;margin-bottom:.5rem}
+.hero-text{font-size:.9rem;color:var(--muted);line-height:1.65;max-width:60ch}
+.hero-chip-row,.hero-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.95rem}
+.hero-chip{display:inline-flex;align-items:center;gap:.35rem;padding:.36rem .7rem;border-radius:999px;border:1px solid var(--glass-border);background:rgba(255,255,255,.06);font-size:.74rem;font-weight:700}
+.hero-link{display:inline-flex;align-items:center;gap:.4rem;padding:.45rem .85rem;border-radius:10px;font-size:.8rem;font-weight:700;text-decoration:none;border:1px solid var(--glass-border);transition:transform .15s,border-color .15s,background .15s}
+.hero-link.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.hero-link.secondary{background:rgba(255,255,255,.04);color:var(--text)}
+.hero-link:hover{transform:translateY(-1px);border-color:var(--accent)}
+.hero-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem}
+.hero-metric{background:rgba(255,255,255,.04);border:1px solid var(--glass-border);border-radius:14px;padding:.9rem}
+[data-theme="light"] .hero-metric{background:rgba(108,92,231,.04)}
+.hero-metric-label{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:800}
+.hero-metric-value{font-size:1.45rem;font-weight:800;margin-top:.35rem}
+.hero-metric-sub{font-size:.76rem;color:var(--muted);margin-top:.2rem;line-height:1.5}
+.workspace-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem}
+.workspace-card{background:var(--glass);backdrop-filter:blur(10px);border:1px solid var(--glass-border);border-radius:16px;padding:1rem;cursor:pointer;transition:transform .16s,border-color .16s,box-shadow .16s}
+.workspace-card:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:0 12px 28px rgba(0,0,0,.12)}
+.workspace-head{display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;margin-bottom:.7rem}
+.workspace-icon{font-size:1.3rem}
+.workspace-value{font-size:1.1rem;font-weight:800;color:var(--text)}
+.workspace-label{font-size:.82rem;font-weight:800}
+.workspace-text{font-size:.79rem;color:var(--muted);line-height:1.55}
+.workspace-jump{display:inline-flex;align-items:center;gap:.3rem;margin-top:.65rem;font-size:.74rem;color:var(--accent);font-weight:700}
+.card,.trend-section{background:var(--glass);backdrop-filter:blur(10px);border:1px solid var(--glass-border);box-shadow:0 10px 30px rgba(0,0,0,.10)}
+.card-title{background:rgba(255,255,255,.03)}
+[data-theme="light"] .card-title{background:rgba(108,92,231,.03)}
+.stat-pill,.prov-card,.qn-card,.arch-ov-card,.net-ov-card,.coverage-card,.priority-card{background:rgba(255,255,255,.04);border-color:var(--glass-border)}
+[data-theme="light"] .stat-pill,[data-theme="light"] .prov-card,[data-theme="light"] .qn-card,[data-theme="light"] .arch-ov-card,[data-theme="light"] .net-ov-card,[data-theme="light"] .coverage-card,[data-theme="light"] .priority-card{background:rgba(255,255,255,.92)}
+.table-toolbar{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.75rem 1rem;border-bottom:1px solid var(--border);background:rgba(255,255,255,.02)}
+.table-search{min-width:220px;flex:1;padding:.5rem .75rem;background:var(--surface-alt);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:.8rem;outline:none}
+.table-search::placeholder{color:var(--muted)}
+.table-search:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(108,92,231,.12)}
+.toolbar-count{font-size:.74rem;color:var(--muted)}
+@media(max-width:1080px){.hero,.workspace-grid{grid-template-columns:1fr}.hero-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:720px){.hdr{padding:1rem}.hero-title{font-size:1.35rem}.hero-metrics{grid-template-columns:1fr}.table-toolbar{padding:.75rem}.table-search{min-width:100%}}
 /* Print styles */
 @media print{body{background:#fff;color:#111}.container{max-width:100%}header,.tabs,.quick-nav,.scroll-top,.toast,.setup-modal-overlay,.env-grid,.trend-section{display:none!important}.tab-panel{display:block!important;page-break-inside:avoid}.card{border:1px solid #ccc;break-inside:avoid;margin-bottom:1rem}.badge.critical,.badge.high{background:#dc2626;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.sev-bar div{-webkit-print-color-adjust:exact;print-color-adjust:exact}footer{text-align:center;border-top:1px solid #ccc;padding-top:1rem;color:#666}}
 </style>
 </head>
 <body>
 <div class="container" role="main">
-<header>
-  <h1><span>◆</span> ClaudeSec DevSecOps Dashboard <span class="ver">v{{VERSION}}</span></h1>
+<header class="hdr">
+  <div class="hdr-copy">
+    <div class="hdr-kicker">Scan Workspace</div>
+    <h1><span>◆</span> ClaudeSec DevSecOps Dashboard <span class="ver">v{{VERSION}}</span></h1>
+    <div class="hdr-sub">코드, 클라우드, GitHub, 아키텍처, 네트워크 보안 상태를 기능별로 탐색하고 우선순위를 정리하는 화면입니다.</div>
+  </div>
   <div class="header-right">
     <a href="/" class="isms-dash-link" style="font-size:.82rem;padding:.35rem .7rem;border:1px solid var(--border);border-radius:8px;color:var(--accent);text-decoration:none;font-weight:600;transition:all .15s" title="ISMS 통합 대시보드">ISMS Dashboard</a>
-    <div class="meta">Scan: {{NOW}} · {{DURATION}}s</div>
+    <div class="hdr-meta">
+      <span class="meta-pill">Grade {{GRADE}}</span>
+      <span class="meta-pill">{{TOTAL_ISSUES}} issues</span>
+      <span class="meta-pill">Scan {{NOW}}</span>
+      <span class="meta-pill">{{DURATION}}s</span>
+    </div>
     <button class="theme-toggle" id="themeToggleBtn" title="Toggle theme" aria-label="Toggle theme">🌓</button>
   </div>
 </header>
 
 <nav class="tabs" id="mainTabs" role="tablist" aria-label="Dashboard sections">
-  <button class="tab active" role="tab" aria-selected="true" aria-controls="tab-overview" data-action="switchTab" data-arg="overview">Overview</button>
-  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-prowler" data-action="switchTab" data-arg="prowler">CSPM</button>
-  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-github" data-action="switchTab" data-arg="github">GitHub</button>
-  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-bestpractices" data-action="switchTab" data-arg="bestpractices">Code Security</button>
+  <button class="tab active" role="tab" aria-selected="true" aria-controls="tab-overview" data-action="switchTab" data-arg="overview">Overview <span class="tab-badge">{{TOTAL_ISSUES}}</span></button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-prowler" data-action="switchTab" data-arg="prowler">CSPM <span class="tab-badge">{{TOTAL_PROWLER_FAIL}}</span></button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-github" data-action="switchTab" data-arg="github">GitHub <span class="tab-badge">{{GH_TOTAL}}</span></button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-bestpractices" data-action="switchTab" data-arg="bestpractices">Code Security <span class="tab-badge">{{SCANNER_ISSUES}}</span></button>
   <button class="tab" role="tab" aria-selected="false" aria-controls="tab-arch" data-action="switchTab" data-arg="arch">Architecture</button>
-  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-networktools" data-action="switchTab" data-arg="networktools">Network</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-networktools" data-action="switchTab" data-arg="networktools">Network <span class="tab-badge">{{NETWORK_TOOLS_BADGE}}</span></button>
 </nav>
 
 <!-- ── Tab: Overview ───────────────────────────────────────────────── -->
 <div class="tab-panel active" id="tab-overview" role="tabpanel" aria-label="Overview">
+  <section class="hero">
+    <div class="hero-main">
+      <div class="hero-kicker">Functional Security View</div>
+      <div class="hero-title">스캔 결과를 기능별로 보고, 우선순위에서 상세 분석까지 바로 내려갑니다.</div>
+      <div class="hero-text">메인 대시보드의 운영 관점 UI를 따라 `요약 → 기능 영역 → 세부 테이블` 흐름으로 구성했습니다. 먼저 우선순위를 보고, 그 다음 코드 보안, CSPM, GitHub, 네트워크, 아키텍처 영역으로 drill-down 하세요.</div>
+      <div class="hero-chip-row">
+        <span class="hero-chip">Grade {{GRADE}}</span>
+        <span class="hero-chip">{{TOTAL_ISSUES}} actionable findings</span>
+        <span class="hero-chip">{{SCANNER_TOTAL}} local checks</span>
+        <span class="hero-chip">{{ENV_CONNECTED}} / {{ENV_TOTAL}} integrations connected</span>
+      </div>
+      <div class="hero-actions">
+        <a href="/" class="hero-link primary">ISMS 메인 대시보드</a>
+        <a href="#scanner-section" class="hero-link secondary" data-action="scroll-to" data-target="scanner-section">로컬 스캐너 바로가기</a>
+      </div>
+    </div>
+    <div class="hero-side">
+      <div class="hero-metrics">
+        <div class="hero-metric">
+          <div class="hero-metric-label">Security Score</div>
+          <div class="hero-metric-value" style="color:{{GRADE_COLOR}}">{{SCORE}}</div>
+          <div class="hero-metric-sub">현재 스캔 결과의 총괄 점수와 등급</div>
+        </div>
+        <div class="hero-metric">
+          <div class="hero-metric-label">Cloud Failures</div>
+          <div class="hero-metric-value">{{TOTAL_PROWLER_FAIL}}</div>
+          <div class="hero-metric-sub">Prowler 기반 클라우드/CSPM 실패 항목</div>
+        </div>
+        <div class="hero-metric">
+          <div class="hero-metric-label">GitHub Findings</div>
+          <div class="hero-metric-value">{{GH_TOTAL}}</div>
+          <div class="hero-metric-sub">GitHub 보안 및 워크플로우 관련 이슈</div>
+        </div>
+        <div class="hero-metric">
+          <div class="hero-metric-label">Network Signals</div>
+          <div class="hero-metric-value">{{NETWORK_TOOLS_BADGE}}</div>
+          <div class="hero-metric-sub">Trivy, TLS, Datadog, 네트워크 수집 상태</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- Main dashboard link -->
   <div style="margin-bottom:1rem;padding:.6rem 1rem;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:space-between">
     <span style="font-size:.85rem;color:var(--muted)">ISMS PDCA · 자산 관리 · SaaS · 비용 분석은 <strong style="color:var(--text)">메인 대시보드</strong>에서 확인하세요.</span>
@@ -476,6 +612,94 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
       <span><span class="dot" style="background:#eab308"></span>Medium {{N_MED}}</span>
       <span><span class="dot" style="background:#f59e0b"></span>Warning {{N_WARN}}</span>
       <span><span class="dot" style="background:#6b7280"></span>Low {{N_LOW}}</span>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:0">
+    <div class="card-title">Priority Queue <span style="font-size:.75rem;color:var(--muted);font-weight:400">What to fix first based on current evidence</span></div>
+    <div style="padding:1rem 1.25rem">
+      {{PRIORITY_QUEUE_HTML}}
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:0">
+    <div class="card-title">Service Surface <span style="font-size:.75rem;color:var(--muted);font-weight:400">Current service composition and coverage at a glance</span></div>
+    <div style="padding:1rem 1.25rem">
+      {{SERVICE_SURFACE_HTML}}
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:0">
+    <div class="card-title">Function Workspace <span style="font-size:.75rem;color:var(--muted);font-weight:400">Browse the dashboard by function area instead of raw finding lists</span></div>
+    <div style="padding:1rem 1.25rem">
+      <div class="workspace-grid">
+        <div class="workspace-card" data-action="switchTab" data-arg="overview">
+          <div class="workspace-head">
+            <div>
+              <div class="workspace-label">Overview</div>
+              <div class="workspace-value">{{TOTAL_ISSUES}} issues</div>
+            </div>
+            <div class="workspace-icon">🧭</div>
+          </div>
+          <div class="workspace-text">우선순위, 서비스 범위, 상위 위험, 환경 연결 상태를 한 화면에서 정리합니다.</div>
+          <div class="workspace-jump">Open workspace →</div>
+        </div>
+        <div class="workspace-card" data-action="switchTab" data-arg="prowler">
+          <div class="workspace-head">
+            <div>
+              <div class="workspace-label">Cloud CSPM</div>
+              <div class="workspace-value">{{TOTAL_PROWLER_FAIL}} fail</div>
+            </div>
+            <div class="workspace-icon">☁</div>
+          </div>
+          <div class="workspace-text">AWS, GCP, Kubernetes, Azure, M365, IaC별로 클라우드 보안 실패를 추적합니다.</div>
+          <div class="workspace-jump">View provider lanes →</div>
+        </div>
+        <div class="workspace-card" data-action="switchTab" data-arg="github">
+          <div class="workspace-head">
+            <div>
+              <div class="workspace-label">GitHub Security</div>
+              <div class="workspace-value">{{GH_TOTAL}} findings</div>
+            </div>
+            <div class="workspace-icon">🐙</div>
+          </div>
+          <div class="workspace-text">Actions, repository posture, workflow security, secret exposure 리스크를 빠르게 찾습니다.</div>
+          <div class="workspace-jump">Open GitHub checks →</div>
+        </div>
+        <div class="workspace-card" data-action="switchTab" data-arg="bestpractices">
+          <div class="workspace-head">
+            <div>
+              <div class="workspace-label">Code Security</div>
+              <div class="workspace-value">{{SCANNER_ISSUES}} mapped</div>
+            </div>
+            <div class="workspace-icon">🧪</div>
+          </div>
+          <div class="workspace-text">OWASP, LLM Top 10, 컴플라이언스, 규정/지침 맵핑을 같이 보면서 개선합니다.</div>
+          <div class="workspace-jump">Open code security map →</div>
+        </div>
+        <div class="workspace-card" data-action="switchTab" data-arg="arch">
+          <div class="workspace-head">
+            <div>
+              <div class="workspace-label">Architecture</div>
+              <div class="workspace-value">Design map</div>
+            </div>
+            <div class="workspace-icon">🏗</div>
+          </div>
+          <div class="workspace-text">보안 도메인별 영향을 확인하고, 아키텍처 단위로 문제를 묶어 봅니다.</div>
+          <div class="workspace-jump">Inspect architecture →</div>
+        </div>
+        <div class="workspace-card" data-action="switchTab" data-arg="networktools">
+          <div class="workspace-head">
+            <div>
+              <div class="workspace-label">Network & Telemetry</div>
+              <div class="workspace-value">{{NETWORK_TOOLS_BADGE}}</div>
+            </div>
+            <div class="workspace-icon">📡</div>
+          </div>
+          <div class="workspace-text">네트워크 스캔, TLS, Trivy, Datadog 증적을 모아서 운영 가시성을 점검합니다.</div>
+          <div class="workspace-jump">Open telemetry lane →</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -536,7 +760,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
   </div>
 
   <!-- Top Critical/High findings -->
-  <div class="card">
+  <div class="card" id="top-findings-section">
     <div class="card-title">🔥 Top Critical / High findings</div>
     <div class="card-subtitle" style="font-size:.75rem;color:var(--muted);margin-top:-.35rem;margin-bottom:.5rem">By unique check (click row to open Scanner or Prowler tab)</div>
     <div style="max-height:360px;overflow-y:auto">
@@ -583,7 +807,8 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
     </div>
     <div class="scanner-cats">{{SCANNER_CAT_SUMMARY}}</div>
     {{SCANNER_INSIGHTS_HTML}}
-    <div style="padding:.5rem 1.25rem;display:flex;align-items:center;gap:.5rem;border-bottom:1px solid var(--border)">
+    <div class="table-toolbar">
+      <input class="table-search" id="scannerSearchInput" type="search" placeholder="Search local checks, finding titles, details, or locations" aria-label="Search scanner findings">
       <label for="scannerSevFilter" style="font-size:.78rem;color:var(--muted);font-weight:600">Filter:</label>
       <select class="scope-select" id="scannerSevFilter" style="font-size:.78rem" aria-label="Filter by severity">
         <option value="all">All severities</option>
@@ -591,7 +816,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
         <option value="high" selected>Critical + High</option>
         <option value="warning">Warnings</option>
       </select>
-      <span id="scannerFilterCount" style="font-size:.72rem;color:var(--muted)"></span>
+      <span class="toolbar-count" id="scannerFilterCount"></span>
     </div>
     <div style="max-height:55vh;overflow-y:auto">
       <table class="scanner-table"><thead><tr><th style="width:68px">Severity</th><th style="width:62px">Status</th><th style="width:100px">Check ID</th><th>Finding</th><th style="width:280px">Details / Remediation</th></tr></thead>
@@ -604,8 +829,12 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 <div class="tab-panel" id="tab-prowler" role="tabpanel" aria-label="Prowler CSPM">
   <div class="card">
     <div class="card-title">Prowler cloud scan summary</div>
+    <div class="table-toolbar">
+      <input class="table-search" id="prowlerSearchInput" type="search" placeholder="Search provider findings, check ids, or descriptions" aria-label="Search Prowler findings">
+      <span class="toolbar-count" id="prowlerSearchCount"></span>
+    </div>
     <div style="padding:1rem 1.25rem">
-      <table><thead><tr><th>Provider</th><th class="r">Total</th><th class="r">Critical</th><th class="r">High</th><th class="r">Medium</th><th class="r">Low</th><th class="r">Passed</th></tr></thead>
+      <table class="prowler-search-table"><thead><tr><th>Provider</th><th class="r">Total</th><th class="r">Critical</th><th class="r">High</th><th class="r">Medium</th><th class="r">Low</th><th class="r">Passed</th></tr></thead>
       <tbody>{{PROV_TABLE}}</tbody></table>
     </div>
   </div>
@@ -625,7 +854,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
     <div class="card">
       <div class="card-title">☁ AWS findings ({{AWS_TOTAL}})</div>
       <div style="max-height:60vh;overflow-y:auto">
-        <table><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
+        <table class="prowler-search-table"><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
         <tbody>{{AWS_TABLE}}</tbody></table>
       </div>
     </div>
@@ -635,7 +864,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
     <div class="card">
       <div class="card-title">◈ GCP findings ({{GCP_TOTAL}})</div>
       <div style="max-height:60vh;overflow-y:auto">
-        <table><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
+        <table class="prowler-search-table"><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
         <tbody>{{GCP_TABLE}}</tbody></table>
       </div>
     </div>
@@ -645,7 +874,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
     <div class="card">
       <div class="card-title">🏢 Google Workspace findings ({{GWS_TOTAL}})</div>
       <div style="max-height:60vh;overflow-y:auto">
-        <table><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
+        <table class="prowler-search-table"><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
         <tbody>{{GWS_TABLE}}</tbody></table>
       </div>
     </div>
@@ -655,7 +884,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
     <div class="card">
       <div class="card-title">⎈ Kubernetes findings ({{K8S_TOTAL}})</div>
       <div style="max-height:60vh;overflow-y:auto">
-        <table><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
+        <table class="prowler-search-table"><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
         <tbody>{{K8S_TABLE}}</tbody></table>
       </div>
     </div>
@@ -665,7 +894,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
     <div class="card">
       <div class="card-title">◇ Azure findings ({{AZURE_TOTAL}})</div>
       <div style="max-height:60vh;overflow-y:auto">
-        <table><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
+        <table class="prowler-search-table"><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
         <tbody>{{AZURE_TABLE}}</tbody></table>
       </div>
     </div>
@@ -675,7 +904,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
     <div class="card">
       <div class="card-title">📧 Microsoft 365 findings ({{M365_TOTAL}})</div>
       <div style="max-height:60vh;overflow-y:auto">
-        <table><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
+        <table class="prowler-search-table"><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
         <tbody>{{M365_TABLE}}</tbody></table>
       </div>
     </div>
@@ -685,7 +914,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
     <div class="card">
       <div class="card-title">📋 IaC findings ({{IAC_TOTAL}})</div>
       <div style="max-height:60vh;overflow-y:auto">
-        <table><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
+        <table class="prowler-search-table"><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th></tr></thead>
         <tbody>{{IAC_TABLE}}</tbody></table>
       </div>
     </div>
@@ -696,8 +925,12 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 <div class="tab-panel" id="tab-github" role="tabpanel" aria-label="GitHub Security">
   <div class="card">
     <div class="card-title">GitHub security check results ({{GH_TOTAL}} findings)</div>
+    <div class="table-toolbar">
+      <input class="table-search" id="githubSearchInput" type="search" placeholder="Search GitHub findings, repo names, or check ids" aria-label="Search GitHub findings">
+      <span class="toolbar-count" id="githubSearchCount"></span>
+    </div>
     <div style="max-height:70vh;overflow-y:auto">
-      <table><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th><th>Affected repos</th></tr></thead>
+      <table class="github-search-table"><thead><tr><th style="width:80px">Severity</th><th style="width:250px">Check ID</th><th>Description</th><th>Affected repos</th></tr></thead>
       <tbody>{{GH_TABLE}}</tbody></table>
     </div>
   </div>
@@ -1087,11 +1320,6 @@ document.getElementById('mainTabs').addEventListener('keydown',function(e){
 var _apFilterTimer;
 var _origApFilter=apFilterProducts;
 apFilterProducts=function(q){clearTimeout(_apFilterTimer);_apFilterTimer=setTimeout(function(){_origApFilter(q)},150)};
-/* Wire up scannerSevFilter change via addEventListener */
-(function(){
-  var sel=document.getElementById('scannerSevFilter');
-  if(sel)sel.addEventListener('change',function(){filterScannerSev(this.value)});
-})();
 /* Wire up themeToggleBtn */
 (function(){
   var btn=document.getElementById('themeToggleBtn');
@@ -1110,8 +1338,84 @@ function showToast(msg){var t=document.getElementById('toast');if(!t)return;t.te
 apRestoreChecks();
 function toggleTheme(){var t=document.documentElement;var cur=t.getAttribute('data-theme');var next=cur==='light'?'dark':'light';t.setAttribute('data-theme',next);try{localStorage.setItem('claudesec-theme',next)}catch(e){}}
 (function(){try{var t=localStorage.getItem('claudesec-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}})();
-function filterScannerSev(val){var rows=document.querySelectorAll('.scanner-table tbody tr');var shown=0;var total=0;rows.forEach(function(r){if(r.classList.contains('cat-header')||r.classList.contains('row-detail'))return;total++;if(val==='all'){r.style.display='';shown++;return}var show=false;if(val==='critical')show=r.classList.contains('sev-critical');else if(val==='high')show=r.classList.contains('sev-critical')||r.classList.contains('sev-high');else if(val==='warning')show=r.classList.contains('sev-warning');r.style.display=show?'':'none';if(show)shown++});var el=document.getElementById('scannerFilterCount');if(el)el.textContent=val==='all'?'':'('+shown+'/'+total+')'}
-document.addEventListener('DOMContentLoaded',function(){var sel=document.getElementById('scannerSevFilter');if(sel)filterScannerSev(sel.value)})
+function matchesScannerSeverity(row,val){
+  if(val==='all')return true;
+  if(val==='critical')return row.classList.contains('sev-critical');
+  if(val==='high')return row.classList.contains('sev-critical')||row.classList.contains('sev-high');
+  if(val==='warning')return row.classList.contains('sev-warning');
+  return true;
+}
+function applyScannerFilters(){
+  var sevSel=document.getElementById('scannerSevFilter');
+  var searchInput=document.getElementById('scannerSearchInput');
+  var val=sevSel?sevSel.value:'all';
+  var query=((searchInput&&searchInput.value)||'').toLowerCase().trim();
+  var rows=Array.from(document.querySelectorAll('.scanner-table tbody tr'));
+  var shown=0,total=0;
+  rows.forEach(function(r,idx){
+    if(r.classList.contains('cat-header')||r.classList.contains('row-detail'))return;
+    total++;
+    var detail=rows[idx+1]&&rows[idx+1].classList.contains('row-detail')?rows[idx+1]:null;
+    var text=(r.textContent||'').toLowerCase();
+    if(detail)text+=' '+(detail.textContent||'').toLowerCase();
+    var show=matchesScannerSeverity(r,val)&&(!query||text.indexOf(query)>=0);
+    r.style.display=show?'':'none';
+    if(detail){
+      if(!show){
+        detail.classList.remove('open');
+        detail.style.display='none';
+      }else{
+        detail.style.display=detail.classList.contains('open')?'table-row':'none';
+      }
+    }
+    if(show)shown++;
+  });
+  var headers=document.querySelectorAll('.scanner-table tbody tr.cat-header');
+  headers.forEach(function(header){
+    var cur=header.nextElementSibling,visible=false;
+    while(cur&&!cur.classList.contains('cat-header')){
+      if(!cur.classList.contains('row-detail')&&cur.style.display!=='none'){visible=true;break;}
+      cur=cur.nextElementSibling;
+    }
+    header.style.display=visible?'':'none';
+  });
+  var el=document.getElementById('scannerFilterCount');
+  if(el)el.textContent=shown+' / '+total+' visible';
+}
+function filterTableRows(selector,query,countId){
+  var rows=document.querySelectorAll(selector);
+  var q=(query||'').toLowerCase().trim();
+  var shown=0,total=0;
+  rows.forEach(function(row){
+    total++;
+    var show=!q||(row.textContent||'').toLowerCase().indexOf(q)>=0;
+    row.style.display=show?'':'none';
+    if(show)shown++;
+  });
+  var el=document.getElementById(countId);
+  if(el)el.textContent=shown+' / '+total+' visible';
+}
+document.addEventListener('DOMContentLoaded',function(){
+  var sevSel=document.getElementById('scannerSevFilter');
+  var scannerSearch=document.getElementById('scannerSearchInput');
+  if(sevSel)sevSel.addEventListener('change',applyScannerFilters);
+  if(scannerSearch)scannerSearch.addEventListener('input',applyScannerFilters);
+  applyScannerFilters();
+
+  var prowlerSearch=document.getElementById('prowlerSearchInput');
+  if(prowlerSearch){
+    var runProwlerFilter=function(){filterTableRows('.prowler-search-table tbody tr',prowlerSearch.value,'prowlerSearchCount')};
+    prowlerSearch.addEventListener('input',runProwlerFilter);
+    runProwlerFilter();
+  }
+
+  var githubSearch=document.getElementById('githubSearchInput');
+  if(githubSearch){
+    var runGitHubFilter=function(){filterTableRows('.github-search-table tbody tr',githubSearch.value,'githubSearchCount')};
+    githubSearch.addEventListener('input',runGitHubFilter);
+    runGitHubFilter();
+  }
+})
 /* Hash-based tab navigation (for links from asset dashboard) */
 (function(){var names=['overview','prowler','github','bestpractices','arch','networktools'];function resolveTab(s){if(s.startsWith('tab-'))return s.replace('tab-','');if(names.indexOf(s)>=0)return s;return null}var h=location.hash.replace('#','');if(h){var t=resolveTab(h);if(t)setTimeout(function(){switchTab(t)},100)}window.addEventListener('hashchange',function(){var h2=location.hash.replace('#','');if(h2){var t2=resolveTab(h2);if(t2)switchTab(t2)}})})();
 </script>

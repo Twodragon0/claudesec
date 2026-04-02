@@ -10,7 +10,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 # Files to skip
-SKIP_PATTERNS="(\.lock|\.svg|\.png|\.jpg|\.woff|node_modules|\.git)"
+SKIP_PATTERNS="(\.lock$|\.svg$|\.png$|\.jpg$|\.woff$|/node_modules/|/\.git/)"
 
 FOUND=0
 
@@ -53,10 +53,10 @@ if [ $# -gt 0 ]; then
     [ -f "$file" ] && scan_file "$file"
   done
 else
-  # Scan staged files
-  for file in $(git diff --cached --name-only 2>/dev/null); do
+  # Scan staged files (process substitution to keep FOUND in parent shell)
+  while IFS= read -r -d '' file; do
     [ -f "$file" ] && scan_file "$file"
-  done
+  done < <(git diff --cached --name-only -z 2>/dev/null)
 fi
 
 if [ $FOUND -gt 0 ]; then

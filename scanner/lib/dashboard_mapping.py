@@ -600,8 +600,9 @@ try:
         _cm_spec.loader.exec_module(_cm_mod)
         COMPLIANCE_CONTROL_MAP = _cm_mod.COMPLIANCE_CONTROL_MAP
         _COMPLIANCE_IMPORTED = True
-except Exception:
-    pass
+except Exception as e:
+    import sys
+    print(f"Warning: compliance-map.py load failed: {e}", file=sys.stderr)
 
 if not _COMPLIANCE_IMPORTED:
     COMPLIANCE_CONTROL_MAP = {
@@ -923,8 +924,6 @@ if not _COMPLIANCE_IMPORTED:
 
 
 if _COMPLIANCE_IMPORTED:
-    from importlib import import_module as _im  # noqa: F401 (used above)
-
     _match_prowler_compliance = _cm_mod._match_prowler_compliance
     map_compliance = _cm_mod.map_compliance
 else:

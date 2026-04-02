@@ -11,7 +11,7 @@ RED='\033[0;31m'
 YELLOW='\033[0;33m'
 NC='\033[0m'
 
-SKIP_PATTERNS="(\.lock|\.svg|\.png|\.jpg|\.woff|node_modules|\.git|\.env)"
+SKIP_PATTERNS="(\.lock$|\.svg$|\.png$|\.jpg$|\.woff$|/node_modules/|/\.git/)"
 FOUND=0
 
 scan_file() {
@@ -69,9 +69,10 @@ if [ $# -gt 0 ]; then
     [ -f "$file" ] && scan_file "$file"
   done
 else
-  for file in $(git diff --cached --name-only 2>/dev/null); do
+  # Process substitution to keep FOUND in parent shell
+  while IFS= read -r -d '' file; do
     [ -f "$file" ] && scan_file "$file"
-  done
+  done < <(git diff --cached --name-only -z 2>/dev/null)
 fi
 
 if [ $FOUND -gt 0 ]; then

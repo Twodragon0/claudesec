@@ -168,7 +168,7 @@ collect_aws() {
         LaunchTime: LaunchTime,
         Tags: Tags
       }' --output json 2>/dev/null | jq --arg p "$profile" \
-      '[.[]? | . + {profile: $p}]' >> "$ASSETS_DIR/aws-ec2-${profile}.json" 2>/dev/null || true
+      '[.[]? | . + {profile: $p}]' > "$ASSETS_DIR/aws-ec2-${profile}.json" 2>/dev/null || true
 
     # RDS 인스턴스
     aws rds describe-db-instances --profile "$profile" --region ap-northeast-2 \
@@ -182,18 +182,18 @@ collect_aws() {
         StorageEncrypted: StorageEncrypted,
         AutoMinorVersionUpgrade: AutoMinorVersionUpgrade
       }' --output json 2>/dev/null | jq --arg p "$profile" \
-      '[.[]? | . + {profile: $p}]' >> "$ASSETS_DIR/aws-rds-${profile}.json" 2>/dev/null || true
+      '[.[]? | . + {profile: $p}]' > "$ASSETS_DIR/aws-rds-${profile}.json" 2>/dev/null || true
 
     # EKS 클러스터
     aws eks list-clusters --profile "$profile" --region ap-northeast-2 \
       --query 'clusters' --output json 2>/dev/null | jq --arg p "$profile" \
-      '{profile: $p, clusters: .}' >> "$ASSETS_DIR/aws-eks-${profile}.json" 2>/dev/null || true
+      '{profile: $p, clusters: .}' > "$ASSETS_DIR/aws-eks-${profile}.json" 2>/dev/null || true
 
     # S3 버킷
     aws s3api list-buckets --profile "$profile" \
       --query 'Buckets[].{Name: Name, Created: CreationDate}' \
       --output json 2>/dev/null | jq --arg p "$profile" \
-      '[.[]? | . + {profile: $p}]' >> "$ASSETS_DIR/aws-s3-${profile}.json" 2>/dev/null || true
+      '[.[]? | . + {profile: $p}]' > "$ASSETS_DIR/aws-s3-${profile}.json" 2>/dev/null || true
 
     echo "    $profile 수집 완료"
   done
@@ -220,12 +220,14 @@ collect_prowler() {
     return 0
   fi
 
-  # Prowler 결과 요약 생성
-  python3 -c "
+  # Prowler 결과 요약 생성 (환경변수로 안전하게 전달)
+  PROWLER_DIR="$prowler_dir" ASSETS_DIR="$ASSETS_DIR" NOW="$NOW" python3 -c "
 import json, glob, os
 from collections import Counter
 
-prowler_dir = '$prowler_dir'
+prowler_dir = os.environ['PROWLER_DIR']
+assets_dir = os.environ['ASSETS_DIR']
+now = os.environ['NOW']
 all_findings = []
 
 for f in glob.glob(os.path.join(prowler_dir, '*.ocsf.json')):
@@ -252,7 +254,7 @@ failures = [f for f in all_findings if f.get('status_code') == 'FAIL']
 fail_severity = Counter(f.get('severity', 'unknown') for f in failures)
 
 summary = {
-    'collected_at': '$NOW',
+    'collected_at': now,
     'source': 'prowler-summary',
     'total_findings': len(all_findings),
     'by_severity': dict(severity_counter),
@@ -265,7 +267,7 @@ summary = {
     'files_processed': len(glob.glob(os.path.join(prowler_dir, '*.ocsf.json'))),
 }
 
-with open('$ASSETS_DIR/prowler-summary.json', 'w') as f:
+with open(os.path.join(assets_dir, 'prowler-summary.json'), 'w') as f:
     json.dump(summary, f, indent=2, ensure_ascii=False)
 
 print(f'    총 {len(all_findings)}건 (FAIL: {len(failures)}건)')
@@ -283,13 +285,13 @@ print(f'    심각도: {dict(fail_severity)}')
 echo ""
 echo "▶ 통합 자산 리포트 생성 중..."
 
-python3 -c "
+ASSETS_DIR="$ASSETS_DIR" NOW="$NOW" python3 -c "
 import json, glob, os
 from datetime import datetime
 
-assets_dir = '$ASSETS_DIR'
+assets_dir = os.environ['ASSETS_DIR']
 report = {
-    'generated_at': '$NOW',
+    'generated_at': os.environ['NOW'],
     'version': '1.0',
     'sources': {},
 }

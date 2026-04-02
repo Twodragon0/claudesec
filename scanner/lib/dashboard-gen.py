@@ -437,6 +437,308 @@ def _build_provider_cards(prov_summary):
     return prov_cards
 
 
+def _build_service_surface_html(
+    findings_list,
+    total_checks,
+    failed,
+    warnings,
+    prov_summary,
+    env_connected,
+    env_total,
+    net_data,
+    datadog_data,
+    arch_domains,
+    audit_points_data,
+    ms_best_practices_data,
+):
+    """Build high-level product coverage cards for the Overview tab."""
+    datadog_data = datadog_data or {}
+    net_data = net_data or {}
+    audit_points_data = audit_points_data or {}
+    ms_best_practices_data = ms_best_practices_data or {}
+
+    scanner_cats_seen = sorted(
+        {
+            str(f.get("category") or _infer_category(f.get("id", ""))).strip().lower()
+            for f in findings_list
+            if str(f.get("category") or f.get("id") or "").strip()
+        }
+    )
+    scanner_labels = [
+        CATEGORY_META.get(cat, CATEGORY_META["other"])["label"]
+        for cat in scanner_cats_seen
+    ]
+    providers_run = sum(
+        1
+        for pdata in prov_summary.values()
+        if int(pdata.get("total_fail", 0)) + int(pdata.get("total_pass", 0)) > 0
+    )
+    providers_total = max(len(prov_summary), 1)
+    total_prowler_fail = sum(int(v.get("total_fail", 0)) for v in prov_summary.values())
+    total_prowler_pass = sum(int(v.get("total_pass", 0)) for v in prov_summary.values())
+    trivy_summary = net_data.get("trivy_summary") or {}
+    trivy_total = sum(int(trivy_summary.get(k, 0)) for k in ("critical", "high", "medium", "low"))
+    nmap_count = len(net_data.get("nmap_scans", []) or [])
+    ssl_count = len(net_data.get("sslscan_results", []) or [])
+    datadog_total = int((datadog_data.get("summary") or {}).get("total", 0))
+    datadog_signal_total = int((datadog_data.get("signal_summary") or {}).get("total", 0))
+    datadog_case_total = int((datadog_data.get("case_summary") or {}).get("total", 0))
+    arch_attention = sum(1 for dom in arch_domains if int(dom.get("fail_count", 0)) > 0)
+    audit_product_count = len(audit_points_data.get("products", []) or [])
+    ms_source_count = len(ms_best_practices_data.get("sources", []) or [])
+
+    cards = [
+        {
+            "label": "Local scanner",
+            "value": f"{total_checks} checks",
+            "detail": (
+                f"{len(scanner_labels)} categories · {failed + warnings} actionable "
+                f"({', '.join(scanner_labels[:2]) if scanner_labels else 'pass/skip only'})"
+            ),
+        },
+        {
+            "label": "Cloud CSPM",
+            "value": f"{providers_run}/{providers_total} providers",
+            "detail": f"{total_prowler_fail} failed · {total_prowler_pass} passed",
+        },
+        {
+            "label": "Integrations",
+            "value": f"{env_connected}/{env_total or 1} connected",
+            "detail": (
+                "All configured providers connected"
+                if env_total and env_connected == env_total
+                else f"{max(env_total - env_connected, 0)} providers still need setup"
+            ),
+        },
+        {
+            "label": "Architecture",
+            "value": f"{len(arch_domains)} domains",
+            "detail": (
+                f"{arch_attention} domains need attention"
+                if arch_attention
+                else "No mapped architecture findings in this run"
+            ),
+        },
+        {
+            "label": "Network telemetry",
+            "value": f"{trivy_total + datadog_total + datadog_signal_total + datadog_case_total}",
+            "detail": f"Trivy {trivy_total} · Nmap {nmap_count} · TLS {ssl_count}",
+        },
+        {
+            "label": "Guidance hub",
+            "value": f"{audit_product_count + ms_source_count} sources",
+            "detail": f"Audit points {audit_product_count} · Best-practice repos {ms_source_count}",
+        },
+    ]
+
+    html = '<div class="coverage-grid">'
+    for card in cards:
+        html += (
+            '<div class="coverage-card">'
+            f'<div class="coverage-label">{h(card["label"])}</div>'
+            f'<div class="coverage-value">{h(card["value"])}</div>'
+            f'<div class="coverage-detail">{h(card["detail"])}</div>'
+            '</div>'
+        )
+    html += '</div>'
+    return html
+
+
+def _build_priority_queue_html(
+    findings_list,
+    prov_summary,
+    env_connected,
+    env_total,
+    net_data,
+    datadog_data,
+):
+    """Build prioritized next-action cards for the Overview tab."""
+    datadog_data = datadog_data or {}
+    net_data = net_data or {}
+
+    provider_labels = {
+        "aws": "AWS",
+        "github": "GitHub",
+        "iac": "IaC",
+        "kubernetes": "Kubernetes",
+        "azure": "Azure",
+        "gcp": "GCP",
+        "googleworkspace": "Google Workspace",
+        "m365": "Microsoft 365",
+        "cloudflare": "Cloudflare",
+        "nhn": "NHN Cloud",
+    }
+
+    scanner_urgent = [
+        f for f in findings_list if str(f.get("severity") or "").lower() in ("critical", "high")
+    ]
+    scanner_by_category: dict[str, int] = {}
+    for finding in findings_list:
+        category = str(
+            finding.get("category") or _infer_category(finding.get("id", ""))
+        ).strip().lower()
+        if not category:
+            continue
+        scanner_by_category[category] = scanner_by_category.get(category, 0) + 1
+    top_scanner_categories = sorted(
+        scanner_by_category.items(), key=lambda item: (-item[1], item[0])
+    )[:3]
+
+    provider_failures = sorted(
+        (
+            (
+                provider_labels.get(name, str(name).upper()),
+                int(data.get("critical", 0)) + int(data.get("high", 0)),
+                int(data.get("total_fail", 0)),
+            )
+            for name, data in prov_summary.items()
+        ),
+        key=lambda item: (-item[1], -item[2], item[0]),
+    )
+    top_provider = next((item for item in provider_failures if item[2] > 0), None)
+    prowler_urgent = sum(item[1] for item in provider_failures)
+
+    trivy_summary = net_data.get("trivy_summary") or {}
+    network_evidence = any(
+        [
+            sum(int(trivy_summary.get(k, 0)) for k in ("critical", "high", "medium", "low")),
+            len(net_data.get("nmap_scans", []) or []),
+            len(net_data.get("sslscan_results", []) or []),
+            int((datadog_data.get("summary") or {}).get("total", 0)),
+            int((datadog_data.get("signal_summary") or {}).get("total", 0)),
+            int((datadog_data.get("case_summary") or {}).get("total", 0)),
+        ]
+    )
+    visibility_gaps = []
+    if env_total and env_connected < env_total:
+        visibility_gaps.append(f"{env_total - env_connected} disconnected integration(s)")
+    if not any(int(data.get("total_fail", 0)) + int(data.get("total_pass", 0)) > 0 for data in prov_summary.values()):
+        visibility_gaps.append("cloud CSPM evidence missing")
+    if not network_evidence:
+        visibility_gaps.append("network or Datadog telemetry missing")
+
+    focus_items = []
+    if top_scanner_categories:
+        focus_items.extend(
+            f'{CATEGORY_META.get(cat, CATEGORY_META["other"])["label"]} ({count})'
+            for cat, count in top_scanner_categories[:2]
+        )
+    if top_provider:
+        focus_items.append(f"{top_provider[0]} ({top_provider[2]})")
+
+    cards: list[dict[str, Any]] = []
+    urgent_total = len(scanner_urgent) + prowler_urgent
+    if urgent_total:
+        dominant_area = "Cloud CSPM" if prowler_urgent > len(scanner_urgent) else "Local scanner"
+        chips = [f"Local {len(scanner_urgent)}", f"Cloud {prowler_urgent}"]
+        if top_provider and top_provider[2] > 0:
+            chips.append(f"Top provider {top_provider[0]}")
+        cards.append(
+            {
+                "tone": "critical" if urgent_total >= 5 else "warning",
+                "kicker": "Immediate",
+                "title": f"Burn down {urgent_total} critical/high findings",
+                "body": (
+                    f"{dominant_area} is contributing the larger share of urgent issues. "
+                    "Start with the highest-volume source before widening scope."
+                ),
+                "chips": chips,
+                "footer": "Jump to top findings",
+                "onclick": "document.getElementById('top-findings-section').scrollIntoView({behavior:'smooth'});",
+            }
+        )
+    else:
+        cards.append(
+            {
+                "tone": "success",
+                "kicker": "Immediate",
+                "title": "No critical/high findings in this run",
+                "body": "Use the remaining items to tighten coverage, medium findings, and operational hygiene.",
+                "chips": ["Urgent backlog clear"],
+                "footer": "Review medium and warning findings",
+                "onclick": "document.getElementById('scanner-section').scrollIntoView({behavior:'smooth'});",
+            }
+        )
+
+    if visibility_gaps:
+        cards.append(
+            {
+                "tone": "warning",
+                "kicker": "Coverage",
+                "title": "Close visibility gaps before trusting the score",
+                "body": (
+                    "A partial scan can look cleaner than the real environment. "
+                    "Connect the missing evidence sources, then rerun the dashboard."
+                ),
+                "chips": visibility_gaps[:3],
+                "footer": "Open environment and network setup",
+                "onclick": "switchTab('networktools');",
+            }
+        )
+    else:
+        cards.append(
+            {
+                "tone": "success",
+                "kicker": "Coverage",
+                "title": "Evidence sources are connected",
+                "body": "Environment, cloud, and telemetry inputs are present, so prioritization is based on a broader signal set.",
+                "chips": ["Coverage baseline met"],
+                "footer": "Inspect coverage details",
+                "onclick": "document.getElementById('scanner-section').scrollIntoView({behavior:'smooth'});",
+            }
+        )
+
+    if focus_items:
+        cards.append(
+            {
+                "tone": "info",
+                "kicker": "Focus",
+                "title": "Concentrate the next improvement pass",
+                "body": (
+                    "Findings are clustered in a few areas. Fix those hotspots first, then retest to collapse the backlog faster."
+                ),
+                "chips": focus_items[:3],
+                "footer": "Open the dominant area",
+                "onclick": (
+                    "switchTab('prowler');"
+                    if top_provider and (not top_scanner_categories or top_provider[2] >= top_scanner_categories[0][1])
+                    else "document.getElementById('scanner-section').scrollIntoView({behavior:'smooth'});"
+                ),
+            }
+        )
+    else:
+        cards.append(
+            {
+                "tone": "info",
+                "kicker": "Focus",
+                "title": "Use guidance and architecture tabs for hardening",
+                "body": "When findings are low, the next wins come from best-practice adoption, design review, and missing telemetry setup.",
+                "chips": ["Architecture", "Code security", "Network tooling"],
+                "footer": "Review guidance surfaces",
+                "onclick": "switchTab('bestpractices');",
+            }
+        )
+
+    html = '<div class="priority-grid">'
+    for card in cards:
+        html += (
+            f'<button class="priority-card priority-{h(card["tone"])}" onclick="{card["onclick"]}" type="button">'
+            f'<div class="priority-kicker">{h(card["kicker"])}</div>'
+            f'<div class="priority-title">{h(card["title"])}</div>'
+            f'<div class="priority-body">{h(card["body"])}</div>'
+            '<div class="priority-meta">'
+        )
+        for chip in card["chips"]:
+            html += f'<span class="priority-chip">{h(chip)}</span>'
+        html += (
+            '</div>'
+            f'<div class="priority-footer">{h(card["footer"])} →</div>'
+            '</button>'
+        )
+    html += '</div>'
+    return html
+
+
 def _compute_severity_bars(n_crit, n_high, n_med, n_low, warnings):
     """Compute severity bar percentages."""
     sev_total = max(n_crit + n_high + n_med + n_low + warnings, 1)
@@ -907,6 +1209,11 @@ def _build_overview_blocks(
     passed,
     total_prowler_pass,
     warnings,
+    total_checks,
+    failed,
+    arch_domains,
+    audit_points_data,
+    ms_best_practices_data,
     findings_list=None,
 ):
     findings_list = findings_list or []
@@ -929,6 +1236,28 @@ def _build_overview_blocks(
 
     env_connected = sum(1 for e in envs if e["connected"])
     env_total = len(envs)
+    service_surface_html = _build_service_surface_html(
+        findings_list,
+        total_checks,
+        failed,
+        warnings,
+        prov_summary,
+        env_connected,
+        env_total,
+        net_data,
+        datadog_data,
+        arch_domains,
+        audit_points_data,
+        ms_best_practices_data,
+    )
+    priority_queue_html = _build_priority_queue_html(
+        findings_list,
+        prov_summary,
+        env_connected,
+        env_total,
+        net_data,
+        datadog_data,
+    )
     ts = net_data["trivy_summary"]
     trivy_total = ts["critical"] + ts["high"] + ts["medium"] + ts["low"]
     dd_total = datadog_data["summary"].get("total", 0)
@@ -976,6 +1305,8 @@ def _build_overview_blocks(
         "top_findings_html": top_findings_html,
         "env_connected": env_connected,
         "env_total": env_total,
+        "service_surface_html": service_surface_html,
+        "priority_queue_html": priority_queue_html,
         "network_tools_html": network_tools_html,
         "network_tools_badge": network_tools_badge,
     }
@@ -1115,6 +1446,8 @@ _TEMPLATE_KEYS = [
     "ARCH_OVERVIEW_HTML",
     "NETWORK_SUMMARY_HTML",
     "POLICIES_HTML",
+    "SERVICE_SURFACE_HTML",
+    "PRIORITY_QUEUE_HTML",
 ]
 
 
@@ -2067,6 +2400,11 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         passed,
         total_prowler_pass,
         warnings,
+        total,
+        failed,
+        arch_domains,
+        audit_points_data,
+        ms_best_practices_data,
         findings_list,
     )
     n_crit = overview["n_crit"]
@@ -2084,6 +2422,8 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     top_findings_html = overview["top_findings_html"]
     env_connected = overview["env_connected"]
     env_total = overview["env_total"]
+    service_surface_html = overview["service_surface_html"]
+    priority_queue_html = overview["priority_queue_html"]
     network_tools_html = overview["network_tools_html"]
     network_tools_badge = overview["network_tools_badge"]
 
@@ -2270,6 +2610,8 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         arch_overview_html,
         net_summary_html,
         policies_html,
+        service_surface_html,
+        priority_queue_html,
     )
     _apply_template_and_write(output_file, _load_html_template(), reps)
 

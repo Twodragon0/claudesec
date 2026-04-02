@@ -1,6 +1,8 @@
 #!/bin/bash
 # Simulate a malicious .env file
-cat <<'EOT' > .env
+TEST_ENV_FILE=$(mktemp "${TMPDIR:-/tmp}/test_env.XXXXXX")
+trap 'rm -f "$TEST_ENV_FILE"' EXIT
+cat <<'EOT' > "$TEST_ENV_FILE"
 GOOD_VAR=hello
 BAD_VAR=$(echo "THIS SHOULD NOT RUN")
 QUOTED_VAR="with spaces"
@@ -26,10 +28,14 @@ while IFS='=' read -r key value || [ -n "$key" ]; do
   value="${value%\'}"
   value="${value#\'}"
 
+  # Validate key: must be alphanumeric/underscore, reject dangerous names
+  [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && continue
+  [[ "$key" =~ ^(PATH|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_.*|BASH_ENV|SHELL|HOME|USER|LOGNAME|IFS)$ ]] && continue
+
   # Securely set the variable
   printf -v "$key" "%s" "$value"
   export "$key"
-done < .env
+done < "$TEST_ENV_FILE"
 
 echo "GOOD_VAR: $GOOD_VAR"
 echo "BAD_VAR: $BAD_VAR"
