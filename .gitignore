@@ -104,10 +104,9 @@ main-snapshot.md
 docs/seminar/
 docs/architecture/*.pdf
 
-# Claude Code (local settings, agents, hooks — commands are shared)
+# Claude Code (local settings and hooks — agents and commands are shared)
 .claude/settings.json
 .claude/settings.local.json
-.claude/agents/
 .claude/hooks/
 
 # Summary/presentation files (internal, not for public repo)
