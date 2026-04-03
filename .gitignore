@@ -49,6 +49,7 @@ kubeconfig
 claudesec-dashboard.html
 claudesec-dashboard.*.html
 claudesec-asset-dashboard-live.html
+scan.html
 index.html
 scan-report.json
 *.scan-report.html

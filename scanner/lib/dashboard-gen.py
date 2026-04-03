@@ -206,7 +206,7 @@ def _build_scanner_section(findings_list):
             loc_html = f' <span class="scan-loc">📍 <code>{location}</code></span>' if location else ""
             has_expandable = location or details
             row_cls = f'{sev_cls} expandable' if has_expandable else sev_cls
-            toggle = ' onclick="toggleRow(this)"' if has_expandable else ""
+            toggle = ' data-action="toggleRow"' if has_expandable else ""
             scanner_rows += f'<tr class="{row_cls}"{toggle}><td>{badge}</td><td><span class="scan-status-{sev}">{status_icon} {status_label}</span></td><td class="mono">{fid}</td><td>{title}</td><td class="fix">{details if details else "<em>-</em>"}</td></tr>'
             if has_expandable:
                 detail_parts = []
@@ -215,7 +215,7 @@ def _build_scanner_section(findings_list):
                 if location:
                     detail_parts.append(f'<p style="margin-top:.3rem"><strong>Location:</strong> <code style="font-size:.75rem;word-break:break-all">{location}</code></p>')
                 scanner_rows += f'<tr class="row-detail"><td colspan="5"><div class="detail-panel">{"".join(detail_parts)}</div></td></tr>'
-        scanner_cat_summary += f'<div class="scat-chip" onclick="document.getElementById(\'scanner-cat-{cat}\').scrollIntoView({{behavior:\'smooth\',block:\'center\'}});" title="Jump to {h(meta["label"])} findings"><span class="scat-icon">{meta["icon"]}</span><span class="scat-label">{meta["label"]}</span><span class="scat-cnt">{len(items)}</span></div>'
+        scanner_cat_summary += f'<div class="scat-chip" data-action="scrollToCategory" data-arg="{h(cat)}" title="Jump to {h(meta["label"])} findings"><span class="scat-icon">{meta["icon"]}</span><span class="scat-label">{meta["label"]}</span><span class="scat-cnt">{len(items)}</span></div>'
     if not scanner_rows:
         scanner_rows = '<tr><td colspan="5" class="scan-empty" style="padding:1.5rem;text-align:center;color:var(--muted);font-size:.9rem">No failed or warning findings from the local scanner. All reported checks passed or were skipped.</td></tr>'
 
@@ -268,7 +268,7 @@ def _build_scanner_section(findings_list):
         title = h(f.get("title") or "Untitled finding")
         fid = h(f.get("id") or "N/A")
         fcat = f.get("category") or _infer_category(f.get("id", ""))
-        detail_list += f'<li onclick="document.getElementById(\'scanner-cat-{fcat}\').scrollIntoView({{behavior:\'smooth\',block:\'center\'}});" title="Jump to {fid}"><span class="si-sev si-{sev}">{sev}</span><span class="mono">{fid}</span> {title}</li>'
+        detail_list += f'<li data-action="scrollToCategory" data-arg="{h(fcat)}" title="Jump to {fid}" style="cursor:pointer"><span class="si-sev si-{sev}">{sev}</span><span class="mono">{fid}</span> {title}</li>'
     if not detail_list:
         detail_list = "<li>No outstanding scanner findings.</li>"
 
@@ -1628,6 +1628,8 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             }
         ]
     )
+    # Escape sequences that break out of <script> context (XSS prevention)
+    history_json = history_json.replace("</", "<\\/").replace("<!--", "<\\!--")
 
     # ── Build HTML sections ──────────────────────────────────────────────
 

@@ -2,13 +2,13 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:; connect-src 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>ClaudeSec — ISMS 통합 보안 대시보드</title>
 <style>
-:root{--bg:#0f1117;--card:#1a1d27;--card2:#1e2130;--border:#2a2d3a;--text:#e1e4eb;--muted:#8b8fa3;--accent:#6c5ce7;--green:#00b894;--yellow:#fdcb6e;--red:#e17055;--orange:#f39c12;--blue:#0984e3;--cyan:#00cec9;--pink:#fd79a8;--glass:rgba(26,29,39,.72);--glass-border:rgba(108,92,231,.18)}
-[data-theme="light"]{--bg:#f0f2f5;--card:#ffffff;--card2:#f7f8fa;--border:#e0e3ea;--text:#1a1d27;--muted:#6b7085;--glass:rgba(255,255,255,.72);--glass-border:rgba(108,92,231,.12)}
+:root{--bg:#0f1117;--surface:#1a1d27;--surface-alt:#1e2130;--border:#2a2d3a;--text:#e1e4eb;--muted:#8b8fa3;--accent:#6c5ce7;--green:#00b894;--yellow:#fdcb6e;--red:#e17055;--orange:#f39c12;--blue:#0984e3;--cyan:#00cec9;--pink:#fd79a8;--glass:rgba(26,29,39,.72);--glass-border:rgba(108,92,231,.18);--success:var(--green);--danger:var(--red);--warning:var(--yellow);--radius:12px;--transition:.25s cubic-bezier(.4,0,.2,1)}
+[data-theme="light"]{--bg:#f0f2f5;--surface:#ffffff;--surface-alt:#f7f8fa;--border:#e0e3ea;--text:#1a1d27;--muted:#6b7085;--glass:rgba(255,255,255,.72);--glass-border:rgba(108,92,231,.12)}
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;transition:background .3s,color .3s}
 a{color:var(--accent);text-decoration:none}
@@ -27,9 +27,20 @@ a{color:var(--accent);text-decoration:none}
 .conn-dot::after{content:attr(data-tip);position:absolute;top:14px;left:50%;transform:translateX(-50%);font-size:9px;color:var(--muted);white-space:nowrap;opacity:0;transition:opacity .2s;pointer-events:none}
 .conn-dot:hover::after{opacity:1}
 .conn-dot.ok{background:var(--green);box-shadow:0 0 6px var(--green)}.conn-dot.off{background:var(--muted)}
-.theme-btn{background:var(--card);border:1px solid var(--border);color:var(--text);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.theme-btn{background:var(--surface);border:1px solid var(--border);color:var(--text);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:all .2s}
 .theme-btn:hover{border-color:var(--accent);background:var(--accent);color:#fff}
-.tabs{display:flex;gap:0;background:var(--glass);backdrop-filter:blur(10px);border-bottom:2px solid var(--border);padding:0 16px;overflow-x:auto;position:sticky;top:0;z-index:50;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+/* ── Global Navigation ── */
+.cs-gnav{display:flex;align-items:center;gap:0;padding:0 1.5rem;background:#080b11;border-bottom:1px solid rgba(255,255,255,.06);font-size:.73rem;font-family:inherit;position:sticky;top:0;z-index:200}
+[data-theme="light"] .cs-gnav{background:#e2e8f0;border-bottom-color:rgba(0,0,0,.06)}
+.cs-gnav .gnav-brand{font-weight:800;color:rgba(255,255,255,.8);margin-right:.75rem;font-size:.78rem;padding:.45rem 0}
+[data-theme="light"] .cs-gnav .gnav-brand{color:#1e293b}
+.cs-gnav a{display:inline-flex;align-items:center;gap:.3rem;padding:.45rem .75rem;color:rgba(255,255,255,.45);text-decoration:none;font-weight:600;transition:color .15s,border-color .15s;border-bottom:2px solid transparent;white-space:nowrap}
+[data-theme="light"] .cs-gnav a{color:rgba(0,0,0,.4)}
+.cs-gnav a:hover{color:rgba(255,255,255,.85)}
+[data-theme="light"] .cs-gnav a:hover{color:rgba(0,0,0,.75)}
+.cs-gnav a.gn-active{color:#a78bfa;border-bottom-color:#a78bfa}
+[data-theme="light"] .cs-gnav a.gn-active{color:#5b21b6;border-bottom-color:#5b21b6}
+.tabs{display:flex;gap:0;background:var(--glass);backdrop-filter:blur(10px);border-bottom:2px solid var(--border);padding:0 16px;overflow-x:auto;position:sticky;top:28px;z-index:50;scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .tabs::-webkit-scrollbar{display:none}
 .tabs::after{content:'';position:sticky;right:0;min-width:24px;background:linear-gradient(to right,transparent,var(--bg));pointer-events:none}
 .tab{padding:11px 14px;cursor:pointer;color:#b0b8cc;border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap;font-weight:600;font-size:13px;transition:all .25s}
@@ -50,7 +61,7 @@ a{color:var(--accent);text-decoration:none}
 .cd h2,.cd h3{padding:14px 18px;font-size:14px;font-weight:600;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
 .cd h3 .bg{background:var(--accent);color:#fff;font-size:10px;padding:2px 7px;border-radius:8px;font-weight:600}
 table{width:100%;border-collapse:collapse}
-th{background:var(--card2);text-align:left;padding:8px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;position:sticky;top:0;z-index:1;cursor:pointer;user-select:none;transition:color .15s}
+th{background:var(--surface-alt);text-align:left;padding:8px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;position:sticky;top:0;z-index:1;cursor:pointer;user-select:none;transition:color .15s}
 th:hover{color:var(--accent)}
 th .sort-arrow{font-size:9px;margin-left:3px;opacity:.4;transition:opacity .15s}
 th.sorted .sort-arrow{opacity:1;color:var(--accent)}
@@ -58,7 +69,7 @@ td{padding:8px 14px;border-top:1px solid var(--border);font-size:12px;max-width:
 tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 .stbl{max-height:420px;overflow-y:auto}
 .exp-row{cursor:pointer}.exp-row:hover{background:rgba(108,92,231,.08)}
-.exp-detail{display:none;background:var(--card2)}
+.exp-detail{display:none;background:var(--surface-alt)}
 .exp-detail.open{display:table-row}
 .ch{display:inline-block;padding:2px 9px;border-radius:8px;font-size:10px;font-weight:600}
 .ch-g{background:rgba(0,184,148,.15);color:var(--green)}.ch-y{background:rgba(253,203,110,.15);color:var(--yellow)}
@@ -92,49 +103,53 @@ tr{transition:background .15s}tr:hover{background:rgba(108,92,231,.05)}
 .bar-fill{height:100%;border-radius:4px;transition:width .6s}
 .bar-val{min-width:80px;font-size:11px;color:var(--muted)}
 .fb{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
-.fb-btn{padding:5px 12px;border-radius:7px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;font-size:11px;transition:all .2s}
+.fb-btn{padding:5px 12px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;font-size:11px;transition:all .2s}
 .fb-btn:hover,.fb-btn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .ring-wrap{display:flex;justify-content:center;gap:32px;margin-bottom:20px;flex-wrap:wrap}
 .ring{width:100px;height:100px;position:relative;display:inline-block}.ring svg{transform:rotate(-90deg)}
 .ring .rv{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:20px;font-weight:800}
 .ring .rl{text-align:center;font-size:11px;color:var(--muted);margin-top:4px}
-.search-input{width:100%;padding:8px 14px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;margin-bottom:14px;outline:none;transition:border-color .2s}
+.search-input{width:100%;padding:8px 14px;background:var(--surface-alt);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;margin-bottom:14px;outline:none;transition:border-color .2s}
 .search-input:focus{border-color:var(--accent)}.search-input::placeholder{color:var(--muted)}
 .gauge-wrap{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .gauge-track{flex:1;height:10px;background:var(--border);border-radius:5px;overflow:hidden}
 .gauge-fill{height:100%;border-radius:5px;transition:width .6s}
 .gauge-lbl{font-size:12px;color:var(--muted);min-width:110px}
 .gauge-val{font-size:12px;font-weight:600;min-width:70px;text-align:right}
-.scan-link-card{display:flex;flex-direction:column;padding:14px 16px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--text);text-decoration:none;transition:all .2s;font-size:14px;font-weight:600}
+.scan-link-card{display:flex;flex-direction:column;padding:14px 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);text-decoration:none;transition:all .2s;font-size:14px;font-weight:600}
 .scan-link-card:hover{border-color:var(--accent);background:rgba(108,92,231,.08);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.1)}
 .scan-link-card span{font-size:11px;color:var(--muted);font-weight:400;margin-top:4px}
 .cat-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
-.cat-chip{padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid var(--border);background:var(--card);color:var(--muted);transition:all .2s}
+.cat-chip{padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--muted);transition:all .2s}
 .cat-chip:hover,.cat-chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .month-bars{display:flex;align-items:flex-end;gap:4px;height:120px;padding:0 20px;margin:16px 0}
 .month-col{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1}
 .month-bar{width:100%;border-radius:4px 4px 0 0;transition:height .4s;min-height:2px}
 .month-lbl{font-size:10px;color:var(--muted)}.month-amt{font-size:9px;color:var(--muted)}
-.ts-bar{display:flex;align-items:center;gap:6px;padding:6px 14px;margin-bottom:16px;background:var(--card2);border-radius:8px;font-size:11px;color:var(--muted);flex-wrap:wrap}
+.ts-bar{display:flex;align-items:center;gap:6px;padding:6px 14px;margin-bottom:16px;background:var(--surface-alt);border-radius:8px;font-size:11px;color:var(--muted);flex-wrap:wrap}
 .ts-bar .ts-dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0}
 .ts-bar .ts-dot.stale{background:var(--yellow)}.ts-bar .ts-dot.old{background:var(--red)}
 .ts-bar .ts-src{font-weight:600;color:var(--text);margin-right:2px}
 .ts-bar .ts-sep{width:1px;height:14px;background:var(--border);margin:0 4px}
-.xv-card{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px}
+.xv-card{background:var(--surface-alt);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px}
 .xv-stat{display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap}
-.xv-stat>div{flex:1;min-width:120px;text-align:center;padding:12px;background:var(--card);border-radius:8px;border:1px solid var(--border)}
+.xv-stat>div{flex:1;min-width:120px;text-align:center;padding:12px;background:var(--surface);border-radius:8px;border:1px solid var(--border)}
 .xv-stat .xv-num{font-size:24px;font-weight:700}.xv-stat .xv-lbl{font-size:10px;color:var(--muted);text-transform:uppercase}
-.scan-dash-link:hover{background:var(--accent)!important;color:#fff!important}
+/* scan-dash-link removed — global nav replaces it */
 .pol-card:hover{border-color:var(--accent)!important}
 </style>
 </head>
 <body>
+<nav class="cs-gnav" aria-label="Global navigation">
+  <span class="gnav-brand">ClaudeSec</span>
+  <a href="/claudesec-asset-dashboard.html" class="gn-active">ISMS Dashboard</a>
+  <a href="/claudesec-dashboard.html">Scan Dashboard</a>
+</nav>
 <div class="hdr">
 <div><h1><b>ClaudeSec</b> ISMS 통합 보안 대시보드</h1>
 <div class="sub">ISMS 자산관리 · 취약점 점검 · PDCA 관리 체계</div></div>
 <div class="hdr-right">
 <div class="conn-dots" id="conn-dots"></div>
-<a href="/scan.html" class="scan-dash-link" style="font-size:12px;padding:5px 12px;border:1px solid var(--border);border-radius:7px;color:var(--accent);text-decoration:none;font-weight:600;transition:all .2s">ClaudeSec 스캔 대시보드</a>
 <div class="ts" id="ts"></div>
 <button class="theme-btn" id="theme-toggle"></button>
 </div>
@@ -411,7 +426,7 @@ function renderISMS(d,s){
   function pdcaCard(el,goal,items,score,color){
     var pct=Math.min(score,100);
     var barColor=pct>=80?'var(--green)':pct>=60?'var(--yellow)':'var(--red)';
-    var html='<div style="margin-bottom:12px;padding:10px 14px;background:var(--card2);border-radius:8px;border-left:4px solid '+color+'">';
+    var html='<div style="margin-bottom:12px;padding:10px 14px;background:var(--surface-alt);border-radius:8px;border-left:4px solid '+color+'">';
     html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
     html+='<span style="font-size:12px;font-weight:700;color:var(--fg)">'+esc(goal)+'</span>';
     html+='<span style="font-size:11px;font-weight:700;color:'+barColor+'">'+pct+'%</span></div>';
@@ -561,14 +576,14 @@ function renderSecUnified(d){
       var sevColor=s==='critical'?'var(--red)':s==='high'?'var(--orange)':s==='medium'?'var(--yellow)':'var(--blue)';
       var bg=s==='critical'?'rgba(220,38,38,.10)':s==='high'?'rgba(239,68,68,.06)':'transparent';
       html+='<div style="border:1px solid var(--border);border-left:4px solid '+sevColor+';border-radius:8px;margin-bottom:8px;overflow:hidden;cursor:pointer;background:'+bg+'" data-action="toggle-cs-det">';
-      html+='<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--card2)">';
+      html+='<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--surface-alt)">';
       html+=sevCh(f.severity)+' <strong style="font-size:12px;color:var(--accent)">'+esc(f.id||'')+'</strong>';
       html+='<span style="flex:1;font-size:12px;font-weight:600;line-height:1.4">'+esc(f.title||'')+'</span>';
       html+='<span class="cs-arrow" style="color:var(--muted);font-size:10px">\u25B8</span></div>';
-      html+='<div class="cs-det" style="display:none;padding:12px 16px;border-top:1px dashed var(--border);background:var(--card)">';
+      html+='<div class="cs-det" style="display:none;padding:12px 16px;border-top:1px dashed var(--border);background:var(--surface)">';
       if(f.details)html+='<div style="font-size:12px;line-height:1.6;margin-bottom:8px"><strong>조치사항:</strong> '+esc(f.details)+'</div>';
       if(f.location)html+='<div style="font-size:11px;color:var(--muted);margin-bottom:6px"><strong>위치:</strong> <code style="font-size:10px;word-break:break-all">'+esc(f.location)+'</code></div>';
-      if(f.category)html+='<span style="font-family:monospace;font-size:10px;color:var(--accent);background:var(--card2);padding:2px 8px;border-radius:4px">'+esc(f.category)+'</span>';
+      if(f.category)html+='<span style="font-family:monospace;font-size:10px;color:var(--accent);background:var(--surface-alt);padding:2px 8px;border-radius:4px">'+esc(f.category)+'</span>';
       html+='</div></div>';
     });
     $('cs-findings-list').innerHTML=html||'<div style="padding:16px;text-align:center;color:var(--muted)">취약점 없음</div>';
@@ -661,13 +676,13 @@ function _renderProwCards(el,rows,defaultColor){
     var checkId=(f.check||'').replace(/^prowler-[^-]+-/,'').replace(/-[a-f0-9]{6,}$/,'').replace(/-\d{12}.*$/,'');
     var hubUrl=f.hub_url||(checkId?'https://hub.prowler.com/check/'+encodeURIComponent(checkId):'');
     html+='<div style="border:1px solid var(--border);border-left:3px solid '+sevColor+';border-radius:8px;margin-bottom:8px;overflow:hidden;cursor:pointer" data-action="toggle-prow-det">';
-    html+='<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--card2)">';
+    html+='<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--surface-alt)">';
     html+=sevCh(f.severity)+' '+ch(f.provider||'','b');
     html+='<span style="flex:1;font-size:12px;font-weight:600;line-height:1.4">'+esc((f.message||'').substring(0,120))+'</span>';
     html+='<span class="prow-arrow" style="color:var(--muted);font-size:10px">\u25B8</span></div>';
-    html+='<div class="prow-det" style="display:none;padding:12px 16px;border-top:1px dashed var(--border);background:var(--card)">';
+    html+='<div class="prow-det" style="display:none;padding:12px 16px;border-top:1px dashed var(--border);background:var(--surface)">';
     html+='<div style="font-size:13px;line-height:1.6;margin-bottom:8px">'+esc(f.message||'')+'</div>';
-    if(checkId){html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-family:monospace;font-size:11px;color:var(--accent);background:var(--card2);padding:2px 8px;border-radius:4px">'+esc(checkId)+'</span>';}
+    if(checkId){html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-family:monospace;font-size:11px;color:var(--accent);background:var(--surface-alt);padding:2px 8px;border-radius:4px">'+esc(checkId)+'</span>';}
     if(hubUrl){html+='<a href="'+safeHref(hubUrl)+'" target="_blank" rel="noopener" data-no-action="1" style="font-size:11px;color:var(--accent);text-decoration:underline">Prowler Hub \u2197</a>';}
     if(checkId){html+='</div>';}
     html+='</div></div>';
@@ -1162,7 +1177,7 @@ function renderSig(d){
     var url=esc(a.url||'');
     var hasUrl=url&&url!=='';
     auditHtml+='<div class="audit-card" data-action="toggle-audit" style="border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;cursor:pointer;transition:all .2s;'+(impN>=8?'border-left:3px solid var(--red)':impN>=5?'border-left:3px solid var(--yellow)':'border-left:3px solid var(--green)')+'">';
-    auditHtml+='<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--card2)">';
+    auditHtml+='<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface-alt)">';
     auditHtml+='<span style="min-width:80px;font-size:12px;color:var(--muted);font-weight:600">'+esc(a.date||'')+'</span>';
     auditHtml+='<div style="flex:1"><div style="font-size:13px;font-weight:600">'+esc(a.title||'')+'</div>';
     if(a.summary)auditHtml+='<div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4;max-height:2.8em;overflow:hidden">'+esc(a.summary.substring(0,120))+(a.summary.length>120?'...':'')+'</div>';
@@ -1171,7 +1186,7 @@ function renderSig(d){
     auditHtml+='<span style="min-width:24px;text-align:center">'+impCh+'</span>';
     auditHtml+='<span class="audit-arrow" style="font-size:11px;color:var(--muted)">'+(impN>=8?'\u25BE':'\u25B8')+'</span>';
     auditHtml+='</div>';
-    auditHtml+='<div class="audit-detail" style="display:'+(impN>=8?'block':'none')+';padding:14px 16px;border-top:1px dashed var(--border);background:var(--card)">';
+    auditHtml+='<div class="audit-detail" style="display:'+(impN>=8?'block':'none')+';padding:14px 16px;border-top:1px dashed var(--border);background:var(--surface)">';
     auditHtml+='<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">';
     auditHtml+=ch(a.status||'','g')+' '+tagHtml;
     if(hasUrl)auditHtml+=' <a href="'+safeHref(url)+'" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px;text-decoration:underline;text-underline-offset:2px;margin-left:auto" data-no-action="1">Notion에서 열기 ↗</a>';

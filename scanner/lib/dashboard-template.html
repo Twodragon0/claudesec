@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="generator" content="ClaudeSec v{{VERSION}}">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none';">
 <meta name="theme-color" content="#0f172a">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>ClaudeSec DevSecOps Dashboard</title>
@@ -32,11 +32,22 @@
 [data-theme="light"] .scroll-top{background:#0284c7;color:#fff}
 .theme-toggle{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:.35rem .55rem;cursor:pointer;font-size:1rem;transition:all .15s;color:var(--text)}
 .theme-toggle:hover{border-color:var(--accent);background:rgba(56,189,248,.08)}
+/* ── Global Navigation ── */
+.cs-gnav{display:flex;align-items:center;gap:0;padding:0 1.5rem;background:#080b11;border-bottom:1px solid rgba(255,255,255,.06);font-size:.73rem;font-family:inherit;position:sticky;top:0;z-index:200}
+[data-theme="light"] .cs-gnav{background:#e2e8f0;border-bottom-color:rgba(0,0,0,.06)}
+.cs-gnav .gnav-brand{font-weight:800;color:rgba(255,255,255,.8);margin-right:.75rem;font-size:.78rem;padding:.45rem 0}
+[data-theme="light"] .cs-gnav .gnav-brand{color:#1e293b}
+.cs-gnav a{display:inline-flex;align-items:center;gap:.3rem;padding:.45rem .75rem;color:rgba(255,255,255,.45);text-decoration:none;font-weight:600;transition:color .15s,border-color .15s;border-bottom:2px solid transparent;white-space:nowrap}
+[data-theme="light"] .cs-gnav a{color:rgba(0,0,0,.4)}
+.cs-gnav a:hover{color:rgba(255,255,255,.85)}
+[data-theme="light"] .cs-gnav a:hover{color:rgba(0,0,0,.75)}
+.cs-gnav a.gn-active{color:#38bdf8;border-bottom-color:#38bdf8}
+[data-theme="light"] .cs-gnav a.gn-active{color:#0284c7;border-bottom-color:#0284c7}
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeSpeed}
 .container{max-width:1200px;margin:0 auto;padding:1.5rem}
-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:.5rem;position:sticky;top:0;z-index:100;background:var(--bg);padding-top:1rem;padding-bottom:.75rem;border-bottom:1px solid transparent;transition:border-color var(--transition)}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:.5rem;position:sticky;top:28px;z-index:100;background:var(--bg);padding-top:1rem;padding-bottom:.75rem;border-bottom:1px solid transparent;transition:border-color var(--transition)}
 header.scrolled{border-bottom-color:var(--border);box-shadow:var(--shadow-sm)}
 header h1{font-size:1.4rem;font-weight:800}
 header h1 span{color:var(--accent)}
@@ -510,6 +521,11 @@ body{background:
 </style>
 </head>
 <body>
+<nav class="cs-gnav" aria-label="Global navigation">
+  <span class="gnav-brand">ClaudeSec</span>
+  <a href="/claudesec-asset-dashboard.html">ISMS Dashboard</a>
+  <a href="/claudesec-dashboard.html" class="gn-active">Scan Dashboard</a>
+</nav>
 <div class="container" role="main">
 <header class="hdr">
   <div class="hdr-copy">
@@ -518,7 +534,6 @@ body{background:
     <div class="hdr-sub">코드, 클라우드, GitHub, 아키텍처, 네트워크 보안 상태를 기능별로 탐색하고 우선순위를 정리하는 화면입니다.</div>
   </div>
   <div class="header-right">
-    <a href="/" class="isms-dash-link" style="font-size:.82rem;padding:.35rem .7rem;border:1px solid var(--border);border-radius:8px;color:var(--accent);text-decoration:none;font-weight:600;transition:all .15s" title="ISMS 통합 대시보드">ISMS Dashboard</a>
     <div class="hdr-meta">
       <span class="meta-pill">Grade {{GRADE}}</span>
       <span class="meta-pill">{{TOTAL_ISSUES}} issues</span>
@@ -1305,6 +1320,17 @@ document.addEventListener('click',function(e){
   }
   if(action==='closeSetup'){closeSetup();return;}
   if(action==='copyCmd'){copyCmd(btn);return;}
+  if(action==='toggleRow'){
+    var row=btn.closest('tr');
+    if(row&&row.nextElementSibling){row.nextElementSibling.classList.toggle('open');row.classList.toggle('expanded');}
+    return;
+  }
+  if(action==='scrollToCategory'){
+    var catId=btn.dataset.arg;
+    var catEl=document.getElementById('scanner-cat-'+catId);
+    if(catEl)catEl.scrollIntoView({behavior:'smooth',block:'start'});
+    return;
+  }
 });
 /* Keyboard navigation for tabs */
 document.getElementById('mainTabs').addEventListener('keydown',function(e){

@@ -1483,6 +1483,8 @@ def main():
     html = tmpl_path.read_text()
 
     json_str = json.dumps(dashboard_data, ensure_ascii=False, default=str)
+    # Escape sequences that break out of <script> context (XSS prevention)
+    json_str = json_str.replace("</", "<\\/").replace("<!--", "<\\!--")
 
     # 템플릿 내 placeholder 교체
     html = html.replace("__DASHBOARD_DATA__", json_str)
