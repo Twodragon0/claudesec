@@ -42,7 +42,13 @@
 <text class="txt muted mono" x="335.0" y="282" text-anchor="middle">claudesec-dashboard.html</text>
 <rect x="430" y="240" width="90" height="60" rx="10" class="boxC"/>
 <text class="txt" x="475.0" y="262" text-anchor="middle">History</text>
+<<<<<<< Updated upstream
 <text class="txt muted mono" x="475.0" y="282" text-anchor="middle">9 entries</text>
+||||||| Stash base
+<text class="txt muted mono" x="475.0" y="282" text-anchor="middle">4 entries</text>
+=======
+<text class="txt muted mono" x="475.0" y="282" text-anchor="middle">0 entries</text>
+>>>>>>> Stashed changes
 <line x1="200" y1="180" x2="240" y2="180" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <line x1="390" y1="180" x2="430" y2="180" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <line x1="295" y1="210" x2="295" y2="240" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
