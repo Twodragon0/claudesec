@@ -30,11 +30,13 @@ All documentation is in Markdown. No build system required.
 ## Agents & Model Routing
 
 Project agents in `.claude/agents/`. Model selection:
+
 - **opus**: sec-orchestrator, architect — coordination, architecture, security audit
 - **sonnet**: sec-implementer, sec-researcher, sec-reviewer, ci-pipeline, test-engineer — standard work
 - **haiku**: explore, docs lookup, quick validation — lightweight tasks
 
 Key workflows:
+
 - Security guide: researcher → implementer → writer → reviewer → test
 - Scanner feature: architect → implementer → test → ci-pipeline
 - Hotfix: researcher → implementer → reviewer

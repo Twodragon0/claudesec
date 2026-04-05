@@ -20,13 +20,13 @@ jobs:
 
       - name: Start application (docker-compose)
         run: |
-          docker compose -f docker-compose.staging.yml up -d
-          timeout 60 bash -c 'until curl -sf http://localhost:8080/health; do sleep 2; done'
+          docker compose up -d dashboard
+          timeout 60 bash -c 'until curl -sf http://localhost:11777/; do sleep 2; done'
 
       - name: ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.12.0
         with:
-          target: "http://localhost:8080"
+          target: "http://localhost:11777"
           rules_file_name: ".zap/rules.tsv"
           cmd_options: "-a"
           fail_action: true
@@ -41,4 +41,4 @@ jobs:
 
       - name: Teardown
         if: always()
-        run: docker compose -f docker-compose.staging.yml down
+        run: docker compose down
