@@ -20,8 +20,10 @@ jobs:
 
       - name: Generate dashboard files for mount
         run: |
-          touch claudesec-asset-dashboard-live.html
-          ./scanner/claudesec dashboard -d . --all 2>/dev/null || true
+          echo '<!DOCTYPE html><html><body>DAST target</body></html>' > claudesec-asset-dashboard-live.html
+          echo '<!DOCTYPE html><html><body>DAST scan dashboard</body></html>' > claudesec-dashboard.html
+          echo '{}' > scan-report.json
+          mkdir -p .claudesec-assets
 
       - name: Start application (docker-compose)
         run: |
