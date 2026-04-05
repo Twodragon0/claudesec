@@ -1,0 +1,17 @@
+# ZAP Baseline Scan Rules
+# Format: rule_id	action	name
+# Actions: IGNORE, WARN, FAIL
+10003	WARN	Vulnerable JS Library
+10010	WARN	Cookie No HttpOnly Flag
+10011	WARN	Cookie Without Secure Flag
+10015	WARN	Incomplete or No Cache-control Header Set
+10017	WARN	Cross-Domain JavaScript Source File Inclusion
+10020	WARN	X-Frame-Options Header
+10021	WARN	X-Content-Type-Options Header
+10036	WARN	Server Leaks Version Information
+10038	WARN	Content Security Policy Header Not Set
+10049	WARN	Storable and Cacheable Content
+10055	WARN	CSP: Wildcard Directive
+10096	WARN	Timestamp Disclosure
+10098	WARN	Cross-Domain Misconfiguration
+90003	WARN	Sub Resource Integrity Attribute Missing
