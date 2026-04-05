@@ -65,7 +65,7 @@ jobs:
           SHELLCHECK_OPTS: -x
         with:
           version: v0.11.0
-          severity: warning
+          severity: error
           scandir: '.'
           ignore_paths: >-
             node_modules

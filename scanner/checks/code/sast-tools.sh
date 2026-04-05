@@ -49,7 +49,7 @@ if has_command semgrep; then
       ' 2>/dev/null || true)
       _semgrep_details="${_semgrep_details}${_semgrep_findings}"
 
-      local _sev="high"
+      _sev="high"
       [[ $_semgrep_errors -gt 0 ]] && _sev="critical"
       fail "CODE-SAST-001" "Semgrep: ${_semgrep_total} security finding(s)" "$_sev" \
         "$_semgrep_details" \

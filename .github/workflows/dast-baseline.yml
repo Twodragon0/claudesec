@@ -18,6 +18,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Generate dashboard files for mount
+        run: |
+          touch claudesec-asset-dashboard-live.html
+          ./scanner/claudesec dashboard -d . --all 2>/dev/null || true
+
       - name: Start application (docker-compose)
         run: |
           docker compose up -d dashboard
