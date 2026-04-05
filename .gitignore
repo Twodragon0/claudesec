@@ -110,6 +110,8 @@ docs/architecture/*.pdf
 .claude/settings.json
 .claude/settings.local.json
 .claude/hooks/
+.omc/
+.omc-config.json
 
 # Summary/presentation files (internal, not for public repo)
 claudesec-summary-*.md

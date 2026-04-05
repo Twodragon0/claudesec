@@ -68,3 +68,5 @@ This keeps the PR queue clean and avoids repeated conflict churn.
 - GitHub Status: [https://www.githubstatus.com/](https://www.githubstatus.com/)
 - Contribution policy mirror: [../../CONTRIBUTING.md](../../CONTRIBUTING.md)
 - PR checks snapshot template: [../../.github/comment-templates/pr-checks-snapshot.md](../../.github/comment-templates/pr-checks-snapshot.md)
+- [NIST SP 800-53 SA-10: Developer Configuration Management](https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_0/home?element=SA-10)
+- [NIST SP 800-53 CM-3: Configuration Change Control](https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_0/home?element=CM-3)
