@@ -7,8 +7,7 @@ import json
 import os
 import sys
 import glob
-import xml.etree.ElementTree as ET
-from xml.dom import minidom
+import defusedxml.ElementTree as ET
 from pathlib import Path
 from collections import defaultdict
 import hashlib

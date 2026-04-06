@@ -18,8 +18,12 @@ fi
 # IAM-002: .gitignore includes sensitive patterns
 if has_file ".gitignore"; then
   missing_patterns=""
-  for pattern in ".env" "*.pem" "*.key" "credentials" "*.secret"; do
-    if ! file_contains ".gitignore" "$pattern"; then
+  required_patterns=(".env" "*.pem" "*.key" "credentials" "*.secret")
+  required_regexes=("\\.env" "\\*\\.pem" "\\*\\.key" "credentials" "\\*\\.secret")
+  for idx in "${!required_patterns[@]}"; do
+    pattern="${required_patterns[$idx]}"
+    regex="${required_regexes[$idx]}"
+    if ! file_contains ".gitignore" "$regex"; then
       missing_patterns="$missing_patterns $pattern"
     fi
   done

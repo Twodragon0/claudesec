@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016,SC2317
 # ============================================================================
 # ClaudeSec — Code Vulnerability Scanner: Security Design Flaws
 # OWASP Top 10 2025: A02 Crypto, A04 Insecure Design, A07 Auth, A08 Integrity
@@ -23,7 +24,9 @@ if [[ "$_any_code" != "true" ]]; then
   skip "CODE-SEC-008" "Race condition scan" "No source code files detected"
   skip "CODE-SEC-009" "Prototype pollution scan" "No source code files detected"
   skip "CODE-SEC-010" "Insecure redirect scan" "No source code files detected"
-  return 0 2>/dev/null || exit 0
+  if ! return 0 2>/dev/null; then
+    exit 0
+  fi
 fi
 
 # ── CODE-SEC-001: Insecure Cryptography (P1/High) — OWASP A02 ────────────

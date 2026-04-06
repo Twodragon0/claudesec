@@ -43,7 +43,7 @@ case "${1:-help}" in
     echo ""
     echo "Usage:"
     echo "  claudesec scan [options]      Run security scan"
-    echo "  claudesec dashboard           Build + serve dashboard (Docker)"
+    echo "  claudesec dashboard           Build + serve dashboard (Docker-first, local fallback)"
     echo "  claudesec setup [target]      Install hooks/workflows to a project"
     echo "  claudesec init                Initialize .claudesec.yml config"
     echo "  claudesec quickstart          Docker scan + dashboard (one command)"
@@ -52,7 +52,7 @@ case "${1:-help}" in
     echo ""
     echo "Quick start:"
     echo "  npx claudesec scan            Scan current directory"
-    echo "  npx claudesec dashboard       Full scan + dashboard"
+    echo "  npx claudesec dashboard       Full scan + dashboard (safe runner)"
     echo "  npx claudesec quickstart      Docker: scan + dashboard at localhost:11777"
     ;;
 esac

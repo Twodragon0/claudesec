@@ -438,6 +438,8 @@ tr.arch-highlight td{animation:archPulseTd 1.2s ease 2}
 footer{text-align:center;padding:2rem 0 1rem;color:var(--muted);font-size:.78rem}
 @media(max-width:980px){.priority-grid,.coverage-grid{grid-template-columns:1fr}}
 @media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr)}.score-section{flex-direction:column}.tabs{gap:0}.scanner-insights-grid{grid-template-columns:1fr;padding:.6rem .8rem}}
+/* ── Print styles ── */
+@media print{body{background:#fff!important;color:#000!important}.cs-gnav,.scroll-top,.toast,.theme-toggle,.setup-modal,.header-right .print-btn,.tabs{display:none!important}.tab-panel{display:block!important;page-break-inside:avoid}.tab-panel:not(#tab-overview){border-top:2px solid #ccc;padding-top:1rem;margin-top:1rem}.container{max-width:100%;padding:0}.hdr{background:#fff!important;border:none!important;box-shadow:none!important;padding:.5rem 0}.card,.hero-main,.hero-side{background:#fff!important;border:1px solid #ddd!important;box-shadow:none!important;backdrop-filter:none!important}.stat .num{color:#000!important}.badge{border:1px solid #999!important}.score-ring svg{print-color-adjust:exact;-webkit-print-color-adjust:exact}a{color:#000!important;text-decoration:underline}}
 /* Scroll-to-top button */
 .scroll-top{position:fixed;bottom:2rem;right:2rem;width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--bg);border:none;cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;opacity:0;visibility:hidden;transition:opacity var(--transition),visibility var(--transition),transform var(--transition);box-shadow:var(--shadow-md);z-index:99}
 .scroll-top.visible{opacity:1;visibility:visible}
@@ -540,6 +542,7 @@ body{background:
       <span class="meta-pill">Scan {{NOW}}</span>
       <span class="meta-pill">{{DURATION}}s</span>
     </div>
+    <button class="theme-toggle print-btn" onclick="window.print()" title="Print / Export PDF" aria-label="Print dashboard">&#x1F5A8;</button>
     <button class="theme-toggle" id="themeToggleBtn" title="Toggle theme" aria-label="Toggle theme">🌓</button>
   </div>
 </header>
@@ -1103,6 +1106,19 @@ function switchBpTab(id){
   var tab=document.getElementById('bptab-'+id);
   if(tab)tab.classList.add('active');
 }
+/* Keyboard arrow navigation for tabs (WAI-ARIA tabs pattern) */
+document.getElementById('mainTabs').addEventListener('keydown',function(e){
+  if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight'&&e.key!=='Home'&&e.key!=='End')return;
+  var names=['overview','prowler','github','bestpractices','arch','networktools'];
+  var tabs=document.querySelectorAll('.tab');
+  var cur=-1;tabs.forEach(function(t,i){if(t.classList.contains('active'))cur=i});
+  if(cur<0)return;
+  if(e.key==='ArrowRight')cur=(cur+1)%names.length;
+  else if(e.key==='ArrowLeft')cur=(cur-1+names.length)%names.length;
+  else if(e.key==='Home')cur=0;
+  else if(e.key==='End')cur=names.length-1;
+  e.preventDefault();switchTab(names[cur]);tabs[cur].focus();
+});
 /* Tab switching — id: tab name, targetId: optional element id to scroll into view */
 function switchTab(id,targetId){
   document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active')});

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016,SC2317
 # ============================================================================
 # ClaudeSec — Code Vulnerability Scanner: Injection & Input Handling
 # OWASP Top 10 2025: A03 Injection, A01 Broken Access Control
@@ -30,7 +31,9 @@ if [[ "$_any_code" != "true" ]]; then
   skip "CODE-INJ-006" "Template Injection scan" "No source code files detected"
   skip "CODE-INJ-007" "LDAP/NoSQL Injection scan" "No source code files detected"
   skip "CODE-INJ-008" "XML/XXE vulnerability scan" "No source code files detected"
-  return 0 2>/dev/null || exit 0
+  if ! return 0 2>/dev/null; then
+    exit 0
+  fi
 fi
 
 # Helper: search code files for pattern, return file:line matches
@@ -60,7 +63,7 @@ _format_hits() {
     [[ -z "$line" ]] && continue
     [[ $count -ge $max ]] && break
     # Shorten path relative to SCAN_DIR
-    line="${line#$SCAN_DIR/}"
+    line="${line#"$SCAN_DIR"/}"
     output="${output}\\n    ${line}"
     count=$((count + 1))
   done <<< "$hits"

@@ -735,14 +735,14 @@ class GithubApiJsonTest(unittest.TestCase):
 
         with (
             patch("urllib.request.urlopen", side_effect=side_effect),
-            patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_testtoken123"}, clear=False),
+            patch.dict("os.environ", {"GITHUB_TOKEN": "test-fake-token-abc123"}, clear=False),
         ):
             result = dashboard_gen._github_api_json("https://api.github.com/repos/x/y")
 
         self.assertEqual(result, {"data": 1})
         self.assertEqual(len(captured_req), 1)
         auth_header = captured_req[0].get_header("Authorization")
-        self.assertEqual(auth_header, "token ghp_testtoken123")
+        self.assertEqual(auth_header, "token test-fake-token-abc123")
 
     def test_gh_token_fallback(self):
         """GH_TOKEN env var should be used when GITHUB_TOKEN is absent."""

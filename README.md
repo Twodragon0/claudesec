@@ -23,15 +23,16 @@ ClaudeSec integrates security best practices directly into your AI-powered devel
 
 ```bash
 npx claudesec scan                # Security scan — no install needed
-npx claudesec dashboard           # Full scan + dashboard
+npx claudesec dashboard           # Full scan + dashboard (safe local runner)
 ```
 
-**Git clone + Docker**
+**Git clone + local-safe default**
 
 ```bash
 git clone https://github.com/Twodragon0/claudesec.git
 cd claudesec
-./scripts/quick-start.sh          # Docker build + scan + serve
+npm run dashboard                 # Safe mode (port fallback, no Docker requirement)
+./scripts/quick-start.sh          # Docker-first mode (auto local fallback)
 ```
 
 **Claude Code slash commands**
@@ -51,8 +52,9 @@ Dashboard serves at **`http://localhost:11777/`**
 ```bash
 npx claudesec scan                      # Scan only
 npx claudesec dashboard                 # Full scan + dashboard
-./scripts/quick-start.sh --scan-only    # Docker scan only
+./scripts/quick-start.sh --scan-only    # Scan + dashboard build only (no serve)
 ./scripts/quick-start.sh --serve        # Serve existing dashboard
+./scripts/quick-start.sh --docker-only  # Fail fast when Docker is unavailable
 ```
 
 **Asset Management Dashboard** (optional — requires API keys)
@@ -342,6 +344,20 @@ EOF
 
 # Datadog local auto-fetch
 DD_API_KEY=<your-dd-api-key> DD_APP_KEY=<your-dd-app-key> DD_SITE=datadoghq.com ./scanner/claudesec dashboard
+```
+
+### Secrets noise reduction (allowlist vs real risk)
+
+`SECRETS-002` (`.env`) and `SECRETS-004` (credential-path references) are split by path risk:
+
+- Non-allowlisted paths (for example `src/`, app runtime code): **FAIL** (real risk)
+- Allowlisted sample paths (`templates/`, `examples/`, `docs/`, `scanner/tests/`): **WARN** (operationally allowed)
+
+Optional custom allowlist regex:
+
+```bash
+export CLAUDESEC_SECRETS_ALLOWLIST_REGEX='^playbooks/|^internal-samples/'
+./scanner/claudesec scan -c access-control
 ```
 
 ### CI reproducibility check (dashboard regression gate)
