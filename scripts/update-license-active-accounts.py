@@ -7,11 +7,17 @@
   python3 scripts/update-license-active-accounts.py
 """
 
+import os
+import sys
+
 import gspread
 
 # ── 설정 ──────────────────────────────────────────────────────────────────
 
-SHEET_ID = "YOUR_SHEET_ID"
+SHEET_ID = os.environ.get("ASSET_SHEET_ID", "YOUR_SHEET_ID")
+if SHEET_ID.startswith("YOUR_"):
+    print("Error: Set ASSET_SHEET_ID environment variable.", file=sys.stderr)
+    sys.exit(1)
 WORKSHEET_NAME = "라이선스_현황"
 
 # 실제 활성 계정 수 (관리자 콘솔 기준)

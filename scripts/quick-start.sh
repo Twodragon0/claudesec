@@ -5,11 +5,12 @@
 # 사용법:
 #   ./scripts/quick-start.sh                # 스캔 + 대시보드 서빙
 #   ./scripts/quick-start.sh --scan-only    # 스캔만 실행
-#   ./scripts/quick-start.sh --serve        # 기존 대시보드 서빙만
+#   ./scripts/quick-start.sh --serve        # 기존/신규 대시보드 서빙
+#   ./scripts/quick-start.sh --docker-only  # Docker 강제 (미실행 시 에러)
 #
-# 사전 요구사항:
-#   - Docker Desktop 실행 중
-#   - (선택) ~/Desktop/.env 또는 .env에 API 키 설정
+# 동작:
+#   - 기본: Docker 우선 실행
+#   - Docker 미설치/미실행: 로컬 스캐너 경로로 자동 폴백
 # ============================================================================
 set -euo pipefail
 
@@ -23,7 +24,9 @@ warn(){ echo -e "${YELLOW}⚠${NC} $1"; }
 err() { echo -e "${RED}✗${NC} $1"; exit 1; }
 
 MODE="${1:-full}"
+DOCKER_ONLY=0
 PORT="${CLAUDESEC_PORT:-11777}"
+SAFE_SCRIPT="$ROOT_DIR/scripts/run-dashboard-safe.sh"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -31,12 +34,39 @@ echo "  ClaudeSec Quick Start"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# ── Check Docker ─────────────────────────────────────────────────────
-if ! command -v docker >/dev/null 2>&1; then
-  err "Docker가 필요합니다. https://www.docker.com/products/docker-desktop"
+if [ "$MODE" = "--docker-only" ]; then
+  DOCKER_ONLY=1
+  MODE="full"
 fi
-if ! docker info >/dev/null 2>&1; then
-  err "Docker Desktop이 실행 중이지 않습니다."
+
+if [ ! -x "$SAFE_SCRIPT" ]; then
+  err "필수 스크립트를 찾을 수 없습니다: $SAFE_SCRIPT"
+fi
+
+safe_args=()
+case "$MODE" in
+  "--scan-only")
+    safe_args+=("--no-serve")
+    ;;
+  "--serve"|full)
+    ;;
+  *)
+    err "알 수 없는 옵션입니다: $MODE (지원: --scan-only, --serve, --docker-only)"
+    ;;
+esac
+
+docker_ready=0
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  docker_ready=1
+fi
+
+if [ "$docker_ready" -ne 1 ]; then
+  if [ "$DOCKER_ONLY" -eq 1 ]; then
+    err "Docker 강제 모드입니다. Docker Desktop 실행 후 다시 시도하세요."
+  fi
+
+  warn "Docker를 사용할 수 없어 로컬 모드로 전환합니다."
+  exec "$SAFE_SCRIPT" "${safe_args[@]}" --host 127.0.0.1 --port "$PORT"
 fi
 ok "Docker 확인"
 

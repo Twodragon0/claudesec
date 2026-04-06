@@ -101,6 +101,53 @@ SECRET_PATTERNS=(
   "Generic Token|([Aa][Cc][Cc][Ee][Ss][Ss]_[Tt][Oo][Kk][Ee][Nn]|[Aa][Uu][Tt][Hh]_[Tt][Oo][Kk][Ee][Nn])[[:space:]]*[=:][[:space:]]*['\"]?[a-zA-Z0-9._-]{20,}['\"]?|medium"
 )
 
+# ── Allowlist helpers: 운영 허용 경고 vs 실제 위험 분리 ─────────────────────────
+
+CLAUDESEC_SECRETS_ALLOWLIST_REGEX="${CLAUDESEC_SECRETS_ALLOWLIST_REGEX:-}"
+
+_relative_path() {
+  local path="$1"
+  if [[ "$path" == "$SCAN_DIR/"* ]]; then
+    echo "${path#"$SCAN_DIR/"}"
+  elif [[ "$path" == "$SCAN_DIR" ]]; then
+    echo "."
+  else
+    echo "$path"
+  fi
+}
+
+_is_allowlisted_path() {
+  local rel_path="$1"
+  local allowlist_regexes=()
+
+  # Default allowlist: examples/templates/docs/tests and sample/example fixtures
+  allowlist_regexes+=("^templates/")
+  allowlist_regexes+=("^examples/")
+  allowlist_regexes+=("^docs/")
+  allowlist_regexes+=("^scanner/tests/")
+  allowlist_regexes+=("^tests?/")
+  allowlist_regexes+=("^\\.github/")
+  allowlist_regexes+=("(^|/)fixtures?/")
+  allowlist_regexes+=("(^|/)samples?/")
+  allowlist_regexes+=("(^|/)examples?/")
+  allowlist_regexes+=("(^|/)mocks?/")
+  allowlist_regexes+=("\\.example(\\.[^/]+)?$")
+  allowlist_regexes+=("\\.sample(\\.[^/]+)?$")
+
+  # Optional custom allowlist regex (single regex string)
+  if [[ -n "$CLAUDESEC_SECRETS_ALLOWLIST_REGEX" ]] && [[ "$rel_path" =~ $CLAUDESEC_SECRETS_ALLOWLIST_REGEX ]]; then
+    return 0
+  fi
+
+  local rx
+  for rx in "${allowlist_regexes[@]}"; do
+    if [[ "$rel_path" =~ $rx ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 # ── SECRETS-001: Source code API key scan ────────────────────────────────────
 
 _found_secrets=0
@@ -108,7 +155,7 @@ _secret_details=""
 
 # Scan source code files for secret patterns
 for entry in "${SECRET_PATTERNS[@]}"; do
-  IFS='|' read -r secret_name secret_pattern secret_severity <<< "$entry"
+  IFS='|' read -r secret_name secret_pattern _secret_severity <<< "$entry"
 
   # Skip base64/generic patterns for source scan (too noisy)
   [[ "$secret_name" == "Base64"* ]] && continue
@@ -160,11 +207,18 @@ for ef in "${ENV_SCAN_FILES[@]+"${ENV_SCAN_FILES[@]}"}"; do
 done
 
 if [[ -n "$_env_files" ]]; then
-  _env_secrets=0
-  _env_secret_list=""
+  _env_warn_count=0
+  _env_fail_count=0
+  _env_warn_list=""
+  _env_fail_list=""
 
   while IFS= read -r envfile; do
     [[ -z "$envfile" || ! -f "$envfile" ]] && continue
+    _env_rel_path="$(_relative_path "$envfile")"
+    _env_is_allowlisted=0
+    if _is_allowlisted_path "$_env_rel_path"; then
+      _env_is_allowlisted=1
+    fi
 
     # Read each line looking for key=value patterns with actual secret values
     while IFS= read -r line || [[ -n "$line" ]]; do
@@ -184,27 +238,36 @@ if [[ -n "$_env_files" ]]; then
       _key_upper=$(echo "$_key" | tr '[:lower:]' '[:upper:]')
       case "$_key_upper" in
         *API_KEY*|*APIKEY*|*SECRET*|*TOKEN*|*PASSWORD*|*PASSWD*|*CREDENTIAL*|\
-        *PRIVATE_KEY*|*ACCESS_KEY*|*AUTH_KEY*|*CLIENT_SECRET*|\
+        *PRIVATE_KEY*|*ACCESS_KEY*|*AUTH_KEY*|\
         *DD_API*|*DD_APP*|*DATADOG*|*SENTRY_DSN*|*NEW_RELIC*|\
         *OPENAI*|*ANTHROPIC*|*STRIPE*|*TWILIO*|*SENDGRID*|\
         *SLACK*|*GITHUB*|*GITLAB*|*DATABASE_URL*|*REDIS_URL*|\
         *MONGO*|*POSTGRES*|*MYSQL*|*FIREBASE*|*SUPABASE*|\
         *FRED_*|*GRAFANA*|*PAGERDUTY*|*MAPBOX*|*ALGOLIA*|\
-        *NPM_TOKEN*|*PYPI_TOKEN*|*VAULT*|*AWS_SECRET*|\
+        *VAULT*|\
         *OKTA*|*ZSCALER*|*SENTINEL*|*JAMF*|*CLOUDFLARE*|*CF_API*|\
         *VERCEL*|*ARGOCD*|*ARGO_*|*REDASH*|*QUERYPIE*|\
-        *GOOGLE_*|*SENTRY*|*SENDGRID*)
-          _env_secrets=$((_env_secrets + 1))
-          _env_secret_list="${_env_secret_list}\n    $(basename "$envfile"): $_key"
+        *GOOGLE_*|*SENTRY*)
+          if [[ "$_env_is_allowlisted" -eq 1 ]]; then
+            _env_warn_count=$((_env_warn_count + 1))
+            _env_warn_list="${_env_warn_list}\n    ${_env_rel_path}: $_key"
+          else
+            _env_fail_count=$((_env_fail_count + 1))
+            _env_fail_list="${_env_fail_list}\n    ${_env_rel_path}: $_key"
+          fi
           ;;
       esac
     done < "$envfile"
   done <<< "$_env_files"
 
-  if [[ $_env_secrets -gt 0 ]]; then
+  if [[ $_env_fail_count -gt 0 ]]; then
     _env_file_count=$(echo "$_env_files" | wc -l | tr -d ' ')
-    warn "SECRETS-002" "$_env_secrets secret(s) found in $_env_file_count .env file(s)${_env_secret_list}" \
-      "Ensure .env files are in .gitignore. Use a secrets manager for production."
+    fail "SECRETS-002" "$_env_fail_count high-risk secret(s) found in $_env_file_count .env file(s)${_env_fail_list}" "high" \
+      "Detected sensitive values in non-allowlisted .env paths. Treat as real risk and move these values to a secrets manager."
+  elif [[ $_env_warn_count -gt 0 ]]; then
+    _env_file_count=$(echo "$_env_files" | wc -l | tr -d ' ')
+    warn "SECRETS-002" "$_env_warn_count operational-allowlisted secret value(s) found in $_env_file_count .env file(s)${_env_warn_list}" \
+      "Allowlisted sample/template paths detected. Keep placeholders where possible and ensure these files are never committed with live secrets."
   else
     pass "SECRETS-002" ".env files scanned — no recognized secret patterns"
   fi
@@ -245,8 +308,10 @@ fi
 
 # ── SECRETS-004: Cloud credential file exposure ─────────────────────────────
 
-_cred_exposed=0
-_cred_details=""
+_cred_warn_count=0
+_cred_fail_count=0
+_cred_warn_details=""
+_cred_fail_details=""
 
 # Check if cloud credential paths are referenced in code
 _cred_patterns=(
@@ -265,21 +330,43 @@ _cred_patterns=(
 for cp in "${_cred_patterns[@]}"; do
   IFS='|' read -r cred_pattern cred_desc <<< "$cp"
 
-  cred_hit=$(find "$SCAN_DIR" \
+  cred_hits=$(find "$SCAN_DIR" \
     \( -name "*.py" -o -name "*.js" -o -name "*.ts" -o -name "*.yaml" -o -name "*.yml" \
        -o -name "*.sh" -o -name "*.tf" -o -name "Dockerfile*" \) \
     -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/scanner/*" \
-    -exec grep -lE "$cred_pattern" {} \; 2>/dev/null | head -1 || true)
+    -exec grep -lE "$cred_pattern" {} \; 2>/dev/null || true)
 
-  if [[ -n "$cred_hit" ]]; then
-    _cred_exposed=$((_cred_exposed + 1))
-    _cred_details="${_cred_details}\n    $cred_desc: $cred_hit"
+  if [[ -n "$cred_hits" ]]; then
+    while IFS= read -r cred_hit; do
+      [[ -z "$cred_hit" ]] && continue
+      _cred_rel_path="$(_relative_path "$cred_hit")"
+      if _is_allowlisted_path "$_cred_rel_path"; then
+        _cred_warn_count=$((_cred_warn_count + 1))
+        _cred_warn_details="${_cred_warn_details}\n    $cred_desc: $_cred_rel_path"
+      else
+        _cred_fail_count=$((_cred_fail_count + 1))
+        _cred_fail_details="${_cred_fail_details}\n    $cred_desc: $_cred_rel_path"
+      fi
+    done <<< "$cred_hits"
   fi
 done
 
-if [[ $_cred_exposed -gt 0 ]]; then
-  warn "SECRETS-004" "$_cred_exposed credential file reference(s) in code${_cred_details}" \
-    "Avoid hardcoding credential file paths. Use environment variables or IAM roles."
+# Deduplicate repeated detail lines (same file can match multiple patterns)
+if [[ -n "$_cred_warn_details" ]]; then
+  _cred_warn_details="$(echo "$_cred_warn_details" | awk 'NF{if(!seen[$0]++) print}')"
+  _cred_warn_count="$(echo "$_cred_warn_details" | awk 'NF{c++} END{print c+0}')"
+fi
+if [[ -n "$_cred_fail_details" ]]; then
+  _cred_fail_details="$(echo "$_cred_fail_details" | awk 'NF{if(!seen[$0]++) print}')"
+  _cred_fail_count="$(echo "$_cred_fail_details" | awk 'NF{c++} END{print c+0}')"
+fi
+
+if [[ $_cred_fail_count -gt 0 ]]; then
+  fail "SECRETS-004" "$_cred_fail_count high-risk credential file reference(s) in code${_cred_fail_details}" "high" \
+    "Credential paths in non-allowlisted code locations are treated as real risk. Use env vars or secret mounts."
+elif [[ $_cred_warn_count -gt 0 ]]; then
+  warn "SECRETS-004" "$_cred_warn_count operational-allowlisted credential reference(s) in code${_cred_warn_details}" \
+    "References are in allowlisted sample/template/test paths. Ensure they stay non-production and placeholder-only."
 else
   pass "SECRETS-004" "No credential file path references in code"
 fi

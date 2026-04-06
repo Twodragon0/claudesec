@@ -96,7 +96,7 @@ assert_has_result "Clean code passes credential scan" "PASS" "SECRETS-001"
 
 echo "=== SECRETS-002: .env file credentials ==="
 
-# Test: .env with real-looking value -> WARN
+# Test: .env with real-looking value in non-allowlisted path -> FAIL (real risk)
 mkdir -p "$tmpdir/env_real"
 cat > "$tmpdir/env_real/.env" <<'ENV'
 DATADOG_KEY=abcdef1234567890abcdef1234567890
@@ -106,7 +106,20 @@ cat > "$tmpdir/env_real/app.py" <<'PY'
 pass
 PY
 SCAN_DIR="$tmpdir/env_real" run_check
-assert_has_result ".env with real values warns" "WARN" "SECRETS-002"
+assert_has_result ".env with real values fails in non-allowlisted path" "FAIL" "SECRETS-002"
+
+# Test: .env with real-looking value in allowlisted templates path -> WARN
+mkdir -p "$tmpdir/env_allowlisted/templates"
+cat > "$tmpdir/env_allowlisted/templates/.env" <<'ENV'
+API_KEY=real_key_value_12345
+CLIENT_SECRET=client_secret_live_value
+NPM_TOKEN=npm_live_token_1234567890
+ENV
+cat > "$tmpdir/env_allowlisted/app.py" <<'PY'
+pass
+PY
+SCAN_DIR="$tmpdir/env_allowlisted" run_check
+assert_has_result ".env with real values warns in allowlisted path" "WARN" "SECRETS-002"
 
 # Test: .env with placeholder values -> PASS
 mkdir -p "$tmpdir/env_placeholder"
@@ -127,6 +140,35 @@ pass
 PY
 SCAN_DIR="$tmpdir/no_env" run_check
 assert_has_result "No .env file skips SECRETS-002" "SKIP" "SECRETS-002"
+
+# ── SECRETS-004: Credential file path references ──
+
+echo "=== SECRETS-004: Credential file path references ==="
+
+# Test: Credential path in source code (non-allowlisted) -> FAIL
+mkdir -p "$tmpdir/cred_risk/src"
+cat > "$tmpdir/cred_risk/src/main.sh" <<'SH'
+#!/usr/bin/env bash
+AWS_SHARED_CREDENTIALS_FILE="$HOME/.aws/credentials"
+SH
+SCAN_DIR="$tmpdir/cred_risk" run_check
+assert_has_result "Credential path in source fails" "FAIL" "SECRETS-004"
+
+# Test: Credential path in allowlisted template file -> WARN
+mkdir -p "$tmpdir/cred_allowlisted/templates"
+cat > "$tmpdir/cred_allowlisted/templates/guide.yml" <<'YAML'
+aws_credentials_file: ~/.aws/credentials
+YAML
+SCAN_DIR="$tmpdir/cred_allowlisted" run_check
+assert_has_result "Credential path in template warns" "WARN" "SECRETS-004"
+
+# Test: No credential path references -> PASS
+mkdir -p "$tmpdir/cred_clean/src"
+cat > "$tmpdir/cred_clean/src/main.py" <<'PY'
+print("clean")
+PY
+SCAN_DIR="$tmpdir/cred_clean" run_check
+assert_has_result "No credential path references pass" "PASS" "SECRETS-004"
 
 # ── Summary ──
 

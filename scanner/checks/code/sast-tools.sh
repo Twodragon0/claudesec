@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2317
 # ============================================================================
 # ClaudeSec — SAST Tool Integration
 # Integrates with external static analysis tools when available:
@@ -14,7 +15,9 @@ if [[ "${CLAUDESEC_NONINTERACTIVE:-}" == "1" ]]; then
   skip "CODE-SAST-002" "Bandit Python SAST" "Skipped in dashboard mode"
   skip "CODE-SAST-003" "gosec Go SAST" "Skipped in dashboard mode"
   skip "CODE-SAST-004" "Dependency Audit (npm/pip/cargo)" "Skipped in dashboard mode"
-  return 0 2>/dev/null || true
+  if ! return 0 2>/dev/null; then
+    exit 0
+  fi
 fi
 
 # ── CODE-SAST-001: Semgrep (Multi-language SAST) ────────────────────────────

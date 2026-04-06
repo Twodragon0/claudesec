@@ -14,6 +14,7 @@ This playbook defines operational standards for GitHub Actions in ClaudeSec:
 2. Required local docs validation before PR
 3. Retry policy for transient external action failures (`401`)
 4. Dependabot conflict handling policy
+5. CI and dashboard triage priority
 
 ## 1) CodeQL Operating Model
 
@@ -61,6 +62,65 @@ When Dependabot PRs for GitHub Actions conflict with current `main`:
 4. Add a closing rationale comment that links to the commit on `main`.
 
 This keeps the PR queue clean and avoids repeated conflict churn.
+
+## 5) CI and Dashboard Triage Priority
+
+Use the lightest reproducible check first, then escalate to heavier paths only after local validation is clean.
+
+### Priority 1: Fast local gates
+
+Run these before touching workflows:
+
+```bash
+shellcheck -x scripts/run-dashboard-safe.sh scripts/run-dashboard-docker.sh scripts/run-full-dashboard.sh scripts/run-scan.sh scanner/claudesec scanner/checks/access-control/*.sh scanner/checks/cicd/*.sh scanner/checks/code/*.sh bin/claudesec-cli.sh
+bash scanner/tests/test_check_access_control.sh
+bash scanner/tests/test_check_code_injection.sh
+python3 -m pytest scanner/tests -v --tb=short
+```
+
+If these fail, fix them before investigating GitHub Actions. They are the quickest signal for scanner regressions and dashboard-adjacent shell regressions.
+
+### Priority 2: Dashboard generation reproducibility
+
+Validate the offline dashboard path locally:
+
+```bash
+CLAUDESEC_DASHBOARD_OFFLINE=1 ./scripts/run-dashboard-safe.sh --no-serve
+test -f claudesec-dashboard.html
+```
+
+This is the primary gate for dashboard regressions because it exercises the real `claudesec dashboard` flow without depending on browser serving or live API access.
+
+### Priority 3: Workflow parity checks
+
+After local shell/tests/dashboard pass, inspect the GitHub workflow paths that wrap them:
+
+- `.github/workflows/lint.yml`
+- `.github/workflows/security-scan.yml`
+- `.github/workflows/dashboard-refresh.yml`
+
+Keep workflow logic thin. Prefer calling the existing repo scripts rather than duplicating scan logic inline in YAML.
+
+### Priority 4: Docker parity
+
+Use Docker only after the local gates above pass:
+
+```bash
+./scripts/run-dashboard-docker.sh --quick --no-serve --build
+./scripts/run-dashboard-docker.sh --no-serve
+```
+
+If Docker fails with local daemon or snapshot errors while the local scanner and dashboard paths pass, treat that as a workstation/runtime issue first, not an immediate repository regression.
+
+### Priority 5: Feature investment order
+
+When choosing improvement work after CI is stable, prefer this order:
+
+1. Secret and credential detection quality (`access-control`)
+2. Code injection and SAST correctness (`code`)
+3. Dashboard determinism and offline generation
+4. Workflow reuse and CI observability
+5. Heavier cloud/SaaS integrations that depend on external credentials or APIs
 
 ## References
 
