@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034,SC1090,SC2155
+# shellcheck disable=SC2034,SC1090,SC1091,SC2155
 # ============================================================================
 # ClaudeSec Scanner — AI Security Best Practices Scanner
 # ============================================================================
@@ -197,6 +197,22 @@ load_external_env() {
       esac
     fi
   done < "$env_file"
+}
+
+validate_scan_dir() {
+  # Canonicalize and validate SCAN_DIR to prevent path traversal
+  if [[ -n "${SCAN_DIR:-}" && "$SCAN_DIR" != "." ]]; then
+    if command -v realpath >/dev/null 2>&1; then
+      SCAN_DIR="$(realpath -- "$SCAN_DIR" 2>/dev/null)" || true
+    elif command -v readlink >/dev/null 2>&1; then
+      SCAN_DIR="$(readlink -f -- "$SCAN_DIR" 2>/dev/null)" || true
+    fi
+  fi
+  if [[ -n "${SCAN_DIR:-}" && "$SCAN_DIR" != "." && ! -d "$SCAN_DIR" ]]; then
+    error "Invalid scan directory: $SCAN_DIR (does not exist or is not a directory)"
+    exit 1
+  fi
+  export SCAN_DIR
 }
 
 # -- CLI Parsing --------------------------------------------------------------
@@ -403,6 +419,7 @@ parse_args() {
       done
       export CLAUDESEC_AWS_SSO_CLI="$aws_sso_cli"
       export CLAUDESEC_AWS_SSO_ALL_CLI="$aws_sso_all_cli"
+      validate_scan_dir
       run_scan
       ;;
     init) run_init ;;
@@ -519,6 +536,7 @@ run_scan() {
     SCAN_DIR="$(pwd)"
     export SCAN_DIR
   fi
+  validate_scan_dir
 
   load_config
   [[ -n "${COMPLIANCE:-}" ]] && export CLAUDESEC_COMPLIANCE="$COMPLIANCE"
