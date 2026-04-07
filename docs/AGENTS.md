@@ -1,3 +1,9 @@
+---
+title: docs agent instructions
+description: Agent guidance for ClaudeSec documentation changes and quality gates
+tags: [agents, docs, markdown, quality]
+---
+
 # AGENTS.md — docs/
 
 <!-- Parent: ../AGENTS.md -->
