@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+vendor/
+.venv/
+__pycache__/
+*.pyc
+
+# Build
+dist/
+build/
+.next/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Security toolkit specific
+scan_results/
+reports/
+*.sarif
+*.ndjson
