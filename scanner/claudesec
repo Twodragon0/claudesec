@@ -1174,16 +1174,68 @@ run_scan_for_dashboard() {
   categories_csv=$(IFS=,; echo "${categories[*]}")
   configure_prowler_provider_defaults "$categories_csv"
 
-  for cat in "${categories[@]}"; do
-    local check_dir="$CHECKS_DIR/$cat"
-    [[ -d "$check_dir" ]] || continue
-    for check_file in "$check_dir"/*.sh; do
-      [[ -f "$check_file" ]] || continue
-      if ! source "$check_file" >/dev/null 2>&1; then
-        warning "Check failed to load: $(basename "$check_file")"
+  if [[ "${CLAUDESEC_DASHBOARD_PARALLEL:-0}" == "1" && ${#categories[@]} -gt 1 ]]; then
+    # Parallel dashboard scan
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local pids=()
+    for cat in "${categories[@]}"; do
+      local check_dir="$CHECKS_DIR/$cat"
+      [[ -d "$check_dir" ]] || continue
+      (
+        set +o pipefail
+        TOTAL_CHECKS=0; PASSED=0; FAILED=0; WARNINGS=0; SKIPPED=0
+        JSON_RESULTS="[]"
+        FINDINGS_CRITICAL=(); FINDINGS_HIGH=(); FINDINGS_MEDIUM=(); FINDINGS_LOW=()
+        FINDINGS_WARN=()
+        for check_file in "$check_dir"/*.sh; do
+          [[ -f "$check_file" ]] || continue
+          source "$check_file" >/dev/null 2>&1 || true
+        done
+        printf '%d %d %d %d %d\n' "$TOTAL_CHECKS" "$PASSED" "$FAILED" "$WARNINGS" "$SKIPPED" \
+          > "$tmpdir/${cat}.counters"
+        echo "$JSON_RESULTS" > "$tmpdir/${cat}.json"
+      ) > "$tmpdir/${cat}.out" 2>&1 &
+      pids+=($!)
+    done
+    for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null || true; done
+    for cat in "${categories[@]}"; do
+      if [[ -f "$tmpdir/${cat}.counters" ]]; then
+        read -r tc pa fa wa sk < "$tmpdir/${cat}.counters"
+        TOTAL_CHECKS=$((TOTAL_CHECKS + tc))
+        PASSED=$((PASSED + pa))
+        FAILED=$((FAILED + fa))
+        WARNINGS=$((WARNINGS + wa))
+        SKIPPED=$((SKIPPED + sk))
+      fi
+      if [[ -f "$tmpdir/${cat}.json" ]]; then
+        local cat_json
+        cat_json=$(<"$tmpdir/${cat}.json")
+        if [[ "$cat_json" != "[]" ]]; then
+          local inner="${cat_json#[}"
+          inner="${inner%]}"
+          if [[ "$JSON_RESULTS" == "[]" ]]; then
+            JSON_RESULTS="[${inner}]"
+          else
+            JSON_RESULTS="${JSON_RESULTS%]},$inner]"
+          fi
+        fi
       fi
     done
-  done
+    rm -rf "$tmpdir"
+  else
+    # Sequential dashboard scan (default)
+    for cat in "${categories[@]}"; do
+      local check_dir="$CHECKS_DIR/$cat"
+      [[ -d "$check_dir" ]] || continue
+      for check_file in "$check_dir"/*.sh; do
+        [[ -f "$check_file" ]] || continue
+        if ! source "$check_file" >/dev/null 2>&1; then
+          warning "Check failed to load: $(basename "$check_file")"
+        fi
+      done
+    done
+  fi
 
   SCAN_DURATION=$(( $(date +%s) - start_time ))
 }
