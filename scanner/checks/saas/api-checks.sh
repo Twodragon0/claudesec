@@ -44,15 +44,47 @@ if has_command gh && is_git_repo; then
       _gh_api_issues=0
       _gh_api_details=""
 
-      # Check branch protection on default branch
-      _default_branch=$(gh api "repos/${_gh_repo}" --jq '.default_branch' 2>/dev/null || echo "")
+      # ── Single GraphQL query to fetch repo metadata + vulnerability alerts ──
+      # Replaces 7+ sequential REST calls with one round-trip.
+      IFS='/' read -r _gh_owner _gh_name <<< "$_gh_repo"
+      _gh_gql=$(gh api graphql -f query='
+        query($owner: String!, $name: String!) {
+          repository(owner: $owner, name: $name) {
+            defaultBranchRef { name }
+            visibility
+            vulnerabilityAlerts(states: OPEN, first: 100) { totalCount
+              nodes { securityVulnerability { severity } }
+            }
+          }
+        }' -f owner="$_gh_owner" -f name="$_gh_name" 2>/dev/null || echo "")
+
+      _default_branch=""
+      if [[ -n "$_gh_gql" ]]; then
+        _default_branch=$(echo "$_gh_gql" | grep -o '"defaultBranchRef":{[^}]*"name":"[^"]*"' | grep -o '"name":"[^"]*"' | cut -d'"' -f4 || echo "")
+
+        # Parse Dependabot vulnerability alerts from GraphQL
+        _dep_total=$(echo "$_gh_gql" | grep -o '"totalCount":[0-9]*' | head -1 | grep -oE '[0-9]+' || echo "0")
+        if [[ "$_dep_total" -gt 0 ]]; then
+          _critical_alerts=$(echo "$_gh_gql" | grep -o '"severity":"CRITICAL"' | wc -l | tr -d ' ')
+          _high_alerts=$(echo "$_gh_gql" | grep -o '"severity":"HIGH"' | wc -l | tr -d ' ')
+          if [[ "$_critical_alerts" -gt 0 ]]; then
+            _gh_api_issues=$((_gh_api_issues + 1))
+            _gh_api_details="${_gh_api_details}\n    ${_critical_alerts} critical Dependabot alert(s) open"
+          fi
+          if [[ "$_high_alerts" -gt 0 ]]; then
+            _gh_api_issues=$((_gh_api_issues + 1))
+            _gh_api_details="${_gh_api_details}\n    ${_high_alerts} high Dependabot alert(s) open"
+          fi
+        fi
+      fi
+
+      # ── Branch protection (REST — not available in GraphQL without admin scope) ──
       if [[ -n "$_default_branch" ]]; then
         _bp=$(gh api "repos/${_gh_repo}/branches/${_default_branch}/protection" 2>/dev/null || echo "")
         if [[ -z "$_bp" || "$_bp" == *"Not Found"* || "$_bp" == *"Branch not protected"* ]]; then
           _gh_api_issues=$((_gh_api_issues + 1))
           _gh_api_details="${_gh_api_details}\n    Branch protection not enabled on ${_default_branch}"
         else
-          # Check specific protection rules
           _require_reviews=$(echo "$_bp" | grep -o '"required_approving_review_count":[0-9]*' | grep -oE '[0-9]+' || echo "0")
           if [[ "$_require_reviews" -lt 1 ]]; then
             _gh_api_details="${_gh_api_details}\n    No required PR reviews on ${_default_branch}"
@@ -65,45 +97,45 @@ if has_command gh && is_git_repo; then
         fi
       fi
 
-      # Check secret scanning status
-      _repo_info=$(gh api "repos/${_gh_repo}" 2>/dev/null || echo "")
-      _visibility=$(echo "$_repo_info" | grep -o '"visibility":"[^"]*"' | cut -d'"' -f4 || echo "")
+      # ── Remaining REST calls (no GraphQL equivalent) — run in parallel ──
+      local _tmpdir_gh
+      _tmpdir_gh=$(mktemp -d)
 
-      # Check for Dependabot alerts
-      _dependabot_alerts=$(gh api "repos/${_gh_repo}/dependabot/alerts?state=open&per_page=100" --jq 'length' 2>/dev/null || echo "")
-      if [[ -n "$_dependabot_alerts" && "$_dependabot_alerts" =~ ^[0-9]+$ && "$_dependabot_alerts" -gt 0 ]]; then
-        _critical_alerts=$(gh api "repos/${_gh_repo}/dependabot/alerts?state=open&severity=critical&per_page=100" --jq 'length' 2>/dev/null || echo "0")
-        _high_alerts=$(gh api "repos/${_gh_repo}/dependabot/alerts?state=open&severity=high&per_page=100" --jq 'length' 2>/dev/null || echo "0")
-        if [[ "$_critical_alerts" -gt 0 ]]; then
-          _gh_api_issues=$((_gh_api_issues + 1))
-          _gh_api_details="${_gh_api_details}\n    ${_critical_alerts} critical Dependabot alert(s) open"
-        fi
-        if [[ "$_high_alerts" -gt 0 ]]; then
-          _gh_api_issues=$((_gh_api_issues + 1))
-          _gh_api_details="${_gh_api_details}\n    ${_high_alerts} high Dependabot alert(s) open"
-        fi
-      fi
+      gh api "repos/${_gh_repo}/code-scanning/alerts?state=open&per_page=100" --jq 'length' \
+        > "$_tmpdir_gh/code_alerts" 2>/dev/null &
+      local _pid_code=$!
 
-      # Check for code scanning alerts
-      _code_alerts=$(gh api "repos/${_gh_repo}/code-scanning/alerts?state=open&per_page=100" --jq 'length' 2>/dev/null || echo "")
+      gh api "repos/${_gh_repo}/secret-scanning/alerts?state=open&per_page=100" --jq 'length' \
+        > "$_tmpdir_gh/secret_alerts" 2>/dev/null &
+      local _pid_secret=$!
+
+      gh api "repos/${_gh_repo}/actions/permissions" \
+        > "$_tmpdir_gh/actions_perms" 2>/dev/null &
+      local _pid_actions=$!
+
+      wait "$_pid_code" 2>/dev/null || true
+      wait "$_pid_secret" 2>/dev/null || true
+      wait "$_pid_actions" 2>/dev/null || true
+
+      _code_alerts=$(<"$_tmpdir_gh/code_alerts" 2>/dev/null || echo "")
       if [[ -n "$_code_alerts" && "$_code_alerts" =~ ^[0-9]+$ && "$_code_alerts" -gt 0 ]]; then
         _gh_api_issues=$((_gh_api_issues + 1))
         _gh_api_details="${_gh_api_details}\n    ${_code_alerts} open code scanning alert(s)"
       fi
 
-      # Check for secret scanning alerts
-      _secret_alerts=$(gh api "repos/${_gh_repo}/secret-scanning/alerts?state=open&per_page=100" --jq 'length' 2>/dev/null || echo "")
+      _secret_alerts=$(<"$_tmpdir_gh/secret_alerts" 2>/dev/null || echo "")
       if [[ -n "$_secret_alerts" && "$_secret_alerts" =~ ^[0-9]+$ && "$_secret_alerts" -gt 0 ]]; then
         _gh_api_issues=$((_gh_api_issues + 1))
         _gh_api_details="${_gh_api_details}\n    ${_secret_alerts} open secret scanning alert(s)"
       fi
 
-      # Check Actions permissions
-      _actions_perms=$(gh api "repos/${_gh_repo}/actions/permissions" 2>/dev/null || echo "")
+      _actions_perms=$(<"$_tmpdir_gh/actions_perms" 2>/dev/null || echo "")
       _allowed_actions=$(echo "$_actions_perms" | grep -o '"allowed_actions":"[^"]*"' | cut -d'"' -f4 || echo "")
       if [[ "$_allowed_actions" == "all" ]]; then
         _gh_api_details="${_gh_api_details}\n    All GitHub Actions are allowed (consider restricting)"
       fi
+
+      rm -rf "$_tmpdir_gh"
 
       if [[ $_gh_api_issues -eq 0 && -z "$_gh_api_details" ]]; then
         pass "SAAS-API-001" "GitHub repository security fully configured (${_gh_repo})"
@@ -129,9 +161,19 @@ fi
 # ── SAAS-API-002: GitHub Actions Workflow Runs Security ───────────────────
 
 if has_command gh && [[ -n "${_gh_repo:-}" ]] && echo "${_gh_auth:-}" | grep -q "Logged in"; then
-  # Check for failed workflow runs (potential security issues)
-  _recent_failures=$(gh api "repos/${_gh_repo}/actions/runs?status=failure&per_page=5" --jq '.workflow_runs | length' 2>/dev/null || echo "")
-  _total_runs=$(gh api "repos/${_gh_repo}/actions/runs?per_page=20" --jq '.total_count' 2>/dev/null || echo "0")
+  # Check for failed workflow runs (potential security issues) — parallel fetch
+  local _tmpdir_wf
+  _tmpdir_wf=$(mktemp -d)
+
+  gh api "repos/${_gh_repo}/actions/runs?status=failure&per_page=5" --jq '.workflow_runs | length' \
+    > "$_tmpdir_wf/failures" 2>/dev/null &
+  gh api "repos/${_gh_repo}/actions/runs?per_page=20" --jq '.total_count' \
+    > "$_tmpdir_wf/total" 2>/dev/null &
+  wait
+
+  _recent_failures=$(<"$_tmpdir_wf/failures" 2>/dev/null || echo "")
+  _total_runs=$(<"$_tmpdir_wf/total" 2>/dev/null || echo "0")
+  rm -rf "$_tmpdir_wf"
 
   if [[ -n "$_total_runs" && "$_total_runs" -gt 0 ]]; then
     # Check for workflows using deprecated/vulnerable actions

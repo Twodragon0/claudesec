@@ -37,6 +37,7 @@ SEVERITY="all"
 CATEGORY="all"
 OUTPUT_FILE=""
 SCAN_DIR="${SCAN_DIR:-.}"
+PARALLEL=0
 declare -a ENV_SCAN_FILES=()
 
 # Counters
@@ -248,6 +249,7 @@ Scan Options:
   --kube-namespace <ns>       Scan specific Kubernetes namespace
   --aws-sso                   Force AWS SSO login before scan
   --env-file <path>           Scan external .env file for leaked secrets
+  --parallel                   Run categories in parallel (faster full scans)
 
 Examples:
   claudesec scan                          # Full scan, current directory
@@ -413,6 +415,7 @@ parse_args() {
           --aws-sso) AWS_SSO_FORCE=1; aws_sso_cli=1; shift ;;
           --aws-sso-all) AWS_SSO_FORCE=1; export AWS_SSO_SCAN_ALL=1; aws_sso_all_cli=1; shift ;;
           --env-file) ENV_SCAN_FILES+=("$2"); shift 2 ;;
+          --parallel) PARALLEL=1; shift ;;
           -V|--version) echo "claudesec v$VERSION"; exit 0 ;;
           *) error "Unknown option: $1"; usage; exit 1 ;;
         esac
@@ -597,25 +600,91 @@ run_scan() {
   unset _KUBECTL_ENSURE_ACCESS_DONE 2>/dev/null || true
 
   # Run checks for each category
-  for cat in "${categories[@]}"; do
-    local check_dir="$CHECKS_DIR/$cat"
-    if [[ ! -d "$check_dir" ]]; then
-      warning "Unknown category: $cat"
-      continue
-    fi
-
-    if [[ "$FORMAT" == "text" ]]; then
-      section "$(category_label "$cat")"
-    fi
-
-    # Source and run each check file
-    for check_file in "$check_dir"/*.sh; do
-      [[ -f "$check_file" ]] || continue
-      if ! source "$check_file" >/dev/null 2>&1; then
-        warning "Check failed to load: $(basename "$check_file")"
+  if [[ "$PARALLEL" -eq 1 && ${#categories[@]} -gt 1 ]]; then
+    # Parallel mode: run each category in a subshell, merge results
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local pids=()
+    for cat in "${categories[@]}"; do
+      local check_dir="$CHECKS_DIR/$cat"
+      if [[ ! -d "$check_dir" ]]; then
+        warning "Unknown category: $cat"
+        continue
+      fi
+      (
+        # Each subshell resets its own counters and JSON state
+        TOTAL_CHECKS=0; PASSED=0; FAILED=0; WARNINGS=0; SKIPPED=0
+        JSON_RESULTS="[]"
+        FINDINGS_CRITICAL=(); FINDINGS_HIGH=(); FINDINGS_MEDIUM=(); FINDINGS_LOW=()
+        if [[ "$FORMAT" == "text" ]]; then
+          section "$(category_label "$cat")"
+        fi
+        for check_file in "$check_dir"/*.sh; do
+          [[ -f "$check_file" ]] || continue
+          source "$check_file" >/dev/null 2>&1 || true
+        done
+        # Write counters to temp file for aggregation
+        printf '%d %d %d %d %d\n' "$TOTAL_CHECKS" "$PASSED" "$FAILED" "$WARNINGS" "$SKIPPED" \
+          > "$tmpdir/${cat}.counters"
+        # Write JSON results for merging
+        echo "$JSON_RESULTS" > "$tmpdir/${cat}.json"
+      ) > "$tmpdir/${cat}.out" 2>&1 &
+      pids+=($!)
+    done
+    # Wait for all and collect
+    for pid in "${pids[@]}"; do
+      wait "$pid" 2>/dev/null || true
+    done
+    # Output results in category order and aggregate counters + JSON
+    for cat in "${categories[@]}"; do
+      [[ -f "$tmpdir/${cat}.out" ]] && cat "$tmpdir/${cat}.out"
+      if [[ -f "$tmpdir/${cat}.counters" ]]; then
+        read -r tc pa fa wa sk < "$tmpdir/${cat}.counters"
+        TOTAL_CHECKS=$((TOTAL_CHECKS + tc))
+        PASSED=$((PASSED + pa))
+        FAILED=$((FAILED + fa))
+        WARNINGS=$((WARNINGS + wa))
+        SKIPPED=$((SKIPPED + sk))
+      fi
+      # Merge JSON results from subshell
+      if [[ -f "$tmpdir/${cat}.json" ]]; then
+        local cat_json
+        cat_json=$(<"$tmpdir/${cat}.json")
+        if [[ "$cat_json" != "[]" ]]; then
+          # Strip outer brackets and append to main JSON_RESULTS
+          local inner="${cat_json#[}"
+          inner="${inner%]}"
+          if [[ "$JSON_RESULTS" == "[]" ]]; then
+            JSON_RESULTS="[${inner}]"
+          else
+            JSON_RESULTS="${JSON_RESULTS%]},$inner]"
+          fi
+        fi
       fi
     done
-  done
+    rm -rf "$tmpdir"
+  else
+    # Sequential mode (default)
+    for cat in "${categories[@]}"; do
+      local check_dir="$CHECKS_DIR/$cat"
+      if [[ ! -d "$check_dir" ]]; then
+        warning "Unknown category: $cat"
+        continue
+      fi
+
+      if [[ "$FORMAT" == "text" ]]; then
+        section "$(category_label "$cat")"
+      fi
+
+      # Source and run each check file
+      for check_file in "$check_dir"/*.sh; do
+        [[ -f "$check_file" ]] || continue
+        if ! source "$check_file" >/dev/null 2>&1; then
+          warning "Check failed to load: $(basename "$check_file")"
+        fi
+      done
+    done
+  fi
 
   # Print summary
   local end_time

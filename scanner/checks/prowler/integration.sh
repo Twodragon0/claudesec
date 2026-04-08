@@ -144,22 +144,76 @@ _prowler_report() {
     return
   fi
 
-  # Count total FAIL findings
-  total=$(grep -c '"status_code": *"FAIL"' "$json_file" 2>/dev/null || echo 0)
+  # Single-pass AWK: counts severity, extracts findings, and builds service summary
+  local max_limit="${PROWLER_MAX_FINDINGS:-0}"
+  local awk_output=""
+  awk_output=$(awk -v max="$max_limit" '
+    BEGIN {
+      count=0; code=""; sev=""; msg=""; risk=""
+      remed_text=""; remed_url=""; res=""; compliance=""
+      total=0
+    }
 
-  # Count by severity
-  local sev_counts
-  sev_counts=$(awk '
-    /"severity":/ { sev=$0; gsub(/.*"severity": *"/, "", sev); gsub(/".*/, "", sev); current_sev=sev }
-    /"status_code": *"FAIL"/ { if (current_sev) counts[current_sev]++ }
-    END { for (s in counts) print s, counts[s] }
+    /"event_code":/ { gsub(/.*"event_code": *"/, ""); gsub(/".*/, ""); code=$0 }
+    /"severity":/ { gsub(/.*"severity": *"/, ""); gsub(/".*/, ""); sev=$0 }
+    /"message":/ { gsub(/.*"message": *"/, ""); gsub(/".*/, ""); msg=$0 }
+    /"risk_details":/ { gsub(/.*"risk_details": *"/, ""); gsub(/".*/, ""); risk=$0 }
+    /"recommendation":/ { gsub(/.*"recommendation": *"/, ""); gsub(/".*/, ""); remed_text=$0 }
+    /"url":/ {
+      if (remed_text != "" && remed_url == "") {
+        gsub(/.*"url": *"/, ""); gsub(/".*/, ""); remed_url=$0
+      }
+    }
+    /"uid":/ {
+      if (res == "") { gsub(/.*"uid": *"/, ""); gsub(/".*/, ""); res=$0 }
+    }
+    /"compliance":/ { gsub(/.*"compliance": */, ""); gsub(/[{}\[\]]/, ""); compliance=$0 }
+
+    /"status_code": *"FAIL"/ {
+      total++
+      # Severity counts
+      if (sev != "") sev_counts[sev]++
+      # Service grouping
+      if (code != "") {
+        split(code, parts, "_")
+        svc_count[parts[1]]++
+      }
+      # Finding details
+      if (msg != "" && (max == 0 || count < max)) {
+        printf "FINDING:\\n    [%s] (%s) %s", sev, code, msg
+        if (risk != "") printf "\\n      Risk: %s", risk
+        if (remed_text != "") printf "\\n      Fix: %s", remed_text
+        if (remed_url != "") printf "\\n      Ref: %s", remed_url
+        if (res != "") printf "\\n      Resource: %s", res
+        printf "\\n"
+        count++
+      }
+      code=""; sev=""; msg=""; risk=""; remed_text=""; remed_url=""; res=""; compliance=""
+    }
+
+    END {
+      # Emit structured header: COUNTS|total|critical|high|medium|low
+      c=sev_counts["Critical"]+0; h=sev_counts["High"]+0
+      m=sev_counts["Medium"]+0; l=sev_counts["Low"]+0
+      printf "COUNTS|%d|%d|%d|%d|%d\\n", total, c, h, m, l
+      # Emit service summary
+      n = asorti(svc_count, sorted)
+      for (i = 1; i <= n; i++) {
+        s = sorted[i]
+        printf "SVC|%s|%d\\n", s, svc_count[s]
+      }
+    }
   ' "$json_file" 2>/dev/null || true)
 
-  critical=$(echo "$sev_counts" | awk '/^Critical / {print $2}')
-  high=$(echo "$sev_counts" | awk '/^High / {print $2}')
-  medium=$(echo "$sev_counts" | awk '/^Medium / {print $2}')
-  low=$(echo "$sev_counts" | awk '/^Low / {print $2}')
-  critical=${critical:-0}; high=${high:-0}; medium=${medium:-0}; low=${low:-0}
+  # Parse structured output from single AWK pass
+  local counts_line
+  counts_line=$(echo "$awk_output" | grep "^COUNTS|" | head -1)
+  total=$(echo "$counts_line" | cut -d'|' -f2)
+  critical=$(echo "$counts_line" | cut -d'|' -f3)
+  high=$(echo "$counts_line" | cut -d'|' -f4)
+  medium=$(echo "$counts_line" | cut -d'|' -f5)
+  low=$(echo "$counts_line" | cut -d'|' -f6)
+  total=${total:-0}; critical=${critical:-0}; high=${high:-0}; medium=${medium:-0}; low=${low:-0}
 
   if [[ $total -eq 0 ]]; then
     pass "${check_id_prefix}-001" "Prowler ${provider}: No findings above threshold"
@@ -171,75 +225,14 @@ _prowler_report() {
   [[ $high -gt 0 ]] && severity="high"
   [[ $critical -gt 0 ]] && severity="critical"
 
-  # Extract ALL findings with full details from JSON-OCSF
-  # Fields: event_code, severity, message, risk_details, remediation, resources, compliance
-  # Uses literal \n (printf "\\n") to keep pipe-delimited storage intact
-  local max_limit="${PROWLER_MAX_FINDINGS:-0}"
+  # Extract findings and service summary from AWK output
   local all_findings=""
-  all_findings=$(awk -v max="$max_limit" '
-    BEGIN { count=0; code=""; sev=""; msg=""; risk=""; remed_text=""; remed_url=""; res=""; compliance="" }
+  all_findings=$(echo "$awk_output" | grep "^FINDING:" | sed 's/^FINDING://')
 
-    /"event_code":/ { gsub(/.*"event_code": *"/, ""); gsub(/".*/, ""); code=$0 }
-    /"severity":/ { gsub(/.*"severity": *"/, ""); gsub(/".*/, ""); sev=$0 }
-    /"message":/ { gsub(/.*"message": *"/, ""); gsub(/".*/, ""); msg=$0 }
-
-    # risk_details
-    /"risk_details":/ { gsub(/.*"risk_details": *"/, ""); gsub(/".*/, ""); risk=$0 }
-
-    # remediation recommendation & url
-    /"recommendation":/ { gsub(/.*"recommendation": *"/, ""); gsub(/".*/, ""); remed_text=$0 }
-    /"url":/ {
-      if (remed_text != "" && remed_url == "") {
-        gsub(/.*"url": *"/, ""); gsub(/".*/, ""); remed_url=$0
-      }
-    }
-
-    # resource uid
-    /"uid":/ {
-      if (res == "") { gsub(/.*"uid": *"/, ""); gsub(/".*/, ""); res=$0 }
-    }
-
-    # compliance frameworks (inside unmapped)
-    /"compliance":/ { gsub(/.*"compliance": */, ""); gsub(/[{}\[\]]/, ""); compliance=$0 }
-
-    /"status_code": *"FAIL"/ {
-      if (msg != "" && (max == 0 || count < max)) {
-        # Build detail block with literal \n separators
-        printf "\\n    [%s] (%s) %s", sev, code, msg
-        if (risk != "") printf "\\n      Risk: %s", risk
-        if (remed_text != "") printf "\\n      Fix: %s", remed_text
-        if (remed_url != "") printf "\\n      Ref: %s", remed_url
-        if (res != "") printf "\\n      Resource: %s", res
-        count++
-      }
-      # Reset for next finding
-      code=""; sev=""; msg=""; risk=""; remed_text=""; remed_url=""; res=""; compliance=""
-    }
-  ' "$json_file" 2>/dev/null || true)
-
-  # Build service grouping summary
   local service_summary=""
-  service_summary=$(awk '
-    /"event_code":/ { gsub(/.*"event_code": *"/, ""); gsub(/".*/, ""); code=$0 }
-    /"severity":/ { gsub(/.*"severity": *"/, ""); gsub(/".*/, ""); sev=$0 }
-    /"status_code": *"FAIL"/ {
-      if (code != "") {
-        # Group by service prefix (e.g., iam, s3, ec2, lambda)
-        split(code, parts, "_")
-        service = parts[1]
-        svc_count[service]++
-        svc_sev[service][sev]++
-      }
-      code=""; sev=""
-    }
-    END {
-      n = asorti(svc_count, sorted)
-      for (i = 1; i <= n; i++) {
-        s = sorted[i]
-        printf "\\n    %s: %d finding(s)", s, svc_count[s]
-      }
-    }
-  ' "$json_file" 2>/dev/null || true)
+  service_summary=$(echo "$awk_output" | grep "^SVC|" | while IFS='|' read -r _ svc cnt; do
+    printf "\\n    %s: %d finding(s)" "$svc" "$cnt"
+  done)
 
   local details="Prowler ${provider}: ${total} finding(s) — ${critical} critical, ${high} high, ${medium} medium, ${low} low"
   [[ -n "$service_summary" ]] && details="${details}${service_summary}"

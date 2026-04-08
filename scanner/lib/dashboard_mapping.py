@@ -943,16 +943,25 @@ else:
         return False
 
     def map_compliance(all_findings):
+        # Pre-compute searchable text and native compliance per finding (O(N) once)
+        finding_texts = []
+        for f in all_findings:
+            finding_texts.append(
+                f"{f['check']} {f['title']} {f['message']}".lower()
+            )
+
         result = {}
         for framework, controls in COMPLIANCE_CONTROL_MAP.items():
             mapped = []
             for ctrl in controls:
+                keywords = ctrl["checks"]
                 matching = []
-                for f in all_findings:
-                    text = f"{f['check']} {f['title']} {f['message']}".lower()
-                    keyword_match = any(kw in text for kw in ctrl["checks"])
-                    native_match = _match_prowler_compliance(f, framework)
-                    if keyword_match or native_match:
+                for idx, f in enumerate(all_findings):
+                    text = finding_texts[idx]
+                    keyword_match = any(kw in text for kw in keywords)
+                    if not keyword_match:
+                        keyword_match = _match_prowler_compliance(f, framework)
+                    if keyword_match:
                         matching.append(f)
                 status = "PASS" if len(matching) == 0 else "FAIL"
                 mapped.append(

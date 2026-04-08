@@ -89,24 +89,34 @@ def _normalize_provider(name: str) -> str:
     return name
 
 
+def _load_single_prowler_file(fpath: str) -> tuple[str, list[dict[str, Any]]]:
+    """Load and parse a single Prowler OCSF file. Used by ThreadPoolExecutor."""
+    raw_name = Path(fpath).stem.replace(".ocsf", "").replace("prowler-", "")
+    name = _normalize_provider(raw_name)
+    try:
+        with open(fpath, encoding="utf-8") as f:
+            content = f.read().strip()
+        return name, _parse_ocsf_json(content)
+    except Exception:
+        return name, []
+
+
 def load_prowler_files(prowler_dir: str) -> dict[str, list[dict[str, Any]]]:
     providers: dict[str, list[dict[str, Any]]] = {}
     if not os.path.isdir(prowler_dir):
         return providers
-    for fpath in sorted(glob.glob(os.path.join(prowler_dir, "*.ocsf.json"))):
-        raw_name = Path(fpath).stem.replace(".ocsf", "").replace("prowler-", "")
-        name = _normalize_provider(raw_name)
-        try:
-            with open(fpath, encoding="utf-8") as f:
-                content = f.read().strip()
-            items = _parse_ocsf_json(content)
-            if name in providers:
-                providers[name].extend(items)
-            else:
-                providers[name] = items
-        except Exception:
-            if name not in providers:
-                providers[name] = []
+    files = sorted(glob.glob(os.path.join(prowler_dir, "*.ocsf.json")))
+    if not files:
+        return providers
+    # Parallel file I/O for multiple provider files
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(len(files), 4)) as pool:
+        results = pool.map(_load_single_prowler_file, files)
+    for name, items in results:
+        if name in providers:
+            providers[name].extend(items)
+        else:
+            providers[name] = items
     return providers
 
 
@@ -681,6 +691,17 @@ def load_datadog_logs(datadog_dir: str) -> DatadogLogsData:
 # ── Prowler Analysis ─────────────────────────────────────────────────────────
 
 
+_SEV_NORMALIZE = {
+    "critical": "Critical", "high": "High", "medium": "Medium",
+    "low": "Low", "informational": "Informational",
+}
+
+
+def _normalize_severity(raw: str) -> str:
+    """Normalize severity case variants (CRITICAL/critical/Critical → Critical)."""
+    return _SEV_NORMALIZE.get(raw.lower(), raw.title()) if raw else "Unknown"
+
+
 def analyze_prowler(providers):
     summary = {}
     all_findings = []
@@ -689,7 +710,8 @@ def analyze_prowler(providers):
         passes = [i for i in items if i.get("status_code") == "PASS"]
         by_sev = defaultdict(int)
         for f in fails:
-            by_sev[f.get("severity", "Unknown")] += 1
+            f["severity"] = _normalize_severity(f.get("severity", ""))
+            by_sev[f["severity"]] += 1
         summary[prov] = {
             "total_fail": len(fails),
             "total_pass": len(passes),

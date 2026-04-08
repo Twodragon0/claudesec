@@ -1774,27 +1774,32 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             gh_table += f'<a href="{h(rl)}" target="_blank" rel="noopener" class="ref-link">📖 Reference</a> '
         gh_table += "</div></td></tr>"
 
+    _SEV_WEIGHT = {"Critical": 100, "High": 10, "Medium": 3, "Low": 1, "Informational": 0}
+
     def _build_provider_table(finds):
         by_check = defaultdict(list)
         for f in finds:
             by_check[f["check"]].append(f)
-        table = ""
-        for check, items in sorted(by_check.items(), key=lambda x: -len(x[1])):
+        parts = []
+        # Severity-weighted sort: Critical findings rank above High even with fewer instances
+        def _check_sort_key(pair):
+            _check, _items = pair
+            top_sev = max((_SEV_WEIGHT.get(i.get("severity", ""), 0) for i in _items), default=0)
+            return -(top_sev * 1000 + len(_items))
+        for check, items in sorted(by_check.items(), key=_check_sort_key):
             sev = items[0]["severity"]
-            table += f'<tr class="expandable" onclick="toggleRow(this)"><td>{sev_badge(sev)}</td><td class="mono">{h(check)}</td><td>{h(items[0]["title"])} <span class="cnt">({len(items)})</span></td></tr>'
+            parts.append(f'<tr class="expandable" onclick="toggleRow(this)"><td>{sev_badge(sev)}</td><td class="mono">{h(check)}</td><td>{h(items[0]["title"])} <span class="cnt">({len(items)})</span></td></tr>')
             en = get_check_en(check)
             desc = items[0].get("desc") or items[0].get("title") or ""
             # Use Prowler native remediation as fallback when CHECK_EN_MAP has no match
             native_rem = (items[0].get("native_remediation") or "").strip()
             action_text = en["action"] if en["action"] != DEFAULT_ACTION else (native_rem or en["action"])
             summary_text = en["summary"]
-            table += (
-                f'<tr class="row-detail"><td colspan="3"><div class="detail-panel">'
-            )
+            detail = [f'<tr class="row-detail"><td colspan="3"><div class="detail-panel">']
             if desc:
-                table += f"<p>{h(desc)}</p>"
-            table += f'<p class="detail-ko-summary"><strong>Summary</strong> {h(summary_text)}</p>'
-            table += f'<p class="detail-ko-action"><strong>Remediation</strong> {h(action_text)}</p>'
+                detail.append(f"<p>{h(desc)}</p>")
+            detail.append(f'<p class="detail-ko-summary"><strong>Summary</strong> {h(summary_text)}</p>')
+            detail.append(f'<p class="detail-ko-action"><strong>Remediation</strong> {h(action_text)}</p>')
             # Affected resources with type, region, namespace — all shown, overflow toggleable
             resources = []
             seen_res = set()
@@ -1808,8 +1813,8 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                     r_line = (it.get("start_line") or "").strip()
                     resources.append({"name": res, "type": r_type, "region": r_region, "namespace": r_ns, "line": r_line})
             if resources:
-                SHOW_LIMIT = 5
-                table += '<div class="detail-resources"><strong>Affected resources</strong><ul class="resource-list">'
+                SHOW_LIMIT = 15
+                detail.append('<div class="detail-resources"><strong>Affected resources</strong><ul class="resource-list">')
                 for idx_r, r in enumerate(resources):
                     extra = []
                     if r["type"]:
@@ -1822,11 +1827,11 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                         extra.append(f'L{r["line"]}')
                     extra_html = f' <span class="res-meta">{h(" · ".join(extra))}</span>' if extra else ""
                     hidden = ' style="display:none" class="res-overflow"' if idx_r >= SHOW_LIMIT else ""
-                    table += f"<li{hidden}><code>{h(r['name'])}</code>{extra_html}</li>"
+                    detail.append(f"<li{hidden}><code>{h(r['name'])}</code>{extra_html}</li>")
                 if len(resources) > SHOW_LIMIT:
                     overflow_count = len(resources) - SHOW_LIMIT
-                    table += f'<li class="res-toggle" onclick="var p=this.parentNode;p.querySelectorAll(\'.res-overflow\').forEach(function(e){{e.style.display=e.style.display===\'none\'?\'list-item\':\'none\'}});this.textContent=this.textContent.indexOf(\'+\')>=0?\'Hide {overflow_count} resources\':\'+ {overflow_count} more resources\'" style="color:var(--accent);cursor:pointer;font-weight:600">+ {overflow_count} more resources</li>'
-                table += "</ul></div>"
+                    detail.append(f'<li class="res-toggle" onclick="var p=this.parentNode;p.querySelectorAll(\'.res-overflow\').forEach(function(e){{e.style.display=e.style.display===\'none\'?\'list-item\':\'none\'}});this.textContent=this.textContent.indexOf(\'+\')>=0?\'Hide {overflow_count} resources\':\'+ {overflow_count} more resources\'" style="color:var(--accent);cursor:pointer;font-weight:600">+ {overflow_count} more resources</li>')
+                detail.append("</ul></div>")
             # Reference links: primary + native refs
             ref_links = []
             if items[0].get("related_url"):
@@ -1850,9 +1855,10 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                     if _hub_url not in ref_links:
                         ref_links.insert(0, _hub_url)
             for rl in ref_links:
-                table += f'<a href="{h(rl)}" target="_blank" rel="noopener" class="ref-link">📖 Reference</a> '
-            table += "</div></td></tr>"
-        return table
+                detail.append(f'<a href="{h(rl)}" target="_blank" rel="noopener" class="ref-link">Reference</a> ')
+            detail.append("</div></td></tr>")
+            parts.append("".join(detail))
+        return "".join(parts)
 
     aws_table = _build_provider_table(aws_finds)
     gcp_table = _build_provider_table(gcp_finds)
