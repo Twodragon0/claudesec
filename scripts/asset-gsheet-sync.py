@@ -12,9 +12,11 @@ ClaudeSec — Google Sheets 자산관리 양방향 연동 스크립트
   pip install gspread google-auth google-auth-oauthlib
 
 인증 방법 (택 1):
-  A) 서비스 계정 JSON (CI/CD, Docker용):
+  A) 서비스 계정 JSON 파일 경로 (CI/CD, Docker용):
      export GOOGLE_SERVICE_ACCOUNT_JSON=/path/to/service-account.json
-  B) OAuth2 (로컬 개발용):
+  B) 서비스 계정 JSON 문자열 (Docker/K8s 시크릿용):
+     export GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT='{"type":"service_account",...}'
+  C) OAuth2 (로컬 개발용):
      export GOOGLE_OAUTH_CREDENTIALS=/path/to/credentials.json
 
 사용법:
@@ -90,18 +92,18 @@ def get_google_client() -> gspread.Client:
         creds = ServiceCredentials.from_service_account_info(info, scopes=SCOPES)
         return gspread.authorize(creds)
 
-    # 방법 3: OAuth2 (로컬 개발용)
-    oauth_path = os.environ.get(
-        "GOOGLE_OAUTH_CREDENTIALS",
-        str(Path.home() / ".config" / "gspread" / "credentials.json"),
-    )
-    if Path(oauth_path).exists():
+    # 방법 3: OAuth2 (로컬 개발용) — 환경변수 필수
+    oauth_path = os.environ.get("GOOGLE_OAUTH_CREDENTIALS", "")
+    if oauth_path and Path(oauth_path).exists():
         gc = gspread.oauth(credentials_filename=oauth_path, scopes=SCOPES)
         return gc
 
     print(
         "ERROR: Google 인증 정보를 찾을 수 없습니다.\n"
-        "  GOOGLE_SERVICE_ACCOUNT_JSON 또는 GOOGLE_OAUTH_CREDENTIALS 환경변수를 설정하세요.",
+        "  다음 환경변수 중 하나를 설정하세요:\n"
+        "    GOOGLE_SERVICE_ACCOUNT_JSON       — 서비스 계정 JSON 파일 경로\n"
+        "    GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT — 서비스 계정 JSON 문자열\n"
+        "    GOOGLE_OAUTH_CREDENTIALS           — OAuth2 credentials.json 경로",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -461,8 +463,14 @@ def main():
   # 통합 리포트 생성
   python3 scripts/asset-gsheet-sync.py --sheet-id YOUR_SHEET_ID --action report
 
-  # Docker 환경에서 실행
-  docker run --rm -v $PWD:/workspace -e GOOGLE_SERVICE_ACCOUNT_JSON=/workspace/sa.json \\
+  # Docker 환경에서 실행 (파일 마운트)
+  docker run --rm -v $PWD:/workspace \\
+    -e GOOGLE_SERVICE_ACCOUNT_JSON=/workspace/sa.json \\
+    claudesec:local python3 /opt/claudesec/scripts/asset-gsheet-sync.py --sheet-id ... --action sync
+
+  # Docker 환경에서 실행 (JSON 문자열 — 파일 마운트 불필요)
+  docker run --rm \\
+    -e GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT="$(cat sa.json)" \\
     claudesec:local python3 /opt/claudesec/scripts/asset-gsheet-sync.py --sheet-id ... --action sync
         """,
     )
