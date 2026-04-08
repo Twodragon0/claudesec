@@ -30,8 +30,8 @@ if has_command semgrep; then
     "$SCAN_DIR" 2>/dev/null || true)
 
   if [[ -n "$_semgrep_output" ]]; then
-    _semgrep_errors=$(echo "$_semgrep_output" | grep -c '"severity": "ERROR"' 2>/dev/null || echo 0)
-    _semgrep_warns=$(echo "$_semgrep_output" | grep -c '"severity": "WARNING"' 2>/dev/null || echo 0)
+    _semgrep_errors=$(echo "$_semgrep_output" | grep -c '"severity": "ERROR"' 2>/dev/null || true)
+    _semgrep_warns=$(echo "$_semgrep_output" | grep -c '"severity": "WARNING"' 2>/dev/null || true)
     _semgrep_total=$((_semgrep_errors + _semgrep_warns))
 
     if [[ $_semgrep_total -gt 0 ]]; then
@@ -75,8 +75,8 @@ if [[ "${_has_python:-}" == "true" ]]; then
     _bandit_output=$(bandit -r "$SCAN_DIR" -f json -ll --exclude '.git,node_modules,venv,scanner,.claudesec-prowler' 2>/dev/null || true)
 
     if [[ -n "$_bandit_output" ]]; then
-      _bandit_high=$(echo "$_bandit_output" | grep -c '"severity": "HIGH"' 2>/dev/null || echo 0)
-      _bandit_med=$(echo "$_bandit_output" | grep -c '"severity": "MEDIUM"' 2>/dev/null || echo 0)
+      _bandit_high=$(echo "$_bandit_output" | grep -c '"severity": "HIGH"' 2>/dev/null || true)
+      _bandit_med=$(echo "$_bandit_output" | grep -c '"severity": "MEDIUM"' 2>/dev/null || true)
       _bandit_total=$((_bandit_high + _bandit_med))
 
       if [[ $_bandit_total -gt 0 ]]; then
@@ -120,8 +120,8 @@ if [[ "${_has_go:-}" == "true" ]]; then
     _gosec_output=$(cd "$SCAN_DIR" && gosec -fmt json -quiet ./... 2>/dev/null || true)
 
     if [[ -n "$_gosec_output" ]]; then
-      _gosec_count=$(echo "$_gosec_output" | grep -c '"severity": "HIGH"' 2>/dev/null || echo 0)
-      _gosec_med=$(echo "$_gosec_output" | grep -c '"severity": "MEDIUM"' 2>/dev/null || echo 0)
+      _gosec_count=$(echo "$_gosec_output" | grep -c '"severity": "HIGH"' 2>/dev/null || true)
+      _gosec_med=$(echo "$_gosec_output" | grep -c '"severity": "MEDIUM"' 2>/dev/null || true)
       _gosec_total=$((_gosec_count + _gosec_med))
 
       if [[ $_gosec_total -gt 0 ]]; then
@@ -152,8 +152,8 @@ if [[ -f "$SCAN_DIR/package-lock.json" || -f "$SCAN_DIR/yarn.lock" ]]; then
   if has_command npm; then
     _npm_audit=$(cd "$SCAN_DIR" && npm audit --json 2>/dev/null || true)
     if [[ -n "$_npm_audit" ]]; then
-      _npm_critical=$(echo "$_npm_audit" | grep -oE '"critical":[0-9]+' | head -1 | grep -oE '[0-9]+' || echo 0)
-      _npm_high=$(echo "$_npm_audit" | grep -oE '"high":[0-9]+' | head -1 | grep -oE '[0-9]+' || echo 0)
+      _npm_critical=$(echo "$_npm_audit" | grep -oE '"critical":[0-9]+' | head -1 | grep -oE '[0-9]+' || true)
+      _npm_high=$(echo "$_npm_audit" | grep -oE '"high":[0-9]+' | head -1 | grep -oE '[0-9]+' || true)
       _npm_total=$((_npm_critical + _npm_high))
       if [[ $_npm_total -gt 0 ]]; then
         _dep_total=$((_dep_total + _npm_total))
@@ -168,7 +168,7 @@ if [[ -f "$SCAN_DIR/requirements.txt" || -f "$SCAN_DIR/Pipfile.lock" || -f "$SCA
   if has_command pip-audit; then
     _pip_audit=$(cd "$SCAN_DIR" && pip-audit -r requirements.txt --format json 2>/dev/null || true)
     if [[ -n "$_pip_audit" ]]; then
-      _pip_vulns=$(echo "$_pip_audit" | grep -c '"id":' 2>/dev/null || echo 0)
+      _pip_vulns=$(echo "$_pip_audit" | grep -c '"id":' 2>/dev/null || true)
       if [[ $_pip_vulns -gt 0 ]]; then
         _dep_total=$((_dep_total + _pip_vulns))
         _dep_details="${_dep_details}\\n    pip: ${_pip_vulns} known vulnerability(ies)"
@@ -177,7 +177,7 @@ if [[ -f "$SCAN_DIR/requirements.txt" || -f "$SCAN_DIR/Pipfile.lock" || -f "$SCA
   elif has_command safety; then
     _safety_out=$(cd "$SCAN_DIR" && safety check --json 2>/dev/null || true)
     if [[ -n "$_safety_out" ]]; then
-      _safety_vulns=$(echo "$_safety_out" | grep -c '"vulnerability_id"' 2>/dev/null || echo 0)
+      _safety_vulns=$(echo "$_safety_out" | grep -c '"vulnerability_id"' 2>/dev/null || true)
       if [[ $_safety_vulns -gt 0 ]]; then
         _dep_total=$((_dep_total + _safety_vulns))
         _dep_details="${_dep_details}\\n    pip (safety): ${_safety_vulns} known vulnerability(ies)"
@@ -190,7 +190,7 @@ fi
 if [[ -f "$SCAN_DIR/Cargo.lock" ]] && has_command cargo-audit; then
   _cargo_audit=$(cd "$SCAN_DIR" && cargo audit --json 2>/dev/null || true)
   if [[ -n "$_cargo_audit" ]]; then
-    _cargo_vulns=$(echo "$_cargo_audit" | grep -c '"id":' 2>/dev/null || echo 0)
+    _cargo_vulns=$(echo "$_cargo_audit" | grep -c '"id":' 2>/dev/null || true)
     if [[ $_cargo_vulns -gt 0 ]]; then
       _dep_total=$((_dep_total + _cargo_vulns))
       _dep_details="${_dep_details}\\n    cargo: ${_cargo_vulns} known vulnerability(ies)"
@@ -200,7 +200,7 @@ fi
 
 # Go vulnerability check
 if [[ -f "$SCAN_DIR/go.sum" ]] && has_command govulncheck; then
-  _go_vuln=$(cd "$SCAN_DIR" && govulncheck ./... 2>/dev/null | grep -c 'Vulnerability' || echo 0)
+  _go_vuln=$(cd "$SCAN_DIR" && govulncheck ./... 2>/dev/null | grep -c 'Vulnerability' || true)
   if [[ $_go_vuln -gt 0 ]]; then
     _dep_total=$((_dep_total + _go_vuln))
     _dep_details="${_dep_details}\\n    go: ${_go_vuln} known vulnerability(ies)"
@@ -224,8 +224,8 @@ if [[ "${_has_ruby:-}" == "true" && -f "$SCAN_DIR/Gemfile" ]]; then
     info "Running Brakeman Rails security scan..."
     _brake_output=$(brakeman -q --no-pager -f json "$SCAN_DIR" 2>/dev/null || true)
     if [[ -n "$_brake_output" ]]; then
-      _brake_high=$(echo "$_brake_output" | grep -c '"confidence": "High"' 2>/dev/null || echo 0)
-      _brake_total=$(echo "$_brake_output" | grep -c '"warning_type"' 2>/dev/null || echo 0)
+      _brake_high=$(echo "$_brake_output" | grep -c '"confidence": "High"' 2>/dev/null || true)
+      _brake_total=$(echo "$_brake_output" | grep -c '"warning_type"' 2>/dev/null || true)
       if [[ $_brake_total -gt 0 ]]; then
         fail "CODE-SAST-005" "Brakeman: ${_brake_total} Rails warning(s) (${_brake_high} high confidence)" "high" \
           "Run brakeman for full report" \

@@ -47,7 +47,7 @@ _hardcoded_iv=$(_code_grep '(iv|IV|nonce)\s*=\s*(b"[^"]+"|"[0-9a-f]{16,}"|\[0x)'
 _crypto_hits=$(echo "$_crypto_hits" | grep -v '^$' || true)
 
 if [[ -n "$_crypto_hits" ]]; then
-  _crypto_count=$(echo "$_crypto_hits" | grep -c . 2>/dev/null || echo 0)
+  _crypto_count=$(echo "$_crypto_hits" | grep -c . 2>/dev/null || true)
   _crypto_details="P1: Insecure Cryptography — ${_crypto_count} weak algorithm(s) / config(s)$(_format_hits "$_crypto_hits")"
   fail "CODE-SEC-001" "Insecure Crypto: ${_crypto_count} weak algorithm/config" "high" \
     "$_crypto_details" \
@@ -98,7 +98,7 @@ _deser_hits=""
 _deser_hits=$(echo "$_deser_hits" | grep -v '^$' || true)
 
 if [[ -n "$_deser_hits" ]]; then
-  _deser_count=$(echo "$_deser_hits" | grep -c . 2>/dev/null || echo 0)
+  _deser_count=$(echo "$_deser_hits" | grep -c . 2>/dev/null || true)
   _deser_details="P0: Unsafe Deserialization — ${_deser_count} dangerous deserializer(s)$(_format_hits "$_deser_hits")"
   fail "CODE-SEC-002" "Unsafe Deserialization: ${_deser_count} dangerous pattern(s)" "critical" \
     "$_deser_details" \
@@ -126,7 +126,7 @@ while IFS= read -r line; do
 done <<< "$_hc_hits"
 
 if [[ -n "$_hc_filtered" ]]; then
-  _hc_count=$(echo "$_hc_filtered" | grep -c . 2>/dev/null || echo 0)
+  _hc_count=$(echo "$_hc_filtered" | grep -c . 2>/dev/null || true)
   _hc_details="P0: Hardcoded Credentials — ${_hc_count} embedded secret(s)$(_format_hits "$_hc_filtered")"
   fail "CODE-SEC-003" "Hardcoded Credentials: ${_hc_count} embedded secret(s)" "critical" \
     "$_hc_details" \
@@ -165,7 +165,7 @@ _rand_hits=""
 _rand_hits=$(echo "$_rand_hits" | grep -v '^$' || true)
 
 if [[ -n "$_rand_hits" ]]; then
-  _rand_count=$(echo "$_rand_hits" | grep -c . 2>/dev/null || echo 0)
+  _rand_count=$(echo "$_rand_hits" | grep -c . 2>/dev/null || true)
   _rand_details="P1: Insecure Random — ${_rand_count} weak PRNG usage(s)$(_format_hits "$_rand_hits")"
   fail "CODE-SEC-004" "Insecure Random: ${_rand_count} non-CSPRNG usage(s)" "high" \
     "$_rand_details" \
@@ -198,7 +198,7 @@ _java_debug=$(_code_grep 'printStackTrace\s*\(\s*\)|e\.getMessage\s*\(\s*\).*res
 _debug_hits=$(echo "$_debug_hits" | grep -v '^$' || true)
 
 if [[ -n "$_debug_hits" ]]; then
-  _debug_count=$(echo "$_debug_hits" | grep -c . 2>/dev/null || echo 0)
+  _debug_count=$(echo "$_debug_hits" | grep -c . 2>/dev/null || true)
   _debug_details="P1: Debug/Dev Mode — ${_debug_count} debug configuration(s) found$(_format_hits "$_debug_hits")"
   fail "CODE-SEC-005" "Debug Mode: ${_debug_count} debug/verbose config(s)" "high" \
     "$_debug_details" \
@@ -224,7 +224,7 @@ _go_err=$(_code_grep '(http\.Error|w\.Write|json\.NewEncoder).*err\.(Error\(\)|S
 _err_hits=$(echo "$_err_hits" | grep -v '^$' || true)
 
 if [[ -n "$_err_hits" ]]; then
-  _err_count=$(echo "$_err_hits" | grep -c . 2>/dev/null || echo 0)
+  _err_count=$(echo "$_err_hits" | grep -c . 2>/dev/null || true)
   _err_details="Medium: Information Leakage — ${_err_count} verbose error response(s)$(_format_hits "$_err_hits")"
   warn "CODE-SEC-006" "Info Leak: ${_err_count} detailed error exposed to client" \
     "$_err_details"
@@ -257,7 +257,7 @@ if [[ -n "$_upload_hits" ]]; then
   # Check if validation exists nearby
   _has_validation=$(_code_grep '(allowed_extensions|ALLOWED_EXTENSIONS|mime_type|content_type|fileFilter|file_size|maxFileSize)' "*.py,*.js,*.ts,*.php" 5)
   if [[ -z "$_has_validation" ]]; then
-    _upload_count=$(echo "$_upload_hits" | grep -c . 2>/dev/null || echo 0)
+    _upload_count=$(echo "$_upload_hits" | grep -c . 2>/dev/null || true)
     _upload_details="P1: Insecure Upload — ${_upload_count} file upload handler(s) without visible validation$(_format_hits "$_upload_hits")"
     fail "CODE-SEC-007" "Insecure Upload: ${_upload_count} handler(s) without validation" "high" \
       "$_upload_details" \
@@ -297,7 +297,7 @@ _race_hits=""
 _race_hits=$(echo "$_race_hits" | grep -v '^$' || true)
 
 if [[ -n "$_race_hits" ]]; then
-  _race_count=$(echo "$_race_hits" | grep -c . 2>/dev/null || echo 0)
+  _race_count=$(echo "$_race_hits" | grep -c . 2>/dev/null || true)
   _race_details="Medium: Concurrency — ${_race_count} concurrent code pattern(s). Verify thread safety.$(_format_hits "$_race_hits" 5)"
   warn "CODE-SEC-008" "Concurrency: ${_race_count} pattern(s) — verify thread safety" \
     "$_race_details"
@@ -312,7 +312,7 @@ if [[ "${_has_js:-}" == "true" || "${_has_ts:-}" == "true" ]]; then
   _proto_hits=$(_code_grep '(__proto__|constructor\[|Object\.assign\s*\(\s*\{\}|\.merge\s*\(|lodash\.merge|deepmerge|Object\.defineProperty)' "*.js,*.ts")
 
   if [[ -n "$_proto_hits" ]]; then
-    _proto_count=$(echo "$_proto_hits" | grep -c . 2>/dev/null || echo 0)
+    _proto_count=$(echo "$_proto_hits" | grep -c . 2>/dev/null || true)
     _proto_details="P1: Prototype Pollution — ${_proto_count} risky pattern(s)$(_format_hits "$_proto_hits")"
     fail "CODE-SEC-009" "Prototype Pollution: ${_proto_count} risky merge/assign pattern(s)" "high" \
       "$_proto_details" \
@@ -354,7 +354,7 @@ _redir_hits=""
 _redir_hits=$(echo "$_redir_hits" | grep -v '^$' || true)
 
 if [[ -n "$_redir_hits" ]]; then
-  _redir_count=$(echo "$_redir_hits" | grep -c . 2>/dev/null || echo 0)
+  _redir_count=$(echo "$_redir_hits" | grep -c . 2>/dev/null || true)
   _redir_details="P1: Open Redirect — ${_redir_count} unvalidated redirect(s)$(_format_hits "$_redir_hits")"
   fail "CODE-SEC-010" "Open Redirect: ${_redir_count} unvalidated redirect(s)" "high" \
     "$_redir_details" \
