@@ -68,7 +68,7 @@ _format_hits() {
     count=$((count + 1))
   done <<< "$hits"
   local total
-  total=$(echo "$hits" | grep -c . 2>/dev/null || echo 0)
+  total=$(echo "$hits" | grep -c . 2>/dev/null || true)
   [[ $total -gt $max ]] && output="${output}\\n    ... and $((total - max)) more"
   echo "$output"
 }
@@ -113,7 +113,7 @@ _sqli_hits=""
 }
 
 if [[ -n "$_sqli_hits" ]]; then
-  _sqli_count=$(echo "$_sqli_hits" | grep -c . 2>/dev/null || echo 0)
+  _sqli_count=$(echo "$_sqli_hits" | grep -c . 2>/dev/null || true)
   _sqli_details="P0: SQL Injection — ${_sqli_count} potential injection point(s) found$(_format_hits "$_sqli_hits")"
   fail "CODE-INJ-001" "SQL Injection: ${_sqli_count} unsafe query pattern(s)" "critical" \
     "$_sqli_details" \
@@ -164,7 +164,7 @@ _cmdi_hits=""
 }
 
 if [[ -n "$_cmdi_hits" ]]; then
-  _cmdi_count=$(echo "$_cmdi_hits" | grep -c . 2>/dev/null || echo 0)
+  _cmdi_count=$(echo "$_cmdi_hits" | grep -c . 2>/dev/null || true)
   _cmdi_details="P0: Command Injection — ${_cmdi_count} unsafe command execution(s)$(_format_hits "$_cmdi_hits")"
   fail "CODE-INJ-002" "Command Injection: ${_cmdi_count} unsafe exec pattern(s)" "critical" \
     "$_cmdi_details" \
@@ -201,7 +201,7 @@ _xss_hits=""
 }
 
 if [[ -n "$_xss_hits" ]]; then
-  _xss_count=$(echo "$_xss_hits" | grep -c . 2>/dev/null || echo 0)
+  _xss_count=$(echo "$_xss_hits" | grep -c . 2>/dev/null || true)
   _xss_details="P1: Cross-Site Scripting — ${_xss_count} potential XSS vector(s)$(_format_hits "$_xss_hits")"
   fail "CODE-INJ-003" "XSS: ${_xss_count} unescaped output pattern(s)" "high" \
     "$_xss_details" \
@@ -244,7 +244,7 @@ _path_hits=""
 }
 
 if [[ -n "$_path_hits" ]]; then
-  _path_count=$(echo "$_path_hits" | grep -c . 2>/dev/null || echo 0)
+  _path_count=$(echo "$_path_hits" | grep -c . 2>/dev/null || true)
   _path_details="P1: Path Traversal — ${_path_count} unsafe file access pattern(s)$(_format_hits "$_path_hits")"
   fail "CODE-INJ-004" "Path Traversal: ${_path_count} unvalidated file path(s)" "high" \
     "$_path_details" \
@@ -281,7 +281,7 @@ _ssrf_hits=""
 }
 
 if [[ -n "$_ssrf_hits" ]]; then
-  _ssrf_count=$(echo "$_ssrf_hits" | grep -c . 2>/dev/null || echo 0)
+  _ssrf_count=$(echo "$_ssrf_hits" | grep -c . 2>/dev/null || true)
   _ssrf_details="P1: SSRF — ${_ssrf_count} user-controlled URL request(s)$(_format_hits "$_ssrf_hits")"
   fail "CODE-INJ-005" "SSRF: ${_ssrf_count} user-controlled URL pattern(s)" "high" \
     "$_ssrf_details" \
@@ -312,7 +312,7 @@ _ssti_hits=""
 }
 
 if [[ -n "$_ssti_hits" ]]; then
-  _ssti_count=$(echo "$_ssti_hits" | grep -c . 2>/dev/null || echo 0)
+  _ssti_count=$(echo "$_ssti_hits" | grep -c . 2>/dev/null || true)
   _ssti_details="P0: Template Injection — ${_ssti_count} unsafe template rendering(s)$(_format_hits "$_ssti_hits")"
   fail "CODE-INJ-006" "SSTI: ${_ssti_count} user input in template rendering" "critical" \
     "$_ssti_details" \
@@ -343,7 +343,7 @@ _all_nosql="${_nosql_hits}${_nosql_hits:+$'\n'}${_ldap_hits}"
 _all_nosql=$(echo "$_all_nosql" | grep -v '^$' || true)
 
 if [[ -n "$_all_nosql" ]]; then
-  _nosql_count=$(echo "$_all_nosql" | grep -c . 2>/dev/null || echo 0)
+  _nosql_count=$(echo "$_all_nosql" | grep -c . 2>/dev/null || true)
   _nosql_details="P1: LDAP/NoSQL Injection — ${_nosql_count} unsanitized query input(s)$(_format_hits "$_all_nosql")"
   fail "CODE-INJ-007" "LDAP/NoSQL Injection: ${_nosql_count} unsafe query pattern(s)" "high" \
     "$_nosql_details" \
@@ -380,7 +380,7 @@ _xxe_hits=""
 }
 
 if [[ -n "$_xxe_hits" ]]; then
-  _xxe_count=$(echo "$_xxe_hits" | grep -c . 2>/dev/null || echo 0)
+  _xxe_count=$(echo "$_xxe_hits" | grep -c . 2>/dev/null || true)
   _xxe_details="P0: XML/XXE — ${_xxe_count} XML parser(s) without secure configuration$(_format_hits "$_xxe_hits")"
   fail "CODE-INJ-008" "XXE: ${_xxe_count} XML parser(s) may be vulnerable" "critical" \
     "$_xxe_details" \

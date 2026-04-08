@@ -38,6 +38,7 @@ CATEGORY="all"
 OUTPUT_FILE=""
 SCAN_DIR="${SCAN_DIR:-.}"
 PARALLEL=0
+BENCHMARK=0
 declare -a ENV_SCAN_FILES=()
 
 # Counters
@@ -250,6 +251,7 @@ Scan Options:
   --aws-sso                   Force AWS SSO login before scan
   --env-file <path>           Scan external .env file for leaked secrets
   --parallel                   Run categories in parallel (faster full scans)
+  --benchmark                  Run sequential + parallel and compare timing
 
 Examples:
   claudesec scan                          # Full scan, current directory
@@ -416,6 +418,7 @@ parse_args() {
           --aws-sso-all) AWS_SSO_FORCE=1; export AWS_SSO_SCAN_ALL=1; aws_sso_all_cli=1; shift ;;
           --env-file) ENV_SCAN_FILES+=("$2"); shift 2 ;;
           --parallel) PARALLEL=1; shift ;;
+          --benchmark) BENCHMARK=1; shift ;;
           -V|--version) echo "claudesec v$VERSION"; exit 0 ;;
           *) error "Unknown option: $1"; usage; exit 1 ;;
         esac
@@ -612,6 +615,9 @@ run_scan() {
         continue
       fi
       (
+        # Relax pipefail in subshells so a single check crash cannot
+        # prevent counter/JSON files from being written.
+        set +o pipefail
         # Each subshell resets its own counters and JSON state
         TOTAL_CHECKS=0; PASSED=0; FAILED=0; WARNINGS=0; SKIPPED=0
         JSON_RESULTS="[]"
@@ -702,10 +708,99 @@ run_scan() {
     info "Report saved to $OUTPUT_FILE"
   fi
 
+  # Benchmark mode: run sequential + parallel and compare
+  if [[ "$BENCHMARK" -eq 1 && ${#categories[@]} -gt 1 ]]; then
+    run_benchmark "${categories[@]}"
+  fi
+
   # Exit code based on failures
   if [[ $FAILED -gt 0 ]]; then
     exit 1
   fi
+}
+
+run_benchmark() {
+  local bench_categories=("$@")
+  local bench_tmpdir
+  bench_tmpdir=$(mktemp -d)
+
+  echo ""
+  echo -e "${BOLD}${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${BOLD}${CYAN}║              SCAN PERFORMANCE BENCHMARK                  ║${NC}"
+  echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+  echo ""
+
+  # ── Sequential per-category timing ──
+  echo -e "  ${BOLD}Sequential (per-category):${NC}"
+  local seq_total=0
+  for bcat in "${bench_categories[@]}"; do
+    local bcheck_dir="$CHECKS_DIR/$bcat"
+    [[ -d "$bcheck_dir" ]] || continue
+    local bstart bend bdur
+    bstart=$(date +%s%N 2>/dev/null || date +%s)
+    (
+      set +o pipefail
+      TOTAL_CHECKS=0; PASSED=0; FAILED=0; WARNINGS=0; SKIPPED=0
+      JSON_RESULTS="[]"
+      FINDINGS_CRITICAL=(); FINDINGS_HIGH=(); FINDINGS_MEDIUM=(); FINDINGS_LOW=()
+      for check_file in "$bcheck_dir"/*.sh; do
+        [[ -f "$check_file" ]] || continue
+        source "$check_file" >/dev/null 2>&1 || true
+      done
+    ) > /dev/null 2>&1
+    bend=$(date +%s%N 2>/dev/null || date +%s)
+    if [[ ${#bstart} -gt 10 ]]; then
+      bdur=$(( (bend - bstart) / 1000000 ))
+      printf "    %-20s %5d ms\n" "$bcat" "$bdur"
+      seq_total=$((seq_total + bdur))
+    else
+      bdur=$((bend - bstart))
+      printf "    %-20s %5d s\n" "$bcat" "$bdur"
+      seq_total=$((seq_total + bdur * 1000))
+    fi
+  done
+
+  # ── Parallel timing ──
+  local par_start par_end par_dur
+  par_start=$(date +%s%N 2>/dev/null || date +%s)
+  local bpids=()
+  for bcat in "${bench_categories[@]}"; do
+    local bcheck_dir="$CHECKS_DIR/$bcat"
+    [[ -d "$bcheck_dir" ]] || continue
+    (
+      set +o pipefail
+      TOTAL_CHECKS=0; PASSED=0; FAILED=0; WARNINGS=0; SKIPPED=0
+      JSON_RESULTS="[]"
+      FINDINGS_CRITICAL=(); FINDINGS_HIGH=(); FINDINGS_MEDIUM=(); FINDINGS_LOW=()
+      for check_file in "$bcheck_dir"/*.sh; do
+        [[ -f "$check_file" ]] || continue
+        source "$check_file" >/dev/null 2>&1 || true
+      done
+    ) > /dev/null 2>&1 &
+    bpids+=($!)
+  done
+  for bpid in "${bpids[@]}"; do wait "$bpid" 2>/dev/null || true; done
+  par_end=$(date +%s%N 2>/dev/null || date +%s)
+
+  echo ""
+  if [[ ${#par_start} -gt 10 ]]; then
+    par_dur=$(( (par_end - par_start) / 1000000 ))
+    printf "  ${BOLD}Sequential total:${NC}  %5d ms\n" "$seq_total"
+    printf "  ${BOLD}Parallel total:${NC}    %5d ms\n" "$par_dur"
+    if [[ $par_dur -gt 0 ]]; then
+      local speedup=$(( (seq_total * 100) / par_dur ))
+      printf "  ${BOLD}Speedup:${NC}           %d.%02dx\n" "$((speedup / 100))" "$((speedup % 100))"
+    fi
+  else
+    par_dur=$((par_end - par_start))
+    printf "  ${BOLD}Sequential total:${NC}  %5d ms\n" "$seq_total"
+    printf "  ${BOLD}Parallel total:${NC}    %5d s\n" "$par_dur"
+  fi
+
+  echo ""
+  echo -e "  ${DIM}Benchmark ran ${#bench_categories[@]} categories · $(date '+%Y-%m-%d %H:%M:%S')${NC}"
+  echo ""
+  rm -r "$bench_tmpdir" 2>/dev/null || true
 }
 
 run_init() {
