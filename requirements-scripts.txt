@@ -1,0 +1,9 @@
+# Optional dependencies for integration scripts (asset sync / dashboard build).
+# These require external API keys (Google Sheets, Google Drive) and are NOT
+# needed for CI test runs. Install only when running scripts/build-dashboard.py
+# or scripts/sync-assets.py against live APIs.
+gspread
+google-auth
+google-auth-oauthlib
+openpyxl
+requests

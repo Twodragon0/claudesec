@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone, timedelta
@@ -983,10 +984,13 @@ def collect_sheets():
                 "get",
                 f"https://www.googleapis.com/drive/v3/files/{xlsx_id}?alt=media&supportsAllDrives=true",
             )
-            tmp_path = Path("/tmp/claudesec-cost.xlsx")
-            tmp_path.write_bytes(resp.content)
-
-            wb = openpyxl.load_workbook(tmp_path, data_only=True)
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as _tmp:
+                _tmp.write(resp.content)
+                tmp_path = Path(_tmp.name)
+            try:
+                wb = openpyxl.load_workbook(tmp_path, data_only=True)
+            finally:
+                tmp_path.unlink(missing_ok=True)
 
             # 요약 시트 — 3개 섹션 분리 (소프트웨어별/사용자별/부서별)
             ws_sum = wb["요약"]

@@ -8,6 +8,11 @@
 #   1. Scan their project for security issues
 #   2. View results in an interactive dashboard
 #   3. No configuration needed
+#
+# Note: claudesec-asset-dashboard-live.html is intentionally mounted here because
+# dashboard-gen generates it before the dashboard service starts. This is safe in
+# the quickstart flow but that file is NOT mounted in docker-compose.yml (where it
+# may not exist on a fresh clone without API keys).
 
 services:
 
