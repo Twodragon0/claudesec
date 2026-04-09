@@ -100,6 +100,7 @@ claude "Audit package.json for:
 
 ## Integration with CI/CD
 
+{% raw %}
 ```yaml
 # .github/workflows/security-review.yml
 name: AI Security Review
@@ -123,6 +124,7 @@ jobs:
           # Your AI review integration here
           echo "Review files: ${{ steps.changes.outputs.files }}"
 ```
+{% endraw %}
 
 ## Best Practices
 

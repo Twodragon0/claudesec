@@ -62,6 +62,7 @@ repos:
 
 ### 3. Build Stage
 
+{% raw %}
 ```yaml
 # GitHub Actions example
 - name: Build with SBOM
@@ -72,6 +73,7 @@ repos:
   uses: sigstore/cosign-installer@v3
   run: cosign sign myapp:${{ github.sha }}
 ```
+{% endraw %}
 
 ### 4. Test Stage — SAST
 
