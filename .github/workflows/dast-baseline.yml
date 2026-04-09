@@ -37,7 +37,7 @@ jobs:
         run: chmod -R a+w .
 
       - name: ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.14.0
+        uses: zaproxy/action-baseline@v0.15.0
         continue-on-error: true
         with:
           target: "http://localhost:11777"
