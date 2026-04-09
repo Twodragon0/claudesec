@@ -6,6 +6,7 @@ Data loading functions extracted from dashboard-gen.py for reuse across scanner 
 import json
 import os
 import glob
+import warnings
 from datetime import datetime, timezone
 from collections import defaultdict
 from pathlib import Path
@@ -339,6 +340,12 @@ def load_network_tool_results(network_dir: str) -> NetworkToolResult:
 
         _parse_xml = SafeET.parse
     except ImportError:
+        warnings.warn(
+            "defusedxml is not installed; falling back to stdlib xml.etree.ElementTree. "
+            "Install defusedxml for safer XML parsing: pip install defusedxml",
+            ImportWarning,
+            stacklevel=2,
+        )
         import xml.etree.ElementTree as ET
 
         def _parse_xml(fpath):

@@ -58,7 +58,8 @@ scanner/output/
 docs/reports/scan-report*.md
 
 # Data directories (contain PII, hostnames, IPs, account IDs)
-.claudesec-assets/
+.claudesec-assets/*
+!.claudesec-assets/.gitkeep
 .claudesec-prowler/
 .claudesec-history/
 .claudesec-network/

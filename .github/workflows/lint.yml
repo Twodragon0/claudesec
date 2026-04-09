@@ -257,6 +257,60 @@ jobs:
           fi
           echo "All docs files have YAML frontmatter"
 
+  docker-dashboard-smoke:
+    name: Docker Dashboard Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Create placeholder dashboard files
+        run: |
+          echo '<!DOCTYPE html><html><head><title>ClaudeSec Security Dashboard</title></head><body><h1>ClaudeSec Dashboard</h1></body></html>' \
+            > claudesec-dashboard.html
+          echo '{"version":"1.0","findings":[],"generated_at":"2024-01-01T00:00:00Z"}' \
+            > scan-report.json
+          mkdir -p .claudesec-assets
+
+      - name: Build dashboard image
+        run: docker compose build dashboard
+
+      - name: Start dashboard container
+        run: docker compose up -d dashboard
+
+      - name: Wait for healthcheck to pass
+        run: |
+          timeout=60
+          elapsed=0
+          until curl -sf http://localhost:11777/ > /dev/null 2>&1; do
+            if [ "$elapsed" -ge "$timeout" ]; then
+              echo "::error::Dashboard did not become healthy within ${timeout}s"
+              docker compose logs dashboard
+              exit 1
+            fi
+            sleep 3
+            elapsed=$(( elapsed + 3 ))
+          done
+          echo "Dashboard is healthy after ${elapsed}s"
+
+      - name: Verify HTTP 200 on key endpoints
+        run: |
+          for endpoint in "/" "/scan.html" "/scan-report.json"; do
+            status=$(curl -o /dev/null -sw '%{http_code}' "http://localhost:11777${endpoint}")
+            if [ "$status" != "200" ]; then
+              echo "::error::Expected HTTP 200 on ${endpoint}, got ${status}"
+              docker compose logs dashboard
+              exit 1
+            fi
+            echo "OK ${endpoint} -> ${status}"
+          done
+
+      - name: Clean up
+        if: always()
+        run: docker compose down
+
   markdown-lint:
     runs-on: ubuntu-latest
     steps:
