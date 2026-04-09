@@ -28,7 +28,7 @@ TRUST_LEVEL_FILTER_MAP = {
 }
 TRUST_FILTER_TOKEN_ORDER = ("official", "gov", "community")
 
-VERSION = "0.6.5"
+VERSION = "0.7.0"
 
 # ── TypedDict Classes ─────────────────────────────────────────────────────────
 
