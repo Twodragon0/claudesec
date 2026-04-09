@@ -98,20 +98,19 @@ if has_command gh && is_git_repo; then
       fi
 
       # ── Remaining REST calls (no GraphQL equivalent) — run in parallel ──
-      local _tmpdir_gh
       _tmpdir_gh=$(mktemp -d)
 
       gh api "repos/${_gh_repo}/code-scanning/alerts?state=open&per_page=100" --jq 'length' \
         > "$_tmpdir_gh/code_alerts" 2>/dev/null &
-      local _pid_code=$!
+      _pid_code=$!
 
       gh api "repos/${_gh_repo}/secret-scanning/alerts?state=open&per_page=100" --jq 'length' \
         > "$_tmpdir_gh/secret_alerts" 2>/dev/null &
-      local _pid_secret=$!
+      _pid_secret=$!
 
       gh api "repos/${_gh_repo}/actions/permissions" \
         > "$_tmpdir_gh/actions_perms" 2>/dev/null &
-      local _pid_actions=$!
+      _pid_actions=$!
 
       wait "$_pid_code" 2>/dev/null || true
       wait "$_pid_secret" 2>/dev/null || true
@@ -162,7 +161,6 @@ fi
 
 if has_command gh && [[ -n "${_gh_repo:-}" ]] && echo "${_gh_auth:-}" | grep -q "Logged in"; then
   # Check for failed workflow runs (potential security issues) — parallel fetch
-  local _tmpdir_wf
   _tmpdir_wf=$(mktemp -d)
 
   gh api "repos/${_gh_repo}/actions/runs?status=failure&per_page=5" --jq '.workflow_runs | length' \
