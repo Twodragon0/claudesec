@@ -45,6 +45,8 @@ Supply chain attacks (SolarWinds, Log4Shell, xz-utils, 2025 Bybit hack) demonstr
 
 ### GitHub Actions SLSA Implementation
 
+{% raw %}
+
 ```yaml
 # Generate SLSA provenance for container images
 name: SLSA Build
@@ -76,6 +78,8 @@ jobs:
           digest: ${{ steps.build.outputs.digest }}
 ```
 
+{% endraw %}
+
 ---
 
 ## SBOM (Software Bill of Materials)
@@ -99,6 +103,8 @@ An SBOM is a machine-readable inventory of all software components, dependencies
 | **docker buildx** | Container | SPDX (native `--sbom`) |
 
 ### CI Integration
+
+{% raw %}
 
 ```yaml
 # Generate SBOM + scan vulnerabilities
@@ -132,6 +138,8 @@ An SBOM is a machine-readable inventory of all software components, dependencies
       -F "project=$PROJECT_UUID" \
       -F "bom=@sbom.cdx.json"
 ```
+
+{% endraw %}
 
 ---
 

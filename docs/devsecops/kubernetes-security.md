@@ -55,6 +55,8 @@ ENTRYPOINT ["node", "server.js"]
 
 ### Scan & Sign
 
+{% raw %}
+
 ```yaml
 # CI pipeline
 - name: Scan image
@@ -63,6 +65,8 @@ ENTRYPOINT ["node", "server.js"]
 - name: Sign image
   run: cosign sign --yes ghcr.io/myorg/myapp:${{ github.sha }}
 ```
+
+{% endraw %}
 
 ### Image Policy
 
