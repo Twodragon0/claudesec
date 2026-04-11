@@ -62,6 +62,7 @@ prowler github \
 ### CI/CD Integration
 
 {% raw %}
+
 ```yaml
 # .github/workflows/prowler.yml
 name: Cloud Security Scan
@@ -158,6 +159,7 @@ jobs:
             exit 1
           fi
 ```
+
 {% endraw %}
 
 ### Compliance Frameworks (41+)

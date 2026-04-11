@@ -160,6 +160,7 @@ jobs:
 ### Full Scan — 스테이징 정기 스캔
 
 {% raw %}
+
 ```yaml
 # .github/workflows/dast-full-scan.yml
 name: DAST Full Scan (Nightly)
@@ -217,6 +218,7 @@ jobs:
               body: 'DAST Full Scan에서 Critical 취약점이 발견되었습니다. Artifacts를 확인하세요.'
             })
 ```
+
 {% endraw %}
 
 ### API Scan — REST/OpenAPI 대상

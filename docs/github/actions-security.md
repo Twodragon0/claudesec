@@ -21,6 +21,7 @@ tags: [github-actions, ci-cd, supply-chain, security]
 ### 2. Script Injection
 
 {% raw %}
+
 ```yaml
 # BAD: Directly interpolating user input
 - run: echo "Hello ${{ github.event.issue.title }}"
@@ -30,6 +31,7 @@ tags: [github-actions, ci-cd, supply-chain, security]
     ISSUE_TITLE: ${{ github.event.issue.title }}
   run: echo "Hello $ISSUE_TITLE"
 ```
+
 {% endraw %}
 
 ### 3. Excessive Permissions
@@ -64,6 +66,7 @@ jobs:
 ### Secrets Management
 
 {% raw %}
+
 ```yaml
 # Use GitHub Environments for secret scoping
 jobs:
@@ -82,6 +85,7 @@ jobs:
           # GOOD: Verify secret exists without exposing
           if [ -z "$API_KEY" ]; then echo "API_KEY not set"; exit 1; fi
 ```
+
 {% endraw %}
 
 ### Third-Party Actions
@@ -141,6 +145,7 @@ jobs:
 ### Secure Docker Build & Push
 
 {% raw %}
+
 ```yaml
 name: Docker
 on:
@@ -170,6 +175,7 @@ jobs:
           provenance: true
           sbom: true
 ```
+
 {% endraw %}
 
 ## OpenSSF Best Practices

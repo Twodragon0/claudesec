@@ -128,6 +128,7 @@ Expanded from "Vulnerable Components" to cover the **entire software supply chai
 ### Controls
 
 {% raw %}
+
 ```yaml
 # SBOM generation in CI
 - name: Generate SBOM
@@ -143,6 +144,7 @@ Expanded from "Vulnerable Components" to cover the **entire software supply chai
     fail-on-severity: moderate
     deny-licenses: GPL-3.0, AGPL-3.0
 ```
+
 {% endraw %}
 
 See [Supply Chain Security Guide](supply-chain-security.md) for full SLSA/SBOM/Sigstore coverage.
