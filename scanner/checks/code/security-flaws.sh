@@ -273,9 +273,12 @@ fi
 
 _race_hits=""
 
-# Python: shared state without locks in threading context
+# Python: concurrency primitives (race conditions require actual concurrency).
+# NOTE: bare `global` statements were removed from the pattern — the `global`
+# keyword alone is a module-state pattern, not a race condition. Only flag
+# files that actually use threading / multiprocessing / asyncio / concurrent.futures.
 [[ "${_has_python:-}" == "true" ]] && {
-  _race_hits=$(_code_grep '(threading\.(Thread|Lock)|global\s+|multiprocessing)' "*.py")
+  _race_hits=$(_code_grep 'threading\.(Thread|Lock|RLock|Semaphore|Event|Condition)|multiprocessing\.(Process|Pool|Queue)|concurrent\.futures|asyncio\.(create_task|gather|ensure_future)' "*.py")
 }
 
 # Go: goroutines with shared state (no mutex)

@@ -2,8 +2,15 @@
 # ClaudeSec — Network: TLS & Connection Security Checks
 
 # NET-001: HTTPS enforced (no plain HTTP URLs)
+# Exclude ephemeral state, vendored deps, and build outputs so heuristic
+# checks run only over audited application code.
 http_files=$(find "$SCAN_DIR" \( -name "*.ts" -o -name "*.js" -o -name "*.py" -o -name "*.go" -o -name "*.java" \) \
-  -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | head -100 || true)
+  -not -path "*/node_modules/*" -not -path "*/.git/*" \
+  -not -path "*/.venv*/*" -not -path "*/venv/*" \
+  -not -path "*/.omc/*" -not -path "*/.claude/*" \
+  -not -path "*/.claudesec-*" -not -path "*/dist/*" -not -path "*/build/*" \
+  -not -path "*/__pycache__/*" -not -path "*/.cache/*" \
+  2>/dev/null | head -100 || true)
 
 if [[ -n "$http_files" ]]; then
   if echo "$http_files" | xargs grep -lE "http://[^l][^o][^c]" 2>/dev/null | head -1 | grep -q . 2>/dev/null; then

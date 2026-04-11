@@ -357,8 +357,10 @@ fi
 _xxe_hits=""
 
 # Python: xml.etree without defused, lxml with resolve_entities
+# NOTE: xml.sax.saxutils is excluded — it is a pure string escape helper,
+# not a parser, so it cannot be XXE-vulnerable.
 [[ "$_has_python" == "true" ]] && {
-  _xxe_hits=$(_code_grep 'xml\.etree\.ElementTree|xml\.dom\.minidom|xml\.sax|lxml\.etree\.parse' "*.py")
+  _xxe_hits=$(_code_grep 'xml\.etree\.ElementTree|xml\.dom\.minidom|xml\.sax\.(handler|parser|make_parser|xmlreader)|lxml\.etree\.parse' "*.py")
 }
 
 # Java: DocumentBuilderFactory without secure features

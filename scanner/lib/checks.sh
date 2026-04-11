@@ -51,14 +51,32 @@ file_contains() {
   return 1
 }
 
-# Search for pattern across files matching a glob
+# Search for pattern across files matching a glob.
+#
+# Excludes vendored/ephemeral/state directories that are not part of the
+# audited application code. Without these exclusions, tool state files under
+# `.omc/`, `.claude/`, `.claudesec-*`, `dist/`, `build/`, and cache dirs can
+# trigger heuristic checks (e.g. AI-002..AI-009, NET-001) even when the real
+# application code contains no match. Keep this list in sync with count_files().
 files_contain() {
   local glob="$1" pattern="$2" result
   if [[ "$glob" == */* ]]; then
-    result=$(find "$SCAN_DIR" -path "$SCAN_DIR/$glob" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/.venv*/*" -not -path "*/venv/*" \
+    result=$(find "$SCAN_DIR" -path "$SCAN_DIR/$glob" \
+      -not -path "*/node_modules/*" -not -path "*/.git/*" \
+      -not -path "*/.venv*/*" -not -path "*/venv/*" \
+      -not -path "*/.omc/*" -not -path "*/.claude/*" \
+      -not -path "*/.claudesec-*" -not -path "*/dist/*" \
+      -not -path "*/build/*" -not -path "*/__pycache__/*" \
+      -not -path "*/.cache/*" -not -path "*/.mypy_cache/*" -not -path "*/.pytest_cache/*" \
       -exec grep -lE "$pattern" {} \; 2>/dev/null | head -1 || true)
   else
-    result=$(find "$SCAN_DIR" -name "$glob" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/.venv*/*" -not -path "*/venv/*" \
+    result=$(find "$SCAN_DIR" -name "$glob" \
+      -not -path "*/node_modules/*" -not -path "*/.git/*" \
+      -not -path "*/.venv*/*" -not -path "*/venv/*" \
+      -not -path "*/.omc/*" -not -path "*/.claude/*" \
+      -not -path "*/.claudesec-*" -not -path "*/dist/*" \
+      -not -path "*/build/*" -not -path "*/__pycache__/*" \
+      -not -path "*/.cache/*" -not -path "*/.mypy_cache/*" -not -path "*/.pytest_cache/*" \
       -exec grep -lE "$pattern" {} \; 2>/dev/null | head -1 || true)
   fi
   [[ -n "$result" ]]
@@ -67,7 +85,13 @@ files_contain() {
 # Count files matching a pattern
 count_files() {
   local glob="$1"
-  find "$SCAN_DIR" -name "$glob" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/.venv*/*" -not -path "*/venv/*" 2>/dev/null | wc -l | tr -d ' '
+  find "$SCAN_DIR" -name "$glob" \
+    -not -path "*/node_modules/*" -not -path "*/.git/*" \
+    -not -path "*/.venv*/*" -not -path "*/venv/*" \
+    -not -path "*/.omc/*" -not -path "*/.claude/*" \
+    -not -path "*/.claudesec-*" -not -path "*/dist/*" \
+    -not -path "*/build/*" -not -path "*/__pycache__/*" \
+    2>/dev/null | wc -l | tr -d ' '
 }
 
 # Check if running in a git repo
