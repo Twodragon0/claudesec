@@ -106,15 +106,35 @@ export CLAUDESEC_STRICT_OKTA_SCOPES=1
 
 See [Okta OAuth guidance](https://developer.okta.com/docs/guides/implement-oauth-for-okta/main/#about-oauth-2-0-for-okta-api-endpoints).
 
-## Scanner SaaS Live Scan
+## Dashboard Workflow
 
 ### Copy-paste minimal example
+
+```bash
+./scripts/run-dashboard-safe.sh --quick
+```
+
+Expected output: a quick dashboard build is generated and served locally at `http://127.0.0.1:11777` or the next available fallback port.
+
+### Recommended day-to-day flow
+
+```bash
+./scripts/run-dashboard-safe.sh --quick
+./scripts/run-dashboard-safe.sh --no-serve
+./scripts/run-dashboard-safe.sh --kill-port
+```
+
+- `--quick`: fast smoke check for the dashboard layout and the highest-signal scanner categories.
+- `--no-serve`: generate `claudesec-dashboard.html` as a reviewable artifact without starting a local server.
+- `--kill-port`: reclaim port `11777` when a stale local server is blocking the default endpoint.
+
+### Advanced direct CLI serve
 
 ```bash
 ./scanner/claudesec dashboard --serve --host 127.0.0.1 --port 11665
 ```
 
-Expected output: dashboard is generated and served locally at `http://127.0.0.1:11665`.
+Use the direct CLI form when you need an explicit host/port or want to bypass the safe runner's fallback behavior.
 
 ### SaaS scan + dashboard
 
