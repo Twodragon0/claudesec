@@ -13,9 +13,9 @@ ClaudeSec — Google Sheets 자산관리 양방향 연동 스크립트
 
 인증 방법 (택 1):
   A) 서비스 계정 JSON 파일 경로 (CI/CD, Docker용):
-     export GOOGLE_SERVICE_ACCOUNT_JSON=/path/to/service-account.json
+     export GOOGLE_SERVICE_ACCOUNT_JSON=/path/to/<sa-key>.json
   B) 서비스 계정 JSON 문자열 (Docker/K8s 시크릿용):
-     export GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT='{"type":"service_account",...}'
+     export GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT='{"type":"<redacted>",...}'
   C) OAuth2 (로컬 개발용):
      export GOOGLE_OAUTH_CREDENTIALS=/path/to/credentials.json
 
