@@ -68,6 +68,16 @@ mkdir -p "$TARGET_DIR/.github/actions/token-expiry-gate"
 mkdir -p "$TARGET_DIR/.claude/hooks"
 mkdir -p "$TARGET_DIR/scripts"
 
+# Install git pre-push hook (blocks direct pushes to main/master)
+echo -e "${GREEN}[+]${NC} Installing git pre-push hook..."
+if [[ -d "$TARGET_DIR/.git" ]]; then
+  mkdir -p "$TARGET_DIR/.git/hooks"
+  ln -sf ../../scripts/pre-push.sh "$TARGET_DIR/.git/hooks/pre-push"
+  echo -e "  ${GREEN}✓${NC} pre-push hook installed (blocks direct push to main)"
+else
+  echo -e "  ${YELLOW}~${NC} Not a git repo — skipping pre-push hook (install later: ln -sf ../../scripts/pre-push.sh .git/hooks/pre-push)"
+fi
+
 # Copy hooks
 echo -e "${GREEN}[+]${NC} Installing Claude Code hooks..."
 cp "$CLAUDESEC_DIR/hooks/security-lint.sh" "$TARGET_DIR/.claude/hooks/"
