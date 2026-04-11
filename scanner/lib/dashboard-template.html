@@ -454,35 +454,36 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 .isms-dash-link:hover{background:var(--accent)!important;color:#fff!important}
 .isms-main-link:hover{opacity:.85}
 /* Asset dashboard-inspired shell overrides */
-:root{--bg:#0f1117;--surface:#1a1d27;--surface-alt:#1e2130;--border:#2a2d3a;--text:#e1e4eb;--muted:#8b8fa3;--accent:#6c5ce7;--success:#00b894;--danger:#e17055;--warning:#fdcb6e;--info:#0984e3;--cyan:#00cec9;--glass:rgba(26,29,39,.74);--glass-border:rgba(108,92,231,.18)}
-[data-theme="light"]{--bg:#f0f2f5;--surface:#ffffff;--surface-alt:#f7f8fa;--border:#e0e3ea;--text:#1a1d27;--muted:#6b7085;--accent:#6c5ce7;--glass:rgba(255,255,255,.8);--glass-border:rgba(108,92,231,.12);--success:#0f9f74;--danger:#dc6a4c;--warning:#d79d23;--info:#2d77d0;--cyan:#0aa7a1}
-body{background:
-  radial-gradient(circle at top left,rgba(108,92,231,.16),transparent 24%),
-  radial-gradient(circle at top right,rgba(0,206,201,.10),transparent 18%),
+:root{--bg:#0b1220;--surface:#121a2b;--surface-alt:#172235;--border:#24324a;--text:#e2e8f0;--muted:#8da2bd;--accent:#0ea5e9;--success:#10b981;--danger:#f97316;--warning:#f59e0b;--info:#38bdf8;--cyan:#14b8a6;--glass:rgba(11,18,32,.78);--glass-border:rgba(14,165,233,.18);--font-sans:"Avenir Next","Segoe UI Variable","Pretendard Variable","Pretendard","IBM Plex Sans KR","Segoe UI",system-ui,sans-serif;--font-mono:"SF Mono","Cascadia Code","IBM Plex Mono","Fira Code",ui-monospace,monospace}
+[data-theme="light"]{--bg:#eff6ff;--surface:#ffffff;--surface-alt:#f8fafc;--border:#d9e6f2;--text:#0f172a;--muted:#5f738b;--accent:#0369a1;--glass:rgba(255,255,255,.84);--glass-border:rgba(14,165,233,.12);--success:#0f9f74;--danger:#ea580c;--warning:#d97706;--info:#0284c7;--cyan:#0f766e}
+body{font-family:var(--font-sans);background:
+  radial-gradient(circle at top left,rgba(14,165,233,.15),transparent 24%),
+  radial-gradient(circle at top right,rgba(20,184,166,.12),transparent 18%),
   var(--bg)}
+.mono{font-family:var(--font-mono)}
 .container{max-width:1380px;padding:1.25rem 1.25rem 2rem}
-.hdr{background:linear-gradient(135deg,rgba(26,29,39,.95) 0%,rgba(45,27,105,.85) 52%,rgba(26,29,39,.96) 100%);padding:1.1rem 1.35rem;border:1px solid var(--glass-border);border-radius:18px;backdrop-filter:blur(14px);box-shadow:0 18px 50px rgba(0,0,0,.18)}
-[data-theme="light"] .hdr{background:linear-gradient(135deg,rgba(255,255,255,.94) 0%,rgba(108,92,231,.10) 50%,rgba(255,255,255,.96) 100%)}
+.hdr{background:linear-gradient(135deg,rgba(15,23,42,.96) 0%,rgba(7,89,133,.84) 52%,rgba(15,23,42,.98) 100%);padding:1.1rem 1.35rem;border:1px solid var(--glass-border);border-radius:18px;backdrop-filter:blur(14px);box-shadow:0 18px 50px rgba(0,0,0,.18)}
+[data-theme="light"] .hdr{background:linear-gradient(135deg,rgba(255,255,255,.96) 0%,rgba(14,165,233,.08) 46%,rgba(20,184,166,.08) 100%)}
 .hdr-copy{display:flex;flex-direction:column;gap:.28rem}
 .hdr-kicker{font-size:.72rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
 .hdr-sub{color:var(--muted);font-size:.82rem;line-height:1.5}
 .hdr-meta{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap}
 .meta-pill{display:inline-flex;align-items:center;gap:.35rem;padding:.28rem .6rem;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--glass-border);font-size:.72rem;font-weight:700;color:var(--text)}
-[data-theme="light"] .meta-pill{background:rgba(108,92,231,.06)}
+[data-theme="light"] .meta-pill{background:rgba(14,165,233,.06)}
 .tabs{background:var(--glass);border:1px solid var(--glass-border);border-bottom:2px solid var(--border);padding:0 .7rem;border-radius:16px;backdrop-filter:blur(10px);position:sticky;top:.75rem;z-index:80;box-shadow:0 10px 30px rgba(0,0,0,.10)}
 .tab{display:inline-flex;align-items:center;gap:.38rem;padding:.82rem .95rem;border-radius:10px 10px 0 0;font-size:.8rem;color:#b8bfd0}
-.tab:hover{background:rgba(108,92,231,.08)}
-.tab.active{color:#b197fc;border-bottom-color:#b197fc;background:rgba(108,92,231,.08)}
-[data-theme="light"] .tab.active{color:#5b21b6;border-bottom-color:#5b21b6}
+.tab:hover{background:rgba(14,165,233,.08)}
+.tab.active{color:#7dd3fc;border-bottom-color:#7dd3fc;background:rgba(14,165,233,.08)}
+[data-theme="light"] .tab.active{color:#075985;border-bottom-color:#075985}
 .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:1.35rem;padding:.08rem .38rem;border-radius:999px;background:rgba(255,255,255,.08);color:var(--muted);font-size:.62rem;font-weight:800;letter-spacing:.02em}
-.tab.active .tab-badge{background:rgba(167,139,250,.2);color:#c4b5fd}
-[data-theme="light"] .tab.active .tab-badge{background:rgba(91,33,182,.12);color:#5b21b6}
+.tab.active .tab-badge{background:rgba(125,211,252,.18);color:#bae6fd}
+[data-theme="light"] .tab.active .tab-badge{background:rgba(3,105,161,.10);color:#075985}
 .hero{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(320px,.95fr);gap:1rem;margin-bottom:1rem}
 .hero-main,.hero-side{background:var(--glass);backdrop-filter:blur(10px);border:1px solid var(--glass-border);border-radius:18px;padding:1.15rem 1.2rem;box-shadow:0 14px 38px rgba(0,0,0,.12)}
-.hero-main{background:linear-gradient(140deg,rgba(108,92,231,.18),rgba(26,29,39,.80) 45%,rgba(0,206,201,.10))}
-[data-theme="light"] .hero-main{background:linear-gradient(140deg,rgba(108,92,231,.08),rgba(255,255,255,.92) 48%,rgba(0,206,201,.08))}
-.hero-kicker{font-size:.72rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#d6ccff;margin-bottom:.45rem}
-[data-theme="light"] .hero-kicker{color:#5b21b6}
+.hero-main{background:linear-gradient(140deg,rgba(14,165,233,.18),rgba(11,18,32,.82) 45%,rgba(20,184,166,.12))}
+[data-theme="light"] .hero-main{background:linear-gradient(140deg,rgba(14,165,233,.08),rgba(255,255,255,.93) 48%,rgba(20,184,166,.08))}
+.hero-kicker{font-size:.72rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#bae6fd;margin-bottom:.45rem}
+[data-theme="light"] .hero-kicker{color:#075985}
 .hero-title{font-size:1.6rem;font-weight:800;line-height:1.2;letter-spacing:-.02em;margin-bottom:.5rem}
 .hero-text{font-size:.9rem;color:var(--muted);line-height:1.65;max-width:60ch}
 .hero-chip-row,.hero-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.95rem}
@@ -493,7 +494,7 @@ body{background:
 .hero-link:hover{transform:translateY(-1px);border-color:var(--accent)}
 .hero-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem}
 .hero-metric{background:rgba(255,255,255,.04);border:1px solid var(--glass-border);border-radius:14px;padding:.9rem}
-[data-theme="light"] .hero-metric{background:rgba(108,92,231,.04)}
+[data-theme="light"] .hero-metric{background:rgba(14,165,233,.04)}
 .hero-metric-label{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:800}
 .hero-metric-value{font-size:1.45rem;font-weight:800;margin-top:.35rem}
 .hero-metric-sub{font-size:.76rem;color:var(--muted);margin-top:.2rem;line-height:1.5}
@@ -506,18 +507,40 @@ body{background:
 .workspace-label{font-size:.82rem;font-weight:800}
 .workspace-text{font-size:.79rem;color:var(--muted);line-height:1.55}
 .workspace-jump{display:inline-flex;align-items:center;gap:.3rem;margin-top:.65rem;font-size:.74rem;color:var(--accent);font-weight:700}
+.card-flat{margin-bottom:0}
+.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:.9rem}
+.section-title-group{display:flex;flex-direction:column;gap:.18rem}
+.section-title-text{font-size:.95rem;font-weight:800;color:var(--text)}
+.section-subtitle{font-size:.75rem;color:var(--muted);font-weight:500;line-height:1.45}
+.section-link{font-size:.74rem;color:var(--accent);font-weight:700;cursor:pointer;white-space:nowrap}
+.section-link:hover{text-decoration:underline}
+.section-body{padding:1rem 1.25rem}
+.section-body-sm{padding:.75rem 1rem}
+.overview-banner{margin-bottom:1rem;padding:.9rem 1rem;border:1px solid var(--glass-border);border-radius:14px;background:linear-gradient(135deg,rgba(14,165,233,.10),rgba(20,184,166,.05));display:flex;align-items:center;justify-content:space-between;gap:1rem}
+[data-theme="light"] .overview-banner{background:linear-gradient(135deg,rgba(14,165,233,.08),rgba(20,184,166,.06))}
+.overview-banner-copy{display:flex;flex-direction:column;gap:.28rem}
+.overview-banner-title{font-size:.82rem;font-weight:800;color:var(--text)}
+.overview-banner-text{font-size:.8rem;color:var(--muted);line-height:1.55}
+.overview-banner-steps{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.15rem}
+.overview-step{display:inline-flex;align-items:center;gap:.35rem;padding:.22rem .55rem;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--glass-border);font-size:.72rem;font-weight:700;color:var(--text)}
 .card,.trend-section{background:var(--glass);backdrop-filter:blur(10px);border:1px solid var(--glass-border);box-shadow:0 10px 30px rgba(0,0,0,.10)}
 .card-title{background:rgba(255,255,255,.03)}
-[data-theme="light"] .card-title{background:rgba(108,92,231,.03)}
+[data-theme="light"] .card-title{background:rgba(14,165,233,.03)}
 .stat-pill,.prov-card,.qn-card,.arch-ov-card,.net-ov-card,.coverage-card,.priority-card{background:rgba(255,255,255,.04);border-color:var(--glass-border)}
 [data-theme="light"] .stat-pill,[data-theme="light"] .prov-card,[data-theme="light"] .qn-card,[data-theme="light"] .arch-ov-card,[data-theme="light"] .net-ov-card,[data-theme="light"] .coverage-card,[data-theme="light"] .priority-card{background:rgba(255,255,255,.92)}
+.trend-header{display:flex;align-items:flex-start;justify-content:space-between;gap:.8rem;margin-bottom:.75rem}
+.trend-title{font-size:.95rem;font-weight:800}
 .table-toolbar{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.75rem 1rem;border-bottom:1px solid var(--border);background:rgba(255,255,255,.02)}
 .table-search{min-width:220px;flex:1;padding:.5rem .75rem;background:var(--surface-alt);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:.8rem;outline:none}
 .table-search::placeholder{color:var(--muted)}
-.table-search:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(108,92,231,.12)}
+.table-search:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(14,165,233,.12)}
+.toolbar-label{font-size:.78rem;color:var(--muted);font-weight:600}
 .toolbar-count{font-size:.74rem;color:var(--muted)}
+.scanner-meta-row{flex:1 1 100%;display:flex;justify-content:space-between;font-size:.68rem;color:var(--muted);margin-top:.15rem}
+.table-scroll-md{max-height:360px;overflow-y:auto}
+.table-scroll-lg{max-height:55vh;overflow-y:auto}
 @media(max-width:1080px){.hero,.workspace-grid{grid-template-columns:1fr}.hero-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:720px){.hdr{padding:1rem}.hero-title{font-size:1.35rem}.hero-metrics{grid-template-columns:1fr}.table-toolbar{padding:.75rem}.table-search{min-width:100%}}
+@media(max-width:720px){.hdr{padding:1rem}.hero-title{font-size:1.35rem}.hero-metrics{grid-template-columns:1fr}.overview-banner,.trend-header{flex-direction:column;align-items:flex-start}.table-toolbar{padding:.75rem}.table-search{min-width:100%}}
 /* Print styles */
 @media print{body{background:#fff;color:#111}.container{max-width:100%}header,.tabs,.quick-nav,.scroll-top,.toast,.setup-modal-overlay,.env-grid,.trend-section{display:none!important}.tab-panel{display:block!important;page-break-inside:avoid}.card{border:1px solid #ccc;break-inside:avoid;margin-bottom:1rem}.badge.critical,.badge.high{background:#dc2626;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.sev-bar div{-webkit-print-color-adjust:exact;print-color-adjust:exact}footer{text-align:center;border-top:1px solid #ccc;padding-top:1rem;color:#666}}
 </style>
@@ -561,8 +584,8 @@ body{background:
   <section class="hero">
     <div class="hero-main">
       <div class="hero-kicker">Functional Security View</div>
-      <div class="hero-title">스캔 결과를 기능별로 보고, 우선순위에서 상세 분석까지 바로 내려갑니다.</div>
-      <div class="hero-text">메인 대시보드의 운영 관점 UI를 따라 `요약 → 기능 영역 → 세부 테이블` 흐름으로 구성했습니다. 먼저 우선순위를 보고, 그 다음 코드 보안, CSPM, GitHub, 네트워크, 아키텍처 영역으로 drill-down 하세요.</div>
+      <div class="hero-title">한눈에 위험을 분류하고, 바로 고쳐야 할 항목부터 lane별로 내려가며 확인합니다.</div>
+      <div class="hero-text">이 화면은 triage-first dashboard입니다. 먼저 Immediate Priorities와 Critical / High Queue를 확인한 뒤, Code Security, Cloud CSPM, GitHub Security, Network &amp; Telemetry, Architecture lane으로 drill-down 하세요.</div>
       <div class="hero-chip-row">
         <span class="hero-chip">Grade {{GRADE}}</span>
         <span class="hero-chip">{{TOTAL_ISSUES}} actionable findings</span>
@@ -601,9 +624,17 @@ body{background:
   </section>
 
   <!-- Main dashboard link -->
-  <div style="margin-bottom:1rem;padding:.6rem 1rem;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:space-between">
-    <span style="font-size:.85rem;color:var(--muted)">ISMS PDCA · 자산 관리 · SaaS · 비용 분석은 <strong style="color:var(--text)">메인 대시보드</strong>에서 확인하세요.</span>
-    <a href="/" class="isms-main-link" style="font-size:.82rem;padding:.35rem .9rem;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;text-decoration:none;transition:opacity .15s">ISMS 메인 대시보드 →</a>
+  <div class="overview-banner">
+    <div class="overview-banner-copy">
+      <div class="overview-banner-title">Best-practice flow</div>
+      <div class="overview-banner-text">1) Immediate Priorities에서 우선순위를 정리하고 2) Investigation Lanes에서 증적을 확인한 뒤 3) 자산, 통제, 운영 맥락은 ISMS 메인 대시보드에서 교차 검증하세요.</div>
+      <div class="overview-banner-steps">
+        <span class="overview-step">1. Review priorities</span>
+        <span class="overview-step">2. Open the right lane</span>
+        <span class="overview-step">3. Validate in ISMS</span>
+      </div>
+    </div>
+    <a href="/" class="hero-link primary isms-main-link">Open ISMS dashboard</a>
   </div>
   <!-- Stat pills -->
   <div class="stats-row">
@@ -633,23 +664,41 @@ body{background:
     </div>
   </div>
 
-  <div class="card" style="margin-bottom:0">
-    <div class="card-title">Priority Queue <span style="font-size:.75rem;color:var(--muted);font-weight:400">What to fix first based on current evidence</span></div>
-    <div style="padding:1rem 1.25rem">
+  <div class="card card-flat">
+    <div class="card-title section-heading">
+      <div class="section-title-group">
+        <div class="section-title-text">Immediate Priorities</div>
+        <div class="section-subtitle">Highest-confidence remediation targets across scanner and CSPM evidence</div>
+      </div>
+      <span class="section-link" data-action="scroll-to" data-target="top-findings-section">Open critical queue →</span>
+    </div>
+    <div class="section-body">
       {{PRIORITY_QUEUE_HTML}}
     </div>
   </div>
 
-  <div class="card" style="margin-bottom:0">
-    <div class="card-title">Service Surface <span style="font-size:.75rem;color:var(--muted);font-weight:400">Current service composition and coverage at a glance</span></div>
-    <div style="padding:1rem 1.25rem">
+  <div class="card card-flat">
+    <div class="card-title section-heading">
+      <div class="section-title-group">
+        <div class="section-title-text">Coverage Snapshot</div>
+        <div class="section-subtitle">What is connected, monitored, and currently producing evidence</div>
+      </div>
+      <span class="section-link" data-action="switchTab" data-arg="networktools">Open telemetry lane →</span>
+    </div>
+    <div class="section-body">
       {{SERVICE_SURFACE_HTML}}
     </div>
   </div>
 
-  <div class="card" style="margin-bottom:0">
-    <div class="card-title">Function Workspace <span style="font-size:.75rem;color:var(--muted);font-weight:400">Browse the dashboard by function area instead of raw finding lists</span></div>
-    <div style="padding:1rem 1.25rem">
+  <div class="card card-flat">
+    <div class="card-title section-heading">
+      <div class="section-title-group">
+        <div class="section-title-text">Investigation Lanes</div>
+        <div class="section-subtitle">Choose the lane that matches the remediation decision you need to make</div>
+      </div>
+      <span class="section-link" data-action="switchTab" data-arg="bestpractices">Open control map →</span>
+    </div>
+    <div class="section-body">
       <div class="workspace-grid">
         <div class="workspace-card" data-action="switchTab" data-arg="overview">
           <div class="workspace-head">
@@ -659,7 +708,7 @@ body{background:
             </div>
             <div class="workspace-icon">🧭</div>
           </div>
-          <div class="workspace-text">우선순위, 서비스 범위, 상위 위험, 환경 연결 상태를 한 화면에서 정리합니다.</div>
+          <div class="workspace-text">우선순위, 범위, 상위 위험, 환경 연결 상태를 운영 관점에서 빠르게 정리합니다.</div>
           <div class="workspace-jump">Open workspace →</div>
         </div>
         <div class="workspace-card" data-action="switchTab" data-arg="prowler">
@@ -670,7 +719,7 @@ body{background:
             </div>
             <div class="workspace-icon">☁</div>
           </div>
-          <div class="workspace-text">AWS, GCP, Kubernetes, Azure, M365, IaC별로 클라우드 보안 실패를 추적합니다.</div>
+          <div class="workspace-text">계정, 클러스터, IaC 범위로 나눠 provider별 클라우드 실패를 추적합니다.</div>
           <div class="workspace-jump">View provider lanes →</div>
         </div>
         <div class="workspace-card" data-action="switchTab" data-arg="github">
@@ -681,7 +730,7 @@ body{background:
             </div>
             <div class="workspace-icon">🐙</div>
           </div>
-          <div class="workspace-text">Actions, repository posture, workflow security, secret exposure 리스크를 빠르게 찾습니다.</div>
+          <div class="workspace-text">Actions 권한, 브랜치 보호, workflow security, secret exposure 리스크를 빠르게 찾습니다.</div>
           <div class="workspace-jump">Open GitHub checks →</div>
         </div>
         <div class="workspace-card" data-action="switchTab" data-arg="bestpractices">
@@ -692,7 +741,7 @@ body{background:
             </div>
             <div class="workspace-icon">🧪</div>
           </div>
-          <div class="workspace-text">OWASP, LLM Top 10, 컴플라이언스, 규정/지침 맵핑을 같이 보면서 개선합니다.</div>
+          <div class="workspace-text">로컬 스캐너 결과를 OWASP, LLM Top 10, 컴플라이언스 맵과 함께 해석합니다.</div>
           <div class="workspace-jump">Open code security map →</div>
         </div>
         <div class="workspace-card" data-action="switchTab" data-arg="arch">
@@ -703,7 +752,7 @@ body{background:
             </div>
             <div class="workspace-icon">🏗</div>
           </div>
-          <div class="workspace-text">보안 도메인별 영향을 확인하고, 아키텍처 단위로 문제를 묶어 봅니다.</div>
+          <div class="workspace-text">영향 받는 보안 도메인과 설계 경계를 연결해 구조적 위험을 묶어 봅니다.</div>
           <div class="workspace-jump">Inspect architecture →</div>
         </div>
         <div class="workspace-card" data-action="switchTab" data-arg="networktools">
@@ -714,7 +763,7 @@ body{background:
             </div>
             <div class="workspace-icon">📡</div>
           </div>
-          <div class="workspace-text">네트워크 스캔, TLS, Trivy, Datadog 증적을 모아서 운영 가시성을 점검합니다.</div>
+          <div class="workspace-text">TLS, HTTP header, Trivy, Datadog 증적을 한 lane에서 묶어 운영 가시성을 점검합니다.</div>
           <div class="workspace-jump">Open telemetry lane →</div>
         </div>
       </div>
@@ -752,17 +801,29 @@ body{background:
   </div>
 
   <!-- Architecture domains overview -->
-  <div class="card" style="margin-bottom:0">
-    <div class="card-title">🏗 Architecture Security Domains <span style="font-size:.75rem;color:var(--muted);font-weight:400;cursor:pointer" data-action="switchTab" data-arg="arch">View details →</span></div>
-    <div style="padding:.75rem 1rem">
+  <div class="card card-flat">
+    <div class="card-title section-heading">
+      <div class="section-title-group">
+        <div class="section-title-text">🏗 Architecture Security Domains</div>
+        <div class="section-subtitle">View security impact by domain instead of by individual finding rows</div>
+      </div>
+      <span class="section-link" data-action="switchTab" data-arg="arch">View details →</span>
+    </div>
+    <div class="section-body-sm">
       {{ARCH_OVERVIEW_HTML}}
     </div>
   </div>
 
   <!-- Network tools overview -->
-  <div class="card" style="margin-bottom:0">
-    <div class="card-title">🔬 Network &amp; Security Tools <span style="font-size:.75rem;color:var(--muted);font-weight:400;cursor:pointer" data-action="switchTab" data-arg="networktools">View details →</span></div>
-    <div style="padding:.75rem 1rem">
+  <div class="card card-flat">
+    <div class="card-title section-heading">
+      <div class="section-title-group">
+        <div class="section-title-text">🔬 Network &amp; Telemetry</div>
+        <div class="section-subtitle">Network scan, TLS posture, Trivy, and Datadog evidence in one operating lane</div>
+      </div>
+      <span class="section-link" data-action="switchTab" data-arg="networktools">View details →</span>
+    </div>
+    <div class="section-body-sm">
       {{NETWORK_SUMMARY_HTML}}
     </div>
   </div>
@@ -779,16 +840,25 @@ body{background:
 
   <!-- Top Critical/High findings -->
   <div class="card" id="top-findings-section">
-    <div class="card-title">🔥 Top Critical / High findings</div>
-    <div class="card-subtitle" style="font-size:.75rem;color:var(--muted);margin-top:-.35rem;margin-bottom:.5rem">By unique check (click row to open Scanner or Prowler tab)</div>
-    <div style="max-height:360px;overflow-y:auto">
+    <div class="card-title section-heading">
+      <div class="section-title-group">
+        <div class="section-title-text">🔥 Critical / High Queue</div>
+        <div class="section-subtitle">Grouped by unique check so repeat issues surface immediately</div>
+      </div>
+    </div>
+    <div class="table-scroll-md">
       {{TOP_FINDINGS}}
     </div>
   </div>
 
   <!-- Environment (compact) -->
   <div class="card">
-    <div class="card-title">Environment ({{ENV_CONNECTED}}/{{ENV_TOTAL}} connected) <span style="font-size:.72rem;color:var(--muted);font-weight:400;margin-left:.5rem">Click to configure</span></div>
+    <div class="card-title section-heading">
+      <div class="section-title-group">
+        <div class="section-title-text">Runtime Integrations</div>
+        <div class="section-subtitle">{{ENV_CONNECTED}}/{{ENV_TOTAL}} connected · click any pill to configure credentials or prerequisites</div>
+      </div>
+    </div>
     <div class="env-grid">{{ENV_HTML}}</div>
   </div>
 
@@ -796,7 +866,10 @@ body{background:
 
   <!-- Trend -->
   <div class="trend-section">
-    <h2 style="font-size:.95rem;margin-bottom:.75rem">📊 Scan trend <span style="font-size:.72rem;color:var(--muted);font-weight:400;margin-left:.5rem">Security score and fail/warn over time (hover for details)</span></h2>
+    <div class="trend-header">
+      <h2 class="trend-title">📊 Scan trend</h2>
+      <span class="section-subtitle">Security score and fail/warn deltas over time. Hover for detail.</span>
+    </div>
     <div class="trend-chart"><canvas id="trendChart"></canvas></div>
   </div>
 
@@ -817,7 +890,7 @@ body{background:
         <div class="sp-warn" style="width:calc({{WARNINGS}}/{{SCANNER_TOTAL}}*100%)"></div>
         <div class="sp-skip" style="width:calc({{SKIPPED}}/{{SCANNER_TOTAL}}*100%)"></div>
       </div>
-      <div style="flex:1 1 100%;display:flex;justify-content:space-between;font-size:.68rem;color:var(--muted);margin-top:.15rem">
+      <div class="scanner-meta-row">
         <span>✓ {{PASS_PCT}}% passed</span>
         <span>✗ {{FAIL_PCT}}% failed</span>
         <span>⚠ {{WARN_PCT}}% warnings</span>
@@ -827,8 +900,8 @@ body{background:
     {{SCANNER_INSIGHTS_HTML}}
     <div class="table-toolbar">
       <input class="table-search" id="scannerSearchInput" type="search" placeholder="Search local checks, finding titles, details, or locations" aria-label="Search scanner findings">
-      <label for="scannerSevFilter" style="font-size:.78rem;color:var(--muted);font-weight:600">Filter:</label>
-      <select class="scope-select" id="scannerSevFilter" style="font-size:.78rem" aria-label="Filter by severity">
+      <label class="toolbar-label" for="scannerSevFilter">Filter:</label>
+      <select class="scope-select" id="scannerSevFilter" aria-label="Filter by severity">
         <option value="all">All severities</option>
         <option value="critical">Critical only</option>
         <option value="high" selected>Critical + High</option>
@@ -836,7 +909,7 @@ body{background:
       </select>
       <span class="toolbar-count" id="scannerFilterCount"></span>
     </div>
-    <div style="max-height:55vh;overflow-y:auto">
+    <div class="table-scroll-lg">
       <table class="scanner-table"><thead><tr><th style="width:68px">Severity</th><th style="width:62px">Status</th><th style="width:100px">Check ID</th><th>Finding</th><th style="width:280px">Details / Remediation</th></tr></thead>
       <tbody>{{SCANNER_ROWS}}</tbody></table>
     </div>
