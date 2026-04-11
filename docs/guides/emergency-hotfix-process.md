@@ -207,3 +207,5 @@ After merge, complete the following items in order.
 - [CIS Control 16 — Application Software Security](https://www.cisecurity.org/controls/application-software-security)
 - [GitHub — Managing security vulnerabilities](https://docs.github.com/en/code-security/security-advisories)
 - [OWASP — Vulnerability Disclosure Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Vulnerability_Disclosure_Cheat_Sheet.html)
+# CVE-2026-0000 Mock Drill (2026-04-11T10:27:59Z)
+# This line simulates a security patch applied during a drill.
