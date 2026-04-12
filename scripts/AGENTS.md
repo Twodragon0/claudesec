@@ -27,6 +27,9 @@ Automation scripts for scan execution, dashboard building, asset collection, and
 | `isms-p-report.py` | Python | Generate ISMS-P compliance report |
 | `hourly-automation.sh` | bash | Hourly cron: pull + scan + sync |
 | `setup.sh` | bash | Install hooks, templates, virtualenv |
+| `setup-legal-intel.sh` | bash | Clone/update legalize-kr and GitHub Repo MCP, then write `.mcp.json` |
+| `legalize-search.sh` | bash | Search Korean law Markdown and inspect law history from local mirror |
+| `run-github-repo-mcp.sh` | bash | Launch local GitHub Repo MCP build with `npx` fallback |
 | `quick-start.sh` | bash | Docker-first onboarding |
 | `lint-shell.sh` | bash | ShellCheck wrapper (local + CI) |
 | `gsheet-auth.py` | Python | Google Sheets OAuth helper |
@@ -48,6 +51,7 @@ Automation scripts for scan execution, dashboard building, asset collection, and
 | `DD_API_KEY`, `DD_APP_KEY` | `build-dashboard.py`, `sync-scan-to-dashboard.sh` |
 | `ASSET_SHEET_ID`, `AI_SHEET_ID` | `asset-gsheet-sync.py`, `full-asset-sync.py` |
 | `NOTION_TOKEN`, `NOTION_DB_ID` | `sync-notion-audits-mcp.py` |
+| `GITHUB_TOKEN` | `run-github-repo-mcp.sh`, MCP clients using GitHub Repo MCP |
 | `JAMF_URL`, `JAMF_TOKEN` | `collect-assets.sh` |
 | `GH_TOKEN` / `GITHUB_TOKEN` | `token-expiry-gate.py`, scanner saas checks |
 
