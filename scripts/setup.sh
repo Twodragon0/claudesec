@@ -84,6 +84,15 @@ cp "$CLAUDESEC_DIR/hooks/security-lint.sh" "$TARGET_DIR/.claude/hooks/"
 cp "$CLAUDESEC_DIR/hooks/secret-check.sh" "$TARGET_DIR/.claude/hooks/"
 chmod +x "$TARGET_DIR/.claude/hooks/"*.sh
 
+# Copy optional legal/compliance intelligence helpers
+cp "$CLAUDESEC_DIR/scripts/setup-legal-intel.sh" "$TARGET_DIR/scripts/"
+cp "$CLAUDESEC_DIR/scripts/legalize-search.sh" "$TARGET_DIR/scripts/"
+cp "$CLAUDESEC_DIR/scripts/run-github-repo-mcp.sh" "$TARGET_DIR/scripts/"
+chmod +x \
+  "$TARGET_DIR/scripts/setup-legal-intel.sh" \
+  "$TARGET_DIR/scripts/legalize-search.sh" \
+  "$TARGET_DIR/scripts/run-github-repo-mcp.sh"
+
 # Copy workflow templates
 echo -e "${GREEN}[+]${NC} Installing GitHub Actions workflows..."
 cp "$CLAUDESEC_DIR/templates/codeql.yml" "$TARGET_DIR/.github/workflows/"
@@ -116,4 +125,5 @@ echo "Setup complete! Next steps:"
 echo "  1. Run scan + dashboard:  ./run   (or from repo root: ./scripts/run-full-dashboard.sh)"
 echo "  2. Review and customize the installed files"
 echo "  3. Update SECURITY.md with your contact info"
-echo "  4. Commit the changes"
+echo "  4. Optional: bootstrap legalize-kr + GitHub Repo MCP with ./scripts/setup-legal-intel.sh"
+echo "  5. Commit the changes"

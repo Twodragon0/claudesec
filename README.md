@@ -62,6 +62,7 @@ npx claudesec dashboard                 # Full scan + dashboard
 ```bash
 cp .env.example ~/Desktop/.env          # Edit with your API keys
 ./scripts/setup.sh                      # Install hooks + templates
+./scripts/setup-legal-intel.sh          # Optional: local legalize-kr mirror + GitHub Repo MCP
 source .venv-asset/bin/activate
 python3 scripts/build-dashboard.py      # Build asset dashboard
 docker compose up dashboard -d          # Serve on localhost:11777
@@ -115,6 +116,13 @@ Recommended day-to-day flow:
 ./run --quick                                # fast smoke check
 ./run --no-serve                             # final full scan artifact generation
 grep -q "ClaudeSec local security scanner results" claudesec-dashboard.html
+```
+
+Optional Korean compliance workflow:
+
+```bash
+./scripts/setup-legal-intel.sh
+./scripts/legalize-search.sh "개인정보" 개인정보보호법
 ```
 
 ### Not sure where to start?
@@ -512,6 +520,7 @@ claudesec/
 | [Hourly Operations](docs/guides/hourly-operations.md) | Hourly cron automation with OpenCode pull and continuous improvement loop |
 | [Compliance Scan Priority](docs/guides/compliance-scan-integration-priority.md) | Prowler, Lynis, tool priorities and frameworks |
 | [Claude Lead Agents](docs/guides/claude-lead-agents-and-best-practices.md) | Multi-agent roles and handoff format |
+| [Legal Intelligence Setup](docs/guides/legal-intel-with-legalize-kr-and-github-repo-mcp.md) | legalize-kr local mirror + GitHub Repo MCP for Korean compliance workflows |
 | [Branding](docs/branding.md) | Logo, colors, and visual identity |
 
 ## Templates
