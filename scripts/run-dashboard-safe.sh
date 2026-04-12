@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SCANNER="$ROOT_DIR/scanner/claudesec"
-DOCKER_SCRIPT="$ROOT_DIR/scripts/run-dashboard-docker.sh"
+SCANNER="${CLAUDESEC_SCANNER:-$ROOT_DIR/scanner/claudesec}"
+DOCKER_SCRIPT="${CLAUDESEC_DOCKER_DASHBOARD_SCRIPT:-$ROOT_DIR/scripts/run-dashboard-docker.sh}"
 SCAN_DIR="${CLAUDESEC_SCAN_DIR:-$ROOT_DIR}"
 
 MODE="full"
@@ -42,8 +42,79 @@ port_pids() {
   lsof -nP -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null || true
 }
 
+port_bindable() {
+  local host="$1"
+  local port="$2"
+  local py_bin=""
+
+  if command -v python3 >/dev/null 2>&1; then
+    py_bin="python3"
+  elif command -v python >/dev/null 2>&1; then
+    py_bin="python"
+  else
+    return 0
+  fi
+
+  "$py_bin" - "$host" "$port" <<'PY' 2>/dev/null
+import socket
+import sys
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    sock.bind((host, port))
+except OSError:
+    raise SystemExit(1)
+finally:
+    sock.close()
+raise SystemExit(0)
+PY
+}
+
+dashboard_reachable() {
+  local host="$1"
+  local port="$2"
+  local py_bin=""
+
+  if command -v python3 >/dev/null 2>&1; then
+    py_bin="python3"
+  elif command -v python >/dev/null 2>&1; then
+    py_bin="python"
+  else
+    return 1
+  fi
+
+  "$py_bin" - "$host" "$port" <<'PY' 2>/dev/null
+import sys
+import urllib.request
+
+host = sys.argv[1]
+port = sys.argv[2]
+urls = [
+    f"http://{host}:{port}/claudesec-dashboard.html",
+    f"http://{host}:{port}/",
+]
+
+for url in urls:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "claudesec/run-dashboard-safe"})
+        with urllib.request.urlopen(req, timeout=2) as response:
+            body = response.read(4096).decode("utf-8", errors="ignore").lower()
+            if response.status < 400 and ("claudesec" in body or "dashboard" in body):
+                raise SystemExit(0)
+    except Exception:
+        continue
+
+raise SystemExit(1)
+PY
+}
+
 port_in_use() {
-  [[ -n "$(port_pids "$1")" ]]
+  local port="$1"
+  [[ -n "$(port_pids "$port")" ]] && return 0
+  ! port_bindable "$HOST" "$port"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -98,8 +169,10 @@ fi
 TARGET_PORT="$PORT"
 if port_in_use "$TARGET_PORT"; then
   if [[ "$REUSE_EXISTING" == "1" ]]; then
-    echo "[claudesec] Reusing existing dashboard endpoint: http://$HOST:$TARGET_PORT/claudesec-dashboard.html"
-    exit 0
+    if dashboard_reachable "$HOST" "$TARGET_PORT"; then
+      echo "[claudesec] Reusing existing dashboard endpoint: http://$HOST:$TARGET_PORT/claudesec-dashboard.html"
+      exit 0
+    fi
   fi
 
   if [[ "$KILL_PORT" == "1" ]]; then

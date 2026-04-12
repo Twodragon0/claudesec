@@ -89,6 +89,7 @@ tmp-*.png
 
 # MCP / Orchestration (local tool configs)
 .mcp.json
+.claudesec-sources/
 .omc/
 .omx/
 scanner/lib/.omc/
