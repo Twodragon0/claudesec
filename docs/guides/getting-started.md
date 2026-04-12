@@ -136,7 +136,7 @@ Expected output: a quick dashboard build is generated and served locally at `htt
 
 Use the direct CLI form when you need an explicit host/port or want to bypass the safe runner's fallback behavior.
 
-### SaaS scan + dashboard
+### Scanner SaaS Live Scan
 
 ```bash
 ./scanner/claudesec scan -c saas
