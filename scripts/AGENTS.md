@@ -30,6 +30,7 @@ Automation scripts for scan execution, dashboard building, asset collection, and
 | `setup-legal-intel.sh` | bash | Clone/update legalize-kr and GitHub Repo MCP, then write `.mcp.json` |
 | `legalize-search.sh` | bash | Search Korean law Markdown and inspect law history from local mirror |
 | `run-github-repo-mcp.sh` | bash | Launch local GitHub Repo MCP build with `npx` fallback |
+| `gh-merge-ready-pr.sh` | bash | Wait for GitHub checks and mergeability propagation, then merge a PR with retries |
 | `quick-start.sh` | bash | Docker-first onboarding |
 | `lint-shell.sh` | bash | ShellCheck wrapper (local + CI) |
 | `gsheet-auth.py` | Python | Google Sheets OAuth helper |

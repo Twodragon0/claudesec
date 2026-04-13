@@ -15,6 +15,7 @@ This playbook defines operational standards for GitHub Actions in ClaudeSec:
 3. Retry policy for transient external action failures (`401`)
 4. Dependabot conflict handling policy
 5. CI and dashboard triage priority
+6. PR mergeability lag after green checks
 
 ## 1) CodeQL Operating Model
 
@@ -121,6 +122,44 @@ When choosing improvement work after CI is stable, prefer this order:
 3. Dashboard determinism and offline generation
 4. Workflow reuse and CI observability
 5. Heavier cloud/SaaS integrations that depend on external credentials or APIs
+
+## 6) PR Mergeability Lag After Green Checks
+
+### Trigger
+
+Sometimes GitHub reports all PR checks as `pass`, but `gh pr merge` still fails with messages like:
+
+- `required status checks are expected`
+- `the base branch policy prohibits the merge`
+
+This is usually a short-lived GraphQL or branch-protection state propagation lag, not a real failing check.
+
+### Response
+
+1. Confirm checks are actually green:
+
+```bash
+gh pr checks <PR_NUMBER>
+```
+
+1. Use the retrying merge helper:
+
+```bash
+./scripts/gh-merge-ready-pr.sh <PR_NUMBER>
+```
+
+1. If you need a different merge strategy:
+
+```bash
+MERGE_METHOD=merge ./scripts/gh-merge-ready-pr.sh <PR_NUMBER>
+MERGE_METHOD=squash ADMIN_MERGE=0 ./scripts/gh-merge-ready-pr.sh <PR_NUMBER>
+```
+
+### Notes
+
+- Default behavior is `rebase + --delete-branch + --admin`.
+- The helper waits for `gh pr checks` to go green first, then retries merge when GitHub still reports checks as `expected`.
+- If it times out, inspect repository rulesets and branch protection directly in GitHub UI.
 
 ## References
 
