@@ -142,3 +142,32 @@ jobs:
           if [ "$PERF" -lt 80 ] || [ "$A11Y" -lt 90 ]; then
             echo "::warning::Dashboard quality below threshold (Perf=$PERF, A11y=$A11Y)"
           fi
+
+  security-scan-gate:
+    name: Security Scan Gate
+    if: always()
+    needs:
+      - scan
+      - lighthouse
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate security scan workflow results
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          bad = {
+              name: data["result"]
+              for name, data in needs.items()
+              if data["result"] not in ("success", "skipped")
+          }
+          if bad:
+              print(f"Security Scan Gate failed: {bad}")
+              sys.exit(1)
+          print("Security Scan Gate passed.")
+          PY

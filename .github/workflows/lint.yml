@@ -357,3 +357,42 @@ jobs:
             '**/*.md'
           fail: true
           lycheeVersion: latest
+
+  lint-gate:
+    name: Lint
+    if: always()
+    needs:
+      - dependency-review
+      - npm-audit
+      - pip-audit
+      - shell-lint
+      - scanner-unit-tests
+      - dashboard-regression-check
+      - pii-check
+      - gitleaks
+      - frontmatter-check
+      - docker-dashboard-smoke
+      - markdown-lint
+      - link-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate lint workflow results
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          bad = {
+              name: data["result"]
+              for name, data in needs.items()
+              if data["result"] not in ("success", "skipped")
+          }
+          if bad:
+              print(f"Lint gate failed: {bad}")
+              sys.exit(1)
+          print("Lint gate passed.")
+          PY
