@@ -8,7 +8,7 @@ tags: [ppt, seminar, claudesec, devsecops, isms]
 
 ## 사용 자료
 
-- 템플릿: `$CLAUDESEC_PPT_TEMPLATE` 또는 `~/Downloads/버디 방향성 2026.pptx`
+- 템플릿: `$CLAUDESEC_PPT_TEMPLATE or ~/Downloads/버디 방향성 2026.pptx`
 - LinkedIn 공개 글: `https://kr.linkedin.com/posts/twodragon_devsecops-isms-%EB%B3%B4%EC%95%88-activity-7439616126894104577-6ADD`
 - LinkedIn 공개 이미지 3장
 - 로컬 문서:

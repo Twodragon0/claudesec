@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import os
+import posixpath
 import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -35,6 +36,7 @@ NS = {
     "vt": "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes",
     "ep": "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties",
 }
+REL_NS = {"pr": "http://schemas.openxmlformats.org/package/2006/relationships"}
 
 for prefix, uri in NS.items():
     ET.register_namespace(prefix if prefix not in ("ep", "vt") else prefix, uri)
@@ -326,6 +328,12 @@ def reorder_presentation(presentation_path: Path, rels_path: Path) -> None:
         rel_id = rel_by_target[slide_name]
         sld_id_lst.append(copy.deepcopy(existing[rel_id]))
     pres_tree.write(presentation_path, encoding="UTF-8", xml_declaration=True)
+    keep_rel_ids = {rel_by_target[slide_name] for slide_name in SLIDE_ORDER}
+    for rel in list(rels_root):
+        target = rel.attrib.get("Target", "")
+        if target.startswith("slides/") and rel.attrib.get("Id") not in keep_rel_ids:
+            rels_root.remove(rel)
+    rels_tree.write(rels_path, encoding="UTF-8", xml_declaration=True)
 
 
 def update_app_xml(app_path: Path) -> None:
@@ -376,6 +384,82 @@ def rezip(source_dir: Path, output_path: Path) -> None:
         for path in sorted(source_dir.rglob("*")):
             if path.is_file():
                 zf.write(path, path.relative_to(source_dir).as_posix())
+
+
+def rels_path_for(part_name: str) -> str:
+    if not part_name:
+        return "_rels/.rels"
+    parent, name = posixpath.split(part_name)
+    if parent:
+        return f"{parent}/_rels/{name}.rels"
+    return f"_rels/{name}.rels"
+
+
+def resolve_target(part_name: str, target: str) -> str | None:
+    if "://" in target or target.startswith("mailto:"):
+        return None
+    if target.startswith("/"):
+        return posixpath.normpath(target.lstrip("/"))
+    base_dir = posixpath.dirname(part_name)
+    return posixpath.normpath(posixpath.join(base_dir, target))
+
+
+def collect_reachable_parts(package_dir: Path) -> set[str]:
+    reachable = {"[Content_Types].xml"}
+    queue = [""]
+    seen = set()
+    while queue:
+        part_name = queue.pop()
+        if part_name in seen:
+            continue
+        seen.add(part_name)
+        rels_name = rels_path_for(part_name)
+        rels_path = package_dir / rels_name
+        if not rels_path.exists():
+            continue
+        reachable.add(rels_name)
+        tree = ET.parse(rels_path)
+        root = tree.getroot()
+        for rel in root.findall("pr:Relationship", REL_NS):
+            if rel.attrib.get("TargetMode") == "External":
+                continue
+            target_name = resolve_target(part_name, rel.attrib["Target"])
+            if target_name is None:
+                continue
+            target_path = package_dir / target_name
+            if not target_path.exists():
+                continue
+            reachable.add(target_name)
+            queue.append(target_name)
+    return reachable
+
+
+def prune_content_types(package_dir: Path, reachable: set[str]) -> None:
+    content_types_path = package_dir / "[Content_Types].xml"
+    tree = ET.parse(content_types_path)
+    root = tree.getroot()
+    for override in list(root.findall("{*}Override")):
+        part_name = override.attrib["PartName"].lstrip("/")
+        if part_name not in reachable:
+            root.remove(override)
+    tree.write(content_types_path, encoding="UTF-8", xml_declaration=True)
+
+
+def prune_unreachable_parts(package_dir: Path) -> None:
+    reachable = collect_reachable_parts(package_dir)
+    prune_content_types(package_dir, reachable)
+    for path in sorted(package_dir.rglob("*"), reverse=True):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(package_dir).as_posix()
+        if relative not in reachable:
+            path.unlink()
+    for path in sorted(package_dir.rglob("*"), reverse=True):
+        if path.is_dir():
+            try:
+                path.rmdir()
+            except OSError:
+                pass
 
 
 def write_outline() -> None:
@@ -440,6 +524,7 @@ def main() -> None:
 
         reorder_presentation(tmpdir / "ppt" / "presentation.xml", tmpdir / "ppt" / "_rels" / "presentation.xml.rels")
         update_app_xml(tmpdir / "docProps" / "app.xml")
+        prune_unreachable_parts(tmpdir)
         rezip(tmpdir, OUTPUT)
 
     write_outline()
