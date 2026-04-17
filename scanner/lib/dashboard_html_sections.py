@@ -6,7 +6,6 @@ Analytical section builder functions extracted from dashboard-gen.py.
 
 import os
 import sys
-import urllib.parse
 from typing import Any
 
 # Ensure sibling modules are importable when loaded via importlib
@@ -14,15 +13,15 @@ _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
-from dashboard_utils import (
-    h, sev_badge, comp_slug,
-    AUDIT_POINTS_REPO,
-)
-from dashboard_mapping import (
-    CATEGORY_META, OWASP_2025, OWASP_LLM_2025, OWASP_TO_ARCH, ARCH_DOMAINS,
-    COMPLIANCE_FRAMEWORKS,
-    get_check_en,
-)
+from dashboard_utils import h, sev_badge
+from dashboard_mapping import CATEGORY_META, get_check_en
+
+# Re-export builders extracted into dedicated modules in the Option B split
+# (see .omc/plans/dashboard-standards-split.md). Keeping the names here means
+# `from dashboard_html_sections import _build_owasp_html` etc. continues to work.
+from dashboard_html_owasp import _build_owasp_html  # noqa: F401
+from dashboard_html_arch import _build_arch_html  # noqa: F401
+from dashboard_html_compliance import _build_compliance_html  # noqa: F401
 from dashboard_html_helpers import (
     _infer_category, _has_cmd, _cmd_pill,
     _compute_severity_counts, _compute_severity_bars,
@@ -40,6 +39,9 @@ from dashboard_html_builders import (
 from dashboard_html_audit_sources import (
     build_ms_sources_html,
     build_saas_sources_html,
+)
+from dashboard_html_audit_points import (
+    build_audit_points_querypie_html,
 )
 
 
@@ -672,67 +674,6 @@ def _build_overview_blocks(
     }
 
 
-def _build_owasp_html(owasp_map):
-    out = '<h2 style="font-size:.95rem;margin-bottom:.75rem;display:flex;align-items:center;gap:.5rem"><span style="color:var(--accent)">🛡</span> OWASP Top 10:2025 — Web application security</h2>'
-    for ow in OWASP_2025:
-        oid = ow["id"]
-        findings = owasp_map.get(oid, [])
-        count = len(findings)
-        status_cls = "pass" if count == 0 else "fail"
-        out += f'<div class="owasp-item {status_cls}" id="owasp-{oid}">'
-        out += f'<div class="owasp-header" onclick="toggleOwasp(this)"><span class="owasp-id">{oid}</span><span class="owasp-name">{h(ow["name"])}</span><span class="owasp-count">{count}</span><span class="owasp-arrow">▸</span></div>'
-        arch_idx_list = OWASP_TO_ARCH.get(
-            oid, OWASP_TO_ARCH.get(oid.split(":")[0] if ":" in oid else oid, [])
-        )
-        summary = (ow.get("summary") or ow.get("desc") or "").strip()
-        action = (
-            ow.get("action")
-            or "Review the OWASP documentation and apply recommended controls."
-        ).strip()
-        out += f'<div class="owasp-body"><p class="owasp-desc">{h(ow["desc"])}</p>'
-        out += f'<p class="owasp-summary"><strong>Summary</strong> {h(summary or "See description above.")}</p>'
-        out += f'<p class="owasp-action"><strong>Remediation</strong> {h(action)}</p>'
-        out += f'<a href="{ow["url"]}" target="_blank" class="ref-link">📖 OWASP documentation</a>'
-        if arch_idx_list:
-            out += f'<div class="owasp-arch-links"><span class="arch-links-label">Related architecture</span>'
-            for i in arch_idx_list:
-                d = ARCH_DOMAINS[i] if i < len(ARCH_DOMAINS) else None
-                if d:
-                    out += f'<button class="arch-link-chip" onclick="switchTab(\'arch\',\'arch-dom-{i}\')" title="{h(d["name"])}">{d["icon"]} {h(d["name"])}</button>'
-            out += "</div>"
-        if findings:
-            out += '<div class="owasp-findings">'
-            for ff in findings[:10]:
-                res = (ff.get("resource") or "").strip()
-                prov = (ff.get("provider") or "").strip()
-                res_html = f' <span class="of-resource" title="Resource: {h(res)}">📍 <code>{h(res[:50])}</code></span>' if res else ""
-                prov_html = f' <span class="of-prov">{h(prov.upper())}</span>' if prov else ""
-                en = get_check_en(ff.get("check", ""))
-                out += f'<div class="of-row">{sev_badge(ff["severity"])} <code>{h(ff["check"])}</code>{prov_html} {h(ff["message"][:120])}{res_html}</div>'
-                out += f'<div class="of-detail"><span class="of-action">Action: {h(en["action"][:150])}</span></div>'
-            if count > 10:
-                out += f'<div class="of-more">... and {count - 10} more</div>'
-            out += "</div>"
-        out += "</div></div>"
-    out += '<div style="margin-top:2rem;padding-top:1.5rem;border-top:1px solid var(--border)">'
-    out += '<h2 style="font-size:.95rem;margin-bottom:.75rem;display:flex;align-items:center;gap:.5rem"><span style="color:var(--accent)">🤖</span> OWASP Top 10 for LLM Applications 2025</h2>'
-    out += '<p style="font-size:.82rem;color:var(--muted);margin-bottom:1rem">AI/LLM application security risks — <a href="https://genai.owasp.org/resource/owasp-top-10-for-llm-applications-2025/" target="_blank" style="color:var(--accent)">Official docs</a></p>'
-    for llm in OWASP_LLM_2025:
-        out += f'<div class="owasp-item" style="border-left:3px solid var(--accent)">'
-        out += f'<div class="owasp-header" onclick="toggleOwasp(this)"><span class="owasp-id" style="color:#f59e0b">{llm["id"]}</span><span class="owasp-name">{h(llm["name"])}</span><span class="owasp-arrow">▸</span></div>'
-        summary = (llm.get("summary") or llm.get("desc") or "").strip()
-        action = (
-            llm.get("action")
-            or "Review the OWASP GenAI documentation and apply recommended controls."
-        ).strip()
-        out += f'<div class="owasp-body"><p class="owasp-desc">{h(llm["desc"])}</p>'
-        out += f'<p class="owasp-summary"><strong>Summary</strong> {h(summary or "See description above.")}</p>'
-        out += f'<p class="owasp-action"><strong>Remediation</strong> {h(action)}</p>'
-        out += f'<a href="{llm["url"]}" target="_blank" class="ref-link">📖 OWASP GenAI documentation</a></div></div>'
-    out += "</div>"
-    return out
-
-
 def _build_prov_table(prov_summary) -> str:
     """Build the Prowler provider summary table rows (fixed display order + extras)."""
     _prov_labels = {
@@ -813,142 +754,6 @@ def _build_prov_table(prov_summary) -> str:
     return prov_table
 
 
-def _build_arch_html(arch_domains) -> str:
-    """Build the Architecture tab HTML with OWASP/Compliance/Scanner cross-links."""
-    arch_html = ""
-    owasp_names = {o["id"]: o["name"] for o in OWASP_2025}
-    scanner_labels = {
-        "access-control": "Access control",
-        "infra": "Infrastructure",
-        "network": "Network",
-        "cicd": "CI/CD",
-        "code": "Code",
-        "ai": "AI",
-        "cloud": "Cloud",
-        "macos": "macOS",
-        "saas": "SaaS",
-        "windows": "Windows",
-        "prowler": "Prowler",
-        "other": "Other",
-    }
-    for idx, dom in enumerate(arch_domains):
-        status_cls = "fail" if dom["fail_count"] > 0 else "pass"
-        links = dom.get("links", {})
-        arch_html += f'<div class="arch-domain {status_cls}" id="arch-dom-{idx}" data-arch-idx="{idx}">'
-        scanner_cats = links.get("scanner", [])
-        coverage_dots = ""
-        if scanner_cats:
-            coverage_dots = '<span class="arch-coverage">'
-            for scat in scanner_cats:
-                slab = scanner_labels.get(scat, scat)
-                has_data = dom["fail_count"] > 0
-                dot_cls = "cov-on" if has_data else "cov-off"
-                coverage_dots += f'<span class="cov-dot {dot_cls}" title="{h(slab)}">{h(slab[:3])}</span>'
-            coverage_dots += '</span>'
-        arch_html += f'<div class="arch-header" onclick="toggleArch(this)"><span class="arch-icon">{dom["icon"]}</span><span class="arch-name">{h(dom["name"])}</span>{coverage_dots}<span class="arch-stat"><span class="arch-fail">{dom["fail_count"]} failed</span></span><span class="arch-arrow">▸</span></div>'
-        arch_html += '<div class="arch-body">'
-        summary = dom.get("summary", "")
-        action = dom.get("action", "")
-        summary = (dom.get("summary") or dom.get("name") or "").strip()
-        action = (
-            dom.get("action")
-            or "Apply security best practices for this domain; see related OWASP and compliance controls."
-        ).strip()
-        arch_html += '<div class="arch-summary-block">'
-        arch_html += f'<p class="arch-summary-ko"><strong>Summary</strong> {h(summary or "See related findings and controls below.")}</p>'
-        arch_html += (
-            f'<p class="arch-action-ko"><strong>Remediation</strong> {h(action)}</p>'
-        )
-        arch_html += "</div>"
-        if links.get("owasp") or links.get("compliance") or links.get("scanner"):
-            arch_html += '<div class="arch-links"><span class="arch-links-label">Related items</span>'
-            for oid in links.get("owasp", []):
-                oname = owasp_names.get(oid, oid)
-                arch_html += f'<button class="arch-link-chip arch-owasp" onclick="switchTab(\'bestpractices\',\'owasp-{oid}\')" title="OWASP {oid}">{oid}</button>'
-            for fw, ctrl in links.get("compliance", []):
-                cid = comp_slug(fw)
-                arch_html += f'<button class="arch-link-chip arch-comp" onclick="switchTab(\'bestpractices\',\'{cid}\')" title="{h(fw)} {h(ctrl)}">{ctrl}</button>'
-            for scat in links.get("scanner", []):
-                slab = scanner_labels.get(scat, scat)
-                arch_html += f'<button class="arch-link-chip arch-scanner" onclick="switchTab(\'overview\',\'scanner-cat-{scat}\')" title="Scanner {slab}">{slab}</button>'
-            arch_html += "</div>"
-        if dom["findings"]:
-            for ff in dom["findings"][:8]:
-                res = (ff.get("resource") or "").strip()
-                prov = (ff.get("provider") or "").strip()
-                res_html = f' <span class="of-resource" title="Resource: {h(res)}">📍 <code>{h(res[:40])}</code></span>' if res else ""
-                prov_html = f' <span class="of-prov">{h(prov.upper())}</span>' if prov else ""
-                en = get_check_en(ff.get("check", ""))
-                arch_html += f'<div class="af-row">{sev_badge(ff["severity"])} <code>{h(ff["check"])}</code>{prov_html} {h(ff["message"][:100])}{res_html}</div>'
-                arch_html += f'<div class="af-detail"><span class="af-action">Action: {h(en["action"][:120])}</span></div>'
-            if dom["fail_count"] > 8:
-                arch_html += (
-                    f'<div class="of-more">... and {dom["fail_count"] - 8} more</div>'
-                )
-        else:
-            arch_html += '<div class="arch-pass">✓ No findings in this domain.</div>'
-        arch_html += "</div></div>"
-    return arch_html
-
-
-def _build_compliance_html(compliance_map) -> str:
-    """Build the Compliance tab HTML from the compliance_map."""
-    comp_html = '<div class="comp-frameworks">'
-    for fw in COMPLIANCE_FRAMEWORKS:
-        comp_html += f'<a href="{fw["url"]}" target="_blank" class="comp-fw-chip" rel="noopener"><strong>{h(fw["name"])}</strong><span>{h(fw["desc"])}</span></a>'
-    comp_html += "</div>"
-
-    COMP_FW_TO_ARCH = {
-        "ISO 27001:2022": [0, 1, 2, 3, 4, 5],
-        "KISA ISMS-P": [1, 2, 3, 4],
-        "PCI-DSS v4.0.1": [0, 1, 2, 3, 4, 5],
-    }
-    for framework, controls in compliance_map.items():
-        total_c = len(controls)
-        pass_c = sum(1 for c in controls if c["status"] == "PASS")
-        fail_c = total_c - pass_c
-        comp_id = comp_slug(framework)
-        comp_arch_html = ""
-        for aidx in COMP_FW_TO_ARCH.get(framework, []):
-            if aidx < len(ARCH_DOMAINS):
-                d = ARCH_DOMAINS[aidx]
-                comp_arch_html += f'<button class="arch-link-chip arch-sm" onclick="switchTab(\'arch\',\'arch-dom-{aidx}\')" title="{h(d["name"])}">{d["icon"]} {h(d["name"])}</button>'
-        comp_arch_row = (
-            f'<div class="comp-arch-links"><span class="arch-links-label">Related architecture</span>{comp_arch_html}</div>'
-            if comp_arch_html
-            else ""
-        )
-        comp_html += f'<div class="comp-section" id="{comp_id}"><div class="comp-title" onclick="toggleComp(this)">{h(framework)} <span class="comp-stat"><span class="cs-pass">{pass_c} pass</span> / <span class="cs-fail">{fail_c} fail</span></span><span class="comp-arrow">▸</span></div>'
-        if comp_arch_row:
-            comp_html += comp_arch_row
-        comp_html += '<div class="comp-body"><table><thead><tr><th>Control</th><th>Name</th><th>Status</th><th>Related</th><th>Summary · Remediation</th></tr></thead><tbody>'
-        for ctrl in controls:
-            st_cls = "pass" if ctrl["status"] == "PASS" else "fail"
-            st_icon = "✓" if ctrl["status"] == "PASS" else "✗"
-            st_text = "Pass" if ctrl["status"] == "PASS" else "Fail"
-            desc = (ctrl.get("desc") or ctrl.get("name") or "").strip()
-            action = (
-                ctrl.get("action")
-                or "Apply security best practices for this control; refer to the framework documentation."
-            ).strip()
-            findings_detail = ""
-            if ctrl.get("findings"):
-                findings_detail = '<div class="comp-findings">'
-                for cf in ctrl["findings"][:5]:
-                    cf_res = (cf.get("resource") or "").strip()
-                    cf_prov = (cf.get("provider") or "").strip()
-                    cf_res_html = f' <span class="of-resource">📍 <code>{h(cf_res[:40])}</code></span>' if cf_res else ""
-                    cf_prov_html = f' <span class="of-prov">{h(cf_prov.upper())}</span>' if cf_prov else ""
-                    findings_detail += f'<div class="of-row" style="font-size:.78rem">{sev_badge(cf.get("severity","Medium"))} <code>{h(cf.get("check",""))}</code>{cf_prov_html} {h((cf.get("message") or cf.get("title") or "")[:100])}{cf_res_html}</div>'
-                if ctrl["count"] > 5:
-                    findings_detail += f'<div class="of-more">... +{ctrl["count"] - 5} more</div>'
-                findings_detail += "</div>"
-            summary_cell = f'<div class="comp-summary-cell"><span class="comp-desc-ko">{h(desc or "—")}</span><br><span class="comp-action-ko"><strong>Remediation</strong> {h(action)}</span>{findings_detail}</div>'
-            comp_html += f'<tr class="comp-{st_cls}"><td class="mono">{h(ctrl["control"])}</td><td>{h(ctrl["name"])}</td><td class="comp-st-{st_cls}">{st_icon} {st_text}</td><td>{ctrl["count"]}</td><td class="comp-summary-td">{summary_cell}</td></tr>'
-        comp_html += "</tbody></table></div></div>"
-    return comp_html
-
-
 def _build_audit_points_html(
     audit_points_data,
     audit_points_detected,
@@ -956,133 +761,9 @@ def _build_audit_points_html(
     saas_bp_data,
 ) -> str:
     """Build the QueryPie Audit Points tab HTML (audit points + MS sources + SaaS sources)."""
-    repo_url = f"https://github.com/{AUDIT_POINTS_REPO}"
-    # Product icon mapping for visual differentiation
-    _ap_icons = {
-        "Jenkins": "🔧", "Harbor": "🐳", "Nexus": "📦", "Okta": "🔐",
-        "QueryPie": "🔎", "Scalr": "☁️", "IDEs": "💻",
-    }
-    # QueryPie Audit Points tab content — structured for Best Practices hub UI/UX
-    _bp_intro = (
-        '<p class="bp-audit-intro" style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;line-height:1.5">'
-        "SaaS/DevSecOps audit checklists (QueryPie) and Microsoft platform best-practice sources. Use the sections below to review project-relevant checklists and open official guidance.</p>"
+    audit_points_html = build_audit_points_querypie_html(
+        audit_points_data, audit_points_detected
     )
-    audit_points_html = ""
-    detected_products = audit_points_detected.get("detected_products") or []
-    all_products = audit_points_data.get("products", [])
-    products_by_name = {
-        p.get("name"): p for p in all_products if p.get("name")
-    }
-    total_items = sum(len(p.get("files", [])) for p in all_products)
-    detected_items = sum(
-        len(products_by_name.get(pn, {}).get("files", [])) for pn in detected_products
-    )
-
-    # Detected products summary strip
-    if detected_products or all_products:
-        audit_points_html = _bp_intro
-        # Detection summary
-        det_count = len(detected_products)
-        all_count = len(all_products)
-        audit_points_html += '<div class="ap-detected-strip">'
-        if detected_products:
-            for pn in detected_products:
-                icon = _ap_icons.get(pn, "📋")
-                audit_points_html += f'<span class="ap-detected-chip">{icon} {h(pn)}</span>'
-            audit_points_html += f'<span style="font-size:.72rem;color:var(--muted);align-self:center;margin-left:.5rem">{det_count} detected / {all_count} total · {detected_items} checklist items</span>'
-        else:
-            audit_points_html += f'<span style="font-size:.78rem;color:var(--muted)">No products detected in this repo · {all_count} products available · run <code>claudesec scan -c saas</code></span>'
-        audit_points_html += "</div>"
-        # Search bar
-        audit_points_html += '<input type="text" class="ap-search" placeholder="Search products or checklist items..." onkeyup="apFilterProducts(this.value)">'
-        # Progress bar
-        audit_points_html += '<div class="ap-progress-label"><span id="ap-progress-label">0 / 0 reviewed</span><span id="ap-progress-pct">0%</span></div>'
-        audit_points_html += '<div class="ap-progress-bar"><div id="ap-progress-fill" class="ap-progress-fill" style="width:0%"></div></div>'
-
-    # Detected products section
-    if detected_products and products_by_name:
-        audit_points_html += '<div class="card bp-audit-section" style="margin-bottom:1rem"><div class="card-title" style="display:flex;align-items:center;gap:.5rem">Relevant to this project <span class="badge" style="font-size:.65rem;background:rgba(34,197,94,.15);color:#22c55e">' + str(det_count) + ' detected</span></div><div style="padding:.75rem 1rem">'
-        for pname in detected_products:
-            prod = products_by_name.get(pname)
-            if not prod:
-                continue
-            files = prod.get("files", [])
-            icon = _ap_icons.get(pname, "📋")
-            tree_url = prod.get("tree_url") or f"{repo_url}/tree/main/{urllib.parse.quote(pname)}"
-            audit_points_html += f'<div class="ap-product-card open" data-product="{h(pname.lower())}">'
-            audit_points_html += f'<div class="ap-product-header" onclick="this.parentElement.classList.toggle(\'open\')">'
-            audit_points_html += f'<span class="ap-product-icon">{icon}</span>'
-            audit_points_html += f'<span class="ap-product-name">{h(pname)}</span>'
-            audit_points_html += f'<span class="ap-product-count">{len(files)} items</span>'
-            audit_points_html += '<span class="ap-product-chevron">▶</span>'
-            audit_points_html += '</div>'
-            audit_points_html += '<div class="ap-product-body">'
-            audit_points_html += f'<a href="{h(tree_url)}" target="_blank" rel="noopener" class="ap-product-github-link">Open on GitHub ↗</a>'
-            for idx, f in enumerate(files, start=1):
-                url = f.get("url") or f.get("raw_url") or "#"
-                fname = f.get("name", "")
-                ext = fname.rsplit(".", 1)[-1] if "." in fname else ""
-                cb_id = f"ap-{pname}-{idx}".lower().replace(" ", "-")
-                audit_points_html += f'<div class="bp-audit-item-row" data-ap-id="{h(cb_id)}">'
-                audit_points_html += f'<input type="checkbox" class="ap-checkbox" data-ap-id="{h(cb_id)}" onchange="apToggleCheck(this)">'
-                audit_points_html += f'<span class="bp-audit-index">{idx}</span>'
-                audit_points_html += f'<a href="{h(url)}" target="_blank" rel="noopener" class="bp-audit-link">{h(fname)}</a>'
-                if ext:
-                    audit_points_html += f'<span class="bp-audit-ext">.{h(ext)}</span>'
-                audit_points_html += "</div>"
-            audit_points_html += "</div></div>"
-        audit_points_html += "</div></div>"
-
-    # All products catalog
-    if all_products:
-        if not detected_products:
-            audit_points_html = audit_points_html or _bp_intro
-        title = "All products" if detected_products else "QueryPie Audit Points"
-        audit_points_html += f'<div class="card bp-audit-section" style="margin-bottom:1rem"><div class="card-title" style="display:flex;align-items:center;gap:.5rem">{h(title)} <span class="badge" style="font-size:.65rem">{len(all_products)} products · {total_items} items</span></div><div style="padding:.75rem 1rem">'
-        audit_points_html += f'<p style="color:var(--muted);font-size:.82rem;margin-bottom:.75rem">SaaS/DevSecOps audit checklists from <a href="{h(repo_url)}" target="_blank" rel="noopener" style="color:var(--accent)">querypie/audit-points</a>. Click a product to expand.</p>'
-        for prod in all_products:
-            pname = prod.get("name", "")
-            is_detected = pname in detected_products
-            files = prod.get("files", [])
-            icon = _ap_icons.get(pname, "📋")
-            tree_url = prod.get("tree_url") or f"{repo_url}/tree/main/{urllib.parse.quote(pname)}"
-            open_cls = ""
-            audit_points_html += f'<div class="ap-product-card{open_cls}" data-product="{h(pname.lower())}">'
-            audit_points_html += f'<div class="ap-product-header" onclick="this.parentElement.classList.toggle(\'open\')">'
-            audit_points_html += f'<span class="ap-product-icon">{icon}</span>'
-            audit_points_html += f'<span class="ap-product-name">{h(pname)}'
-            if is_detected:
-                audit_points_html += ' <span style="font-size:.6rem;color:#22c55e;vertical-align:middle">● detected</span>'
-            audit_points_html += '</span>'
-            audit_points_html += f'<span class="ap-product-count">{len(files)} items</span>'
-            audit_points_html += '<span class="ap-product-chevron">▶</span>'
-            audit_points_html += '</div>'
-            audit_points_html += '<div class="ap-product-body">'
-            audit_points_html += f'<a href="{h(tree_url)}" target="_blank" rel="noopener" class="ap-product-github-link">Open on GitHub ↗</a>'
-            for idx, f in enumerate(files[:50], start=1):
-                url = f.get("url") or f.get("raw_url") or "#"
-                fname = f.get("name", "")
-                ext = fname.rsplit(".", 1)[-1] if "." in fname else ""
-                cb_id = f"ap-{pname}-{idx}".lower().replace(" ", "-")
-                audit_points_html += f'<div class="bp-audit-item-row" data-ap-id="{h(cb_id)}">'
-                audit_points_html += f'<input type="checkbox" class="ap-checkbox" data-ap-id="{h(cb_id)}" onchange="apToggleCheck(this)">'
-                audit_points_html += f'<span class="bp-audit-index">{idx}</span>'
-                audit_points_html += f'<a href="{h(url)}" target="_blank" rel="noopener" class="bp-audit-link">{h(fname)}</a>'
-                if ext:
-                    audit_points_html += f'<span class="bp-audit-ext">.{h(ext)}</span>'
-                audit_points_html += "</div>"
-            if len(files) > 50:
-                audit_points_html += f'<div style="padding:.3rem .5rem;font-size:.78rem;color:var(--muted)">… and {len(files) - 50} more in <a href="{h(tree_url)}" target="_blank" rel="noopener" style="color:var(--accent)">GitHub folder</a></div>'
-            audit_points_html += "</div></div>"
-        if audit_points_data.get("fetched_at"):
-            audit_points_html += f'<p style="font-size:.72rem;color:var(--muted);margin-top:.75rem">Cache updated: {h(audit_points_data["fetched_at"][:19])}</p>'
-        audit_points_html += "</div></div>"
-    if not audit_points_html:
-        audit_points_html = (
-            _bp_intro
-            + '<div class="card bp-audit-section"><div class="card-title">QueryPie Audit Points</div><div style="padding:1rem 1.25rem"><p style="color:var(--muted);margin-bottom:.5rem">SaaS/DevSecOps audit checklists from <a href="https://github.com/querypie/audit-points" target="_blank" rel="noopener">querypie/audit-points</a>.</p><p style="color:var(--muted);font-size:.85rem">Run <code>claudesec scan -c saas</code> to detect products (Jenkins, Harbor, Nexus, Okta, etc.) and populate the checklist for this project.</p></div></div>'
-        )
-
     audit_points_html += build_ms_sources_html(ms_best_practices_data)
     audit_points_html += build_saas_sources_html(saas_bp_data)
     return audit_points_html
