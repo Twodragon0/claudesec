@@ -132,7 +132,7 @@ function checkCanaryLeak(output: string): boolean {
 
 ### 6. Multi-Layer Defense
 
-```
+```text
 User Input
     ↓
 [Input Sanitization] → Block obvious injection patterns
