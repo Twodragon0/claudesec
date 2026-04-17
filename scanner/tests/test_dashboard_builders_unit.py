@@ -238,20 +238,26 @@ def test_audit_points_saas_sources_empty_shows_no_sources_configured():
     ms_data = {"sources": [], "fetched_at": ""}
     # saas_bp_data.sources is explicitly [] — the function uses this value directly
     # and only falls back to SAAS_BEST_PRACTICES_SOURCES when .get("sources") is falsy.
-    # To force the empty branch we need to patch the fallback constant in the sections module.
+    # To force the empty branch we need to patch the fallback constant in every
+    # module that has imported it by name.
     import dashboard_html_sections as _sections_mod
+    import dashboard_html_audit_sources as _audit_sources_mod
     import dashboard_api_client as _dac
     original_const = _dac.SAAS_BEST_PRACTICES_SOURCES
     _dac.SAAS_BEST_PRACTICES_SOURCES = []
-    # The function reads the name via `from dashboard_api_client import ...` at module load,
-    # so we also patch it in the sections module's own namespace.
+    # The MS/SaaS source builders moved into dashboard_html_audit_sources, which
+    # rebinds SAAS_BEST_PRACTICES_SOURCES at import; sections still kept it for
+    # backwards compat. Patch both module-level names.
     original_sections = getattr(_sections_mod, "SAAS_BEST_PRACTICES_SOURCES", original_const)
+    original_audit_sources = getattr(_audit_sources_mod, "SAAS_BEST_PRACTICES_SOURCES", original_const)
     _sections_mod.SAAS_BEST_PRACTICES_SOURCES = []
+    _audit_sources_mod.SAAS_BEST_PRACTICES_SOURCES = []
     try:
         html = _build_audit_points_html(ap_data, ap_detected, ms_data, {"sources": []})
     finally:
         _dac.SAAS_BEST_PRACTICES_SOURCES = original_const
         _sections_mod.SAAS_BEST_PRACTICES_SOURCES = original_sections
+        _audit_sources_mod.SAAS_BEST_PRACTICES_SOURCES = original_audit_sources
 
     assert "No SaaS/DevOps best-practice sources configured" in html
 
