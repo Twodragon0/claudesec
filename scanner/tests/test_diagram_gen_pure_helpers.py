@@ -7,12 +7,6 @@ outputs the helpers produce as part of their normal contract.
 
 Import strategy: diagram-gen.py contains hyphens, so we use
 importlib.util.spec_from_file_location to load it by path.
-
-Environment note: defusedxml.ElementTree does NOT expose Element / SubElement
-in this environment, but the module uses them internally.  We monkey-patch
-defusedxml.ElementTree with stdlib xml.etree.ElementTree equivalents at
-module-load time.  This is the minimum shim needed to exercise the string /
-XML helpers — no business logic is altered.
 """
 
 import importlib.util
@@ -24,20 +18,7 @@ from pathlib import Path
 import pytest
 
 
-# ---------------------------------------------------------------------------
-# Module loader (patched so ET.Element / SubElement are available)
-# ---------------------------------------------------------------------------
-
 def _load_diagram_gen():
-    import defusedxml.ElementTree as _dET
-    import xml.etree.ElementTree as _stdET
-    # Shim: defusedxml.ElementTree in this env lacks Element/SubElement.
-    # The module calls ET.SubElement and ET.Element in nearly every builder.
-    if not hasattr(_dET, "Element"):
-        _dET.Element = _stdET.Element
-    if not hasattr(_dET, "SubElement"):
-        _dET.SubElement = _stdET.SubElement
-
     path = Path(__file__).resolve().parents[1] / "lib" / "diagram-gen.py"
     spec = importlib.util.spec_from_file_location("diagram_gen_pure", path)
     mod = importlib.util.module_from_spec(spec)
