@@ -18,6 +18,9 @@ import dashboard_html_helpers
 import dashboard_html_builders
 import dashboard_html_sections
 import dashboard_template
+import dashboard_html_owasp
+import dashboard_html_arch
+import dashboard_html_compliance
 
 
 class TestImportsAllFourModules(unittest.TestCase):
@@ -27,6 +30,9 @@ class TestImportsAllFourModules(unittest.TestCase):
             dashboard_html_builders,
             dashboard_html_sections,
             dashboard_template,
+            dashboard_html_owasp,
+            dashboard_html_arch,
+            dashboard_html_compliance,
         ):
             self.assertIsInstance(mod, types.ModuleType)
 
