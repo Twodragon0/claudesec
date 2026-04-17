@@ -15,8 +15,6 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-
 
 def _load_diagram_gen():
     path = Path(__file__).resolve().parents[1] / "lib" / "diagram-gen.py"
