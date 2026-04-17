@@ -15,7 +15,10 @@ import urllib.request
 from io import BytesIO
 from unittest.mock import MagicMock, patch, call
 
-import pytest
+try:
+    import pytest
+except ImportError:  # xmlrunner baseline in CI has no pytest; module-level test functions
+    pytest = None  # type: ignore[assignment]  # below are pytest-only and skipped by unittest
 
 # ---------------------------------------------------------------------------
 # Import setup — match pattern used in test_dashboard_audit_sources_unit.py
