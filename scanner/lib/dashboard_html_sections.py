@@ -16,11 +16,21 @@ if _LIB_DIR not in sys.path:
 from dashboard_utils import h, sev_badge
 from dashboard_mapping import (
     CATEGORY_META, OWASP_2025, OWASP_LLM_2025, OWASP_TO_ARCH, ARCH_DOMAINS,
+    get_check_en,
 )
 from dashboard_html_helpers import (
     _infer_category, _has_cmd, _cmd_pill,
     _compute_severity_counts, _compute_severity_bars,
     _build_replacements,
+)
+from dashboard_html_builders import (
+    _build_provider_cards,
+    _build_artifact_links_section,
+    _build_target_posture_table,
+    _build_trivy_section,
+    _build_datadog_logs_section,
+    _build_datadog_signals_section,
+    _build_datadog_cases_section,
 )
 
 
@@ -393,7 +403,6 @@ def _build_top_findings(findings_list, all_findings):
         provider_text = str(ff["provider"])
         check_text = str(ff["check"])
         message_text = str(ff["message"])
-        from dashboard_mapping import get_check_en
         en = get_check_en(check_text)
         resource_text = str(ff.get("resource") or "")
         res_html = f'<div class="tf-resource"><span class="tf-res-label">Location:</span> <code>{h(resource_text[:80])}</code></div>' if resource_text else ""
@@ -570,7 +579,6 @@ def _build_overview_blocks(
     n_info = sev["n_info"]
     policy_022_top = sev["policy_022_top"]
 
-    from dashboard_html_builders import _build_provider_cards
     prov_cards = _build_provider_cards(prov_summary)
 
     bars = _compute_severity_bars(n_crit, n_high, n_med, n_low, warnings)
@@ -619,14 +627,6 @@ def _build_overview_blocks(
 
     network_tools_html += _build_tooling_readiness_section(net_data, net_enabled, net_targets, trivy_enabled)
 
-    from dashboard_html_builders import (
-        _build_artifact_links_section,
-        _build_target_posture_table,
-        _build_trivy_section,
-        _build_datadog_logs_section,
-        _build_datadog_signals_section,
-        _build_datadog_cases_section,
-    )
     network_tools_html += _build_artifact_links_section()
 
     network_tools_html += _build_target_posture_table(net_data)
@@ -698,7 +698,6 @@ def _build_owasp_html(owasp_map):
                 prov = (ff.get("provider") or "").strip()
                 res_html = f' <span class="of-resource" title="Resource: {h(res)}">📍 <code>{h(res[:50])}</code></span>' if res else ""
                 prov_html = f' <span class="of-prov">{h(prov.upper())}</span>' if prov else ""
-                from dashboard_mapping import get_check_en
                 en = get_check_en(ff.get("check", ""))
                 out += f'<div class="of-row">{sev_badge(ff["severity"])} <code>{h(ff["check"])}</code>{prov_html} {h(ff["message"][:120])}{res_html}</div>'
                 out += f'<div class="of-detail"><span class="of-action">Action: {h(en["action"][:150])}</span></div>'

@@ -11,16 +11,13 @@ Modules:
   - dashboard_auth: Authentication/token expiry summary
 """
 
-import hashlib
 import json
 import os
 import re
-import shutil
 import sys
+import urllib.parse
 from datetime import datetime, timezone
 from collections import defaultdict
-from pathlib import Path
-from typing import Any
 
 # Ensure sibling modules are importable when loaded via importlib
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))

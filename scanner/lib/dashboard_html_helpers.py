@@ -8,8 +8,6 @@ import hashlib
 import os
 import shutil
 import sys
-from collections import defaultdict
-from typing import Any
 
 # Ensure sibling modules are importable when loaded via importlib
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
