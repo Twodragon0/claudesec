@@ -7,7 +7,7 @@ import json
 import os
 import sys
 import glob
-import defusedxml.ElementTree as ET
+import xml.etree.ElementTree as ET  # builders only (Element, SubElement, tostring) — no untrusted XML parsed here
 from pathlib import Path
 from collections import defaultdict
 import hashlib
