@@ -119,14 +119,14 @@ jobs:
           exit 0
       - name: Publish scanner unittest report
         if: always()
-        uses: mikepenz/action-junit-report@49b2ca06f62aa7ef83ae6769a2179271e160d8e4  # v6.3.1
+        uses: mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386  # v6.4.0
         with:
           report_paths: 'test-reports/*.xml'
           fail_on_failure: false
           require_tests: false
       - name: Upload scanner unittest XML artifacts
         if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: scanner-unit-test-xml-${{ github.run_id }}
           path: test-reports/*.xml
@@ -146,7 +146,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd
       - name: Build claudesec runtime image (cache enabled)
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f
         with:
           context: .
           file: Dockerfile
