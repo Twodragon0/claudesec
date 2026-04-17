@@ -18,7 +18,7 @@ case "${1:-help}" in
     ;;
   dashboard)
     shift
-    exec "$SCRIPT_DIR/scripts/quick-start.sh" "$@"
+    exec "$SCRIPT_DIR/scripts/run-dashboard-safe.sh" "$@"
     ;;
   setup)
     shift

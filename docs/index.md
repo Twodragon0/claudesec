@@ -1,6 +1,8 @@
 ---
 layout: default
 title: Home
+description: ClaudeSec documentation — DevSecOps toolkit for AI-assisted secure development
+tags: [claudesec, devsecops, security, documentation]
 ---
 
 # ClaudeSec Documentation
