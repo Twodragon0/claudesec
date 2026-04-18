@@ -568,7 +568,7 @@ class TestLoadNetworkToolResults(unittest.TestCase):
         xml = """<?xml version="1.0"?>
 <nmaprun>
   <host>
-    <address addr="10.0.0.1"/>
+    <address addr="203.0.113.1"/>
     <ports>
       <port protocol="tcp" port="22"><state state="open"/></port>
       <port protocol="tcp" port="80"><state state="closed"/></port>
