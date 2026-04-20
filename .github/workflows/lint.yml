@@ -173,14 +173,18 @@ jobs:
         run: |
           mkdir -p kcov-out
           # The bash unit tests source `$LIB_DIR/checks.sh` and
-          # `$LIB_DIR/output.sh` from scanner/lib (not scanner/checks/**/*.sh
-          # directly), so kcov's --include-pattern must match the *source*
-          # files that actually get executed. Patterns are substring-matched
-          # against the absolute file path.
+          # `$LIB_DIR/output.sh` from scanner/lib, so we need kcov to
+          # instrument that directory. Previous attempts with
+          # --include-pattern matched zero files (0% coverage reported);
+          # --include-path with the absolute repo path is more reliable
+          # because kcov records sourced files as absolute paths.
+          # Also drop --bash-method=DEBUG so kcov picks the default tracer
+          # that handles `source` correctly in recent jammy kcov builds.
+          LIB_ABS="$(pwd)/scanner/lib"
+          echo "kcov include-path: $LIB_ABS"
           for sh in scanner/tests/test_*.sh; do
             name=$(basename "$sh" .sh)
-            kcov --bash-method=DEBUG \
-              --include-pattern=scanner/lib/checks.sh,scanner/lib/output.sh \
+            kcov --include-path="$LIB_ABS" \
               "kcov-out/$name" bash "$sh" \
               || echo "WARN: $sh exited non-zero under kcov"
           done
