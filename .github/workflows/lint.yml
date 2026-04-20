@@ -185,17 +185,17 @@ jobs:
       - name: Run scanner shell tests under kcov
         run: |
           mkdir -p kcov-out
-          # Filename-substring pattern: the test scripts source
-          # `$SCRIPT_DIR/../lib/checks.sh`, which kcov records with the
-          # literal `../lib` segment rather than the canonical
-          # `scanner/lib/checks.sh`. An --include-path of `scanner/lib`
-          # or an --include-pattern of `scanner/lib/checks.sh` both
-          # miss this path. Match on the bare filename instead so both
-          # canonical and `..`-relative sourced paths are captured.
+          # Invoke the script DIRECTLY — not `bash script.sh` — otherwise
+          # kcov instruments the bash binary (C code) instead of the
+          # script's bash lines, producing 0 total_lines.
+          # Filename-substring --include-pattern so the `../lib` sourced
+          # paths match (see commit history for why /scanner/lib/ patterns
+          # failed).
+          chmod +x scanner/tests/test_*.sh
           for sh in scanner/tests/test_*.sh; do
             name=$(basename "$sh" .sh)
-            kcov --include-pattern=checks.sh,output.sh \
-              "kcov-out/$name" bash "$sh" \
+            kcov --include-pattern=checks.sh,output.sh,"$name".sh \
+              "kcov-out/$name" "$sh" \
               || echo "WARN: $sh exited non-zero under kcov"
           done
           kcov --merge kcov-out/merged kcov-out/*/
