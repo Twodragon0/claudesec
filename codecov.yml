@@ -1,0 +1,31 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 95%
+        threshold: 1%
+        flags:
+          - scanner-lib
+    patch:
+      default:
+        target: 90%
+        flags:
+          - scanner-lib
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+  require_base: no
+  require_head: yes
+
+flags:
+  scanner-lib:
+    paths:
+      - scanner/lib/
+    carryforward: true
+
+ignore:
+  - "scanner/tests/"
+  - "docs/"
+  - "examples/"
