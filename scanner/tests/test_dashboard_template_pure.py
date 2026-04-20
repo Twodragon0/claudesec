@@ -3,8 +3,9 @@ Unit tests for scanner/lib/dashboard_template.py.
 
 Targets previously-uncovered branches (sys.path insertion, scan_dir and
 repo_root exception handlers, open() exception in the SVG read loop, and
-the inline-SVG fallback).  Stdlib + unittest.mock only so CI's
-`python3 -m xmlrunner discover` can run the suite unchanged.
+the inline-SVG fallback).  Tests are stdlib-only and pass under both
+pytest (the CI runner) and plain `python3 -m unittest` discovery.
+No third-party test deps beyond what the test exercises.
 """
 
 import base64

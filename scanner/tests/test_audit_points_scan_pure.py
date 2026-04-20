@@ -2,9 +2,10 @@
 Unit tests for pure helpers in scanner/lib/audit-points-scan.py.
 
 Each test exercises exactly one behaviour. No network, no subprocess.
-tempfile.TemporaryDirectory is used for filesystem fixtures (stdlib only,
-so the file runs under both `python3 -m unittest xmlrunner discover` and
-pytest).
+tempfile.TemporaryDirectory is used for filesystem fixtures (stdlib only).
+Tests are stdlib-only and pass under both pytest (the CI runner) and plain
+`python3 -m unittest` discovery. No third-party test deps beyond what the
+test exercises.
 
 Import strategy: audit-points-scan.py has hyphens in the filename, so it
 cannot be imported via `import audit-points-scan`.  We load it once via

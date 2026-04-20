@@ -6,8 +6,9 @@ COMPLIANCE_FRAMEWORKS, OWASP_TO_ARCH) and pure mapping functions
 (get_check_en, map_findings_to_owasp, map_architecture,
 _match_prowler_compliance, map_compliance).
 
-Tests are stdlib-only and work under both unittest (xmlrunner discover) and
-pytest. No pytest import, no internal IPs, no network, no shared state.
+Tests are stdlib-only and pass under both pytest (the CI runner) and plain
+`python3 -m unittest` discovery. No third-party test deps beyond what the
+test exercises. No internal IPs, no network, no shared state.
 """
 
 import importlib

@@ -12,10 +12,11 @@ Each test exercises a single behaviour of the private HTML-builder helpers:
   * _build_datadog_cases_section
 
 Tests are authored as both bare `def test_*()` functions (for pytest) AND
-as a `unittest.TestCase` wrapper (for `python3 -m xmlrunner discover` in CI,
-which loads unittest.TestLoader and therefore only picks up TestCase
-subclasses).  Uses stdlib + unittest.mock only — no `import pytest`, so CI
-(which does not install pytest) will still import the module successfully.
+as a `unittest.TestCase` wrapper (for `python3 -m unittest discover`, which
+loads unittest.TestLoader and therefore only picks up TestCase subclasses).
+Uses stdlib + unittest.mock only — no third-party test deps beyond what
+the test exercises. Passes under both pytest (the CI runner) and plain
+`python3 -m unittest` discovery.
 """
 
 import os
@@ -748,8 +749,8 @@ def test_datadog_cases_html_escapes_title():
 
 # ---------------------------------------------------------------------------
 # unittest.TestCase wrapper so the same assertions run under `python -m
-# unittest discover` / `xmlrunner discover` (CI), which only picks up
-# TestCase subclasses — not bare `def test_*` functions.
+# unittest discover` (which only picks up TestCase subclasses — not bare
+# `def test_*` functions) as well as under pytest.
 # ---------------------------------------------------------------------------
 
 

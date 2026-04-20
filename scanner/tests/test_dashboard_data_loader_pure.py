@@ -5,7 +5,9 @@ Focuses on pure helpers (OCSF parsing, provider normalisation, severity
 classification, provider filters, env status) plus tmp-path coverage of
 the JSON loaders and caching branches.  Each test exercises one behaviour
 and is independent of any other test (no shared mutable state, no network).
-Written so both unittest (`xmlrunner discover`) and pytest can execute it.
+Tests are stdlib-only and pass under both pytest (the CI runner) and
+plain `python3 -m unittest` discovery. No third-party test deps beyond
+what the test exercises.
 """
 
 import json
