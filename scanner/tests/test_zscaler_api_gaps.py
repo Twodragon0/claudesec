@@ -21,6 +21,7 @@ import importlib.util
 import io
 import json
 import os
+import sys
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -32,7 +33,17 @@ _FAKE_BASE = "https://example.com"  # RFC 2606 reserved domain
 
 
 def _load():
-    """Load scanner/lib/zscaler-api.py under the name 'zscaler_api_gaps_mod'."""
+    """Load scanner/lib/zscaler-api.py under the name 'zscaler_api_gaps_mod'.
+
+    The module does `import requests` at the top level and `sys.exit(1)`s
+    if unavailable. CI's scanner-unit-tests job does not install `requests`
+    (only unittest-xml-reporting + defusedxml), so we pre-stub
+    `sys.modules["requests"]` with a MagicMock before exec so the import
+    succeeds and the module's `requests` attribute is the mock — tests that
+    patch it with `patch.object(mod, "requests", ...)` continue to work.
+    """
+    if "requests" not in sys.modules:
+        sys.modules["requests"] = MagicMock()
     spec = importlib.util.spec_from_file_location(
         "zscaler_api_gaps_mod", _MOD_PATH
     )
