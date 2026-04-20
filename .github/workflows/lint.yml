@@ -172,10 +172,15 @@ jobs:
       - name: Run scanner shell tests under kcov
         run: |
           mkdir -p kcov-out
+          # The bash unit tests source `$LIB_DIR/checks.sh` and
+          # `$LIB_DIR/output.sh` from scanner/lib (not scanner/checks/**/*.sh
+          # directly), so kcov's --include-pattern must match the *source*
+          # files that actually get executed. Patterns are substring-matched
+          # against the absolute file path.
           for sh in scanner/tests/test_*.sh; do
             name=$(basename "$sh" .sh)
             kcov --bash-method=DEBUG \
-              --include-pattern=scanner/checks/,scanner/lib/output.sh \
+              --include-pattern=scanner/lib/checks.sh,scanner/lib/output.sh \
               "kcov-out/$name" bash "$sh" \
               || echo "WARN: $sh exited non-zero under kcov"
           done
