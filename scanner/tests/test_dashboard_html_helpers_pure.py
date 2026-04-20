@@ -7,8 +7,9 @@ _cmd_pill, _compute_severity_counts, _compute_severity_bars,
 _build_replacements.
 
 Each test exercises one behaviour and is independent of any other
-test (no shared mutable state, no network).  Written so both
-unittest (`xmlrunner discover`) and pytest can execute it.
+test (no shared mutable state, no network).  Tests are stdlib-only and
+pass under both pytest (the CI runner) and plain `python3 -m unittest`
+discovery. No third-party test deps beyond what the test exercises.
 """
 
 import hashlib

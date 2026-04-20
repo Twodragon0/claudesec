@@ -6,9 +6,11 @@ Targets the lines not reached by test_zscaler_api_smoke.py:
   - main() body         (lines 176-199)
 
 CI-compat notes:
-  - No `import pytest` (CI uses `python3 -m xmlrunner discover`).
-  - Plain `unittest.TestCase` subclass + `def test_*()` functions.
-  - Stdlib + unittest.mock only.
+  - No `import pytest`; plain `unittest.TestCase` subclass + `def test_*()`
+    functions so the file is discoverable by both pytest (the CI runner) and
+    plain `python3 -m unittest` discovery.
+  - Stdlib + unittest.mock only — no third-party test deps beyond what the
+    test exercises.
   - No internal / RFC1918 addresses — RFC 5737 example domains only.
   - zscaler-api.py has a hyphen in its filename, so we load it via
     importlib.util.spec_from_file_location (see test_diagram_gen_pure_helpers.py).
@@ -338,8 +340,8 @@ def test_main_collect_posture_exception_still_attempts_logout():
 
 
 # ---------------------------------------------------------------------------
-# unittest.TestCase wrapper so `python3 -m unittest` discovers these as tests
-# when the xmlrunner path is used in CI.
+# unittest.TestCase wrapper so `python3 -m unittest discover` picks up these
+# tests alongside pytest (the CI runner).
 # ---------------------------------------------------------------------------
 
 class ZscalerApiGapsTestCase(unittest.TestCase):
