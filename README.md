@@ -9,6 +9,7 @@
 > AI Security Best Practices toolkit for secure development with Claude Code
 
 [![npm version](https://img.shields.io/npm/v/claudesec?color=cb3837&logo=npm)](https://www.npmjs.com/package/claudesec)
+[![codecov](https://codecov.io/gh/Twodragon0/claudesec/branch/main/graph/badge.svg?flag=scanner-lib)](https://codecov.io/gh/Twodragon0/claudesec)
 [![GitHub stars](https://img.shields.io/github/stars/Twodragon0/claudesec?style=flat&color=yellow)](https://github.com/Twodragon0/claudesec/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
