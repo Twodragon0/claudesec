@@ -155,6 +155,45 @@ jobs:
           echo "scanner-unit-tests failed (or coverage below 90%) with exit code ${{ steps.scanner_tests.outputs.test_exit_code }}"
           exit 1
 
+  scanner-shell-coverage:
+    runs-on: ubuntu-latest
+    needs: scanner-unit-tests
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Install kcov
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y kcov
+      - name: Run scanner shell tests under kcov
+        run: |
+          mkdir -p kcov-out
+          for sh in scanner/tests/test_*.sh; do
+            name=$(basename "$sh" .sh)
+            kcov --bash-method=DEBUG \
+              --include-pattern=scanner/checks/,scanner/lib/output.sh \
+              "kcov-out/$name" bash "$sh" \
+              || echo "WARN: $sh exited non-zero under kcov"
+          done
+          kcov --merge kcov-out/merged kcov-out/*/
+      - name: Print bash coverage summary
+        run: |
+          if [ -f kcov-out/merged/coverage.json ]; then
+            pct=$(python3 -c "import json; d=json.load(open('kcov-out/merged/coverage.json')); print(d.get('percent_covered','?'))")
+            echo "Bash coverage (merged): ${pct}%"
+          else
+            echo "WARN: kcov merged coverage.json not found"
+            ls -la kcov-out/merged/ || true
+          fi
+      - name: Upload kcov merged report
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7
+        with:
+          name: scanner-shell-kcov-${{ github.run_id }}
+          path: kcov-out/merged/
+          retention-days: 14
+          if-no-files-found: ignore
+
   dashboard-regression-check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
