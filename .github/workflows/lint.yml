@@ -185,19 +185,16 @@ jobs:
       - name: Run scanner shell tests under kcov
         run: |
           mkdir -p kcov-out
-          # The bash unit tests source `$LIB_DIR/checks.sh` and
-          # `$LIB_DIR/output.sh` from scanner/lib, so we need kcov to
-          # instrument that directory. Previous attempts with
-          # --include-pattern matched zero files (0% coverage reported);
-          # --include-path with the absolute repo path is more reliable
-          # because kcov records sourced files as absolute paths.
-          # Also drop --bash-method=DEBUG so kcov picks the default tracer
-          # that handles `source` correctly in recent jammy kcov builds.
-          LIB_ABS="$(pwd)/scanner/lib"
-          echo "kcov include-path: $LIB_ABS"
+          # Filename-substring pattern: the test scripts source
+          # `$SCRIPT_DIR/../lib/checks.sh`, which kcov records with the
+          # literal `../lib` segment rather than the canonical
+          # `scanner/lib/checks.sh`. An --include-path of `scanner/lib`
+          # or an --include-pattern of `scanner/lib/checks.sh` both
+          # miss this path. Match on the bare filename instead so both
+          # canonical and `..`-relative sourced paths are captured.
           for sh in scanner/tests/test_*.sh; do
             name=$(basename "$sh" .sh)
-            kcov --include-path="$LIB_ABS" \
+            kcov --include-pattern=checks.sh,output.sh \
               "kcov-out/$name" bash "$sh" \
               || echo "WARN: $sh exited non-zero under kcov"
           done
