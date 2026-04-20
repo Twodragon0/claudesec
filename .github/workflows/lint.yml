@@ -139,6 +139,16 @@ jobs:
           path: test-reports/*.xml
           retention-days: 14
           if-no-files-found: ignore
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v6.0.0
+        continue-on-error: true
+        with:
+          files: test-reports/coverage.xml
+          flags: scanner-lib
+          fail_ci_if_error: false
+          verbose: true
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Fail workflow on scanner unittest / coverage failure
         if: always() && steps.scanner_tests.outputs.test_exit_code != '0'
         run: |
