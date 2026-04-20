@@ -156,7 +156,11 @@ jobs:
           exit 1
 
   scanner-shell-coverage:
-    runs-on: ubuntu-latest
+    # ubuntu-22.04: kcov still ships in jammy's default apt repos. On
+    # ubuntu-24.04 (noble, the current `ubuntu-latest`) kcov was dropped,
+    # so apt-get install fails. Pin to 22.04 for this informational job
+    # instead of building kcov from source.
+    runs-on: ubuntu-22.04
     needs: scanner-unit-tests
     continue-on-error: true
     steps:
