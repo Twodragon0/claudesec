@@ -156,36 +156,46 @@ jobs:
           exit 1
 
   scanner-shell-coverage:
-    # ubuntu-22.04: kcov still ships in jammy's default apt repos. On
-    # ubuntu-24.04 (noble, the current `ubuntu-latest`) kcov was dropped,
-    # so apt-get install fails. Pin to 22.04 for this informational job
-    # instead of building kcov from source.
-    runs-on: ubuntu-22.04
+    # Builds kcov v42 from source instead of using jammy's apt package
+    # (which ships kcov 38, a known-broken version that reported 0%
+    # coverage for `source`d bash files in earlier runs — see the
+    # history around #116/#117). Build-from-source also lets this job
+    # run on `ubuntu-latest` (noble) again, where kcov was dropped from
+    # the default apt repos.
+    runs-on: ubuntu-latest
     needs: scanner-unit-tests
     continue-on-error: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - name: Install kcov
+      - name: Install kcov v42 from source
         run: |
           sudo apt-get update
-          sudo apt-get install -y kcov
+          sudo apt-get install -y --no-install-recommends \
+            binutils-dev libcurl4-openssl-dev libdw-dev libiberty-dev \
+            libssl-dev zlib1g-dev cmake g++ pkg-config
+          TMP=$(mktemp -d)
+          cd "$TMP"
+          curl -fsSL https://github.com/SimonKagstrom/kcov/archive/refs/tags/v42.tar.gz | tar xz
+          cd kcov-42
+          mkdir build && cd build
+          cmake -DCMAKE_INSTALL_PREFIX=/usr/local ..
+          make -j"$(nproc)"
+          sudo make install
+          kcov --version
       - name: Run scanner shell tests under kcov
         run: |
           mkdir -p kcov-out
-          # The bash unit tests source `$LIB_DIR/checks.sh` and
-          # `$LIB_DIR/output.sh` from scanner/lib, so we need kcov to
-          # instrument that directory. Previous attempts with
-          # --include-pattern matched zero files (0% coverage reported);
-          # --include-path with the absolute repo path is more reliable
-          # because kcov records sourced files as absolute paths.
-          # Also drop --bash-method=DEBUG so kcov picks the default tracer
-          # that handles `source` correctly in recent jammy kcov builds.
-          LIB_ABS="$(pwd)/scanner/lib"
-          echo "kcov include-path: $LIB_ABS"
+          # Invoke the script DIRECTLY — not `bash script.sh` — otherwise
+          # kcov instruments the bash binary (C code) instead of the
+          # script's bash lines, producing 0 total_lines.
+          # Filename-substring --include-pattern so the `../lib` sourced
+          # paths match (see commit history for why /scanner/lib/ patterns
+          # failed).
+          chmod +x scanner/tests/test_*.sh
           for sh in scanner/tests/test_*.sh; do
             name=$(basename "$sh" .sh)
-            kcov --include-path="$LIB_ABS" \
-              "kcov-out/$name" bash "$sh" \
+            kcov --include-pattern=checks.sh,output.sh,"$name".sh \
+              "kcov-out/$name" "$sh" \
               || echo "WARN: $sh exited non-zero under kcov"
           done
           kcov --merge kcov-out/merged kcov-out/*/
