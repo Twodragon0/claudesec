@@ -105,15 +105,22 @@ jobs:
         run: bash scanner/tests/test_check_network_tls.sh
       - name: Run bash unit tests (cicd/pipeline checks)
         run: bash scanner/tests/test_check_cicd_pipeline.sh
-      - name: Run scanner unittest baseline (JUnit XML)
+      - name: Run scanner pytest + coverage gate (>=90%)
         id: scanner_tests
         env:
           PYTHONPATH: .
           CLAUDESEC_DASHBOARD_OFFLINE: "1"
         run: |
           python3 -m py_compile scanner/lib/dashboard-gen.py scanner/lib/compliance-map.py scanner/tests/test_dashboard_gen_smoke.py scanner/tests/test_markdown_preview.py scanner/tests/test_prowler_ocsf.py scanner/tests/test_prowler_ocsf_e2e.py scanner/tests/test_compliance_map.py
+          mkdir -p test-reports
           set +e
-          python3 -m xmlrunner discover -s scanner/tests -p "test_*.py" -o test-reports
+          python3 -m pytest scanner/tests/ \
+            --junitxml=test-reports/pytest-junit.xml \
+            --cov=scanner/lib \
+            --cov-report=term \
+            --cov-report=xml:test-reports/coverage.xml \
+            --cov-fail-under=90 \
+            -q
           test_exit_code=$?
           echo "test_exit_code=$test_exit_code" >> "$GITHUB_OUTPUT"
           exit 0
@@ -124,7 +131,7 @@ jobs:
           report_paths: 'test-reports/*.xml'
           fail_on_failure: false
           require_tests: false
-      - name: Upload scanner unittest XML artifacts
+      - name: Upload scanner unittest + coverage artifacts
         if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7
         with:
@@ -132,10 +139,10 @@ jobs:
           path: test-reports/*.xml
           retention-days: 14
           if-no-files-found: ignore
-      - name: Fail workflow on scanner unittest failure
+      - name: Fail workflow on scanner unittest / coverage failure
         if: always() && steps.scanner_tests.outputs.test_exit_code != '0'
         run: |
-          echo "scanner-unit-tests failed with exit code ${{ steps.scanner_tests.outputs.test_exit_code }}"
+          echo "scanner-unit-tests failed (or coverage below 90%) with exit code ${{ steps.scanner_tests.outputs.test_exit_code }}"
           exit 1
 
   dashboard-regression-check:
