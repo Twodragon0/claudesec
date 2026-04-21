@@ -164,6 +164,12 @@ jobs:
     # the default apt repos.
     runs-on: ubuntu-latest
     needs: scanner-unit-tests
+    # Soft-gated: kcov v42 writes the merged report into a nested subdir
+    # (kcov-merged/, merged-kcov-output/) that the original summary step
+    # never located, so the real bash-coverage baseline is still unknown.
+    # This PR fixes discovery so the number surfaces in logs; a follow-up
+    # PR will drop continue-on-error and enforce a threshold once we have
+    # evidence of a real baseline.
     continue-on-error: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -201,12 +207,22 @@ jobs:
           kcov --merge kcov-out/merged kcov-out/*/
       - name: Print bash coverage summary
         run: |
-          if [ -f kcov-out/merged/coverage.json ]; then
-            pct=$(python3 -c "import json; d=json.load(open('kcov-out/merged/coverage.json')); print(d.get('percent_covered','?'))")
+          # kcov v42's --merge writes coverage.json into a nested subdir
+          # (kcov-merged/ on current runners) rather than kcov-out/merged/
+          # directly, so locate it with find. Fall back to any coverage.json
+          # anywhere under kcov-out/ if the merge subdir ever changes names.
+          cov_json=$(find kcov-out/merged -name coverage.json -print -quit 2>/dev/null || true)
+          if [ -z "$cov_json" ]; then
+            cov_json=$(find kcov-out -name coverage.json -print -quit 2>/dev/null || true)
+          fi
+          if [ -n "$cov_json" ] && [ -f "$cov_json" ]; then
+            echo "Found merged coverage.json: $cov_json"
+            pct=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('percent_covered','?'))" "$cov_json")
             echo "Bash coverage (merged): ${pct}%"
           else
-            echo "WARN: kcov merged coverage.json not found"
-            ls -la kcov-out/merged/ || true
+            echo "WARN: no coverage.json found under kcov-out/"
+            echo "Contents of kcov-out/merged/ (top two levels):"
+            find kcov-out/merged -maxdepth 2 -print 2>/dev/null || true
           fi
       - name: Upload kcov merged report
         if: always()
