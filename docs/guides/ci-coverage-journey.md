@@ -121,6 +121,17 @@ Result: First real bash coverage—**37.05%** (555/1498 lines).
 | scanner/lib bash coverage | unmeasured | 37% |
 | Codecov integration | none | badge + PR comments |
 
+## Path-discovery bug in kcov v42 merge output (2026-04)
+
+After kcov v42 landed in PR #118, the `scanner-shell-coverage` job silently stopped reporting any bash coverage percentage. The root cause was a path assumption baked into the `Print bash coverage summary` step: it tested for `kcov-out/merged/coverage.json`, but kcov v42's `--merge` writes the merged result into a nested subdirectory directly under the merge target — observed names include `kcov-merged/` and `merged-kcov-output/` — rather than directly under `kcov-out/merged/`. Because `continue-on-error: true` was set on the job, the resulting `WARN: kcov merged coverage.json not found` message produced no visible CI failure and every run appeared green. The actual bash coverage baseline has therefore never been printed, making the "~60%+" figure from the PR #119 commit message a test-count extrapolation, not a measured kcov percentage.
+
+PR #120 (`ci/promote-scanner-shell-coverage`) fixes discovery only:
+
+- Replaces the hard-coded `[ -f kcov-out/merged/coverage.json ]` test with `find kcov-out/merged -name coverage.json -print -quit` plus a broader fallback search.
+- Prints the first log line of the form `Bash coverage (merged): <N>%` so the real baseline can be read from the run log after the PR merges to main.
+- Does NOT enforce a coverage threshold — that gate will be added in a follow-up PR once the baseline is established.
+- Does NOT remove `continue-on-error: true` — the job remains non-blocking until a stable threshold is confirmed.
+
 ## References
 
 - [pytest documentation](https://docs.pytest.org)
