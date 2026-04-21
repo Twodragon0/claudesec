@@ -209,12 +209,10 @@ region = us-east-1
 [profile sso-eng]
 sso_start_url = https://example.awsapps.com/start
 sso_region = us-east-1
-sso_account_id = 000000000001
 sso_role_name = Engineer
 
 [profile sso-prod]
 sso_session = team
-sso_account_id = 000000000002
 sso_role_name = Admin
 
 [profile keyed-only]
