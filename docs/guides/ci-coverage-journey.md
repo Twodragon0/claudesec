@@ -164,6 +164,43 @@ A "ratchet" here means a one-way gate: the enforced coverage floor only moves up
 - Dry-run the enforce step locally before pushing: set `percent_covered = <new floor - 0.01>` (expect fail) then `percent_covered = <new floor>` (expect pass).
 - If a ratchet PR fails CI on `main` after merge, revert the PR — do not patch forward within the same ratchet step.
 
+## Session retrospective (2026-04-21 -> 2026-04-22)
+
+### The seven-PR chain
+
+| PR | SHA | Date | Purpose |
+|----|-----|------|---------|
+| #120 | `e12047a` | 2026-04-21 | kcov v42 path-discovery fix (find-based lookup) |
+| #121 | `30f2733` | 2026-04-21 | 55 fixture assertions for `generate_html_dashboard` (36) + `_prowler_dashboard_summary` (19) |
+| #123 | `ac5a985` | 2026-04-21 | 50% threshold gate (dropped continue-on-error, added to `lint-gate.needs`) |
+| #122 | `5b0037d` | 2026-04-21 | Doc section on the kcov v42 path bug |
+| #124 | `e43603b` | 2026-04-22 | Ratchet: 50% -> 65% |
+| #125 | `6b442d9` | 2026-04-22 | Ratchet progress table doc |
+| #126 | `1abb222` | 2026-04-22 | Ratchet: 65% -> 70% |
+
+### Coverage evolution
+
+Before #120 merged, bash coverage was unobservable. Every `scanner-shell-coverage` run silently hit the `WARN: kcov merged coverage.json not found` branch, masked entirely by `continue-on-error: true`. The "~60%+" figure in the #119 commit message was a test-count extrapolation, not a measured kcov percentage.
+
+Once the path-discovery fix landed, four CI runs established the real baseline:
+
+| Run ID | Context | Coverage |
+|--------|---------|----------|
+| 24700540488 | after #120 path fix | 71.93% |
+| 24701523866 | after #121 fixture tests + #123 gate | 76.38% |
+| 24755252996 | on 65% floor after #124/#125 | 76.38% |
+| 24756798072 | on 65% floor after #124/#125 | 76.38% |
+
+Run 24700540488 is the first CI-visible bash coverage baseline in the repository's history. The two stable 76.38% reads on the 65% floor satisfied the Step 2 unlock condition, allowing #126 to raise the floor to 70% with 6.38 pt of headroom.
+
+### Lessons learned
+
+**Silent failure modes are expensive.** Setting `continue-on-error: true` on the `scanner-shell-coverage` job turned it into reporting theater for at least four merged PRs (#116-#119). The job continued to appear green while producing no coverage output whatsoever, and the degraded state went unnoticed until a deliberate audit traced the `WARN: kcov merged coverage.json not found` message back to the path assumption. Any job whose sole value is a visible metric must fail visibly when that metric cannot be computed.
+
+**Reviewer verdicts must defer to CI when they conflict.** During review of PR #123, a code-reviewer agent issued a BLOCKING verdict claiming the Python-in-bash heredoc would produce an `IndentationError` due to YAML indentation. The actual CI run demonstrated the step executed correctly, printing `Bash coverage 71.93% meets threshold 50.0%. Bash coverage threshold met.` The root cause of the false verdict is that YAML `run: |` block-scalars strip common leading whitespace before the shell sees anything, making static-read indentation analysis unreliable for YAML-hosted heredocs. When a static analysis verdict conflicts with a passing CI run, the CI run is authoritative.
+
+**Ratchet plans need evidence-based floors.** The original attempt that preceded #120 set a 50% coverage floor before any kcov percentage had been CI-verified. When the path-discovery bug surfaced, that version had to be abandoned and rewritten as discovery-only. The 50% gate was deferred to #123, applied only after run 24700540488 confirmed a 71.93% real baseline. Setting thresholds ahead of measurement inverts the ratchet contract: floors should be derived from observed numbers, not imposed in anticipation of them.
+
 ## References
 
 - [pytest documentation](https://docs.pytest.org)
