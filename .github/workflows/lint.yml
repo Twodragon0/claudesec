@@ -465,6 +465,7 @@ jobs:
             --exclude 'securityscorecards.dev'
             --exclude 'in-toto.io'
             --exclude 'sigstore.dev'
+            --exclude 'public.cyber.mil'
             --exclude 'localhost'
             --accept '100..=599'
             --timeout 20
