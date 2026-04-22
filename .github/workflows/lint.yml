@@ -217,7 +217,7 @@ jobs:
             echo "Contents of kcov-out/merged/ (top two levels):"
             find kcov-out/merged -maxdepth 2 -print 2>/dev/null || true
           fi
-      - name: Enforce bash coverage threshold (>=65%)
+      - name: Enforce bash coverage threshold (>=70%)
         run: |
           # Re-run the same find-based discovery as the summary step so this
           # gate is robust to kcov's nested merge subdir names.
@@ -233,7 +233,7 @@ jobs:
           import json
           import sys
 
-          threshold = 65.0
+          threshold = 70.0
           path = sys.argv[1]
           with open(path) as fh:
               data = json.load(fh)
