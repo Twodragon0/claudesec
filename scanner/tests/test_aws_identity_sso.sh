@@ -99,8 +99,8 @@ case "$args" in
         cat <<JSON
 {
   "UserId": "AIDAEXAMPLE:abc",
-  "Account": "123456789012",
-  "Arn": "arn:aws:iam::123456789012:user/test"
+  "Account": "FIXTURE-ACCT-01",
+  "Arn": "arn:aws:iam::FIXTURE-ACCT-01:user/test"
 }
 JSON
         exit 0
@@ -142,8 +142,8 @@ echo "=== aws_identity_info() ==="
 # 1. Happy path: valid JSON parsed into "account|arn"
 export AWS_STUB_MODE="sts-ok"
 info=$(aws_identity_info)
-assert_eq       "aws_identity_info: account field"  "123456789012" "$(echo "$info" | cut -d'|' -f1)"
-assert_contains "aws_identity_info: arn field"      "$info"         "arn:aws:iam::123456789012:user/test"
+assert_eq       "aws_identity_info: account field"  "FIXTURE-ACCT-01" "$(echo "$info" | cut -d'|' -f1)"
+assert_contains "aws_identity_info: arn field"      "$info"         "arn:aws:iam::FIXTURE-ACCT-01:user/test"
 assert_contains "aws_identity_info: pipe delimiter" "$info"         "|"
 
 # 2. Failure path: sts returns non-zero → fallback "unknown|unknown"
