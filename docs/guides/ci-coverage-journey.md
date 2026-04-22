@@ -132,6 +132,38 @@ PR #120 (`ci/promote-scanner-shell-coverage`) fixes discovery only:
 - Does NOT enforce a coverage threshold — that gate will be added in a follow-up PR once the baseline is established.
 - Does NOT remove `continue-on-error: true` — the job remains non-blocking until a stable threshold is confirmed.
 
+## Ratchet progress (2026-04)
+
+A "ratchet" here means a one-way gate: the enforced coverage floor only moves up, never down, and each step requires observed headroom before it is approved. The floor stops near 72% rather than chasing the raw observed baseline because the observed numbers include test paths that are not yet stable fixtures; the policy cap of (observed baseline - 4pt) preserves a buffer so that normal CI variance does not trigger a gate failure. Any increase beyond that buffer requires first writing new fixture work to lift the measured baseline itself.
+
+### Ratchet steps
+
+| Step | Floor change | PR | Merged | Status |
+|------|-------------|----|--------|--------|
+| 0 — initial gate | none → 50% | #123 (`ac5a985`) | 2026-04-21 | done |
+| 1 — first raise | 50% → 65% | #124 (`e43603b`) | 2026-04-22 | done |
+| 2 — second raise | 65% → 70% | TBD | — | planned |
+| 3 — third raise | 70% → 72% | TBD | — | planned |
+
+### Observed baselines
+
+| Date | Run ID | SHA / context | Coverage |
+|------|--------|---------------|----------|
+| 2026-04-21 | 24700540488 | after #120 path fix | 71.93% |
+| 2026-04-21 | 24701523866 | after #121 fixture tests + #123 gate | 76.38% |
+
+### Unlock conditions
+
+- **Step 2 (65% → 70%)**: 2 consecutive clean `main` runs with coverage >= 73% observed while the floor sits at 65%.
+- **Step 3 (70% → 72%)**: 2 consecutive clean `main` runs with coverage >= 75% observed while the floor sits at 70%.
+- **Stop condition**: do not ratchet above (observed baseline - 4pt) without first lifting coverage via new fixture work.
+
+### Per-step policy
+
+- One threshold number change per PR; do not bundle multiple floor changes.
+- Dry-run the enforce step locally before pushing: set `percent_covered = <new floor - 0.01>` (expect fail) then `percent_covered = <new floor>` (expect pass).
+- If a ratchet PR fails CI on `main` after merge, revert the PR — do not patch forward within the same ratchet step.
+
 ## References
 
 - [pytest documentation](https://docs.pytest.org)
