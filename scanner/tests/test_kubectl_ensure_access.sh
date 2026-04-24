@@ -294,8 +294,8 @@ assert_not_contains "already connected: silent" "$out" "Kubernetes Authenticatio
 echo ""
 echo "=== kubectl_ensure_access: EKS refresh branch ==="
 reset_state
-export STUB_CURRENT_CTX="arn:aws:eks:us-east-1:111122223333:cluster/my-eks"
-export STUB_CONTEXTS="arn:aws:eks:us-east-1:111122223333:cluster/my-eks"
+export STUB_CURRENT_CTX="arn:aws:eks:us-east-1:acctid:cluster/my-eks"
+export STUB_CONTEXTS="arn:aws:eks:us-east-1:acctid:cluster/my-eks"
 export STUB_CLUSTER_INFO_COUNTER="$tmpdir/eks_cnt"; : > "$STUB_CLUSTER_INFO_COUNTER"
 export STUB_CLUSTER_INFO_MODE="switch-after-1"   # fail first probe, succeed after refresh
 export STUB_AWS_CALLED="$tmpdir/aws_called"; : > "$STUB_AWS_CALLED"
