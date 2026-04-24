@@ -241,6 +241,43 @@ _print_findings() {
   done
 }
 
+# Map a numeric score (0-100) to a grade letter + color code pair ("grade color").
+# Pure: reads only the args and the color globals (which are constants after source).
+# Consumers parse the single-line "grade color" result with `read`.
+_print_summary_score_to_grade() {
+  local score="$1"
+  local grade_color="$RED" grade="F"
+  if [[ $score -ge 90 ]]; then grade="A"; grade_color="$GREEN"
+  elif [[ $score -ge 80 ]]; then grade="B"; grade_color="$GREEN"
+  elif [[ $score -ge 70 ]]; then grade="C"; grade_color="$YELLOW"
+  elif [[ $score -ge 60 ]]; then grade="D"; grade_color="$YELLOW"
+  fi
+  echo "$grade $grade_color"
+}
+
+# Render a unicode progress bar for a score (0-100) given a bar width.
+# Pure: deterministic string built from score + width.
+_print_summary_render_progress_bar() {
+  local score="$1" bar_width="$2"
+  local filled=$(( (score * bar_width) / 100 ))
+  local empty=$((bar_width - filled))
+  local bar=""
+  for ((i=0; i<filled; i++)); do bar+="█"; done
+  for ((i=0; i<empty; i++)); do bar+="░"; done
+  printf '%s' "$bar"
+}
+
+# Format a duration in seconds as "Xm Ys" (>=60s) or "Zs".
+# Pure: deterministic function of the single integer argument.
+_print_summary_format_duration() {
+  local duration="$1"
+  if [[ $duration -ge 60 ]]; then
+    echo "$((duration / 60))m $((duration % 60))s"
+  else
+    echo "${duration}s"
+  fi
+}
+
 print_summary() {
   local duration="$1"
 
@@ -251,12 +288,8 @@ print_summary() {
     score=$(( (PASSED * 100) / active ))
   fi
 
-  local grade_color="$RED" grade="F"
-  if [[ $score -ge 90 ]]; then grade="A"; grade_color="$GREEN"
-  elif [[ $score -ge 80 ]]; then grade="B"; grade_color="$GREEN"
-  elif [[ $score -ge 70 ]]; then grade="C"; grade_color="$YELLOW"
-  elif [[ $score -ge 60 ]]; then grade="D"; grade_color="$YELLOW"
-  fi
+  local grade_color grade
+  read -r grade grade_color <<< "$(_print_summary_score_to_grade "$score")"
 
   echo ""
   echo -e "${BOLD}╔══════════════════════════════════════════════════════════╗${NC}"
@@ -266,11 +299,8 @@ print_summary() {
 
   # Score + progress bar
   local bar_width=30
-  local filled=$(( (score * bar_width) / 100 ))
-  local empty=$((bar_width - filled))
-  local bar=""
-  for ((i=0; i<filled; i++)); do bar+="█"; done
-  for ((i=0; i<empty; i++)); do bar+="░"; done
+  local bar
+  bar="$(_print_summary_render_progress_bar "$score" "$bar_width")"
 
   echo -e "  ${BOLD}Security Score${NC}  ${grade_color}${BOLD}${score}${NC}/100  ${grade_color}${bar}${NC}  Grade: ${grade_color}${BOLD}${grade}${NC}"
   echo ""
@@ -327,11 +357,7 @@ print_summary() {
   fi
 
   local duration_str
-  if [[ $duration -ge 60 ]]; then
-    duration_str="$((duration / 60))m $((duration % 60))s"
-  else
-    duration_str="${duration}s"
-  fi
+  duration_str="$(_print_summary_format_duration "$duration")"
   echo -e "  ${DIM}Scanned in ${duration_str} · $(date '+%Y-%m-%d %H:%M:%S') · claudesec v${VERSION}${NC}"
   echo ""
 }
@@ -478,6 +504,30 @@ compute_trend() {
   export TREND_HAS_PREV="true"
 }
 
+# Map a prowler provider slug (from filename) to a human-readable label.
+# Pure: deterministic string → string mapping, no I/O.
+_prowler_dashboard_summary_provider_label() {
+  case "$1" in
+    aws) echo "AWS" ;;
+    kubernetes) echo "Kubernetes" ;;
+    azure) echo "Azure" ;;
+    gcp) echo "GCP" ;;
+    github) echo "GitHub" ;;
+    googleworkspace) echo "Google Workspace" ;;
+    m365) echo "Microsoft 365" ;;
+    cloudflare) echo "Cloudflare" ;;
+    nhn) echo "NHN Cloud" ;;
+    iac) echo "IaC" ;;
+    llm) echo "LLM" ;;
+    image) echo "Container Image" ;;
+    oraclecloud) echo "Oracle Cloud" ;;
+    alibabacloud) echo "Alibaba Cloud" ;;
+    openstack) echo "OpenStack" ;;
+    mongodbatlas) echo "MongoDB Atlas" ;;
+    *) echo "$1" ;;
+  esac
+}
+
 # Build Prowler report summary HTML from .claudesec-prowler/*.ocsf.json (for dashboard)
 _prowler_dashboard_summary() {
   local prowler_dir="${SCAN_DIR:-.}/.claudesec-prowler"
@@ -496,25 +546,7 @@ _prowler_dashboard_summary() {
     [[ -f "$f" ]] || continue
     local provider label total c h m l
     provider=$(basename "$f" .ocsf.json | sed 's/^prowler-//')
-    case "$provider" in
-      aws) label="AWS" ;;
-      kubernetes) label="Kubernetes" ;;
-      azure) label="Azure" ;;
-      gcp) label="GCP" ;;
-      github) label="GitHub" ;;
-      googleworkspace) label="Google Workspace" ;;
-      m365) label="Microsoft 365" ;;
-      cloudflare) label="Cloudflare" ;;
-      nhn) label="NHN Cloud" ;;
-      iac) label="IaC" ;;
-      llm) label="LLM" ;;
-      image) label="Container Image" ;;
-      oraclecloud) label="Oracle Cloud" ;;
-      alibabacloud) label="Alibaba Cloud" ;;
-      openstack) label="OpenStack" ;;
-      mongodbatlas) label="MongoDB Atlas" ;;
-      *) label="$provider" ;;
-    esac
+    label="$(_prowler_dashboard_summary_provider_label "$provider")"
     total=$(grep -c '"status_code": *"FAIL"' "$f" 2>/dev/null || echo 0)
     read -r c h m l <<< "$(awk '
       BEGIN { c=0; h=0; m=0; l=0 }
