@@ -65,11 +65,16 @@ done
 # promptfoo is intentionally NOT created so has_command promptfoo returns false
 # by default; individual tests create/remove it to flip the LLM branch.
 
-# `timeout` passthrough so run_with_timeout doesn't swallow stubs
+# `timeout` passthrough so run_with_timeout doesn't swallow stubs. We
+# word-split the remaining args via `eval $*` so callers like
+# `run_with_timeout 10 "$(_kubectl_cmd)" cluster-info` — which pass the
+# kubectl invocation as one quoted arg — still exec `kubectl --kubeconfig …`
+# correctly.
 cat > "$stub_dir/timeout" <<'STUB'
 #!/usr/bin/env bash
 shift
-"$@"
+# shellcheck disable=SC2086
+eval $*
 STUB
 chmod +x "$stub_dir/timeout"
 
@@ -328,6 +333,112 @@ collect_environment_info >/dev/null 2>&1 || true
 assert_eq "s10c: AWS_SSO_CONFIGURED=false for non-SSO" "false"   "${CLAUDESEC_ENV_AWS_SSO_CONFIGURED:-}"
 assert_eq "s10d: AWS_SSO_SESSION=unknown"              "unknown" "${CLAUDESEC_ENV_AWS_SSO_SESSION:-}"
 
+unset AWS_CONFIG_FILE AWS_PROFILE
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Scenario 11: has_kubectl_access() true — exercises checks.sh:775-788
+# (K8S_CONNECTED true branch with CONTEXT/SERVER/TYPE/VERSION exports).
+# Swaps kubectl stub to one that answers every subcommand used by
+# kubectl_cluster_info() and kubectl_server_version().
+# ──────────────────────────────────────────────────────────────────────────────
+echo ""
+echo "=== Scenario 11: K8S connected (full cluster info path) ==="
+
+cat > "$stub_dir/kubectl" <<'STUB'
+#!/usr/bin/env bash
+args="$*"
+case "$args" in
+  *"cluster-info"*)                    exit 0 ;;
+  *"config current-context"*)          echo "prod-eks" ;;
+  *"config view --minify"*"jsonpath"*) echo "https://api.example.eks.aws:443" ;;
+  *"version -o json"*)
+    printf '%s\n' '{"serverVersion":{"gitVersion":"v1.30.1"}}' ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$stub_dir/kubectl"
+
+reset_env_vars
+collect_environment_info >/dev/null 2>&1 || true
+assert_eq "s11a: K8S_CONNECTED true"     "true"                              "${CLAUDESEC_ENV_K8S_CONNECTED:-}"
+assert_eq "s11b: K8S_CONTEXT set"        "prod-eks"                          "${CLAUDESEC_ENV_K8S_CONTEXT:-}"
+assert_eq "s11c: K8S_SERVER set"         "https://api.example.eks.aws:443"   "${CLAUDESEC_ENV_K8S_SERVER:-}"
+# "prod-eks" matches kubectl_detect_cluster_type()'s *eks* glob → "eks"
+assert_eq "s11d: K8S_TYPE=eks"           "eks"                               "${CLAUDESEC_ENV_K8S_TYPE:-}"
+assert_eq "s11e: K8S_VERSION parsed"     "v1.30.1"                           "${CLAUDESEC_ENV_K8S_VERSION:-}"
+
+# KUBECONFIG export round-trip (only set when the env var itself is set).
+kubeconfig_file="$tmpdir/kcfg"; : > "$kubeconfig_file"
+reset_env_vars
+export KUBECONFIG="$kubeconfig_file"
+collect_environment_info >/dev/null 2>&1 || true
+assert_eq "s11f: K8S_KUBECONFIG exported" "$kubeconfig_file" "${CLAUDESEC_ENV_K8S_KUBECONFIG:-}"
+unset KUBECONFIG
+
+# CLAUDESEC_KUBE_NAMESPACE round-trip
+reset_env_vars
+export CLAUDESEC_KUBE_NAMESPACE="sec-audit"
+collect_environment_info >/dev/null 2>&1 || true
+assert_eq "s11g: K8S_NAMESPACE exported" "sec-audit" "${CLAUDESEC_ENV_K8S_NAMESPACE:-}"
+unset CLAUDESEC_KUBE_NAMESPACE
+
+# Restore the always-fail kubectl stub so the closing aggregate (if any future
+# scenarios land here) starts from the disconnected baseline again.
+make_stub_fail kubectl
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Scenario 12: has_aws_credentials() true — exercises checks.sh:800-811
+# (AWS_CONNECTED true branch with ACCOUNT/ARN/SSO_SESSION exports).
+# Swaps aws stub to one that succeeds on sts get-caller-identity and emits
+# well-formed JSON that aws_identity_info() parses.
+# ──────────────────────────────────────────────────────────────────────────────
+echo ""
+echo "=== Scenario 12: AWS connected (identity info parsed) ==="
+
+cat > "$stub_dir/aws" <<'STUB'
+#!/usr/bin/env bash
+args="$*"
+case "$args" in
+  *"sts get-caller-identity"*)
+    # Non-numeric account placeholder keeps hooks/pii-check.sh happy.
+    printf '%s\n' '{"UserId":"AIDAEXAMPLE","Account":"acctid","Arn":"arn:aws:iam::acctid:user/tester"}'
+    exit 0
+    ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$stub_dir/aws"
+
+reset_env_vars
+collect_environment_info >/dev/null 2>&1 || true
+assert_eq "s12a: AWS_CONNECTED true"         "true"                                 "${CLAUDESEC_ENV_AWS_CONNECTED:-}"
+assert_eq "s12b: AWS_ACCOUNT parsed"         "acctid"                               "${CLAUDESEC_ENV_AWS_ACCOUNT:-}"
+assert_eq "s12c: AWS_ARN parsed"             "arn:aws:iam::acctid:user/tester"      "${CLAUDESEC_ENV_AWS_ARN:-}"
+# No SSO config → SSO_SESSION defaults to "unknown" (set by the SSO_CONFIGURED
+# false path earlier in collect_environment_info).
+assert_eq "s12d: AWS_SSO_SESSION unknown"    "unknown"                              "${CLAUDESEC_ENV_AWS_SSO_SESSION:-}"
+
+# AWS_PROFILE round-trip: only exported to CLAUDESEC_ENV_AWS_PROFILE when set.
+reset_env_vars
+export AWS_PROFILE="dev"
+collect_environment_info >/dev/null 2>&1 || true
+assert_eq "s12e: AWS_PROFILE round-tripped" "dev" "${CLAUDESEC_ENV_AWS_PROFILE:-}"
+unset AWS_PROFILE
+
+# Combined path: SSO-configured profile + live credentials → SSO_SESSION=valid.
+reset_env_vars
+aws_dir="$tmpdir/aws"
+mkdir -p "$aws_dir"
+cat > "$aws_dir/config" <<CFG
+[profile ssolive]
+sso_start_url = https://example.awsapps.com/start
+sso_region = us-east-1
+CFG
+export AWS_CONFIG_FILE="$aws_dir/config"
+export AWS_PROFILE="ssolive"
+collect_environment_info >/dev/null 2>&1 || true
+assert_eq "s12f: AWS_SSO_CONFIGURED=true" "true"    "${CLAUDESEC_ENV_AWS_SSO_CONFIGURED:-}"
+assert_eq "s12g: AWS_SSO_SESSION=valid"   "valid"   "${CLAUDESEC_ENV_AWS_SSO_SESSION:-}"
 unset AWS_CONFIG_FILE AWS_PROFILE
 
 # ──────────────────────────────────────────────────────────────────────────────
