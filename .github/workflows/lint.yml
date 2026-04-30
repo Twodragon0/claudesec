@@ -51,7 +51,8 @@ jobs:
           python3 -m pip install -r requirements-ci.txt
       - name: Run pip-audit
         # CVE-2026-4539: pygments <=2.19.2 local ReDoS — no fix available yet
-        run: pip-audit --strict --desc --ignore-vuln CVE-2026-4539
+        # CVE-2026-3219: pip 26.0.1 tar+ZIP confusion — no fix version published yet
+        run: pip-audit --strict --desc --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
 
   shell-lint:
     runs-on: ubuntu-latest
