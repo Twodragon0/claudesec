@@ -237,6 +237,26 @@ function ch(t,c){return _TH+'<span class="ch ch-'+esc(c)+'">'+esc(t)+'</span>';}
 function sevCh(s){s=typeof s==='string'?s:String(s||'');var m={critical:'r',high:'r',medium:'y',low:'b',warning:'y',info:'b'};return ch(s,m[s.toLowerCase()]||'m');}
 function authCh(a,sso){if(!a)return ch('N/A','m');var l=a.toLowerCase();var isSso=sso||l==='okta'||l==='okta sso'||l==='google';if(l.includes('okta'))return ch('Okta SSO','b')+(isSso?' '+ch('SSO','g'):'');if(l==='google')return ch('Google','a')+' '+ch('SSO','g');if(l.includes('mfa'))return ch('MFA','g');if(l.match(/id\/pw|ip\/pw/))return ch('ID/PW','r');return ch(a,'m');}
 function stCh(s){return s==='\uC0AC\uC6A9 \uC911'?ch(s,'g'):s==='\uBBF8\uC0AC\uC6A9'?ch(s,'r'):ch(s||'','y');}
+function dDayCh(days){
+  if(days===null||days===undefined||days==='')return ch('-','m');
+  var n=typeof days==='number'?days:parseInt(days,10);
+  if(isNaN(n))return ch('-','m');
+  if(n<0)return ch('\uB9CC\uB8CC D+'+Math.abs(n),'r');
+  if(n<=7)return ch('D-'+n,'r');
+  if(n<=30)return ch('D-'+n,'y');
+  return ch('D-'+n,'g');
+}
+function notifyCh(s){
+  switch(s){
+    case 'EXPIRED':return ch('\uB9CC\uB8CC','r');
+    case 'URGENT':return ch('\uD1B5\uBCF4\u00A0\uC784\uBC15','r');
+    case 'WATCH':return ch('\uD1B5\uBCF4\u00A0\uC608\uC815','y');
+    case 'OK':return ch('\uC815\uC0C1','g');
+    case 'NONE':return ch('\uD574\uB2F9\uC5C6\uC74C','m');
+    default:return ch('\uBBF8\uC815','m');
+  }
+}
+function xrefCh(inSheet){return inSheet?ch('\u2713\u00A0\uC2DC\uD2B8','g'):ch('\u26A0\u00A0\uC2DC\uD2B8\uC5C6\uC74C','y');}
 function fmt(n){return typeof n==='number'?n.toLocaleString('ko-KR'):n;}
 /* Check if value is trusted HTML (chip markup with _TH marker) */
 function isHtml(v){return typeof v==='string'&&v.indexOf(_TH)===0;}
@@ -962,7 +982,7 @@ function renderSaaS(d){
   var idpwCount=saas.filter(function(s){return(s.auth||'').match(/id\/pw|ip\/pw/i)&&!(s.auth||'').toLowerCase().includes('mfa')}).length;
   var activeL=lic.filter(function(l){return l.status==='\uC0AC\uC6A9 \uC911'}).length;
   var el=$('p-saas'),t=window._ts||{};
-  el.innerHTML=tsBar([{src:'Google Sheets',time:t.google_sheets}])+'<div id="k-saas" class="kpis"></div><input class="search-input" id="saas-search" placeholder="SaaS \uAC80\uC0C9 (\uC774\uB984, \uCE74\uD14C\uACE0\uB9AC, \uC81C\uACF5\uC0AC)..." aria-label="SaaS 검색"><div class="cat-chips" id="saas-cats"></div><div style="padding:0 0 16px" id="saas-gauges"></div>'
+  el.innerHTML=tsBar([{src:'Notion \uB77C\uC774\uC120\uC2A4 DB',time:t.notion},{src:'Google Sheet xref',time:t.sheet_xref}])+'<div id="k-saas" class="kpis"></div><input class="search-input" id="saas-search" placeholder="SaaS \uAC80\uC0C9 (\uC774\uB984, \uCE74\uD14C\uACE0\uB9AC, \uC81C\uACF5\uC0AC)..." aria-label="SaaS 검색"><div class="cat-chips" id="saas-cats"></div><div style="padding:0 0 16px" id="saas-gauges"></div>'
     +'<div class="cd"><h3>SSO 마이그레이션 현황</h3><div style="padding:16px" id="saas-sso-track"></div></div>'
     +'<div class="g2"><div class="cd"><h3>SaaS \uC790\uC0B0 <span class="bg" id="saas-c"></span></h3><div class="stbl"><table id="t-saas"></table></div></div><div class="cd"><h3>\uB77C\uC774\uC120\uC2A4 \uD604\uD669 <span class="bg" id="lic-c"></span></h3><div class="stbl"><table id="t-lic"></table></div></div></div>';
   mkK($('k-saas'),[
@@ -980,13 +1000,13 @@ function renderSaaS(d){
   window._saas=saas;window._saasCat='all';
   $('saas-cats').innerHTML='<span class="cat-chip on" data-action="_fSaaS" data-arg="all">\uC804\uCCB4</span>'+cats.map(function(c){return'<span class="cat-chip" data-action="_fSaaS" data-arg="'+esc(c)+'">'+esc(c)+'</span>'}).join('');
   _renderSaaST(saas);$('saas-c').textContent=saas.length+'\uAC1C';
-  mkT($('t-lic'),['\uD504\uB85C\uADF8\uB7A8','\uC124\uBA85','\uC0C1\uD0DC','\uBD80\uC11C','\uACC4\uC815\uC218','\uBE44\uC6A9','\uC8FC\uAE30','\uACC4\uC57D\uAE30\uAC04'],lic.map(function(l){return[esc(l.name),esc(l.description||''),stCh(l.status),esc(l.department||''),esc(l.accounts||''),esc(l.cost||''),esc(l.cycle||''),esc(l.contract_period||'-')]}));
+  mkT($('t-lic'),['\uD504\uB85C\uADF8\uB7A8','\uC124\uBA85','\uC0C1\uD0DC','\uBD80\uC11C','\uACC4\uC815\uC218','\uBE44\uC6A9','\uC8FC\uAE30','\uC2DC\uC791\uC77C','\uC885\uB8CC\uC77C','D-Day','\uD1B5\uBCF4\uB9C8\uAC10','\uAC31\uC2E0\uC0C1\uD0DC','\uC2DC\uD2B8'],lic.map(function(l){return[esc(l.name),esc(l.description||''),stCh(l.status),esc(l.department||''),esc(l.accounts||''),esc(l.cost||''),esc(l.cycle||''),esc(l.start_date||'-'),esc(l.end_date||'-'),dDayCh(l.expiry_days),esc(l.notify_deadline||'-'),notifyCh(l.renewal_status||''),xrefCh(!!l.in_sheet)]}));
   $('lic-c').textContent=lic.length+'\uAC1C';
   $('saas-search').addEventListener('input',function(){_applyFilter()});
   _renderSsoTrack(saas);
 }
 function _renderSaaST(list){
-  mkT($('t-saas'),['No','\uAD6C\uBD84','\uC790\uC0B0\uBA85','\uC124\uBA85','\uC81C\uACF5\uC0AC','\uC778\uC99D','\uACC4\uC57D\uAE30\uAC04'],list.map(function(s){return[esc(s.no),ch(s.category||'','b'),esc(s.name),esc(s.description||''),esc(s.provider||''),authCh(s.auth,s.sso),esc(s.contract_period||'-')]}));
+  mkT($('t-saas'),['No','\uAD6C\uBD84','\uC790\uC0B0\uBA85','\uC81C\uACF5\uC0AC','\uC778\uC99D','\uC2DC\uC791\uC77C','\uC885\uB8CC\uC77C','D-Day','\uD1B5\uBCF4\uB9C8\uAC10','\uAC31\uC2E0\uC0C1\uD0DC','\uC2DC\uD2B8'],list.map(function(s){return[esc(s.no),ch(s.category||'','b'),esc(s.name),esc(s.provider||''),authCh(s.auth,s.sso),esc(s.start_date||'-'),esc(s.end_date||'-'),dDayCh(s.expiry_days),esc(s.notify_deadline||'-'),notifyCh(s.renewal_status||''),xrefCh(!!s.in_sheet)]}));
 }
 function _applyFilter(){
   var q=($('saas-search')||{}).value||'';q=q.toLowerCase();var cat=window._saasCat;
@@ -1059,7 +1079,8 @@ function renderCost(d){
   var md=cost.details||{};var allD=[];
   Object.entries(md).forEach(function(e){e[1].forEach(function(r){allD.push(Object.assign({},r,{month:e[0]}))})});
   var el=$('p-cost'),t=window._ts||{};
-  el.innerHTML=tsBar([{src:'SaaS \uBE44\uC6A9 (xlsx)',time:t.saas_cost_xlsx}])+'<div id="k-cost" class="kpis"></div>'
+  el.innerHTML=tsBar([{src:'Notion \uB77C\uC774\uC120\uC2A4 DB',time:t.notion},{src:'Google Sheet xref',time:t.sheet_xref}])+'<div id="k-cost" class="kpis"></div>'
+    +'<div class="cd"><h3>\uAC31\uC2E0 \uD1B5\uBCF4 \uC54C\uB9BC <span class="bg" id="rn-c"></span></h3><div id="rn-banner" style="padding:6px 16px;font-size:12px;color:var(--muted)"></div><div class="g3" id="rn-tables"></div></div>'
     +'<div class="g2"><div class="cd"><h3>\uC6D4\uBCC4 \uCD94\uC774</h3><div id="cost-mch"></div></div><div class="cd"><h3>\uBD80\uC11C\uBCC4 \uBE44\uC6A9</h3><div style="padding:16px" id="cost-dept"></div></div></div>'
     +'<div class="cd"><h3>\uC18C\uD504\uD2B8\uC6E8\uC5B4\uBCC4 \uC6D4\uBCC4 \uBE44\uC6A9 <span class="bg" id="sw-c"></span></h3><div style="padding:6px 16px;font-size:11px;color:var(--muted)">\uD5E4\uB354 \uD074\uB9AD \uC815\uB82C \u00B7 \uAE08\uC561: \uC6D0(KRW)</div><div class="stbl"><table id="t-sw"></table></div></div>'
     +'<div class="g2"><div class="cd"><h3>\uC0AC\uC6A9\uC790\uBCC4 \uBE44\uC6A9 <span class="bg" id="user-cost-c"></span></h3><div class="stbl"><table id="t-user-cost"></table></div></div>'
@@ -1130,6 +1151,26 @@ function renderCost(d){
     $('cost-c').textContent=list.length+'\uAC74';
   };
   window._fCost('all',document.querySelector('#cost-fb .fb-btn'));
+  /* Renewals (Notion 갱신 통보 임박) */
+  var rn=d.renewals||{urgent:[],watch:[],expired:[],counts:{}};
+  var rc=rn.counts||{};
+  $('rn-c').textContent='\uC784\uBC15 '+(rc.urgent||0)+' \u00B7 \uC608\uC815 '+(rc.watch||0)+' \u00B7 \uB9CC\uB8CC '+(rc.expired||0);
+  $('rn-banner').innerHTML='Notion \uC18C\uD504\uD2B8\uC6E8\uC5B4 \uB77C\uC774\uC120\uC2A4 DB \uAE30\uC900 \u2014 '+
+    'D-7 \uC774\uB0B4 \uB610\uB294 \uC790\uB3D9\uAC31\uC2E0 \uD1B5\uBCF4\uAE30\uD55C \uACBD\uACFC \uD56D\uBAA9\uC744 \uC9D1\uACC4. '+
+    'Google Sheet xref: '+(d.sheet_xref&&d.sheet_xref.available?ch('\u00A0\uC5F0\uACB0\u00A0','g'):ch('\u00A0\uBBF8\uACF5\uC720\u00A0','y'))+'.';
+  function rnTbl(title,color,list){
+    var rows=(list||[]).map(function(x){return[esc(x.name),esc(x.provider||''),esc(x.end_date||'-'),dDayCh(x.expiry_days),esc(x.notify_deadline||'-'),'\u20A9'+fmt(x.year_krw||0),esc(x.renew_type||'-')]});
+    return'<div class="cd"><h3>'+title+' <span class="bg" style="color:'+color+'">'+(list||[]).length+'</span></h3><div class="stbl"><table id="t-rn-'+title+'"></table></div></div>';
+  }
+  $('rn-tables').innerHTML=rnTbl('URGENT','var(--red)',rn.urgent)+rnTbl('WATCH','var(--yellow)',rn.watch)+rnTbl('EXPIRED','var(--red)',rn.expired);
+  function fillRn(id,list){
+    var rows=(list||[]).map(function(x){return[esc(x.name),esc(x.provider||''),esc(x.end_date||'-'),dDayCh(x.expiry_days),esc(x.notify_deadline||'-'),'\u20A9'+fmt(x.year_krw||0),esc(x.renew_type||'-')]});
+    if(!rows.length)rows=[['<span style="color:var(--muted)">\uD56D\uBAA9 \uC5C6\uC74C</span>','','','','','','']];
+    mkT($(id),['\uC18C\uD504\uD2B8\uC6E8\uC5B4','\uC81C\uACF5\uC0AC','\uC885\uB8CC\uC77C','D-Day','\uD1B5\uBCF4\uB9C8\uAC10','\uC5F0\uBE44\uC6A9','\uAC31\uC2E0\uC720\uD615'],rows);
+  }
+  fillRn('t-rn-URGENT',rn.urgent);
+  fillRn('t-rn-WATCH',rn.watch);
+  fillRn('t-rn-EXPIRED',rn.expired);
 }
 
 /* ═══ AI ═══ */
