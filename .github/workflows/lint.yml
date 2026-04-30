@@ -194,9 +194,18 @@ jobs:
           chmod +x scanner/tests/test_*.sh
           for sh in scanner/tests/test_*.sh; do
             name=$(basename "$sh" .sh)
-            kcov --include-pattern=checks.sh,output.sh,"$name".sh \
-              "kcov-out/$name" "$sh" \
-              || echo "WARN: $sh exited non-zero under kcov"
+            # *_tty tests need stdin to be a pty slave so [[ -t 0 ]] returns
+            # true inside the TTY-gated functions they exercise.
+            if [[ "$name" == *_tty ]]; then
+              python3 scanner/tests/pty_run.py \
+                kcov --include-pattern=checks.sh,output.sh,"$name".sh \
+                  "kcov-out/$name" "$sh" \
+                || echo "WARN: $sh exited non-zero under kcov (pty)"
+            else
+              kcov --include-pattern=checks.sh,output.sh,"$name".sh \
+                "kcov-out/$name" "$sh" \
+                || echo "WARN: $sh exited non-zero under kcov"
+            fi
           done
           kcov --merge kcov-out/merged kcov-out/*/
       - name: Print bash coverage summary
