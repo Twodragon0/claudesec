@@ -1,8 +1,34 @@
 title: ClaudeSec
-description: DevSecOps toolkit for AI-assisted secure development
+description: >-
+  AI 보조 보안 개발 도구킷 — 보안 스캐너 · ISMS-P PDCA 대시보드 · 자산 관리 ·
+  컴플라이언스 자동화. DevSecOps toolkit for AI-assisted secure development.
 theme: jekyll-theme-minimal
 baseurl: /claudesec
 url: https://twodragon0.github.io
+lang: ko-KR
+
+# ─── Jekyll SEO Tag defaults (SNS link-share preview) ──────────────────────
+# Reference: https://github.com/jekyll/jekyll-seo-tag/blob/master/docs/usage.md
+# These keys feed Open Graph + Twitter Card meta tags consumed by KakaoTalk,
+# Facebook, Slack, LinkedIn, Twitter/X crawlers. og:image MUST resolve to an
+# absolute https URL — relative paths break Kakao previews.
+locale: ko_KR
+image:
+  path: /assets/claudesec-logo.png
+  height: 768
+  width: 1376
+  alt: ClaudeSec DevSecOps logo
+twitter:
+  card: summary_large_image
+social:
+  name: ClaudeSec
+  links:
+    - https://github.com/Twodragon0/claudesec
+    - https://www.npmjs.com/package/claudesec
+
+# Plugins (auto-enabled on github-pages, listed for clarity + local builds)
+plugins:
+  - jekyll-seo-tag
 
 nav:
   - title: Getting Started

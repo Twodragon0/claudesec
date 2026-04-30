@@ -1,8 +1,13 @@
 ---
 layout: default
-title: Home
-description: ClaudeSec documentation — DevSecOps toolkit for AI-assisted secure development
-tags: [claudesec, devsecops, security, documentation]
+title: ClaudeSec — DevSecOps 통합 보안 대시보드
+description: AI 보조 보안 개발 도구킷. 보안 스캐너 · ISMS-P PDCA 대시보드 · 자산 관리 · 컴플라이언스 자동화. KakaoTalk·Slack·SNS 링크 공유 미리보기 지원.
+tags: [claudesec, devsecops, security, isms-p, pdca, dashboard, documentation]
+image:
+  path: /assets/claudesec-logo.png
+  height: 768
+  width: 1376
+  alt: ClaudeSec DevSecOps 통합 보안 대시보드 로고
 ---
 
 # ClaudeSec Documentation
