@@ -4,10 +4,39 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="generator" content="ClaudeSec v{{VERSION}}">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none';">
+
+<!-- ─── Page identity (SNS preview fallbacks) ─── -->
+<title>ClaudeSec — DevSecOps PDCA 보안 대시보드</title>
+<meta name="description" content="ISMS-P 기반 PDCA 보안 운영 대시보드. 스캐너·자산·컴플라이언스·DevSecOps 파이프라인 통합 뷰.">
+<link rel="canonical" href="https://twodragon0.github.io/claudesec/claudesec-dashboard.html">
+
+<!-- ─── Open Graph (KakaoTalk · Facebook · LinkedIn · Slack 우선) ─── -->
+<!-- Kakao crawler reads og:* tags from the first ~30KB of <head>. Keep absolute URLs. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ClaudeSec">
+<meta property="og:locale" content="ko_KR">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:url" content="https://twodragon0.github.io/claudesec/claudesec-dashboard.html">
+<meta property="og:title" content="ClaudeSec — DevSecOps PDCA 보안 대시보드">
+<meta property="og:description" content="ISMS-P 기반 PDCA 보안 운영 대시보드. 스캐너·자산·컴플라이언스·DevSecOps 파이프라인 통합 뷰.">
+<meta property="og:image" content="https://twodragon0.github.io/claudesec/assets/claudesec-logo.png">
+<meta property="og:image:secure_url" content="https://twodragon0.github.io/claudesec/assets/claudesec-logo.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1376">
+<meta property="og:image:height" content="768">
+<meta property="og:image:alt" content="ClaudeSec DevSecOps 로고">
+
+<!-- ─── Twitter Card ─── -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ClaudeSec — DevSecOps PDCA 보안 대시보드">
+<meta name="twitter:description" content="ISMS-P 기반 PDCA 보안 운영 대시보드. 스캐너·자산·컴플라이언스·DevSecOps 파이프라인 통합 뷰.">
+<meta name="twitter:image" content="https://twodragon0.github.io/claudesec/assets/claudesec-logo.png">
+<meta name="twitter:image:alt" content="ClaudeSec DevSecOps 로고">
+
+<!-- ─── Browser chrome + security policy ─── -->
 <meta name="theme-color" content="#0f172a">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<title>ClaudeSec DevSecOps Dashboard</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none';">
 <style>
 :root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--accent-glow:rgba(56,189,248,.15);--success:#22c55e;--danger:#ef4444;--warning:#eab308;--radius:12px;--transition:.2s cubic-bezier(.4,0,.2,1);--shadow-sm:0 1px 3px rgba(0,0,0,.3);--shadow-md:0 4px 12px rgba(0,0,0,.4);--shadow-lg:0 8px 24px rgba(0,0,0,.5)}
 [data-theme="light"]{--bg:#f8fafc;--surface:#ffffff;--border:#e2e8f0;--text:#1e293b;--muted:#64748b;--accent:#0284c7;--shadow-sm:0 1px 2px rgba(0,0,0,.06);--shadow-md:0 4px 6px rgba(0,0,0,.08);--shadow-lg:0 10px 15px rgba(0,0,0,.1)}

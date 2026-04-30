@@ -2,10 +2,40 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+
+<!-- ─── Page identity (SNS preview fallbacks) ─── -->
 <title>ClaudeSec — ISMS 통합 보안 대시보드</title>
+<meta name="description" content="조직 자산·SaaS·라이선스·비용·인증을 ISMS-P 통제 항목과 연계한 통합 보안 자산 대시보드.">
+<link rel="canonical" href="https://twodragon0.github.io/claudesec/claudesec-asset-dashboard.html">
+
+<!-- ─── Open Graph (KakaoTalk · Facebook · LinkedIn · Slack 우선) ─── -->
+<!-- Kakao crawler reads og:* tags from the first ~30KB of <head>. Keep absolute URLs. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ClaudeSec">
+<meta property="og:locale" content="ko_KR">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:url" content="https://twodragon0.github.io/claudesec/claudesec-asset-dashboard.html">
+<meta property="og:title" content="ClaudeSec — ISMS 통합 보안 대시보드">
+<meta property="og:description" content="조직 자산·SaaS·라이선스·비용·인증을 ISMS-P 통제 항목과 연계한 통합 보안 자산 대시보드.">
+<meta property="og:image" content="https://twodragon0.github.io/claudesec/assets/claudesec-logo.png">
+<meta property="og:image:secure_url" content="https://twodragon0.github.io/claudesec/assets/claudesec-logo.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1376">
+<meta property="og:image:height" content="768">
+<meta property="og:image:alt" content="ClaudeSec ISMS 통합 보안 대시보드 로고">
+
+<!-- ─── Twitter Card ─── -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ClaudeSec — ISMS 통합 보안 대시보드">
+<meta name="twitter:description" content="조직 자산·SaaS·라이선스·비용·인증을 ISMS-P 통제 항목과 연계한 통합 보안 자산 대시보드.">
+<meta name="twitter:image" content="https://twodragon0.github.io/claudesec/assets/claudesec-logo.png">
+<meta name="twitter:image:alt" content="ClaudeSec ISMS 통합 보안 대시보드 로고">
+
+<!-- ─── Browser chrome + security policy ─── -->
+<meta name="theme-color" content="#0f1117">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none';">
 <style>
 :root{--bg:#0f1117;--surface:#1a1d27;--surface-alt:#1e2130;--border:#2a2d3a;--text:#e1e4eb;--muted:#8b8fa3;--accent:#6c5ce7;--green:#00b894;--yellow:#fdcb6e;--red:#e17055;--orange:#f39c12;--blue:#0984e3;--cyan:#00cec9;--pink:#fd79a8;--glass:rgba(26,29,39,.72);--glass-border:rgba(108,92,231,.18);--success:var(--green);--danger:var(--red);--warning:var(--yellow);--radius:12px;--transition:.25s cubic-bezier(.4,0,.2,1)}
 [data-theme="light"]{--bg:#f0f2f5;--surface:#ffffff;--surface-alt:#f7f8fa;--border:#e0e3ea;--text:#1a1d27;--muted:#6b7085;--glass:rgba(255,255,255,.72);--glass-border:rgba(108,92,231,.12)}
