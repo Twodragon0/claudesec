@@ -145,3 +145,49 @@ IMAGE_URL=https://twodragon0.github.io/claudesec/assets/claudesec-og-card.png \
 - Open Graph Protocol — <https://ogp.me/>
 - Jekyll SEO Tag — <https://github.com/jekyll/jekyll-seo-tag/blob/master/docs/usage.md>
 - KakaoTalk 공유 메시지 가이드 — <https://developers.kakao.com/docs/latest/ko/message/og-tag>
+
+### 라이트 모드 OG 카드 (`claudesec-og-card-light`)
+
+다크 카드와 동일한 레이아웃(좌 760px 텍스트 컬럼 / 우 440px 마스코트)·콘텐츠를 유지하면서 팔레트만 밝은 배경용으로 전환한 대체 에셋입니다. 기본 OG 이미지(다크 카드)를 교체하지 않으며, 라이트 테마 문서 페이지·프레젠테이션 슬라이드·라이트 스타일 랜딩 페이지에 수동으로 지정할 때만 사용합니다.
+
+| 에셋 | 경로 |
+|------|------|
+| SVG (소스) | `docs/assets/claudesec-og-card-light.svg` |
+| PNG (래스터, 1200×630) | `docs/assets/claudesec-og-card-light.png` |
+
+**라이트 팔레트 요약**
+
+| 역할 | 다크 카드 | 라이트 카드 |
+|------|-----------|------------|
+| 배경 | `#0f172a` (slate-900) | `#f8fafc` (slate-50) |
+| 서피스 / 마스코트 채우기 | `#1e293b` (slate-800) | `#ffffff` |
+| 테두리 / 구분선 | `#334155` (slate-700) | `#e2e8f0` (slate-200) |
+| 기본 텍스트 | `#e2e8f0` (slate-200) | `#0f172a` (slate-900) |
+| 보조 텍스트 | `#94a3b8` (slate-400) | `#64748b` (slate-500) |
+| 액센트 ("Sec", 밑줄, URL) | `#38bdf8` (sky-400) | `#0284c7` (sky-600) |
+
+라이트 배경에서는 sky-400보다 sky-600이 명도 대비(WCAG)를 더 잘 충족하므로 액센트 색상을 한 단계 진하게 적용했습니다.
+
+**사용 시점**
+
+- 흰 배경 Docs 페이지에 삽입하는 인라인 이미지
+- 흰 슬라이드 덱에 포함하는 미리보기 카드
+- 라이트 스타일 랜딩 페이지에서 `front matter`로 OG 이미지를 수동 지정하는 경우
+
+**Jekyll 프론트매터 페이지별 오버라이드**
+
+라이트 카드를 특정 페이지의 OG 이미지로 지정하려면 해당 페이지의 프론트매터에 다음을 추가합니다.
+
+```yaml
+---
+image:
+  path: /assets/claudesec-og-card-light.png
+  width: 1200
+  height: 630
+  alt: ClaudeSec DevSecOps 라이트 모드 OG 카드
+---
+```
+
+**주의 — SNS 크롤러는 사용자 테마를 인식하지 않습니다**
+
+KakaoTalk·Facebook·Twitter/X 등 SNS 크롤러는 `og:image`를 한 번만 수집하고 캐시합니다. 사용자 기기의 다크/라이트 모드와 무관하게 동일한 이미지를 모든 이에게 노출합니다. 전역 기본값은 다크 카드(`docs/_config.yml` → `image.path`)로 유지하고, 라이트 카드는 페이지별 수동 오버라이드로만 사용하세요.
