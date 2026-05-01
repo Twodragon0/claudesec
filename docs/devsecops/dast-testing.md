@@ -82,6 +82,7 @@ docker run --rm ghcr.io/zaproxy/zaproxy:stable \
 ### ZAP 컨텍스트 설정 (인증 필요 엔드포인트)
 
 {% raw %}
+
 ```yaml
 # .zap/context.yaml
 context:
@@ -104,6 +105,7 @@ context:
         username: "${ZAP_TEST_USER}"
         password: "${ZAP_TEST_PASSWORD}"
 ```
+
 {% endraw %}
 
 ---
