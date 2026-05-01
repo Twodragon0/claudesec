@@ -1,0 +1,42 @@
+name: OG Meta Verify
+
+# Runs on PRs that touch any file capable of changing the SNS link-share
+# preview (KakaoTalk · Slack · Facebook · LinkedIn · Twitter/X). Posts a
+# sticky comment with curl-verified og:image headers + deployed meta so
+# reviewers can see what the SNS crawlers will see.
+#
+# This verifies the **currently deployed** Pages state, not the PR's
+# unmerged content — KakaoTalk reads absolute URLs and only the merged
+# main branch is published. The comment makes that explicit.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'docs/_config.yml'
+      - 'docs/index.md'
+      - 'docs/assets/claudesec-og-card.*'
+      - 'docs/assets/claudesec-logo*.png'
+      - 'claudesec-asset-dashboard.html'
+      - 'scanner/lib/dashboard-template.html'
+      - 'scripts/og-meta-verify.sh'
+      - '.github/workflows/og-meta-verify.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Run og-meta-verify and sticky-comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PAGE_URL: https://twodragon0.github.io/claudesec/
+          IMAGE_URL: https://twodragon0.github.io/claudesec/assets/claudesec-og-card.png
+        run: ./scripts/og-meta-verify.sh
