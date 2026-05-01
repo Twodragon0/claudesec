@@ -522,7 +522,28 @@ claudesec/
 | [Compliance Scan Priority](docs/guides/compliance-scan-integration-priority.md) | Prowler, Lynis, tool priorities and frameworks |
 | [Claude Lead Agents](docs/guides/claude-lead-agents-and-best-practices.md) | Multi-agent roles and handoff format |
 | [Legal Intelligence Setup](docs/guides/legal-intel-with-legalize-kr-and-github-repo-mcp.md) | legalize-kr local mirror + GitHub Repo MCP for Korean compliance workflows |
-| [Branding](docs/branding.md) | Logo, colors, and visual identity |
+| [Branding](docs/branding.md) | Logo, colors, visual identity, **SNS link-share preview** (KakaoTalk/FB/Slack/X) |
+
+### Link sharing & SNS preview verification
+
+Open Graph/Twitter meta priority, image requirements per platform, and cache-invalidation
+procedure live in [docs/branding.md § SNS 링크 공유 미리보기](docs/branding.md#sns-링크-공유-미리보기-kakaotalk--slack--facebook--linkedin--twitterx).
+Quick contributor checks before sharing a new URL externally:
+
+```bash
+# 1. og:image reachable + correct content-type
+curl -sI https://twodragon0.github.io/claudesec/assets/claudesec-logo.png \
+  | grep -E '^(HTTP|content-type)'
+
+# 2. Inspect deployed OG/Twitter meta
+curl -s https://twodragon0.github.io/claudesec/ \
+  | grep -E '(og:|twitter:)' | head -20
+
+# 3. Force-refresh platform caches (manual UI step)
+#    KakaoTalk : https://developers.kakao.com/tool/debugger/sharing  → URL → 초기화
+#    Facebook  : https://developers.facebook.com/tools/debug/         → URL → Scrape Again
+#                (Slack and LinkedIn defer to Facebook's OG cache)
+```
 
 ## Templates
 
