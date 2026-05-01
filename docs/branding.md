@@ -121,6 +121,25 @@ OG 메타나 이미지를 변경한 뒤에는 각 SNS 캐시를 명시적으로 
 - [ ] Facebook Sharing Debugger의 **Open Graph Object Debugger** 결과에 `og:image` 정상 등록
 - [ ] (선택) 본인 KakaoTalk 채팅에 URL 전송 후 카드 시각 확인
 
+### 자동 검증 (CI hook)
+
+`docs/_config.yml`, `docs/index.md`, `docs/assets/claudesec-og-card.*`, `docs/assets/claudesec-logo*.png`, `claudesec-asset-dashboard.html`, `scanner/lib/dashboard-template.html` 중 하나라도 변경된 PR은 `OG Meta Verify` 워크플로우(`.github/workflows/og-meta-verify.yml`)가 자동 실행되어 PR 본문에 sticky 코멘트로 다음을 첨부합니다:
+
+- `og:image` URL 200/404 + `content-type` 헤더
+- 배포된 페이지의 `og:*` / `twitter:*` 메타 (현재 main 기준)
+- 페이지가 광고하는 og:image URL이 기대값과 일치하는지 ✅/⚠️
+- 머지 후 캐시 갱신 단축 링크 (KakaoTalk · Facebook 디버거)
+
+⚠️ 이 검증은 **현재 배포된** Pages 상태를 대상으로 하므로, PR이 머지되어 Pages가 재배포되기 전까지는 PR diff 내용이 반영되지 않습니다. 코멘트가 그 점을 명시합니다.
+
+로컬에서 동일 검증 실행:
+
+```bash
+PAGE_URL=https://twodragon0.github.io/claudesec/ \
+IMAGE_URL=https://twodragon0.github.io/claudesec/assets/claudesec-og-card.png \
+  ./scripts/og-meta-verify.sh --no-comment
+```
+
 ### 참고
 
 - Open Graph Protocol — <https://ogp.me/>
