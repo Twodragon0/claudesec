@@ -44,3 +44,85 @@ Aligned with the scanner dashboard and dark-first UI:
 - Use the logo in README, docs, and official communications.
 - Prefer dark backgrounds when showing the logo for contrast.
 - Do not alter logo proportions or add unapproved effects.
+
+## SNS 링크 공유 미리보기 (KakaoTalk · Slack · Facebook · LinkedIn · Twitter/X)
+
+ClaudeSec의 공개 URL을 채팅·SNS에 붙여 넣을 때 large card 형식의 미리보기가 정상 노출되도록 메타태그·이미지·캐시 정책을 정리합니다. KakaoTalk과 Slack/FB/LinkedIn은 동일한 Open Graph 표준을 읽지만 캐시 동작이 서로 달라 별도 무효화 절차가 필요합니다.
+
+### 메타태그 우선순위
+
+크롤러(특히 KakaoTalk)는 `<head>` 상위 ~30KB만 파싱합니다. 따라서 다음 순서를 권장합니다:
+
+1. `charset` / `viewport`
+2. `<title>` + `<meta name="description">` — 텍스트 fallback
+3. `<link rel="canonical">` — 중복 제거
+4. **Open Graph 블록** — `og:type` / `og:site_name` / `og:locale`을 먼저, 이어 `og:url` / `og:title` / `og:description` / `og:image{,:secure_url,:type,:width,:height,:alt}`
+5. **Twitter Card** — `twitter:card=summary_large_image` + `twitter:image` + `twitter:image:alt`
+6. `theme-color`, favicon
+7. CSP (`Content-Security-Policy`)는 가장 마지막 — 크롤러 파싱 순서에 영향을 주지 않도록
+
+### og:image 요건
+
+| 항목 | 값 |
+|------|----|
+| 절대 URL (필수) | `https://twodragon0.github.io/claudesec/assets/claudesec-logo.png` |
+| 권장 크기 | 1200×630 (1.91:1 표준) — 현재 1376×768로 호환 가능 |
+| 최소 크기 (KakaoTalk) | 200×200 (square) 또는 800×400 (rectangle) |
+| 최대 파일 크기 | 5MB (KakaoTalk·Facebook 공통) |
+| 포맷 | PNG / JPG (WebP는 KakaoTalk에서 미지원 사례 있음) |
+| Pages 서빙 경로 | Jekyll safe mode가 `/docs/` 외부를 못 따라가므로 `docs/assets/` 안에 사본 필요 |
+
+### Jekyll 사이트 기본값 (`docs/_config.yml`)
+
+```yaml
+locale: ko_KR
+image:
+  path: /assets/claudesec-logo.png
+  height: 768
+  width: 1376
+  alt: ClaudeSec DevSecOps logo
+twitter:
+  card: summary_large_image
+plugins:
+  - jekyll-seo-tag
+```
+
+### 페이지별 오버라이드 (`docs/index.md` 프론트매터)
+
+```yaml
+---
+title: ClaudeSec — DevSecOps 통합 보안 대시보드
+description: 200자 이내 SNS 친화 카피
+image:
+  path: /assets/claudesec-logo.png
+  width: 1376
+  height: 768
+  alt: 페이지별 alt
+---
+```
+
+### 캐시 무효화 절차
+
+OG 메타나 이미지를 변경한 뒤에는 각 SNS 캐시를 명시적으로 갱신해야 이미 공유한 URL의 미리보기가 새 내용으로 바뀝니다.
+
+| 플랫폼 | 도구 | 절차 |
+|--------|------|------|
+| KakaoTalk | [Kakao 공유 디버거](https://developers.kakao.com/tool/debugger/sharing) | 카카오 로그인 → URL 입력 → **확인** → **초기화** 클릭 |
+| Facebook · Slack · LinkedIn | [Facebook Sharing Debugger](https://developers.facebook.com/tools/debug/) | URL 입력 → **Scrape Again** 클릭 (Slack/LinkedIn은 FB OG 데이터를 신뢰) |
+| Twitter/X | (자동 재크롤) | `cards-dev.twitter.com` 폐쇄됨 — 새 URL을 트윗하면 자동 갱신 |
+
+### 검증 체크리스트
+
+새 페이지 추가나 OG 메타 수정 후:
+
+- [ ] `curl -I <og:image URL>` → `HTTP/2 200` + `content-type: image/png|jpeg`
+- [ ] `curl -s <page URL> | grep -E '(og:|twitter:)' | head -20` 출력 검토
+- [ ] Kakao 공유 디버거에서 large card 미리보기 정상 렌더 확인
+- [ ] Facebook Sharing Debugger의 **Open Graph Object Debugger** 결과에 `og:image` 정상 등록
+- [ ] (선택) 본인 KakaoTalk 채팅에 URL 전송 후 카드 시각 확인
+
+### 참고
+
+- Open Graph Protocol — <https://ogp.me/>
+- Jekyll SEO Tag — <https://github.com/jekyll/jekyll-seo-tag/blob/master/docs/usage.md>
+- KakaoTalk 공유 메시지 가이드 — <https://developers.kakao.com/docs/latest/ko/message/og-tag>
