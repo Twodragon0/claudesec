@@ -14,10 +14,10 @@ lang: ko-KR
 # absolute https URL — relative paths break Kakao previews.
 locale: ko_KR
 image:
-  path: /assets/claudesec-logo.png
-  height: 768
-  width: 1376
-  alt: ClaudeSec DevSecOps logo
+  path: /assets/claudesec-og-card.png
+  height: 630
+  width: 1200
+  alt: ClaudeSec — DevSecOps 통합 보안 대시보드. AI-assisted secure development toolkit.
 twitter:
   card: summary_large_image
 social:

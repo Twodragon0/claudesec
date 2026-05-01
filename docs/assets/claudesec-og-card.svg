@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="ClaudeSec — DevSecOps 통합 보안 대시보드">
+  <title>ClaudeSec — DevSecOps 통합 보안 대시보드</title>
+  <desc>AI-assisted secure development toolkit. Security scanner · ISMS-P PDCA dashboard · compliance automation.</desc>
+
+  <!-- ── Background ── -->
+  <rect width="1200" height="630" fill="#0f172a"/>
+
+  <!-- ── Surface panel (left content area) ── -->
+  <rect x="0" y="0" width="760" height="630" fill="#0f172a"/>
+
+  <!-- ── Right panel surface ── -->
+  <rect x="760" y="0" width="440" height="630" fill="#111827"/>
+
+  <!-- ── Accent top stripe ── -->
+  <rect x="0" y="0" width="1200" height="4" fill="#38bdf8"/>
+
+  <!-- ── Vertical divider ── -->
+  <rect x="760" y="0" width="1" height="630" fill="#334155"/>
+
+  <!-- ── Grid / circuit pattern overlay (subtle) ── -->
+  <defs>
+    <pattern id="grid" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="1"/>
+    </pattern>
+    <!-- Shield clip path for mascot panel -->
+    <clipPath id="rightClip">
+      <rect x="760" y="0" width="440" height="630"/>
+    </clipPath>
+    <!-- Glow filter for accent elements -->
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Soft glow for shield -->
+    <filter id="shieldGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="12" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Grid on left panel -->
+  <rect x="0" y="0" width="760" height="630" fill="url(#grid)" opacity="0.4"/>
+
+  <!-- ── Shield badge (large background motif, left area) ── -->
+  <!-- Big decorative shield behind text - very subtle -->
+  <path d="M80 80 L80 300 Q80 380 160 420 L200 440 L240 420 Q320 380 320 300 L320 80 Z"
+        fill="none" stroke="#1e293b" stroke-width="2" opacity="0.8"/>
+  <!-- Lock icon inside shield motif -->
+  <rect x="148" y="210" width="56" height="46" rx="8" fill="none" stroke="#1e293b" stroke-width="2" opacity="0.6"/>
+  <path d="M160 210 v-10 c0-11 9-20 20-20 s20 9 20 20 v10" fill="none" stroke="#1e293b" stroke-width="2" opacity="0.6"/>
+
+  <!-- ── Accent horizontal rule under wordmark ── -->
+  <!-- placed after text section so z-order is correct, see below -->
+
+  <!-- ── LEFT CONTENT: Wordmark + taglines ── -->
+
+  <!-- "ClaudeSec" wordmark -->
+  <text x="80" y="230"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+        font-size="88"
+        font-weight="700"
+        letter-spacing="-2"
+        fill="#e2e8f0">
+    <tspan fill="#e2e8f0">Claude</tspan><tspan fill="#38bdf8">Sec</tspan>
+  </text>
+
+  <!-- Accent underline below wordmark -->
+  <rect x="80" y="248" width="520" height="3" fill="#38bdf8" filter="url(#glow)"/>
+
+  <!-- Primary tagline (Korean) -->
+  <text x="80" y="320"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+        font-size="36"
+        font-weight="600"
+        fill="#e2e8f0"
+        letter-spacing="0.5">DevSecOps 통합 보안 대시보드</text>
+
+  <!-- Secondary tagline (English) -->
+  <text x="80" y="368"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+        font-size="22"
+        font-weight="400"
+        fill="#94a3b8"
+        letter-spacing="0.3">AI-assisted secure development</text>
+
+  <!-- ── Feature pills / badges ── -->
+  <!-- Pill 1: Security Scanner -->
+  <rect x="80" y="420" width="180" height="36" rx="18" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="170" y="443" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+        font-size="14" font-weight="500" fill="#94a3b8">보안 스캐너</text>
+
+  <!-- Pill 2: ISMS-P PDCA -->
+  <rect x="274" y="420" width="160" height="36" rx="18" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="354" y="443" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+        font-size="14" font-weight="500" fill="#94a3b8">ISMS-P PDCA</text>
+
+  <!-- Pill 3: Compliance -->
+  <rect x="448" y="420" width="150" height="36" rx="18" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="523" y="443" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+        font-size="14" font-weight="500" fill="#94a3b8">컴플라이언스</text>
+
+  <!-- ── GitHub URL at bottom ── -->
+  <text x="80" y="565"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+        font-size="18"
+        font-weight="400"
+        fill="#38bdf8"
+        opacity="0.8">github.com/Twodragon0/claudesec</text>
+
+  <!-- Accent dot before URL -->
+  <circle cx="58" cy="558" r="5" fill="#38bdf8" opacity="0.8"/>
+
+  <!-- ── RIGHT PANEL: Mascot ── -->
+  <!-- Background glow behind mascot -->
+  <ellipse cx="980" cy="315" rx="160" ry="180" fill="#38bdf8" opacity="0.04" clip-path="url(#rightClip)"/>
+
+  <!-- Mascot SVG embedded, scaled and positioned to right panel center -->
+  <!-- Original mascot viewBox="0 0 640 640", we place it at scale ~0.52, centered in right panel -->
+  <!-- Right panel: x=760..1200, center x=980, center y=315 -->
+  <!-- Scale 0.52 → 640*0.52=332 wide, 332 tall. Offset: x=980-166=814, y=315-166=149 -->
+  <g transform="translate(814, 130) scale(0.52)" clip-path="url(#rightClip)">
+    <!-- Mascot body -->
+    <path d="M215 505c-36-39-58-92-58-150 0-110 90-199 201-199 112 0 203 89 203 199 0 59-22 112-59 151-44 46-101 74-165 74-63 0-121-27-162-75z"
+          fill="#1e293b" stroke="#334155" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Hoodie -->
+    <path d="M213 500c38 42 92 68 152 68 61 0 116-26 155-69-18-24-38-44-63-60-28-18-60-28-95-28s-68 10-96 28c-24 16-40 36-53 61z"
+          fill="#0f172a" stroke="#334155" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Hoodie accent stripe -->
+    <path d="M262 516c30-29 66-45 105-45 39 0 74 16 104 45" fill="none"
+          stroke="#38bdf8" stroke-width="12" stroke-linecap="round"/>
+    <!-- Face -->
+    <ellipse cx="318" cy="302" rx="86" ry="70" fill="#1e293b" stroke="#334155" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Mouth -->
+    <path d="M258 305c14 20 35 32 60 32 26 0 48-13 62-34" fill="none"
+          stroke="#334155" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Eyes -->
+    <circle cx="290" cy="292" r="9" fill="#e2e8f0"/>
+    <circle cx="343" cy="292" r="9" fill="#e2e8f0"/>
+    <!-- Scales / crown motif -->
+    <path d="M265 250l20-18 24 14 18-20 26 16 18-18 22 14" fill="none"
+          stroke="#334155" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Shield body (on mascot's side) -->
+    <path d="M442 348c34 7 56 23 70 44-9 45-41 82-87 96-46-14-78-51-87-96 14-21 36-37 70-44 8-2 16-3 24-3 4 0 7 1 10 3z"
+          fill="#1e293b" stroke="#334155" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Lock body -->
+    <rect x="427" y="398" width="70" height="64" rx="14" fill="#0f172a" stroke="#334155" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Lock shackle -->
+    <path d="M448 398v-10c0-14 11-25 25-25s25 11 25 25v10" fill="none"
+          stroke="#334155" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Lock keyhole dot -->
+    <circle cx="462" cy="432" r="7" fill="#38bdf8"/>
+    <!-- Lock keyhole stem -->
+    <path d="M462 438v16" stroke="#38bdf8" stroke-width="10" stroke-linecap="round"/>
+  </g>
+
+  <!-- ── Bottom accent bar ── -->
+  <rect x="0" y="626" width="1200" height="4" fill="#334155"/>
+
+  <!-- ── Scan line decoration (right panel ambiance) ── -->
+  <line x1="780" y1="30" x2="780" y2="600" stroke="#334155" stroke-width="0.5" opacity="0.5" stroke-dasharray="4 8"/>
+  <line x1="820" y1="30" x2="820" y2="600" stroke="#334155" stroke-width="0.5" opacity="0.3" stroke-dasharray="4 8"/>
+
+  <!-- ── Corner accent (top-right) ── -->
+  <path d="M1160 0 L1200 0 L1200 40" fill="none" stroke="#38bdf8" stroke-width="2" opacity="0.6"/>
+  <!-- Top-left corner accent -->
+  <path d="M40 0 L0 0 L0 40" fill="none" stroke="#38bdf8" stroke-width="2" opacity="0.6"/>
+</svg>
