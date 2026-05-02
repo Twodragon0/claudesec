@@ -1,0 +1,50 @@
+name: Lighthouse SEO & Accessibility Gate
+
+# Audits the live GitHub Pages URL for SEO and Accessibility regressions.
+#
+# Pages is always served from the merged main branch — unmerged PR content
+# is never published. Running against the live URL on PRs mirrors the same
+# model used by og-meta-verify.yml and catches regressions in the
+# currently-deployed baseline rather than speculative future state.
+#
+# Thresholds (tune in lighthouserc.json):
+#   SEO           >= 0.90
+#   Accessibility >= 0.90
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  schedule:
+    # Daily at 06:00 UTC — catches regressions from upstream changes
+    - cron: '0 6 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  lighthouse:
+    name: Lighthouse audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Run Lighthouse CI
+        uses: treosh/lighthouse-ci-action@3e7e23fb74242897f95c0ba9cabad3d0227b9b18  # v12.6.2
+        with:
+          urls: |
+            https://twodragon0.github.io/claudesec/
+          configPath: lighthouserc.json
+          uploadArtifacts: false   # handled by the explicit upload step below
+          temporaryPublicStorage: false
+
+      - name: Upload Lighthouse report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: lighthouse-report-${{ github.run_id }}
+          path: .lighthouseci/
+          retention-days: 14
+          if-no-files-found: ignore
