@@ -1,0 +1,57 @@
+<!--
+  Accessibility overrides for jekyll-theme-minimal.
+  Addresses Lighthouse a11y failures on the live Pages homepage:
+    - color-contrast            (WCAG 1.4.3 AA)
+    - link-in-text-block        (WCAG 1.4.1 AA)
+    - target-size               (WCAG 2.5.8 AA)
+  Loaded after the theme's style.css so these rules win the cascade.
+-->
+<style>
+  /* color-contrast: theme uses #666 on white (~5.7:1, fails for small text near images);
+     darken body text and headings to comfortably exceed 7:1 for AAA-grade contrast. */
+  body, .wrapper, section, p, li, td, th, dt, dd, blockquote {
+    color: #1f2937;
+  }
+  header h1 a, header h1 a:visited,
+  section h1, section h2, section h3, section h4, section h5, section h6 {
+    color: #0f172a;
+  }
+  header p, header p small {
+    color: #1f2937;
+  }
+  /* Code / muted text need explicit darker tone; the theme's default gray fails AA. */
+  code, pre, kbd, samp, .highlight, .language-bash, .language-plaintext {
+    color: #0f172a;
+  }
+
+  /* link-in-text-block: in-content links must be visually distinct from surrounding
+     text without relying on color alone — add an underline. */
+  section a,
+  section a:visited {
+    color: #1d4ed8;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  section a:hover,
+  section a:focus-visible {
+    color: #1e3a8a;
+    text-decoration-thickness: 2px;
+  }
+  /* Visible focus ring for keyboard users. */
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid #1d4ed8;
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* target-size: inline links and list-item links should give at least 24x24px
+     touch area (WCAG 2.5.8 AA minimum). Lists inside the page often render
+     as compact rows that fail this rule. */
+  section li a,
+  section td a,
+  header .view a {
+    display: inline-block;
+    min-height: 24px;
+    padding: 2px 0;
+  }
+</style>
