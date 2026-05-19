@@ -18,6 +18,9 @@ __pycache__/
 .venv*/
 venv*/
 test-reports/
+.coverage
+.coverage.*
+htmlcov/
 
 # Environment & Secrets
 .env
