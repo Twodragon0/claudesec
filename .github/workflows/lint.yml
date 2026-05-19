@@ -22,7 +22,7 @@ jobs:
       - name: Dependency Review
         # NOTE: actions/dependency-review-action v4.9.0 (SHA 2031cfc) still uses node20.
         # Monitor upstream for a node24 release and upgrade when available.
-        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48  # v4.9.0
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
         with:
           fail-on-severity: high
           deny-licenses: GPL-3.0, AGPL-3.0
@@ -129,7 +129,7 @@ jobs:
           exit 0
       - name: Publish scanner unittest report
         if: always()
-        uses: mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386  # v6.4.0
+        uses: mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d  # v6.4.1
         with:
           report_paths: 'test-reports/*.xml'
           fail_on_failure: false
@@ -144,7 +144,7 @@ jobs:
           if-no-files-found: ignore
       - name: Upload coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v6.0.0
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354  # v6.0.1
         continue-on-error: true
         with:
           files: test-reports/coverage.xml
@@ -442,7 +442,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Lint Markdown
-        uses: DavidAnson/markdownlint-cli2-action@ce4853d43830c74c1753b39f3cf40f71c2031eb9  # v23
+        uses: DavidAnson/markdownlint-cli2-action@ded1f9488f68a970bc66ea5619e13e9b52e601cd  # v23
         with:
           globs: |
             **/*.md
