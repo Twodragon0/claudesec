@@ -47,6 +47,8 @@ jobs:
           python-version: '3.11'
       - name: Install pip-audit and project dependencies
         run: |
+          # Upgrade pip first to clear CVE-2026-6357 (fix in pip 26.1)
+          python3 -m pip install --upgrade 'pip>=26.1'
           python3 -m pip install --upgrade pip-audit
           python3 -m pip install -r requirements-ci.txt
       - name: Run pip-audit
