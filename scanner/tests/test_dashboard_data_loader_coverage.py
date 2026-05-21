@@ -366,7 +366,7 @@ class TestLoadNetworkToolResultsDefusedxmlFallback(unittest.TestCase):
     _NMAP_XML = """\
 <?xml version="1.0"?>
 <nmaprun scanner="nmap">
-  <host><address addr="10.0.0.1" addrtype="ipv4"/>
+  <host><address addr="192.0.2.1" addrtype="ipv4"/>
     <ports>
       <port protocol="tcp" portid="22">
         <state state="open"/>
