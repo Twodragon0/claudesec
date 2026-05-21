@@ -1,0 +1,37 @@
+version: "3.9"
+
+# DAST Staging Environment for ZAP Scanning
+# Used by: .github/workflows/dast-baseline.yml
+#
+# Override target app image/port via environment variables:
+#   APP_IMAGE  - Docker image for the target application (default: app:latest)
+#   APP_PORT   - Port the app listens on (default: 8080)
+
+services:
+  app:
+    image: ${APP_IMAGE:-app:latest}
+    ports:
+      - "${APP_PORT:-8080}:${APP_PORT:-8080}"
+    environment:
+      - NODE_ENV=staging
+      - PORT=${APP_PORT:-8080}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:${APP_PORT:-8080}/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - dast-net
+
+  # ZAP rules directory mount point
+  # The .zap/rules.tsv file is loaded by ZAP scan actions
+  zap-config:
+    image: busybox
+    volumes:
+      - ./templates/zap-rules.tsv:/zap/rules.tsv:ro
+    command: ["true"]
+
+networks:
+  dast-net:
+    driver: bridge
