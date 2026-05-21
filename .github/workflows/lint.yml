@@ -20,9 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Dependency Review
-        # NOTE: actions/dependency-review-action v4.9.0 (SHA 2031cfc) still uses node20.
-        # Monitor upstream for a node24 release and upgrade when available.
-        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0 (node24)
         with:
           fail-on-severity: high
           deny-licenses: GPL-3.0, AGPL-3.0
@@ -61,8 +59,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Run ShellCheck (pinned action + pinned engine version)
-        # NOTE: ludeeus/action-shellcheck@00cae500 still uses node20 (deprecated June 2, 2026).
-        # Latest upstream release (2.0.0) has no node24 update yet; upgrade when available.
+        # ludeeus/action-shellcheck@00cae500 is a composite action (no node runtime),
+        # so it is unaffected by the 2026-06-02 node20 deprecation.
         uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38
         env:
           SHELLCHECK_OPTS: -x
@@ -356,13 +354,36 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
-      - name: Run gitleaks
-        # NOTE: gitleaks-action v2.3.9 still uses node20 (deprecated by GitHub June 2, 2026).
-        # Upstream tracking issue: https://github.com/gitleaks/gitleaks-action/issues
-        # Upgrade to node24 version when released by upstream.
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.9
+      # gitleaks/gitleaks-action v2.3.9 (latest) still runs on node20, and the
+      # upstream node24 migration (gitleaks/gitleaks-action#215) was still open
+      # as of 2026-05-19. To stay clear of the 2026-06-02 node20 deprecation we
+      # invoke the gitleaks CLI directly. The local pre-commit gitleaks hook
+      # and GitGuardian still cover the PR-comment path that the action used to
+      # provide.
+      - name: Install gitleaks CLI
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: "8.30.1"
+          # https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_checksums.txt
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          set -euo pipefail
+          curl -fsSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          rm gitleaks.tar.gz
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Run gitleaks
+        # Scans the working tree (matches the previous action's PR/push semantics).
+        # `gitleaks dir` is the v8.20+ replacement for the legacy `detect --no-git`.
+        run: |
+          gitleaks dir . \
+            --config .gitleaks.toml \
+            --redact \
+            --no-banner \
+            --exit-code 1 \
+            --verbose
 
   frontmatter-check:
     runs-on: ubuntu-latest
