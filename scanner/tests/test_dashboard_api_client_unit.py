@@ -618,3 +618,405 @@ def test_fetch_saas_best_practices_drops_archived_sources(monkeypatch):
 
     for src in result["sources"]:
         assert src["archived"] is False, "Archived repos must be excluded"
+
+
+# ===========================================================================
+# Additional error-fallback branch tests — line 215, 231, 251, 256, 270, 273,
+# 324, 354-360, 365-368, 377, 383-389, 391, 394, 396, 414, 421, 468, 553
+# ===========================================================================
+
+
+def test_github_api_json_429_with_numeric_retry_after_uses_header(monkeypatch):
+    """_github_api_json uses Retry-After header value when it is a digit string (line 215)."""
+    # First call: 429 with Retry-After: 3; second call: success
+    fake_headers = MagicMock()
+    fake_headers.get = lambda k, d=None: "3" if k == "Retry-After" else d
+    err_429 = urllib.error.HTTPError(
+        url="https://api.github.com/test",
+        code=429,
+        msg="Too Many Requests",
+        hdrs=fake_headers,
+        fp=None,
+    )
+    payload = {"default_branch": "main"}
+    call_count = [0]
+
+    def side_effect(*args, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            raise err_429
+        return _json_resp(payload)
+
+    sleeps = []
+    with patch("urllib.request.urlopen", side_effect=side_effect), \
+         patch("time.sleep", side_effect=lambda s: sleeps.append(s)):
+        result = dac._github_api_json("https://api.github.com/repos/test/repo", _max_retries=2)
+
+    assert result["default_branch"] == "main"
+    # Retry-After "3" → wait = min(3, 60) = 3
+    assert sleeps[0] == 3
+
+
+def test_github_api_json_zero_retries_raises_last_exc():
+    """_github_api_json with _max_retries=0 raises last_exc sentinel (line 230-231)."""
+    # With _max_retries=0, the for loop never runs, last_exc stays None → hits raise RuntimeError.
+    # But line 229-230 guard: if last_exc is not None raise last_exc, else RuntimeError.
+    # Pass 0 retries to hit RuntimeError on line 231.
+    with pytest.raises(RuntimeError, match="unreachable"):
+        dac._github_api_json("https://api.github.com/repos/test/repo", _max_retries=0)
+
+
+def test_fetch_audit_points_skips_non_dict_root_items():
+    """_fetch_audit_points_from_github skips non-dict items in root list (line 251)."""
+    # Include a non-dict item (a string) alongside a valid dir item
+    root_payload = [
+        "not-a-dict",
+        {"type": "dir", "name": "policies", "html_url": "https://github.com/q/ap/tree/main/policies"},
+    ]
+    sub_payload: list = []
+    responses = iter([_json_resp(root_payload), _json_resp(sub_payload)])
+
+    with patch("urllib.request.urlopen", side_effect=lambda *a, **kw: next(responses)):
+        result = dac._fetch_audit_points_from_github()
+
+    assert result is not None
+    # Only the valid dict dir item should produce a product
+    assert len(result["products"]) == 1
+    assert result["products"][0]["name"] == "policies"
+
+
+def test_fetch_audit_points_skips_readme_md_named_dir():
+    """_fetch_audit_points_from_github skips items named 'README.md' (line 256)."""
+    # A dir item named "README.md" should be skipped
+    root_payload = [
+        {"type": "dir", "name": "README.md", "html_url": "https://github.com/q/ap/tree/main/README.md"},
+        {"type": "dir", "name": "real-product", "html_url": "https://github.com/q/ap/tree/main/real-product"},
+    ]
+    sub_payload: list = []
+    responses = iter([_json_resp(root_payload), _json_resp(sub_payload)])
+
+    with patch("urllib.request.urlopen", side_effect=lambda *a, **kw: next(responses)):
+        result = dac._fetch_audit_points_from_github()
+
+    assert result is not None
+    product_names = [p["name"] for p in result["products"]]
+    assert "README.md" not in product_names
+    assert "real-product" in product_names
+
+
+def test_fetch_audit_points_sub_response_non_list_becomes_empty_files():
+    """_fetch_audit_points_from_github treats non-list sub-response as empty files (line 270)."""
+    root_payload = [
+        {"type": "dir", "name": "policies", "html_url": "https://github.com/q/ap/tree/main/policies"},
+    ]
+    # Sub-request returns a dict instead of a list
+    sub_payload = {"message": "Not Found"}
+    responses = iter([_json_resp(root_payload), _json_resp(sub_payload)])
+
+    with patch("urllib.request.urlopen", side_effect=lambda *a, **kw: next(responses)):
+        result = dac._fetch_audit_points_from_github()
+
+    assert result is not None
+    assert len(result["products"]) == 1
+    assert result["products"][0]["files"] == []
+
+
+def test_fetch_audit_points_skips_non_dict_children():
+    """_fetch_audit_points_from_github skips non-dict items in sub-directory listing (line 273)."""
+    root_payload = [
+        {"type": "dir", "name": "policies", "html_url": "https://github.com/q/ap/tree/main/policies"},
+    ]
+    # Sub-listing contains a non-dict (a string) alongside a valid file entry
+    sub_payload = [
+        "not-a-dict",
+        {"type": "file", "name": "checklist.md", "html_url": "https://github.com/q/ap/blob/main/policies/checklist.md", "download_url": "https://raw.githubusercontent.com/q/ap/main/policies/checklist.md"},
+    ]
+    responses = iter([_json_resp(root_payload), _json_resp(sub_payload)])
+
+    with patch("urllib.request.urlopen", side_effect=lambda *a, **kw: next(responses)):
+        result = dac._fetch_audit_points_from_github()
+
+    assert result is not None
+    assert len(result["products"]) == 1
+    # Only the dict file entry should be collected
+    assert len(result["products"][0]["files"]) == 1
+    assert result["products"][0]["files"][0]["name"] == "checklist.md"
+
+
+def test_fetch_repo_focus_files_returns_empty_when_meta_not_dict():
+    """_fetch_repo_focus_files returns empty result when repo meta is not a dict (line 324)."""
+    # _github_api_json returns a list instead of a dict for repo meta
+    with patch.object(dac, "_github_api_json", return_value=["not", "a", "dict"]):
+        result = dac._fetch_repo_focus_files("test/repo", ["README.md"])
+
+    assert result["repo"] == "test/repo"
+    assert result["files"] == []
+    assert result["default_branch"] == ""
+
+
+def test_fetch_repo_focus_files_focus_path_fetch_error_continues():
+    """_fetch_repo_focus_files skips a focus path when its fetch raises (lines 354-360)."""
+    repo_meta = {"default_branch": "main", "pushed_at": "2026-01-01T00:00:00Z", "archived": False}
+    file_entry = {"type": "file", "name": "README.md", "path": "README.md",
+                  "html_url": "https://github.com/t/r/blob/main/README.md",
+                  "download_url": "https://raw.githubusercontent.com/t/r/main/README.md"}
+    call_count = [0]
+
+    def fake_github_api_json(url):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return repo_meta
+        if call_count[0] == 2:
+            # First focus path raises
+            raise urllib.error.URLError("network error")
+        # Second focus path returns valid file
+        return [file_entry]
+
+    with patch.object(dac, "_github_api_json", side_effect=fake_github_api_json):
+        result = dac._fetch_repo_focus_files("test/repo", ["broken-path", "README.md"])
+
+    # The broken focus path is skipped; the working one produces a file
+    assert len(result["files"]) == 1
+    assert result["files"][0]["name"] == "README.md"
+
+
+def test_fetch_repo_focus_files_payload_is_dict_treated_as_single_entry():
+    """_fetch_repo_focus_files handles dict payload (single file) as single-element list (lines 365-366)."""
+    repo_meta = {"default_branch": "main", "pushed_at": "2026-01-01T00:00:00Z", "archived": False}
+    # Contents endpoint returns a single dict for a file (not a list)
+    single_file = {"type": "file", "name": "README.md", "path": "README.md",
+                   "html_url": "https://github.com/t/r/blob/main/README.md",
+                   "download_url": "https://raw.githubusercontent.com/t/r/main/README.md"}
+    call_count = [0]
+
+    def fake_github_api_json(url):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return repo_meta
+        return single_file  # dict, not list
+
+    with patch.object(dac, "_github_api_json", side_effect=fake_github_api_json):
+        result = dac._fetch_repo_focus_files("test/repo", ["README.md"])
+
+    assert len(result["files"]) == 1
+    assert result["files"][0]["name"] == "README.md"
+
+
+def test_fetch_repo_focus_files_payload_is_non_list_non_dict_skipped():
+    """_fetch_repo_focus_files skips focus path when payload is neither list nor dict (lines 367-368)."""
+    repo_meta = {"default_branch": "main", "pushed_at": "2026-01-01T00:00:00Z", "archived": False}
+    call_count = [0]
+
+    def fake_github_api_json(url):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return repo_meta
+        return "a-string-payload"  # neither list nor dict
+
+    with patch.object(dac, "_github_api_json", side_effect=fake_github_api_json):
+        result = dac._fetch_repo_focus_files("test/repo", ["README.md"])
+
+    assert result["files"] == []
+
+
+def test_fetch_repo_focus_files_dir_entry_with_no_path_skipped():
+    """_fetch_repo_focus_files skips dir entries that have no path field (line 377)."""
+    repo_meta = {"default_branch": "main", "pushed_at": "2026-01-01T00:00:00Z", "archived": False}
+    # Dir entry missing "path"
+    focus_contents = [
+        {"type": "dir", "name": "docs"},  # no "path" key
+    ]
+    call_count = [0]
+
+    def fake_github_api_json(url):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return repo_meta
+        return focus_contents
+
+    with patch.object(dac, "_github_api_json", side_effect=fake_github_api_json):
+        result = dac._fetch_repo_focus_files("test/repo", ["docs"])
+
+    assert result["files"] == []
+
+
+def test_fetch_repo_focus_files_sub_dir_fetch_error_continues():
+    """_fetch_repo_focus_files skips a sub-directory whose fetch raises (lines 383-389)."""
+    repo_meta = {"default_branch": "main", "pushed_at": "2026-01-01T00:00:00Z", "archived": False}
+    focus_contents = [
+        {"type": "dir", "name": "docs", "path": "docs",
+         "html_url": "https://github.com/t/r/tree/main/docs"},
+    ]
+    call_count = [0]
+
+    def fake_github_api_json(url):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return repo_meta
+        if call_count[0] == 2:
+            return focus_contents  # focus path: dir entry
+        # Sub-dir fetch raises
+        raise urllib.error.URLError("network error")
+
+    with patch.object(dac, "_github_api_json", side_effect=fake_github_api_json):
+        result = dac._fetch_repo_focus_files("test/repo", ["docs"])
+
+    assert result["files"] == []
+
+
+def test_fetch_repo_focus_files_sub_dir_children_not_list_skipped():
+    """_fetch_repo_focus_files skips sub-directory when children is not a list (line 391)."""
+    repo_meta = {"default_branch": "main", "pushed_at": "2026-01-01T00:00:00Z", "archived": False}
+    focus_contents = [
+        {"type": "dir", "name": "docs", "path": "docs",
+         "html_url": "https://github.com/t/r/tree/main/docs"},
+    ]
+    call_count = [0]
+
+    def fake_github_api_json(url):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return repo_meta
+        if call_count[0] == 2:
+            return focus_contents
+        return {"message": "not a list"}  # sub-dir returns dict
+
+    with patch.object(dac, "_github_api_json", side_effect=fake_github_api_json):
+        result = dac._fetch_repo_focus_files("test/repo", ["docs"])
+
+    assert result["files"] == []
+
+
+def test_fetch_repo_focus_files_non_dict_child_skipped():
+    """_fetch_repo_focus_files skips non-dict child items in sub-dir listing (line 394)."""
+    repo_meta = {"default_branch": "main", "pushed_at": "2026-01-01T00:00:00Z", "archived": False}
+    focus_contents = [
+        {"type": "dir", "name": "docs", "path": "docs",
+         "html_url": "https://github.com/t/r/tree/main/docs"},
+    ]
+    sub_contents = [
+        "not-a-dict",  # non-dict child
+        {"type": "file", "name": "security.md", "path": "docs/security.md",
+         "html_url": "https://github.com/t/r/blob/main/docs/security.md",
+         "download_url": ""},
+    ]
+    call_count = [0]
+
+    def fake_github_api_json(url):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return repo_meta
+        if call_count[0] == 2:
+            return focus_contents
+        return sub_contents
+
+    with patch.object(dac, "_github_api_json", side_effect=fake_github_api_json):
+        result = dac._fetch_repo_focus_files("test/repo", ["docs"])
+
+    # The string child is skipped; the dict file entry is collected
+    assert len(result["files"]) == 1
+    assert result["files"][0]["name"] == "security.md"
+
+
+def test_fetch_repo_focus_files_non_file_child_skipped():
+    """_fetch_repo_focus_files skips sub-dir child items that are not type 'file' (line 396)."""
+    repo_meta = {"default_branch": "main", "pushed_at": "2026-01-01T00:00:00Z", "archived": False}
+    focus_contents = [
+        {"type": "dir", "name": "docs", "path": "docs",
+         "html_url": "https://github.com/t/r/tree/main/docs"},
+    ]
+    sub_contents = [
+        {"type": "dir", "name": "subdir", "path": "docs/subdir"},  # dir type — skipped
+        {"type": "file", "name": "guide.md", "path": "docs/guide.md",
+         "html_url": "https://github.com/t/r/blob/main/docs/guide.md",
+         "download_url": ""},
+    ]
+    call_count = [0]
+
+    def fake_github_api_json(url):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return repo_meta
+        if call_count[0] == 2:
+            return focus_contents
+        return sub_contents
+
+    with patch.object(dac, "_github_api_json", side_effect=fake_github_api_json):
+        result = dac._fetch_repo_focus_files("test/repo", ["docs"])
+
+    file_names = [f["name"] for f in result["files"]]
+    assert "subdir" not in file_names
+    assert "guide.md" in file_names
+
+
+def test_fetch_microsoft_best_practices_skips_disallowed_trust_level(monkeypatch):
+    """_fetch_microsoft_best_practices_from_github skips sources whose trust_level is not allowed (line 414)."""
+    # Set source filter to "official" — excludes "Government" and "Community"
+    monkeypatch.setenv("CLAUDESEC_MS_SOURCE_FILTER", "official")
+    monkeypatch.delenv("CLAUDESEC_MS_INCLUDE_SCUBAGEAR", raising=False)
+    fake_repo_data = {
+        "repo": "microsoft/SecCon-Framework",
+        "repo_url": "https://github.com/microsoft/SecCon-Framework",
+        "default_branch": "main",
+        "updated_at": "2026-01-01T00:00:00Z",
+        "archived": False,
+        "files": [],
+    }
+    with patch.object(dac, "_fetch_repo_focus_files", return_value=fake_repo_data):
+        result = dac._fetch_microsoft_best_practices_from_github()
+
+    # Only "Microsoft Official" sources should be present; "Government" ones are filtered
+    for src in result["sources"]:
+        assert src["trust_level"] == "Microsoft Official"
+
+
+def test_fetch_microsoft_best_practices_skips_invalid_repo_entry(monkeypatch):
+    """_fetch_microsoft_best_practices_from_github skips sources with non-string repo (line 421)."""
+    monkeypatch.delenv("CLAUDESEC_MS_SOURCE_FILTER", raising=False)
+    monkeypatch.delenv("CLAUDESEC_MS_INCLUDE_SCUBAGEAR", raising=False)
+    # Patch MS_BEST_PRACTICES_REPO_SOURCES with an entry having a bad repo field
+    fake_sources = [
+        {
+            "product": "Test",
+            "repo": 12345,  # not a string
+            "label": "Bad Source",
+            "trust_level": "Microsoft Official",
+            "reason": "test",
+            "focus_paths": ["README.md"],
+        },
+    ]
+    with patch.object(dac, "MS_BEST_PRACTICES_REPO_SOURCES", fake_sources):
+        result = dac._fetch_microsoft_best_practices_from_github()
+
+    assert result["sources"] == []
+
+
+def test_fetch_saas_best_practices_skips_invalid_repo_entry(monkeypatch):
+    """_fetch_saas_best_practices_from_github skips sources with non-string repo (line 468)."""
+    fake_sources = [
+        {
+            "product": "TestSaaS",
+            "repo": None,  # not a string
+            "label": "Bad SaaS Source",
+            "trust_level": "Vendor Official",
+            "reason": "test",
+            "focus_paths": ["README.md"],
+        },
+    ]
+    with patch.object(dac, "SAAS_BEST_PRACTICES_SOURCES", fake_sources):
+        result = dac._fetch_saas_best_practices_from_github()
+
+    assert result["sources"] == []
+
+
+def test_fetch_markdown_preview_plain_text_line_renders_audit_text():
+    """_fetch_markdown_preview wraps plain text lines in bp-audit-text div (line 553)."""
+    # A line that is not a heading and not a bullet
+    md_content = b"This is a plain text paragraph.\n"
+
+    with patch.dict(os.environ, {"CLAUDESEC_DASHBOARD_OFFLINE": "0"}), \
+         patch("urllib.request.urlopen", return_value=_raw_resp(md_content)):
+        result = dac._fetch_markdown_preview("https://raw.githubusercontent.com/test/repo/main/README.md")
+
+    assert 'class="bp-audit-text"' in result
+    assert "This is a plain text paragraph." in result
