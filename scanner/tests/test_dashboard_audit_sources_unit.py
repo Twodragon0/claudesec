@@ -336,3 +336,54 @@ def test_saas_empty_product_slot_is_skipped():
     assert ">QueryPie<" not in html
     assert ">ArgoCD<" not in html
     assert ">IDE<" not in html
+
+
+# ===========================================================================
+# Coverage gap closure: previously-missing branches in dashboard_html_audit_sources
+# (lines 56, 121, 181-184) — see term-missing report 2026-05-22.
+# ===========================================================================
+
+def test_ms_unknown_trust_level_initializes_counts_bucket():
+    """MS source with an unrecognised trust_level lazily seeds its bucket in trust_counts
+    (covers line 56 'trust_counts[level] = 0').
+    """
+    data = {
+        "sources": [_ms_source(trust_level="Vendor Custom")],
+        "source_filter": "all",
+    }
+    html = build_ms_sources_html(data)
+    # Unknown trust level still falls back to the community chip class…
+    assert "trust-community" in html
+    # …and the original label is preserved in the rendered entry.
+    assert "Vendor Custom" in html
+
+
+def test_ms_source_with_more_than_25_files_renders_truncation_notice():
+    """MS source with >25 files renders the '… and N more files' truncation notice
+    (covers line 121).
+    """
+    files = [{"path": f"path/file-{i}.md", "url": f"https://example.com/{i}"} for i in range(28)]
+    data = {
+        "sources": [_ms_source(files=files)],
+        "source_filter": "all",
+    }
+    html = build_ms_sources_html(data)
+    assert "and 3 more files" in html
+
+
+def test_saas_source_with_files_renders_file_rows():
+    """SaaS source carrying file entries renders one bp-audit-item-row per file
+    (covers lines 181-184: url/path resolution and per-file checkbox markup).
+    """
+    files = [
+        {"path": "docs/setup.md", "url": "https://example.com/setup"},
+        {"name": "rules.yaml", "raw_url": "https://example.com/rules"},
+        {},
+    ]
+    data = {"sources": [_saas_source(product="Okta", files=files)]}
+    html = build_saas_sources_html(data)
+    assert "saas-file-checkbox" in html
+    assert "docs/setup.md" in html
+    assert "rules.yaml" in html
+    assert ">file<" in html
+    assert 'href="#"' in html

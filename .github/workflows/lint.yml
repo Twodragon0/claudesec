@@ -106,7 +106,7 @@ jobs:
         run: bash scanner/tests/test_check_network_tls.sh
       - name: Run bash unit tests (cicd/pipeline checks)
         run: bash scanner/tests/test_check_cicd_pipeline.sh
-      - name: Run scanner pytest + coverage gate (>=95%)
+      - name: Run scanner pytest + coverage gate (>=99%)
         id: scanner_tests
         env:
           PYTHONPATH: .
@@ -120,7 +120,7 @@ jobs:
             --cov=scanner/lib \
             --cov-report=term \
             --cov-report=xml:test-reports/coverage.xml \
-            --cov-fail-under=95 \
+            --cov-fail-under=99 \
             -q
           test_exit_code=$?
           echo "test_exit_code=$test_exit_code" >> "$GITHUB_OUTPUT"
