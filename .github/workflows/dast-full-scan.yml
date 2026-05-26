@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: ZAP Full Scan
-        uses: zaproxy/action-full-scan@v0.13.0
+        uses: zaproxy/action-full-scan@3c58388149901b9a03b7718852c5ba889646c27c  # v0.13.0
         id: zap
         continue-on-error: true
         with:
@@ -53,14 +53,14 @@ jobs:
 
       - name: Upload SARIF to GitHub Security
         if: always() && hashFiles('zap_scan.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa  # v4
         with:
           sarif_file: zap_scan.sarif
           category: "DAST"
 
       - name: Notify on Critical Findings
         if: steps.zap.outcome == 'failure'
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
           script: |
             github.rest.issues.create({
