@@ -16,7 +16,13 @@ jobs:
   auto-merge:
     name: Auto-merge Dependabot PR
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
+    # Defense-in-depth: only run when the PR head is a branch in THIS repo,
+    # not a fork. pull_request_target runs with write-scoped GITHUB_TOKEN, so
+    # we refuse to auto-approve/merge anything that didn't originate inside
+    # the repository even if the actor spoofing checks were bypassed.
+    if: >-
+      github.actor == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - name: Fetch Dependabot metadata
