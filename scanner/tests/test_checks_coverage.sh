@@ -222,7 +222,6 @@ cat > "$tmpdir/awssso/config" <<'CFG'
 region = us-east-1
 sso_start_url = https://myorg.awsapps.com/start
 sso_region = us-east-1
-sso_account_id = 123456789012
 sso_role_name = Admin
 
 [profile regular]
