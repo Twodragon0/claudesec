@@ -348,6 +348,21 @@ jobs:
             ! -path './.claudesec-assets/*' ! -path './.claudesec-saas-best-practices/*' \
             -print0 | xargs -0 bash hooks/pii-check.sh
 
+  workflow-fork-guard:
+    # Regression-prevention: every job in a pull_request_target workflow must
+    # carry a head.repo.full_name == github.repository fork-guard (OWASP A08).
+    # The audit script exits 1 on any unguarded job.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.1.0
+        with:
+          python-version: "3.13"
+      - name: Install PyYAML
+        run: pip install --no-deps 'pyyaml>=6.0,<7'
+      - name: Audit pull_request_target workflows for fork-guard
+        run: python3 scripts/check-pull-request-target-guard.py
+
   gitleaks:
     runs-on: ubuntu-latest
     steps:
