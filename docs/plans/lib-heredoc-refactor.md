@@ -73,6 +73,7 @@ Start with `aws_list_profiles` awk (8 lines, single function caller, fixture-tes
 
 1. Create `scanner/lib/_aws_list_profiles.awk` containing the verbatim awk script.
 2. Update `aws_list_profiles()` in `checks.sh`:
+
    ```diff
    - awk '
    -   /^\[/ {
@@ -82,6 +83,7 @@ Start with `aws_list_profiles` awk (8 lines, single function caller, fixture-tes
    - ' "$config_file"
    + awk -f "$(dirname "${BASH_SOURCE[0]}")/_aws_list_profiles.awk" "$config_file"
    ```
+
 3. Run the affected test: `bash scanner/tests/test_checks_helpers.sh`. Must exit 0 with unchanged assertion count.
 4. Stage and commit. Push as standalone PR for review **before** moving to the next block.
 5. Wait for CI scanner-shell-coverage to confirm:
