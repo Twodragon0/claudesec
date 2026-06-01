@@ -66,10 +66,25 @@ jobs:
           fi
           echo "Changed files:"
           echo "$FILES"
-          # Anything outside docs/markdown/cursor/claude rules triggers a real
-          # scan. Inverse of the previous paths-ignore list, plus workflow
-          # files themselves (workflow edits should re-validate the gate).
-          if printf '%s\n' "$FILES" | grep -vE '^(docs/|.*\.md$|\.cursor/|\.claude/|CODEOWNERS$|LICENSE$)' >/dev/null; then
+          # `code=true` when at least one changed file is meaningful runtime
+          # input to the scanner. The classification is:
+          #
+          #   - SAFE-SKIP (do not trigger scan):
+          #       docs/**, **/*.md, .cursor/**, .claude/**, CODEOWNERS, LICENSE,
+          #       .github/workflows/*.yml  (other workflow files cannot change
+          #       scanner/dashboard runtime — see PR #184 incident where editing
+          #       dependabot-auto-merge.yml triggered an unrelated 3m20s scan)
+          #
+          #   - ALWAYS-TRIGGER (force scan revalidation):
+          #       .github/workflows/security-scan.yml  (this workflow itself —
+          #       any change to gating logic must re-run the heavy scan)
+          #
+          #   - REAL CODE (trigger scan):
+          #       scanner/, scripts/, hooks/, Dockerfile, docker-compose*,
+          #       requirements*.txt, etc. — anything outside the safe-skip set.
+          self_edit=$(printf '%s\n' "$FILES" | grep -E '^\.github/workflows/security-scan\.yml$' || true)
+          non_safe=$(printf '%s\n' "$FILES" | grep -vE '^(docs/|.*\.md$|\.cursor/|\.claude/|CODEOWNERS$|LICENSE$|\.github/workflows/[^/]+\.ya?ml$)' || true)
+          if [ -n "$self_edit" ] || [ -n "$non_safe" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
