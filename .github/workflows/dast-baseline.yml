@@ -3,6 +3,13 @@ name: DAST Baseline Scan
 on:
   pull_request:
     branches: [main, develop]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.cursor/**'
+      - '.claude/**'
+      - 'CODEOWNERS'
+      - 'LICENSE'
   workflow_dispatch:
 
 permissions:

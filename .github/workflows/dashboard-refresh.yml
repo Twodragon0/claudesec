@@ -1,12 +1,23 @@
 # Dashboard Auto-Refresh
 # Rebuilds scan report and dashboard HTML on a schedule.
-# Runs daily at 00:00 UTC (09:00 KST) and on manual dispatch.
+#
+# Runs weekly (Sunday 00:00 UTC / 09:00 KST) plus manual dispatch.
+# The daily cadence was lowered to weekly because:
+#   - security-scan.yml already runs on every push to main and once a
+#     week (Mon 09:00 UTC), so the dashboard is regenerated whenever code
+#     actually changes.
+#   - lighthouse.yml audits the live deployed Pages daily and catches
+#     SEO / accessibility regressions from upstream changes on its own.
+#   - Rebuilding the docker image + running the full scanner + Lighthouse
+#     audit cost ~5min of CI per run, so the daily cadence consumed
+#     ~150 min/month of Actions minutes with no incremental signal vs.
+#     the on-push path.
 
 name: Dashboard Refresh
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 0 * * 0'
   workflow_dispatch:
 
 permissions:

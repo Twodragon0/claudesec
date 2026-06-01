@@ -13,8 +13,22 @@ name: Security Scan Gate
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.cursor/**'
+      - '.claude/**'
+      - 'CODEOWNERS'
+      - 'LICENSE'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.cursor/**'
+      - '.claude/**'
+      - 'CODEOWNERS'
+      - 'LICENSE'
   schedule:
     # Every Monday at 09:00 UTC
     - cron: '0 9 * * 1'
