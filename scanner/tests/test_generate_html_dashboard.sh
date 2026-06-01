@@ -4,6 +4,13 @@
 # Run: bash scanner/tests/test_generate_html_dashboard.sh
 set -uo pipefail
 
+# Hermetic offline guard (PR #190): this test calls generate_html_dashboard(),
+# which spawns dashboard-gen.py. Without offline mode that makes live GitHub API
+# calls and can hang for minutes (root cause of the kcov 27min stalls). Force
+# offline here so the test never depends on the network or on the CI job's env,
+# and stays fast everywhere it runs.
+export CLAUDESEC_DASHBOARD_OFFLINE=1
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR_REAL="$SCRIPT_DIR/../lib"
 
