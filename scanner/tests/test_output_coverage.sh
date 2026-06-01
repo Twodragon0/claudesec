@@ -97,7 +97,7 @@ QUIET=""
 FORMAT="text"
 
 # medium severity → YELLOW path (L94)
-fail_med_out="$(fail "CHK-M01" "Medium title" "medium" "some detail" "fix med" "" 2>&1)"
+fail_med_out="$( set +x; fail "CHK-M01" "Medium title" "medium" "some detail" "fix med" "" 2>&1 )"
 assert_contains "fail medium: FAIL marker present"  "$fail_med_out" "FAIL"
 assert_contains "fail medium: id in output"         "$fail_med_out" "CHK-M01"
 assert_contains "fail medium: title in output"      "$fail_med_out" "Medium title"
@@ -107,7 +107,7 @@ assert_contains "fail medium: remediation shown"    "$fail_med_out" "fix med"
 # low severity → DIM path (L95)
 _reset_state
 QUIET=""
-fail_low_out="$(fail "CHK-L01" "Low title" "low" "low detail" "fix low" "/some/file" 2>&1)"
+fail_low_out="$( set +x; fail "CHK-L01" "Low title" "low" "low detail" "fix low" "/some/file" 2>&1 )"
 assert_contains "fail low: FAIL marker present"  "$fail_low_out" "FAIL"
 assert_contains "fail low: id in output"         "$fail_low_out" "CHK-L01"
 assert_contains "fail low: location shown"       "$fail_low_out" "/some/file"
@@ -115,7 +115,7 @@ assert_contains "fail low: location shown"       "$fail_low_out" "/some/file"
 # critical severity → RED path (L93); detail + remediation + no location
 _reset_state
 QUIET=""
-fail_crit_out="$(fail "CHK-C01" "Critical title" "critical" "crit detail" "fix crit" "" 2>&1)"
+fail_crit_out="$( set +x; fail "CHK-C01" "Critical title" "critical" "crit detail" "fix crit" "" 2>&1 )"
 assert_contains "fail critical: FAIL marker"     "$fail_crit_out" "FAIL"
 assert_contains "fail critical: detail shown"    "$fail_crit_out" "crit detail"
 assert_not_contains "fail critical: no location" "$fail_crit_out" "📍"
@@ -123,7 +123,7 @@ assert_not_contains "fail critical: no location" "$fail_crit_out" "📍"
 # Verify empty details/remediation suppression works (L97-L99 branches not taken)
 _reset_state
 QUIET=""
-fail_no_extra_out="$(fail "CHK-H01" "High no extras" "high" "" "" "" 2>&1)"
+fail_no_extra_out="$( set +x; fail "CHK-H01" "High no extras" "high" "" "" "" 2>&1 )"
 assert_contains     "fail high no-extras: FAIL present"         "$fail_no_extra_out" "FAIL"
 assert_not_contains "fail high no-extras: no detail line"       "$fail_no_extra_out" "→"
 assert_not_contains "fail high no-extras: no location line"     "$fail_no_extra_out" "📍"
@@ -268,7 +268,7 @@ OCSF_EOF
 
 OLD_SCAN_DIR="$SCAN_DIR"
 SCAN_DIR="$tmpdir"
-prowler_html="$(_prowler_dashboard_summary 2>/dev/null)"
+prowler_html="$( set +x; _prowler_dashboard_summary 2>/dev/null )"
 
 assert_contains "prowler_summary: table header" "$prowler_html" "<table"
 assert_contains "prowler_summary: aws label"    "$prowler_html" "AWS"
@@ -288,23 +288,23 @@ SCAN_DIR="$OLD_SCAN_DIR"
 echo ""
 echo "=== _prowler_dashboard_summary_provider_label full switch ==="
 
-assert_eq "provider_label: aws"            "AWS"             "$(_prowler_dashboard_summary_provider_label aws)"
-assert_eq "provider_label: kubernetes"     "Kubernetes"      "$(_prowler_dashboard_summary_provider_label kubernetes)"
-assert_eq "provider_label: azure"          "Azure"           "$(_prowler_dashboard_summary_provider_label azure)"
-assert_eq "provider_label: gcp"            "GCP"             "$(_prowler_dashboard_summary_provider_label gcp)"
-assert_eq "provider_label: github"         "GitHub"          "$(_prowler_dashboard_summary_provider_label github)"
-assert_eq "provider_label: googleworkspace" "Google Workspace" "$(_prowler_dashboard_summary_provider_label googleworkspace)"
-assert_eq "provider_label: m365"           "Microsoft 365"   "$(_prowler_dashboard_summary_provider_label m365)"
-assert_eq "provider_label: cloudflare"     "Cloudflare"      "$(_prowler_dashboard_summary_provider_label cloudflare)"
-assert_eq "provider_label: nhn"            "NHN Cloud"       "$(_prowler_dashboard_summary_provider_label nhn)"
-assert_eq "provider_label: iac"            "IaC"             "$(_prowler_dashboard_summary_provider_label iac)"
-assert_eq "provider_label: llm"            "LLM"             "$(_prowler_dashboard_summary_provider_label llm)"
-assert_eq "provider_label: image"          "Container Image" "$(_prowler_dashboard_summary_provider_label image)"
-assert_eq "provider_label: oraclecloud"    "Oracle Cloud"    "$(_prowler_dashboard_summary_provider_label oraclecloud)"
-assert_eq "provider_label: alibabacloud"   "Alibaba Cloud"   "$(_prowler_dashboard_summary_provider_label alibabacloud)"
-assert_eq "provider_label: openstack"      "OpenStack"       "$(_prowler_dashboard_summary_provider_label openstack)"
-assert_eq "provider_label: mongodbatlas"   "MongoDB Atlas"   "$(_prowler_dashboard_summary_provider_label mongodbatlas)"
-assert_eq "provider_label: unknown passthrough" "custom-prov" "$(_prowler_dashboard_summary_provider_label custom-prov)"
+assert_eq "provider_label: aws"            "AWS"             "$( set +x; _prowler_dashboard_summary_provider_label aws )"
+assert_eq "provider_label: kubernetes"     "Kubernetes"      "$( set +x; _prowler_dashboard_summary_provider_label kubernetes )"
+assert_eq "provider_label: azure"          "Azure"           "$( set +x; _prowler_dashboard_summary_provider_label azure )"
+assert_eq "provider_label: gcp"            "GCP"             "$( set +x; _prowler_dashboard_summary_provider_label gcp )"
+assert_eq "provider_label: github"         "GitHub"          "$( set +x; _prowler_dashboard_summary_provider_label github )"
+assert_eq "provider_label: googleworkspace" "Google Workspace" "$( set +x; _prowler_dashboard_summary_provider_label googleworkspace )"
+assert_eq "provider_label: m365"           "Microsoft 365"   "$( set +x; _prowler_dashboard_summary_provider_label m365 )"
+assert_eq "provider_label: cloudflare"     "Cloudflare"      "$( set +x; _prowler_dashboard_summary_provider_label cloudflare )"
+assert_eq "provider_label: nhn"            "NHN Cloud"       "$( set +x; _prowler_dashboard_summary_provider_label nhn )"
+assert_eq "provider_label: iac"            "IaC"             "$( set +x; _prowler_dashboard_summary_provider_label iac )"
+assert_eq "provider_label: llm"            "LLM"             "$( set +x; _prowler_dashboard_summary_provider_label llm )"
+assert_eq "provider_label: image"          "Container Image" "$( set +x; _prowler_dashboard_summary_provider_label image )"
+assert_eq "provider_label: oraclecloud"    "Oracle Cloud"    "$( set +x; _prowler_dashboard_summary_provider_label oraclecloud )"
+assert_eq "provider_label: alibabacloud"   "Alibaba Cloud"   "$( set +x; _prowler_dashboard_summary_provider_label alibabacloud )"
+assert_eq "provider_label: openstack"      "OpenStack"       "$( set +x; _prowler_dashboard_summary_provider_label openstack )"
+assert_eq "provider_label: mongodbatlas"   "MongoDB Atlas"   "$( set +x; _prowler_dashboard_summary_provider_label mongodbatlas )"
+assert_eq "provider_label: unknown passthrough" "custom-prov" "$( set +x; _prowler_dashboard_summary_provider_label custom-prov )"
 
 # ==============================================================================
 # Test Group 6: load_scan_history multi-entry concat (L471 entries="${entries},${content}")
@@ -323,7 +323,7 @@ printf '{"timestamp":"2026-01-01T00:00:00Z","score":70,"passed":7,"failed":3,"wa
 printf '{"timestamp":"2026-01-02T00:00:00Z","score":80,"passed":8,"failed":2,"warnings":0,"skipped":0,"total":10,"critical":0,"high":0,"medium":2,"low":0,"warn":0}\n' \
   > "$hist_base/.claudesec-history/scan-20260102T000000Z.json"
 
-loaded="$(load_scan_history)"
+loaded="$( set +x; load_scan_history )"
 # Must be a valid JSON array with both entries comma-separated (L471 exercises the branch)
 assert_contains "load_scan_history multi: starts with ["  "$loaded" "["
 assert_contains "load_scan_history multi: ends with ]"    "$loaded" "]"
