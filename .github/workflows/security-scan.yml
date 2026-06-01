@@ -13,22 +13,8 @@ name: Security Scan Gate
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - '.cursor/**'
-      - '.claude/**'
-      - 'CODEOWNERS'
-      - 'LICENSE'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - '.cursor/**'
-      - '.claude/**'
-      - 'CODEOWNERS'
-      - 'LICENSE'
   schedule:
     # Every Monday at 09:00 UTC
     - cron: '0 9 * * 1'
@@ -42,6 +28,54 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # Job: changes
+  # Detects whether the diff contains anything that could affect the scanner /
+  # dashboard / runtime. Docs-only PRs short-circuit `scan` and `lighthouse`,
+  # while `security-scan-gate` ALWAYS runs so the required-status-check is
+  # still emitted (otherwise paths-ignore at the workflow level would block
+  # branch-protected merges of docs PRs — see #185 incident).
+  # ---------------------------------------------------------------------------
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+      - id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          NULL_SHA: "0000000000000000000000000000000000000000"
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch origin "$BASE_SHA" --depth=1 >/dev/null 2>&1 || true
+            FILES=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA")
+          elif [ -n "${BEFORE_SHA:-}" ] && [ "$BEFORE_SHA" != "$NULL_SHA" ]; then
+            git fetch origin "$BEFORE_SHA" --depth=1 >/dev/null 2>&1 || true
+            FILES=$(git diff --name-only "$BEFORE_SHA"..HEAD 2>/dev/null \
+                    || git diff --name-only HEAD~1..HEAD)
+          else
+            FILES=$(git diff --name-only HEAD~1..HEAD 2>/dev/null || true)
+          fi
+          echo "Changed files:"
+          echo "$FILES"
+          # Anything outside docs/markdown/cursor/claude rules triggers a real
+          # scan. Inverse of the previous paths-ignore list, plus workflow
+          # files themselves (workflow edits should re-validate the gate).
+          if printf '%s\n' "$FILES" | grep -vE '^(docs/|.*\.md$|\.cursor/|\.claude/|CODEOWNERS$|LICENSE$)' >/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
   # Job: scan
   # Builds the claudesec Docker image, executes the full security scan, and
   # generates the HTML dashboard.  Fails the workflow on any CRITICAL finding.
@@ -50,6 +84,8 @@ jobs:
     name: Run Security Scan
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.event_name == 'schedule'
     permissions:
       contents: read
       security-events: write
@@ -159,8 +195,12 @@ jobs:
 
   security-scan-gate:
     name: Security Scan Gate
+    # if: always() ensures this gate emits a status check even when `scan` and
+    # `lighthouse` are skipped because changes.code=false. Branch protection
+    # treats `skipped` as a passing dependency (see Python check below).
     if: always()
     needs:
+      - changes
       - scan
       - lighthouse
     runs-on: ubuntu-latest
