@@ -246,6 +246,20 @@ jobs:
     runs-on: ubuntu-latest
     needs: [changes, scanner-unit-tests]
     if: needs.changes.outputs.scanner == 'true' || github.event_name == 'schedule'
+    env:
+      # Run dashboard generation fully offline under kcov. Without this,
+      # generate_html_dashboard() spawns python3 dashboard-gen.py, which makes
+      # live GitHub API calls (dashboard_data_loader.py gates them on this var).
+      # test_output_coverage.sh alone calls generate_html_dashboard 24 times, so
+      # those network round-trips — amplified by kcov's ptrace tracing of every
+      # subprocess — drove the per-test runtime to the 120s cap with wall-clock
+      # variance of 35s~27min (the variance was network latency, not xtrace; this
+      # is the actual root cause behind the earlier-refuted H2 hypothesis). The
+      # network calls live in python, NOT in checks.sh/output.sh, so they
+      # contribute ZERO to the bash coverage measured here — pure waste. Offline
+      # mode keeps output.sh's python-invocation path identical (exit 0, file
+      # written) so measured bash coverage is unchanged; local: 120s+ -> 3.7s.
+      CLAUDESEC_DASHBOARD_OFFLINE: "1"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Cache kcov v42 binary
