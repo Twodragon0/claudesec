@@ -59,7 +59,32 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Minor updates require manual merge for supply chain security
-      # - name: Auto-merge minor update
-      #   if: steps.metadata.outputs.update-type == 'version-update:semver-minor'
-      #   run: gh pr merge "$PR_URL" --squash --auto
+      # Auto-merge minor updates ONLY for the github_actions ecosystem.
+      # Rationale:
+      #   - github_actions deps are SHA-pinned in workflows, and dependabot
+      #     verifies that the SHA corresponds to the released version. A
+      #     compromised-maintainer scenario would still require the attacker
+      #     to push a tag at a SHA that dependabot then advertises — a much
+      #     higher bar than npm/pip typosquats.
+      #   - npm/pip minor updates pull arbitrary runtime code and remain
+      #     manual-merge for supply chain security.
+      # The fork-guard above (head.repo.full_name == github.repository) plus
+      # branch-protection-required CI together gate this auto-merge.
+      - name: Auto-merge minor update (github_actions only)
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+          && steps.metadata.outputs.package-ecosystem == 'github_actions'
+        run: gh pr merge "$PR_URL" --squash --auto
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on minor update (npm/pip — manual review)
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+          && steps.metadata.outputs.package-ecosystem != 'github_actions'
+        run: |
+          gh pr comment "$PR_URL" --body "ℹ️ Minor version update for \`${{ steps.metadata.outputs.package-ecosystem }}\` ecosystem auto-approved but **not** auto-merged. Supply-chain policy requires manual merge for npm / pip runtime dependencies."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
