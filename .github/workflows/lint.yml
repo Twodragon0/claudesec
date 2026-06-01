@@ -452,9 +452,12 @@ jobs:
   gitleaks:
     runs-on: ubuntu-latest
     steps:
+      # Shallow checkout (default fetch-depth: 1) is sufficient because the
+      # `gitleaks dir` invocation below scans the filesystem only — `gitleaks
+      # dir --help` confirms it takes "[path]" and walks files. The history-
+      # scanning subcommand `gitleaks git` is intentionally not used here;
+      # full history checkout was a leftover from the gitleaks-action era.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          fetch-depth: 0
       # gitleaks/gitleaks-action v2.3.9 (latest) still runs on node20, and the
       # upstream node24 migration (gitleaks/gitleaks-action#215) was still open
       # as of 2026-05-19. To stay clear of the 2026-06-02 node20 deprecation we
