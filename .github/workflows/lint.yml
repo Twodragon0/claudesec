@@ -33,6 +33,7 @@ jobs:
       python_deps: ${{ steps.detect.outputs.python_deps }}
       npm_deps: ${{ steps.detect.outputs.npm_deps }}
       shell: ${{ steps.detect.outputs.shell }}
+      markdown: ${{ steps.detect.outputs.markdown }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -77,6 +78,7 @@ jobs:
             echo "python_deps=$(match '^(requirements.*\.txt|pyproject\.toml|setup\.py)')"
             echo "npm_deps=$(match '^(package(-lock)?\.json|\.nvmrc)')"
             echo "shell=$(match '\.(sh|bash)$')"
+            echo "markdown=$(match '\.md$')"
           } >> "$GITHUB_OUTPUT"
 
   dependency-review:
@@ -413,33 +415,13 @@ jobs:
         run: test -f "$RUNNER_TEMP/claudesec-scan/claudesec-dashboard.html"
       - name: Validate dashboard content
         run: grep -qi "ClaudeSec.*Security" "$RUNNER_TEMP/claudesec-scan/claudesec-dashboard.html"
-      - name: Install Lighthouse CI
-        run: npm install -g @lhci/cli@0.14.x
-      - name: Run Lighthouse accessibility audit
-        run: |
-          cd "$RUNNER_TEMP/claudesec-scan"
-          lhci autorun --collect.staticDistDir=. \
-            --collect.url=claudesec-dashboard.html \
-            --assert.preset=lighthouse:no-pwa \
-            --assert.assertions.categories:accessibility=off \
-            --upload.target=temporary-public-storage || true
-      - name: Check Lighthouse accessibility score
-        run: |
-          cd "$RUNNER_TEMP/claudesec-scan"
-          if [ -d ".lighthouseci" ]; then
-            score=$(node -e "
-              const fs = require('fs');
-              const files = fs.readdirSync('.lighthouseci').filter(f => f.endsWith('.json') && f.startsWith('lhr-'));
-              if (files.length) {
-                const lhr = JSON.parse(fs.readFileSync('.lighthouseci/' + files[0]));
-                console.log(Math.round(lhr.categories.accessibility.score * 100));
-              } else { console.log(0); }
-            ")
-            echo "Accessibility score: $score"
-            if [ "$score" -lt 90 ]; then
-              echo "::warning::Lighthouse accessibility score $score is below 90"
-            fi
-          fi
+      # Lighthouse audit removed: security-scan.yml::lighthouse already runs
+      # the same audit against the same generated dashboard, and
+      # lighthouse.yml audits the live deployed Pages. The previous lhci run
+      # here was informational only (`--assert.assertions.categories:accessibility=off`
+      # disabled the gate, and the trailing score check emitted ::warning::
+      # rather than failing), so dropping it removes ~30s of npm install +
+      # headless Chrome boot per Lint run without losing signal.
 
   pii-check:
     runs-on: ubuntu-latest
@@ -509,14 +491,19 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Check YAML frontmatter in docs
+        # Uses find -print0 + while-read with process substitution to avoid
+        # the shellcheck SC2044 fragile-for-loop pattern. Process substitution
+        # keeps the while loop in the parent shell so `failed=1` propagates
+        # (a pipeline `find | while read` would put the loop in a subshell
+        # and lose the flag).
         run: |
           failed=0
-          for f in $(find docs -name '*.md' -not -path '*/node_modules/*'); do
+          while IFS= read -r -d '' f; do
             if ! head -1 "$f" | grep -q '^---$'; then
               echo "::error file=$f::Missing YAML frontmatter"
               failed=1
             fi
-          done
+          done < <(find docs -name '*.md' -not -path '*/node_modules/*' -print0)
           if [ "$failed" -eq 1 ]; then
             echo "::error::Some docs files are missing YAML frontmatter (title, description, tags)"
             exit 1
@@ -592,7 +579,13 @@ jobs:
             !.claude/**
 
   link-check:
+    # lychee scans *.md link validity. If no markdown changed, nothing new
+    # to verify — gate on the `markdown` bucket so docs-untouched PRs skip
+    # the external HTTP fetches entirely. Scheduled runs always execute so
+    # link rot from external URLs is still caught on a cadence.
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.markdown == 'true' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Check links
