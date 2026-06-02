@@ -107,6 +107,12 @@ bash scanner/tests/test_check_cicd_pipeline.sh
 - All new scanner checks require a corresponding test in `scanner/tests/`.
 - All Markdown must pass `markdownlint`.
 - Links validated with `lychee "**/*.md"`.
+- **Dashboard tests run offline.** Any test that calls `generate_html_dashboard`
+  must run with `CLAUDESEC_DASHBOARD_OFFLINE=1`, otherwise `dashboard-gen.py`
+  makes live GitHub API calls and the test can hang for minutes (root cause of
+  the kcov 27-min stalls; see PR #190/#191). The three current dashboard tests
+  (`test_output_coverage.sh`, `test_generate_html_dashboard.sh`,
+  `test_output_functions.sh`) self-export it; set the same in any new one.
 
 ### Conventions
 

@@ -53,6 +53,11 @@ Token budget: prefer haiku subagents for read-only exploration. Use `run_in_back
 - Autocompact at 70%: run `/compact` manually at logical milestones for better quality
 - When compacting, always preserve the full list of modified files and test commands
 
+## Local Testing
+
+- Run scanner shell tests directly: `bash scanner/tests/test_<name>.sh`.
+- **Set `CLAUDESEC_DASHBOARD_OFFLINE=1`** for any test that calls `generate_html_dashboard`. Without it, `dashboard-gen.py` makes live GitHub API calls and the test can hang for minutes. The kcov coverage job sets this at the job level and the three current dashboard tests also self-export it (PR #190/#191).
+
 ## Quality Gates
 
 - All Markdown must pass markdownlint
