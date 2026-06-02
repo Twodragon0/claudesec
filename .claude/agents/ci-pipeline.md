@@ -1,4 +1,7 @@
 ---
+name: ci-pipeline
+description: Manages ClaudeSec CI/CD — GitHub Actions workflows, security-scan integration, quality gates, and automation scripts. Use for changes under .github/workflows/ or scripts/, or when debugging CI failures, kcov/coverage gates, and Dependabot / action-version conflicts.
+tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
 ---
 
