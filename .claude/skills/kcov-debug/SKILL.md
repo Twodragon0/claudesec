@@ -16,7 +16,7 @@ as of PR #193 (2026-06) — re-read the workflow before quoting a threshold.
 | Gate | Job | Tool | Floor | Path |
 |------|-----|------|-------|------|
 | Python | `scanner-unit-tests` | pytest + coverage | **99%** (`scanner/lib`) | `test-reports/coverage.xml` |
-| Bash | `scanner-shell-coverage` | kcov v42 | **90%** | `kcov-out/merged/**/coverage.json` |
+| Bash | `scanner-shell-coverage` | kcov v42 | **90%** | `kcov-out/merged/` (JSON located via `find`, path unstable — see §2) |
 
 These are separate. A red "coverage" check is one or the other — read the job name first.
 
@@ -47,8 +47,9 @@ alone calls `generate_html_dashboard` 24 times → 24× network round-trips. The
 "xtrace/ptrace overhead" hypothesis was wrong.
 
 **Fix**: export `CLAUDESEC_DASHBOARD_OFFLINE=1`.
-- CI: set at the **job level** in `lint.yml` (both `scanner-unit-tests` and
-  `scanner-shell-coverage` `env:` blocks already do this).
+- CI: `scanner-shell-coverage` sets it at the **job level** (`lint.yml` job `env:`);
+  `scanner-unit-tests` sets it on the **pytest step** only — its earlier bash
+  steps don't call `generate_html_dashboard`, so they don't need it.
 - New tests: self-export it too, belt-and-suspenders.
 - Local repro: `CLAUDESEC_DASHBOARD_OFFLINE=1 bash scanner/tests/test_output_coverage.sh`
   drops from 120s+ → ~3.7s. Offline output is byte-identical for coverage purposes,
