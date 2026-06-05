@@ -671,11 +671,14 @@ jobs:
             --timeout 20
             '**/*.md'
           fail: true
-          # Pin to v0.23.0 — lychee-v0.24.0 (2026-04-24) changed release asset
-          # naming from `lychee-<triple>.tar.gz` to `lychee-lychee-v0.24.0-<triple>.tar.gz`,
-          # which the pinned lychee-action SHA can't resolve (404). Revisit
-          # once a newer lychee-action understands the new naming scheme.
-          lycheeVersion: v0.23.0
+          # lychee-v0.24.0 (2026-04-24) had a one-off release-asset naming
+          # regression (`lychee-lychee-v0.24.0-<triple>.tar.gz`) that the pinned
+          # lychee-action SHA could not resolve (404). It was reverted the same
+          # day in v0.24.1, and v0.24.2 (2026-05-01) uses the original flat
+          # `lychee-<triple>.tar.gz` naming, which the pinned action resolves
+          # correctly — so no action-SHA change is required. (Was pinned to
+          # v0.23.0 for the v0.24.0-only break.)
+          lycheeVersion: v0.24.2
 
   lint-gate:
     name: Lint
