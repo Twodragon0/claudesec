@@ -96,6 +96,8 @@ Also: Ubuntu's apt kcov (v38 on Jammy) is broken for sourced files. The job buil
 
 The floor is a **one-way ratchet** — it only moves up, and only with observed headroom.
 Lineage: 50%(#123) → 65%(#124) → 85% → **90%** (#171/#173/#174 lifted SUT 91.19%→92.36%).
+Observed baseline drifts: as of 2026-06 a green `main` run measured **91.74%**, i.e.
+~1.7pp headroom over the 90% floor — re-read the run log, don't assume the peak.
 
 - **Real regression**: a change removed exercised lib lines or added unexercised ones.
   Add/extend a `scanner/tests/test_*.sh` fixture that drives the new `lib/` code, then

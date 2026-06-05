@@ -54,8 +54,19 @@ tail -n 50 ~/.twodragon0-runtime/logs/hourly-opencode-git-pull.log
 - Keep pull mode as `--ff-only` to avoid accidental merge commits.
 - Keep logs and scan artifacts for audit and trend analysis.
 
+## Troubleshooting
+
+When an hourly run's scanner or coverage step fails, hangs, or reports missing/zero
+coverage, use the `kcov-debug` skill (`.claude/skills/kcov-debug/SKILL.md`) — a
+symptom → diagnosis → fix decision tree for the `scanner-shell-coverage` (kcov) and
+`scanner-unit-tests` (pytest) gates. Most common cause of a hung run is a missing
+`CLAUDESEC_DASHBOARD_OFFLINE=1` guard (un-gated GitHub API calls); set it for any test
+that calls `generate_html_dashboard`.
+
 ## References
 
+- `kcov-debug` skill: `.claude/skills/kcov-debug/SKILL.md` (coverage-gate debugging playbook)
+- CI coverage history: [`docs/guides/ci-coverage-journey.md`](./ci-coverage-journey.md)
 - OWASP SAMM: [https://owaspsamm.org/](https://owaspsamm.org/)
 - NIST SP 800-92 (Guide to Computer Security Log Management): [https://csrc.nist.gov/publications/detail/sp/800-92/final](https://csrc.nist.gov/publications/detail/sp/800-92/final)
 - CIS Controls v8: [https://www.cisecurity.org/controls/v8](https://www.cisecurity.org/controls/v8)
