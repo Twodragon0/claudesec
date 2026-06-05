@@ -695,6 +695,7 @@ jobs:
       - docker-dashboard-smoke
       - markdown-lint
       - link-check
+      - workflow-fork-guard
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate lint workflow results

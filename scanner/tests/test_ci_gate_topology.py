@@ -36,12 +36,11 @@ LINT_YML = WORKFLOW_DIR / "lint.yml"
 # exists to police.
 #
 # - lint-gate: the aggregator itself (cannot depend on itself).
-# - workflow-fork-guard: a standalone pull_request_target fork-guard audit. NOTE:
-#   it is currently neither in lint-gate.needs nor a required status check, so a
-#   red result does not block merges. This is flagged for review (see the PR that
-#   added this test); if it should gate merges, add it to lint-gate.needs and
-#   delete it from this allowlist.
-UNGATED_JOBS_ALLOWLIST = {"lint-gate", "workflow-fork-guard"}
+#
+# (workflow-fork-guard was previously allowlisted, but is now wired into
+# lint-gate.needs so its OWASP A08 fork-guard audit is merge-blocking — it is
+# therefore correctly NO LONGER allowlisted.)
+UNGATED_JOBS_ALLOWLIST = {"lint-gate"}
 
 
 def _strip_comment(line: str) -> str:
