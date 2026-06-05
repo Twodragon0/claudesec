@@ -33,9 +33,35 @@ When creating PRs:
 - `refactor/` - Code refactoring
 - `docs/` - Documentation changes
 
-## [CUSTOMIZE] Project-Specific Git Rules
+## ClaudeSec-Specific Git Rules
 
-Add your project-specific git workflow here:
-- Branch protection rules
-- Required reviewers
-- CI/CD requirements
+### Branch protection
+
+- **Never push to `main`.** A pre-push hook blocks `git push origin main`.
+  Always branch (`docs/`, `fix/`, `feat/`, ...) → open a PR → squash-merge.
+- Use `--delete-branch` on merge to keep the remote clean.
+
+### Pre-PR validation (docs changes)
+
+Run locally before opening a docs PR:
+
+```bash
+markdownlint "**/*.md"
+lychee "**/*.md"
+```
+
+### CI / required checks
+
+- Heavy jobs (scanner, docker, lighthouse) are path-gated by the `Detect changed
+  paths` job; unrelated changes show them as `skipping` — that is not a failure.
+- Use job-level gating with an `always()` aggregator, never workflow-level
+  `paths-ignore`, for any check that is a required status (it would block merges).
+- Single CodeQL model: repository default setup only — do not add a duplicate
+  repo-level CodeQL workflow file.
+- Treat an external action download `401` as transient: rerun the failed
+  workflow up to 2 times before manual triage.
+
+### Dependabot action PRs
+
+For action-version conflicts, apply the required update directly to `main`
+(via PR), then close the duplicate/conflicting Dependabot PR with a rationale.
