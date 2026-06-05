@@ -32,10 +32,35 @@ If security issue found:
 4. Rotate any exposed secrets
 5. Review entire codebase for similar issues
 
-## [CUSTOMIZE] Project-Specific Security
+## ClaudeSec-Specific Security
 
-Add your project-specific security requirements here:
-- Authentication method
-- Authorization rules
-- Data encryption requirements
-- Compliance requirements (GDPR, HIPAA, etc.)
+ClaudeSec ships no authenticated runtime service — it is a toolkit (scanner,
+hooks, docs). "Security" here means keeping the repo and its outputs clean and
+keeping security advice authoritative.
+
+### Secrets & sensitive data in the repo
+
+- CI enforces secret hygiene with the **gitleaks** job and the **pii-check** job
+  in `lint.yml`; **GitGuardian** runs as a separate GitHub App PR check (not a
+  `lint.yml` job). Keep all of them green.
+- Never commit real paths, hostnames, IPs, account IDs, emails, or secrets.
+  Use placeholders (`~/.kube/config`, `your-api-key-here`).
+- `.claudesec.yml` is gitignored; users copy from `templates/*.example.yml` and
+  fill local paths locally only.
+- When user input contains a secret, mask it — never echo it back verbatim.
+
+### Authoritative sourcing
+
+- Every security claim in docs must cite OWASP, NIST, or CIS.
+- LLM/AI security guidance should reference MITRE ATLAS where relevant.
+
+### Compliance scope
+
+- Compliance guides target **NIST, ISO 27001, and ISMS-P** (see
+  `docs/compliance/`). Run the `compliance-check` skill for gap analysis.
+
+### Scanner & hooks
+
+- Claude Code security hooks live in `hooks/`; least-privilege tool access only.
+- The scanner runs against fixture projects offline — never point CI at a real
+  external target without explicit authorization.

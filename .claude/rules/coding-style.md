@@ -66,9 +66,36 @@ Before marking work complete:
 - [ ] No hardcoded values
 - [ ] Immutable patterns used
 
-## [CUSTOMIZE] Project-Specific Style
+## ClaudeSec-Specific Style
 
-Add your project-specific coding style rules here:
-- Naming conventions
-- File structure requirements
-- Framework-specific patterns
+ClaudeSec is a DevSecOps toolkit: Markdown docs + a Bash scanner (`scanner/`),
+Python dashboard generator (`scanner/dashboard-gen.py`), Claude Code hooks
+(`hooks/`), and GitHub Actions. The immutability/TypeScript examples above are
+generic illustrations — apply the intent, not the literal language.
+
+### Naming & layout
+
+- File names are kebab-case (e.g. `github-actions-security.md`).
+- Place new content in the documented directory (`docs/devsecops/`, `docs/ai/`,
+  `scanner/`, `hooks/`, ...); do not add ad-hoc top-level folders.
+- Keep files small and focused; extract shared scanner logic into `scanner/lib/`.
+
+### Markdown
+
+- Every doc under `docs/` needs YAML frontmatter: `title`, `description`, `tags`.
+- All fenced code blocks must declare a language (` ```bash `, ` ```yaml `).
+- Code examples must be tested and runnable, not pseudocode.
+- Security claims must cite an authoritative source (OWASP / NIST / CIS).
+
+### Bash (scanner & scripts)
+
+- Start scripts with `set -euo pipefail`; quote all expansions.
+- Must pass `shellcheck` clean (enforced by the `shell-lint` CI job).
+- Guard any code path that makes network calls so tests can run offline
+  (see `CLAUDESEC_DASHBOARD_OFFLINE` in [Testing](./testing.md)).
+
+### No sensitive data
+
+- Never commit real paths, hostnames, IPs, account IDs, emails, or secrets.
+- Use placeholders: `~/.kube/config`, `/path/to/kubeconfig`, `your-api-key-here`.
+- `.claudesec.yml` is gitignored — users copy from `templates/*.example.yml`.
