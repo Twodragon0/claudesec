@@ -40,8 +40,9 @@ keeping security advice authoritative.
 
 ### Secrets & sensitive data in the repo
 
-- CI enforces secret hygiene with **gitleaks** and **GitGuardian**; a
-  **pii-check** job blocks personal data. Keep them green.
+- CI enforces secret hygiene with the **gitleaks** job and the **pii-check** job
+  in `lint.yml`; **GitGuardian** runs as a separate GitHub App PR check (not a
+  `lint.yml` job). Keep all of them green.
 - Never commit real paths, hostnames, IPs, account IDs, emails, or secrets.
   Use placeholders (`~/.kube/config`, `your-api-key-here`).
 - `.claudesec.yml` is gitignored; users copy from `templates/*.example.yml` and

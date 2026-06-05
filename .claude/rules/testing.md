@@ -41,8 +41,10 @@ Every function must be tested with:
 - **Scanner shell tests**: `bash scanner/tests/test_<name>.sh` (one file per case).
 - **Scanner unit tests (Python)**: `pytest scanner/` — `scanner/lib/` has a 99%
   coverage floor (live ~99.12%) enforced in CI.
-- **Shell coverage**: `kcov` aggregates coverage at
-  `kcov-out/merged/kcov-merged/coverage.json`; floor is 85% (baseline ~89%).
+- **Shell coverage**: `kcov` aggregates coverage; the merged `coverage.json`
+  lives in a nested subdir under `kcov-out/merged/` (locate via `find`, not a
+  fixed path). Floor is **90%** (baseline ~92%), raised from 85 in #171/#173/#174.
+  See the `kcov-debug` skill for the full playbook.
 - **Docs**: `markdownlint "**/*.md"` and `lychee "**/*.md"` before any docs PR.
 
 ### Offline guard (REQUIRED)
