@@ -141,5 +141,52 @@ class TestDastBaselinePrTrigger(unittest.TestCase):
         )
 
 
+class TestScanCriticalSeverityBlock(unittest.TestCase):
+    """The `scan` job must FAIL the build on any CRITICAL finding (exit 1), and
+    keep HIGH findings non-blocking (warning only) — the documented gate that was
+    previously warn-only-despite-the-comment (resolved in #206). Reverting it to
+    warn-only would silently disable the CRITICAL merge block."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = (
+            SECURITY_SCAN.read_text(encoding="utf-8")
+            if SECURITY_SCAN.is_file()
+            else ""
+        )
+
+    def _conditional_body(self, var):
+        # Capture the body of `if [ "$<var>" -gt 0 ]; then ... fi`.
+        m = re.search(
+            r'\[\s*"\$' + re.escape(var) + r'"\s+-gt\s+0\s*\]\s*;\s*then(.*?)\bfi\b',
+            self.text,
+            re.DOTALL,
+        )
+        return m.group(1) if m else None
+
+    def test_critical_block_exits_nonzero(self):
+        body = self._conditional_body("CRITS")
+        self.assertIsNotNone(
+            body, "Could not find the `[ \"$CRITS\" -gt 0 ]` severity gate block"
+        )
+        self.assertRegex(
+            body,
+            r"\bexit\s+1\b",
+            "The scan job must `exit 1` on CRITICAL findings so the Security Scan "
+            "Gate blocks the merge — do not revert it to warning-only (#206).",
+        )
+
+    def test_high_block_stays_nonblocking(self):
+        body = self._conditional_body("HIGHS")
+        # HIGH handling may exist (warning) or not; if present it must NOT exit 1.
+        if body is not None:
+            self.assertNotRegex(
+                body,
+                r"\bexit\s+1\b",
+                "HIGH findings must remain non-blocking (warning only); only "
+                "CRITICAL blocks the merge.",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
