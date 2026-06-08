@@ -157,5 +157,45 @@ class TestLintGateNeedsCompleteness(unittest.TestCase):
         )
 
 
+class TestLycheeVersionPin(unittest.TestCase):
+    """`lint.yml` must keep `lycheeVersion: v0.23.0`.
+
+    This is an INTENTIONAL upgrade block (equality, not a floor). lychee v0.24.x
+    nests the binary inside a `lychee-<triple>/` subdirectory, but the pinned
+    lychee-action installer expects it at the tarball ROOT and fails with
+    `install: cannot stat '.../lychee-download/lychee'` — link-check breaks before
+    any link is checked. PR #204 bumped to v0.24.2 and regressed exactly this;
+    reverted in #210. Upstream lychee-action itself still defaults to v0.23.0.
+
+    To bump intentionally: first verify the action's install path end-to-end
+    (binary at the tarball root for the version), then update both lint.yml and
+    PINNED_LYCHEE_VERSION here in the same PR.
+    """
+
+    PINNED_LYCHEE_VERSION = "v0.23.0"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = LINT_YML.read_text(encoding="utf-8") if LINT_YML.is_file() else ""
+
+    def test_lychee_version_pinned(self):
+        matches = re.findall(r"^\s*lycheeVersion:\s*(\S+)\s*$", self.text, re.MULTILINE)
+        self.assertTrue(
+            matches,
+            "No `lycheeVersion:` found in lint.yml — the link-check binary pin was "
+            "removed (it must stay pinned; see this test's docstring).",
+        )
+        for got in matches:
+            self.assertEqual(
+                got,
+                self.PINNED_LYCHEE_VERSION,
+                f"lycheeVersion is {got}, expected {self.PINNED_LYCHEE_VERSION}. "
+                "v0.24.x nests the binary in a subdir the pinned lychee-action "
+                "installer can't find (breaks link-check). If bumping is truly "
+                "intended, verify the action install path end-to-end and update "
+                "PINNED_LYCHEE_VERSION in this test.",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
