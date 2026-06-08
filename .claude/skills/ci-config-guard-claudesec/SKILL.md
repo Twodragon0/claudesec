@@ -1,6 +1,6 @@
 ---
-name: ci-config-guard
-description: Author a CI config regression guard — a stdlib pytest that fails when a CI gate (coverage floor, action SHA pin, required-check topology, severity block, version pin) is silently weakened or removed. Use when adding/extending CI invariant protection in this repo or porting the pattern to another repo.
+name: ci-config-guard-claudesec
+description: ClaudeSec-specific CI config regression guard authoring — exact conventions (scanner/tests, stdlib-only/no-PyYAML, 99% pytest + 90% kcov floors, scanner/lib) and the existing test_ci_*.py catalog. Use in THIS repo. For the repo-agnostic pattern, use the global ci-config-guard skill.
 user-invocable: true
 ---
 
