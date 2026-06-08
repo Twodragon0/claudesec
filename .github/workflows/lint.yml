@@ -671,14 +671,17 @@ jobs:
             --timeout 20
             '**/*.md'
           fail: true
-          # lychee-v0.24.0 (2026-04-24) had a one-off release-asset naming
-          # regression (`lychee-lychee-v0.24.0-<triple>.tar.gz`) that the pinned
-          # lychee-action SHA could not resolve (404). It was reverted the same
-          # day in v0.24.1, and v0.24.2 (2026-05-01) uses the original flat
-          # `lychee-<triple>.tar.gz` naming, which the pinned action resolves
-          # correctly — so no action-SHA change is required. (Was pinned to
-          # v0.23.0 for the v0.24.0-only break.)
-          lycheeVersion: v0.24.2
+          # PIN TO v0.23.0 — do not bump without verifying the lychee-action
+          # install path end-to-end (not just the asset filename). The v0.24.x
+          # tarballs nest the binary inside a `lychee-<triple>/` subdirectory
+          # (alongside complete/ and docs/), but the pinned lychee-action SHA's
+          # installer expects the binary at the archive root and runs
+          # `install ... /tmp/lychee-download/lychee` → `install: cannot stat`
+          # (PR #204 regressed this; reverted in #209). Upstream lychee-action
+          # itself still defaults lycheeVersion to v0.23.0 for the same reason.
+          # (v0.24.0 additionally had a one-off asset-filename break, fixed in
+          # v0.24.1 — but the nested-binary layout still breaks the installer.)
+          lycheeVersion: v0.23.0
 
   lint-gate:
     name: Lint
