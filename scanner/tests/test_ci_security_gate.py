@@ -9,9 +9,11 @@ loosening the pass-set would neuter the only security required-check without any
 visible failure. This guards that topology (cf. test_ci_gate_topology.py for the
 lint-gate analogue, and project memory paths-ignore-vs-branch-protection #186).
 
-Also guards that the PR-time DAST signal (`dast-baseline.yml`) is not silently
-downgraded to schedule/dispatch-only by asserting it still triggers on
-`pull_request`.
+Also guards both DAST triggers:
+- the PR-time signal (`dast-baseline.yml`) still triggers on `pull_request`
+  (not silently downgraded to schedule/dispatch-only); and
+- the nightly full scan (`dast-full-scan.yml`) keeps its `schedule:` trigger
+  (silently removing it would stop nightly DAST with no visible failure).
 
 Scope note: action SHA-pinning for these files is already covered by
 test_ci_gate_topology.py (it globs all workflows) — NOT duplicated here.
@@ -30,6 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 SECURITY_SCAN = WORKFLOW_DIR / "security-scan.yml"
 DAST_BASELINE = WORKFLOW_DIR / "dast-baseline.yml"
+DAST_FULL_SCAN = WORKFLOW_DIR / "dast-full-scan.yml"
 
 # Dependencies the Security Scan Gate MUST aggregate. Removing any of these from
 # `needs:` would let that job fail without blocking a merge.
@@ -138,6 +141,43 @@ class TestDastBaselinePrTrigger(unittest.TestCase):
             "dast-baseline.yml must keep its `pull_request` trigger — losing it "
             "would silently demote the DAST scan to schedule/dispatch-only, "
             "removing per-PR signal.",
+        )
+
+
+class TestDastFullScanSchedule(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.text = (
+            DAST_FULL_SCAN.read_text(encoding="utf-8")
+            if DAST_FULL_SCAN.is_file()
+            else ""
+        )
+
+    def _on_block(self):
+        # The `on:` region: from `^on:` to the next top-level key (`jobs:` etc.).
+        out, in_on = [], False
+        for raw in self.text.splitlines():
+            if re.match(r"^on:\s*$", raw):
+                in_on = True
+                continue
+            if in_on:
+                if re.match(r"^[A-Za-z]", raw):  # next top-level key (jobs:, etc.)
+                    break
+                out.append(raw)
+        return "\n".join(out)
+
+    def test_dast_full_scan_yml_exists(self):
+        self.assertTrue(DAST_FULL_SCAN.is_file(), f"{DAST_FULL_SCAN} not found")
+
+    def test_triggers_on_schedule(self):
+        on_block = self._on_block()
+        self.assertTrue(on_block, "dast-full-scan.yml `on:` block not found")
+        self.assertRegex(
+            on_block,
+            r"^\s*schedule:",
+            "dast-full-scan.yml must keep its `schedule:` trigger — removing it "
+            "would silently stop the nightly full DAST scan with no visible "
+            "failure (parallels the dast-baseline pull_request guard).",
         )
 
 
