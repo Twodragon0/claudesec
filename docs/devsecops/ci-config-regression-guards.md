@@ -45,6 +45,8 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_coverage_thresholds.py` | Coverage floors in `lint.yml` | pytest `--cov-fail-under >= 99`; bash kcov `threshold >= 90.0` | #200 |
 | `scanner/tests/test_ci_gate_topology.py` | Enforcement topology of `lint.yml` | every `uses:` across all `.github/workflows/*.yml` is 40-hex SHA-pinned (OWASP A08); every job is in `lint-gate.needs` or a tiny documented allowlist | #201 (allowlist tightened in #203) |
 | `scanner/tests/test_ci_security_gate.py` | `Security Scan Gate` + DAST signal | `security-scan-gate` keeps `name`, `if: always()`, `needs: ⊇ {changes, scan, lighthouse}`, pass-set `not in (success, skipped)`; `dast-baseline.yml` keeps its `pull_request` trigger | #205 |
+| `scanner/tests/test_ci_required_jobs_exist.py` | Existence of security/enforcement jobs in `lint.yml` | `{gitleaks, pii-check, dependency-review, workflow-fork-guard, scanner-unit-tests, scanner-shell-coverage}` are all present — deleting a whole job is a silent control loss the topology guard cannot see | #215 |
+| `scanner/tests/test_ci_codeql_single_model.py` | Single CodeQL model (default setup only) | no workflow uses `github/codeql-action/init` or `/analyze` (a repo-level analysis would duplicate the default-setup model); `upload-sarif` is allowed (DAST SARIF upload, not analysis) | #215 |
 
 ### Related enforcement (not a pytest guard)
 
@@ -66,6 +68,11 @@ The consequence: **any job that is not wired into one of these two aggregators'
 `needs:` is invisible to branch protection** — it can fail without blocking a
 merge. That is precisely the gap the topology guards
 (`test_ci_gate_topology.py`, `test_ci_security_gate.py`) exist to catch.
+
+The topology guards check that every *present* job is gated; they cannot see a
+job that is **deleted entirely** (a removed job simply leaves the gated set, and
+the aggregator stays green). `test_ci_required_jobs_exist.py` closes that
+complementary gap by asserting the load-bearing security jobs still exist.
 
 ## Adding a new guard
 
