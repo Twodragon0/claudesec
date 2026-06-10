@@ -26,3 +26,13 @@ updates:
       pip-deps:
         patterns:
           - "*"
+
+  # Keeps the digest-pinned base images in Dockerfile / Dockerfile.nginx current.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      docker:
+        patterns:
+          - "*"

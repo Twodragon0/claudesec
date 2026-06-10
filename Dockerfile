@@ -5,7 +5,9 @@
 # - Optimized: removes unused cloud provider SDKs (~700MB savings)
 
 # ── Stage 1: build prowler wheels ────────────────────────────────────────────
-FROM alpine:3.20 AS builder
+# Base image pinned by digest for reproducible, supply-chain-safe builds.
+# Dependabot (docker ecosystem) bumps the digest when alpine:3.20 is rebuilt.
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc AS builder
 
 RUN apk add --no-cache \
     gcc \
@@ -59,7 +61,8 @@ RUN pip install --no-cache-dir --no-compile --break-system-packages --prefix=/in
        done
 
 # ── Stage 2: runtime image ──────────────────────────────────────────────────
-FROM alpine:3.20
+# Pinned by digest (same alpine:3.20 release as the builder stage).
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 
 RUN apk add --no-cache \
     bash \
