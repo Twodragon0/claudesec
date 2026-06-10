@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # ClaudeSec — Infrastructure: Kubernetes Security Checks
 
-k8s_files=$(count_files "*.yaml" 2>/dev/null)
 has_k8s=false
 
 # Detect Kubernetes manifests

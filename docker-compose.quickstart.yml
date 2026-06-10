@@ -41,7 +41,9 @@ services:
       - ./claudesec-dashboard.html:/usr/share/nginx/html/scan.html:ro
       - ./.claudesec-assets/dashboard-data.json:/usr/share/nginx/html/.claudesec-assets/dashboard-data.json:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      # Use wget (busybox) — the nginx:alpine base image does not ship curl,
+      # so a curl-based healthcheck always reports unhealthy. Matches docker-compose.yml.
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:8080/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
