@@ -57,7 +57,6 @@ _prowler_scan() {
   local provider="$1"
   shift
   local extra_args=("$@")
-  local output_file="${PROWLER_OUTPUT_DIR}/prowler-${provider}.json"
 
   # Compliance framework: pass through to Prowler when set (--compliance / .claudesec.yml)
   local compliance_args=()
@@ -80,13 +79,19 @@ _prowler_scan() {
     ci_flags+=(--quiet --unix-timestamp)
   fi
 
+  # PROWLER_SEVERITY is a space-separated list (default "medium high critical").
+  # prowler --severity accepts multiple values, so split into an array rather
+  # than relying on unquoted word-splitting.
+  local severity_args=()
+  read -ra severity_args <<< "$PROWLER_SEVERITY"
+
   # Run prowler with JSON-OCSF output, severity filter, FAIL only
   if has_command timeout; then
     timeout "$PROWLER_TIMEOUT" prowler "$provider" \
       -M json-ocsf \
       -F "prowler-${provider}" \
       -o "$PROWLER_OUTPUT_DIR" \
-      --severity $PROWLER_SEVERITY \
+      --severity "${severity_args[@]}" \
       --status FAIL \
       -b \
       --no-color \
@@ -98,7 +103,7 @@ _prowler_scan() {
       -M json-ocsf \
       -F "prowler-${provider}" \
       -o "$PROWLER_OUTPUT_DIR" \
-      --severity $PROWLER_SEVERITY \
+      --severity "${severity_args[@]}" \
       --status FAIL \
       -b \
       --no-color \
@@ -110,7 +115,7 @@ _prowler_scan() {
       -M json-ocsf \
       -F "prowler-${provider}" \
       -o "$PROWLER_OUTPUT_DIR" \
-      --severity $PROWLER_SEVERITY \
+      --severity "${severity_args[@]}" \
       --status FAIL \
       -b \
       --no-color \
