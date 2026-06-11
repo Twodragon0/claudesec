@@ -48,6 +48,8 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_required_jobs_exist.py` | Existence of security/enforcement jobs in `lint.yml` | `{gitleaks, pii-check, dependency-review, workflow-fork-guard, scanner-unit-tests, scanner-shell-coverage}` are all present — deleting a whole job is a silent control loss the topology guard cannot see | #215 |
 | `scanner/tests/test_ci_codeql_single_model.py` | Single CodeQL model (default setup only) | no workflow uses `github/codeql-action/init` or `/analyze` (a repo-level analysis would duplicate the default-setup model); `upload-sarif` is allowed (DAST SARIF upload, not analysis) | #215 |
 | `scanner/tests/test_ci_npm_publish.py` | npm release supply-chain integrity (`npm-publish.yml`) | every `npm publish` carries `--provenance` (SLSA attestation); workflow-level `permissions:` stays `contents: read` (job-level `id-token: write` is not flagged) | #216 |
+| `scanner/tests/test_ci_cross_os_non_required.py` | Cross-OS live-runner workflow stays non-required | `cross-os-checks.yml` exists and keeps `workflow_dispatch` (standalone informational lane); `lint.yml` references none of `{cross-os, live-os-checks, macos-latest, windows-latest}` — so the costly/flaky macOS+Windows runs never become a required merge gate | #228 |
+| `scanner/tests/test_ci_net005_fail_escalation.py` | NET-005 SSH-open-to-world FAIL escalation (`network/tls.sh`) | NET-005 keeps `fail "NET-005" ... "critical"` and an ERE `(0\.0\.0\.0/0.*22\|port.*22.*0\.0\.0\.0/0)` alternation; no `\|` literal-pipe regression (which silently downgraded it to WARN, fixed in #224) | #228 |
 
 ### Related enforcement (not a pytest guard)
 
