@@ -127,6 +127,39 @@ JS
 SCAN_DIR="$tmpdir/cors_ok" run_check
 assert_has_result "Restricted CORS passes" "PASS" "NET-004"
 
+# ── NET-005: SSH open to 0.0.0.0/0 in IaC ──
+
+echo "=== NET-005: firewall rules ==="
+
+# REGRESSION (grep -E alternation): the inner pattern was
+# "0\.0\.0\.0/0.*22\|port.*22.*0\.0\.0\.0/0" — under grep -E "\|" is a LITERAL
+# pipe, so SSH-open-to-world never matched and NET-005 only ever WARNed. Fixed to
+# (a|b); a tf rule with port 22 + 0.0.0.0/0 now -> FAIL.
+mkdir -p "$tmpdir/sg_ssh_open"
+cat > "$tmpdir/sg_ssh_open/sg.tf" <<'TF'
+resource "aws_security_group" "ssh" {
+  ingress { from_port = 22, to_port = 22, cidr_blocks = ["0.0.0.0/0"] }
+}
+TF
+SCAN_DIR="$tmpdir/sg_ssh_open" run_check
+assert_has_result "SSH port 22 open to 0.0.0.0/0 -> FAIL NET-005 (alternation regression)" "FAIL" "NET-005"
+
+# 0.0.0.0/0 without port 22 -> WARN (else branch)
+mkdir -p "$tmpdir/sg_open_nossh"
+cat > "$tmpdir/sg_open_nossh/sg.tf" <<'TF'
+resource "aws_security_group" "web" {
+  ingress { from_port = 443, to_port = 443, cidr_blocks = ["0.0.0.0/0"] }
+}
+TF
+SCAN_DIR="$tmpdir/sg_open_nossh" run_check
+assert_has_result "0.0.0.0/0 without SSH -> WARN NET-005" "WARN" "NET-005"
+
+# No IaC firewall rules -> SKIP
+mkdir -p "$tmpdir/no_tf"
+echo "readme" > "$tmpdir/no_tf/README.md"
+SCAN_DIR="$tmpdir/no_tf" run_check
+assert_has_result "No IaC rules -> SKIP NET-005" "SKIP" "NET-005"
+
 # ── Summary ──
 
 echo ""
