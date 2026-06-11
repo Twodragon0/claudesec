@@ -1,0 +1,42 @@
+# cross-os-checks.yml
+#
+# Intentionally NON-BLOCKING / INFORMATIONAL.
+# This workflow is NOT listed in lint.yml's lint-gate.needs and is NOT a
+# required status check in branch-protection. It runs the macOS CIS scanner
+# check on a real macos-latest runner to surface live platform verdicts
+# without blocking merges on any PR.
+#
+# Phase 1 (macOS only). Phase 2 will add windows-latest.
+
+name: Cross-OS Checks (informational)
+
+on:
+  pull_request:
+    paths:
+      - 'scanner/checks/macos/**'
+      - 'scanner/checks/windows/**'
+      - 'scanner/lib/checks.sh'
+      - 'scanner/lib/output.sh'
+      - 'scanner/tests/test_check_macos_cis_security_live.sh'
+      - '.github/workflows/cross-os-checks.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cross-os-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-os-checks-macos:
+    name: macOS CIS live checks (structural)
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - name: Run macOS CIS structural integration test
+        run: bash scanner/tests/test_check_macos_cis_security_live.sh
