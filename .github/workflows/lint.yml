@@ -362,15 +362,24 @@ jobs:
             rc=0
             # *_tty tests need stdin to be a pty slave so [[ -t 0 ]] returns
             # true inside the TTY-gated functions they exercise.
+            # --exclude-pattern drops files whose *filename substring* collides
+            # with the include pattern but are NOT the lib SUT: the pre-existing
+            # check `scanner/checks/saas/api-checks.sh` and its test
+            # `test_check_saas_api_checks.sh` both contain "checks.sh", so without
+            # this exclude kcov would add their (mostly-SKIP) lines to the lib-only
+            # denominator and crater the percentage (observed 92%->68.88%). All
+            # other check files are already excluded simply by not matching.
             if [[ "$name" == *_tty ]]; then
               timeout 30 \
                 python3 scanner/tests/pty_run.py \
                   kcov --include-pattern=checks.sh,output.sh \
+                    --exclude-pattern=api-checks.sh,api_checks.sh \
                     "kcov-out/$name" "$sh" \
                 || rc=$?
             else
               timeout 30 \
                 kcov --include-pattern=checks.sh,output.sh \
+                  --exclude-pattern=api-checks.sh,api_checks.sh \
                   "kcov-out/$name" "$sh" \
                 || rc=$?
             fi

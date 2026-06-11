@@ -238,7 +238,7 @@ provider "azurerm" {
 }
 resource "azurerm_virtual_network" "vnet" {
   name                = "my-vnet"
-  address_space       = ["10.0.0.0/16"]
+  address_space       = ["192.0.2.0/24"]
   location            = "eastus"
   resource_group_name = "my-rg"
 }
