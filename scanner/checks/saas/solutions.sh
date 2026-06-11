@@ -71,7 +71,7 @@ if has_dir ".github/workflows"; then
   # Check for environment protection rules reference
   if files_contain ".github/workflows/*.yml" "environment:" 2>/dev/null; then
     :  # Good — uses environment protection
-  elif files_contain ".github/workflows/*.yml" "deploy\|release\|production" 2>/dev/null; then
+  elif files_contain ".github/workflows/*.yml" "deploy|release|production" 2>/dev/null; then
     _gha_problems=$((_gha_problems + 1))
     _gha_issues="${_gha_issues}\n    Deploy workflows without environment protection rules"
   fi
@@ -100,13 +100,13 @@ if has_file "vercel.json" || has_file ".vercel/project.json"; then
 
   # Check for security headers in vercel.json
   if has_file "vercel.json"; then
-    if ! file_contains "vercel.json" "X-Frame-Options\|Content-Security-Policy\|x-frame-options\|content-security-policy" 2>/dev/null; then
+    if ! file_contains "vercel.json" "X-Frame-Options|Content-Security-Policy|x-frame-options|content-security-policy" 2>/dev/null; then
       _vercel_issues=$((_vercel_issues + 1))
       _vercel_details="${_vercel_details}\n    Missing security headers (CSP, X-Frame-Options)"
     fi
 
     # Check for exposed source maps
-    if file_contains "vercel.json" "sourceMap.*true\|source-map" 2>/dev/null; then
+    if file_contains "vercel.json" "sourceMap.*true|source-map" 2>/dev/null; then
       _vercel_issues=$((_vercel_issues + 1))
       _vercel_details="${_vercel_details}\n    Source maps may be exposed in production"
     fi
@@ -150,7 +150,7 @@ if files_contain "*.yaml" "kind:[[:space:]]*Application" 2>/dev/null && \
 
   # Check for plaintext secrets in ArgoCD manifests
   if files_contain "*.yaml" "kind:[[:space:]]*Secret" 2>/dev/null && \
-     ! files_contain "*.yaml" "sealed-secrets\|external-secrets\|vault" 2>/dev/null; then
+     ! files_contain "*.yaml" "sealed-secrets|external-secrets|vault" 2>/dev/null; then
     _argo_issues=$((_argo_issues + 1))
     _argo_details="${_argo_details}\n    Plaintext Secrets in manifests (use SealedSecrets/ExternalSecrets)"
   fi
@@ -176,9 +176,9 @@ fi
 # ── SAAS-005: Sentry Configuration Security ──────────────────────────────────
 
 _sentry_detected=false
-if files_contain "*.js" "Sentry.init\|@sentry/node\|@sentry/browser\|@sentry/react" 2>/dev/null || \
-   files_contain "*.ts" "Sentry.init\|@sentry/node\|@sentry/browser\|@sentry/nextjs" 2>/dev/null || \
-   files_contain "*.py" "sentry_sdk\|sentry-sdk" 2>/dev/null; then
+if files_contain "*.js" "Sentry.init|@sentry/node|@sentry/browser|@sentry/react" 2>/dev/null || \
+   files_contain "*.ts" "Sentry.init|@sentry/node|@sentry/browser|@sentry/nextjs" 2>/dev/null || \
+   files_contain "*.py" "sentry_sdk|sentry-sdk" 2>/dev/null; then
   _sentry_detected=true
 fi
 
@@ -195,7 +195,7 @@ if [[ "$_sentry_detected" == "true" ]]; then
   fi
 
   # Check for PII scrubbing
-  if files_contain "*.js" "sendDefaultPii.*true\|send_default_pii.*true" 2>/dev/null || \
+  if files_contain "*.js" "sendDefaultPii.*true|send_default_pii.*true" 2>/dev/null || \
      files_contain "*.ts" "sendDefaultPii.*true" 2>/dev/null || \
      files_contain "*.py" "send_default_pii.*True" 2>/dev/null; then
     _sentry_issues=$((_sentry_issues + 1))
@@ -223,9 +223,9 @@ fi
 # ── SAAS-006: Datadog Integration Security ───────────────────────────────────
 
 _dd_detected=false
-if files_contain "*.yaml" "datadog\|dd-agent" 2>/dev/null || \
-   files_contain "*.js" "dd-trace\|datadog" 2>/dev/null || \
-   files_contain "*.py" "ddtrace\|datadog" 2>/dev/null || \
+if files_contain "*.yaml" "datadog|dd-agent" 2>/dev/null || \
+   files_contain "*.js" "dd-trace|datadog" 2>/dev/null || \
+   files_contain "*.py" "ddtrace|datadog" 2>/dev/null || \
    files_contain "*.tf" "datadog" 2>/dev/null; then
   _dd_detected=true
 fi
@@ -242,15 +242,15 @@ if [[ "$_dd_detected" == "true" ]]; then
   fi
 
   # Check for DD agent security in K8s
-  if files_contain "*.yaml" "dd-agent\|datadog-agent" 2>/dev/null; then
-    if ! files_contain "*.yaml" "DD_DOGSTATSD_NON_LOCAL_TRAFFIC\|DD_APM_NON_LOCAL_TRAFFIC" 2>/dev/null; then
+  if files_contain "*.yaml" "dd-agent|datadog-agent" 2>/dev/null; then
+    if ! files_contain "*.yaml" "DD_DOGSTATSD_NON_LOCAL_TRAFFIC|DD_APM_NON_LOCAL_TRAFFIC" 2>/dev/null; then
       :  # Agent traffic defaults are usually fine
     fi
   fi
 
   # Check for Datadog secrets in Terraform
-  if files_contain "*.tf" "datadog_api_key\|datadog_app_key" 2>/dev/null && \
-     ! files_contain "*.tf" "var\\.datadog\|data\\..*vault" 2>/dev/null; then
+  if files_contain "*.tf" "datadog_api_key|datadog_app_key" 2>/dev/null && \
+     ! files_contain "*.tf" "var\\.datadog|data\\..*vault" 2>/dev/null; then
     _dd_issues=$((_dd_issues + 1))
     _dd_details="${_dd_details}\n    Datadog keys may be hardcoded in Terraform (use variables/vault)"
   fi
@@ -270,7 +270,7 @@ fi
 _cf_detected=false
 if files_contain "*.tf" "cloudflare" 2>/dev/null || \
    has_file "wrangler.toml" || has_file "wrangler.jsonc" || \
-   files_contain "*.js" "cloudflare\|@cloudflare/workers" 2>/dev/null; then
+   files_contain "*.js" "cloudflare|@cloudflare/workers" 2>/dev/null; then
   _cf_detected=true
 fi
 
@@ -281,13 +281,13 @@ if [[ "$_cf_detected" == "true" ]]; then
   # Check Cloudflare Workers security
   if has_file "wrangler.toml"; then
     # Check for hardcoded secrets in wrangler.toml
-    if file_contains "wrangler.toml" "[Aa][Pp][Ii]_[Tt][Oo][Kk][Ee][Nn]\|[Aa][Pp][Ii]_[Kk][Ee][Yy]" 2>/dev/null; then
+    if file_contains "wrangler.toml" "[Aa][Pp][Ii]_[Tt][Oo][Kk][Ee][Nn]|[Aa][Pp][Ii]_[Kk][Ee][Yy]" 2>/dev/null; then
       _cf_issues=$((_cf_issues + 1))
       _cf_details="${_cf_details}\n    API credentials found in wrangler.toml"
     fi
 
     # Check for secrets binding (good practice)
-    if ! file_contains "wrangler.toml" "\\[vars\\]\|secrets" 2>/dev/null && \
+    if ! file_contains "wrangler.toml" "\\[vars\\]|secrets" 2>/dev/null && \
        files_contain "*.js" "env\\." 2>/dev/null; then
       _cf_issues=$((_cf_issues + 1))
       _cf_details="${_cf_details}\n    Worker uses env vars but no [vars] section in wrangler.toml"
@@ -296,7 +296,7 @@ if [[ "$_cf_detected" == "true" ]]; then
 
   # Check Terraform Cloudflare config
   if files_contain "*.tf" "cloudflare_zone_settings_override" 2>/dev/null; then
-    if files_contain "*.tf" "ssl.*off\|ssl.*flexible" 2>/dev/null; then
+    if files_contain "*.tf" "ssl.*off|ssl.*flexible" 2>/dev/null; then
       _cf_issues=$((_cf_issues + 1))
       _cf_details="${_cf_details}\n    Cloudflare SSL set to off or flexible (use full/strict)"
     fi
@@ -315,9 +315,9 @@ fi
 # ── SAAS-008: Okta / SSO Integration Security ───────────────────────────────
 
 _okta_detected=false
-if files_contain "*.js" "@okta\|okta-sdk\|okta-auth" 2>/dev/null || \
-   files_contain "*.ts" "@okta\|okta-sdk\|okta-auth" 2>/dev/null || \
-   files_contain "*.py" "okta\|pyokta" 2>/dev/null || \
+if files_contain "*.js" "@okta|okta-sdk|okta-auth" 2>/dev/null || \
+   files_contain "*.ts" "@okta|okta-sdk|okta-auth" 2>/dev/null || \
+   files_contain "*.py" "okta|pyokta" 2>/dev/null || \
    files_contain "*.yaml" "okta\\.com" 2>/dev/null; then
   _okta_detected=true
 fi
@@ -336,8 +336,18 @@ if [[ "$_okta_detected" == "true" ]]; then
     fi
   fi
 
-  # Check for PKCE usage in OAuth flows
-  if files_contain "*.js" "pkce.*false\|responseType.*code.*(?!.*pkce)" 2>/dev/null; then
+  # Check for PKCE usage in OAuth flows. ERE (grep -E) has no negative lookahead,
+  # so the "authorization-code flow present but no PKCE anywhere" case is detected
+  # with two checks instead of an inline (?!...) — flag if PKCE is explicitly
+  # disabled, OR a code flow exists while the file never mentions pkce.
+  _okta_no_pkce=false
+  if files_contain "*.js" "pkce.*false" 2>/dev/null; then
+    _okta_no_pkce=true
+  elif files_contain "*.js" "responseType.*code" 2>/dev/null && \
+       ! files_contain "*.js" "pkce" 2>/dev/null; then
+    _okta_no_pkce=true
+  fi
+  if [[ "$_okta_no_pkce" == true ]]; then
     _okta_issues=$((_okta_issues + 1))
     _okta_details="${_okta_details}\n    OAuth flow without PKCE (vulnerable to code interception)"
   fi
@@ -355,9 +365,9 @@ fi
 # ── SAAS-009: SendGrid Email Security ────────────────────────────────────────
 
 _sg_detected=false
-if files_contain "*.js" "@sendgrid\|sendgrid" 2>/dev/null || \
-   files_contain "*.ts" "@sendgrid\|sendgrid" 2>/dev/null || \
-   files_contain "*.py" "sendgrid\|SendGridAPIClient" 2>/dev/null; then
+if files_contain "*.js" "@sendgrid|sendgrid" 2>/dev/null || \
+   files_contain "*.ts" "@sendgrid|sendgrid" 2>/dev/null || \
+   files_contain "*.py" "sendgrid|SendGridAPIClient" 2>/dev/null; then
   _sg_detected=true
 fi
 
@@ -374,7 +384,7 @@ if [[ "$_sg_detected" == "true" ]]; then
   fi
 
   # Check for full access API key (should use restricted keys)
-  if files_contain "*.js" "SENDGRID_API_KEY\|sendgrid.*api.*key" 2>/dev/null; then
+  if files_contain "*.js" "SENDGRID_API_KEY|sendgrid.*api.*key" 2>/dev/null; then
     :  # Using env var is good, but can't verify permissions from code
   fi
 
@@ -393,7 +403,7 @@ fi
 
 _zs_detected=false
 if files_contain "*.yaml" "zscaler" 2>/dev/null || \
-   files_contain "*.tf" "zscaler\|zpa_\|zia_" 2>/dev/null || \
+   files_contain "*.tf" "zscaler|zpa_|zia_" 2>/dev/null || \
    files_contain "*.json" "zscaler" 2>/dev/null; then
   _zs_detected=true
 fi
@@ -403,8 +413,8 @@ if [[ "$_zs_detected" == "true" ]]; then
   _zs_details=""
 
   # Check for Zscaler credentials in config
-  if files_contain "*.tf" "zscaler.*api_key\|zia_api_key\|zpa_client_secret" 2>/dev/null && \
-     ! files_contain "*.tf" "var\\.\|data\\..*vault" 2>/dev/null; then
+  if files_contain "*.tf" "zscaler.*api_key|zia_api_key|zpa_client_secret" 2>/dev/null && \
+     ! files_contain "*.tf" "var\\.|data\\..*vault" 2>/dev/null; then
     _zs_issues=$((_zs_issues + 1))
     _zs_details="${_zs_details}\n    Zscaler API credentials may be hardcoded in Terraform"
   fi
@@ -422,9 +432,9 @@ fi
 # ── SAAS-011: SentinelOne / Endpoint Security ────────────────────────────────
 
 _s1_detected=false
-if files_contain "*.yaml" "sentinelone\|sentinel.one\|s1_agent" 2>/dev/null || \
+if files_contain "*.yaml" "sentinelone|sentinel.one|s1_agent" 2>/dev/null || \
    files_contain "*.tf" "sentinelone" 2>/dev/null || \
-   files_contain "*.py" "sentinelone\|SentinelOneAPI" 2>/dev/null; then
+   files_contain "*.py" "sentinelone|SentinelOneAPI" 2>/dev/null; then
   _s1_detected=true
 fi
 
@@ -452,8 +462,8 @@ fi
 # ── SAAS-012: Jamf Pro / MDM Security ────────────────────────────────────────
 
 _jamf_detected=false
-if files_contain "*.py" "jamf\|JamfPro" 2>/dev/null || \
-   files_contain "*.sh" "jamf\|jamfPro" 2>/dev/null || \
+if files_contain "*.py" "jamf|JamfPro" 2>/dev/null || \
+   files_contain "*.sh" "jamf|jamfPro" 2>/dev/null || \
    files_contain "*.yaml" "jamf" 2>/dev/null; then
   _jamf_detected=true
 fi
@@ -463,8 +473,8 @@ if [[ "$_jamf_detected" == "true" ]]; then
   _jamf_details=""
 
   # Check for Jamf credentials in scripts
-  if files_contain "*.sh" "jamf.*password\|jamf.*api.*key" 2>/dev/null || \
-     files_contain "*.py" "jamf.*password\|jamf.*api.*key" 2>/dev/null; then
+  if files_contain "*.sh" "jamf.*password|jamf.*api.*key" 2>/dev/null || \
+     files_contain "*.py" "jamf.*password|jamf.*api.*key" 2>/dev/null; then
     _jamf_issues=$((_jamf_issues + 1))
     _jamf_details="${_jamf_details}\n    Jamf Pro credentials may be exposed in scripts"
   fi
@@ -483,7 +493,7 @@ fi
 
 _redash_detected=false
 if files_contain "*.yaml" "redash" 2>/dev/null || \
-   files_contain "*.py" "redash\|redash_client" 2>/dev/null || \
+   files_contain "*.py" "redash|redash_client" 2>/dev/null || \
    files_contain "docker-compose*" "redash" 2>/dev/null; then
   _redash_detected=true
 fi
@@ -494,7 +504,7 @@ if [[ "$_redash_detected" == "true" ]]; then
 
   # Check for Redash cookie secret
   if files_contain "docker-compose*" "REDASH_COOKIE_SECRET" 2>/dev/null; then
-    if files_contain "docker-compose*" "REDASH_COOKIE_SECRET=.*change\|REDASH_COOKIE_SECRET=.*default" 2>/dev/null; then
+    if files_contain "docker-compose*" "REDASH_COOKIE_SECRET=.*change|REDASH_COOKIE_SECRET=.*default" 2>/dev/null; then
       _redash_issues=$((_redash_issues + 1))
       _redash_details="${_redash_details}\n    Redash cookie secret is using default/weak value"
     fi
@@ -502,7 +512,7 @@ if [[ "$_redash_detected" == "true" ]]; then
 
   # Check for Redash database credentials
   if files_contain "docker-compose*" "REDASH_DATABASE_URL.*password" 2>/dev/null && \
-     ! files_contain "docker-compose*" "\\$\\{.*PASSWORD\|\\$PASSWORD" 2>/dev/null; then
+     ! files_contain "docker-compose*" "\\$\\{.*PASSWORD|\\$PASSWORD" 2>/dev/null; then
     _redash_issues=$((_redash_issues + 1))
     _redash_details="${_redash_details}\n    Redash database password may be hardcoded in docker-compose"
   fi
@@ -520,7 +530,7 @@ fi
 # ── SAAS-014: QueryPie / Database Access Security ────────────────────────────
 
 _qp_detected=false
-if files_contain "*.yaml" "querypie\|query-pie" 2>/dev/null || \
+if files_contain "*.yaml" "querypie|query-pie" 2>/dev/null || \
    files_contain "*.json" "querypie" 2>/dev/null || \
    files_contain "*.tf" "querypie" 2>/dev/null; then
   _qp_detected=true
@@ -531,8 +541,8 @@ if [[ "$_qp_detected" == "true" ]]; then
   _qp_details=""
 
   # Check for QueryPie API token in config
-  if files_contain "*.yaml" "querypie.*api.*key\|querypie.*token" 2>/dev/null && \
-     ! files_contain "*.yaml" "\\$\\{.*TOKEN\|\\$\\{.*KEY" 2>/dev/null; then
+  if files_contain "*.yaml" "querypie.*api.*key|querypie.*token" 2>/dev/null && \
+     ! files_contain "*.yaml" "\\$\\{.*TOKEN|\\$\\{.*KEY" 2>/dev/null; then
     _qp_issues=$((_qp_issues + 1))
     _qp_details="${_qp_details}\n    QueryPie credentials may be hardcoded"
   fi
@@ -550,10 +560,10 @@ fi
 # ── SAAS-015: Google Workspace / Drive Security ──────────────────────────────
 
 _gw_detected=false
-if files_contain "*.json" "googleapis.com\|client_email.*gserviceaccount" 2>/dev/null || \
-   files_contain "*.py" "google.oauth2\|google-auth\|googleapiclient" 2>/dev/null || \
-   files_contain "*.js" "googleapis\|google-auth-library" 2>/dev/null || \
-   files_contain "*.ts" "googleapis\|google-auth-library" 2>/dev/null; then
+if files_contain "*.json" "googleapis.com|client_email.*gserviceaccount" 2>/dev/null || \
+   files_contain "*.py" "google.oauth2|google-auth|googleapiclient" 2>/dev/null || \
+   files_contain "*.js" "googleapis|google-auth-library" 2>/dev/null || \
+   files_contain "*.ts" "googleapis|google-auth-library" 2>/dev/null; then
   _gw_detected=true
 fi
 
@@ -575,8 +585,8 @@ if [[ "$_gw_detected" == "true" ]]; then
   # Check for overly broad OAuth scopes
   if files_contain "*.py" "https://www.googleapis.com/auth/drive['\"]" 2>/dev/null || \
      files_contain "*.js" "https://www.googleapis.com/auth/drive['\"]" 2>/dev/null; then
-    if ! files_contain "*.py" "drive\\.readonly\|drive\\.file" 2>/dev/null && \
-       ! files_contain "*.js" "drive\\.readonly\|drive\\.file" 2>/dev/null; then
+    if ! files_contain "*.py" "drive\\.readonly|drive\\.file" 2>/dev/null && \
+       ! files_contain "*.js" "drive\\.readonly|drive\\.file" 2>/dev/null; then
       _gw_issues=$((_gw_issues + 1))
       _gw_details="${_gw_details}\n    Using full Google Drive scope (use drive.readonly or drive.file)"
     fi
@@ -600,13 +610,13 @@ _rotation_details=""
 # Check for any hardcoded token/key expiry or rotation config
 if has_file ".github/workflows/rotate-secrets.yml" || \
    has_file ".github/workflows/secret-rotation.yml" || \
-   files_contain "*.yaml" "secret.*rotation\|key.*rotation\|token.*expir" 2>/dev/null; then
+   files_contain "*.yaml" "secret.*rotation|key.*rotation|token.*expir" 2>/dev/null; then
   pass "SAAS-016" "Secret rotation policy or automation detected"
 else
   # Only warn if there are actual integrations that need rotation
   _has_integrations=false
-  if files_contain "*.yml" "DATADOG\|SENTRY\|SENDGRID\|OKTA\|CLOUDFLARE\|VERCEL\|ARGOCD" 2>/dev/null || \
-     files_contain "*.yaml" "DATADOG\|SENTRY\|SENDGRID\|OKTA\|CLOUDFLARE\|VERCEL\|ARGOCD" 2>/dev/null; then
+  if files_contain "*.yml" "DATADOG|SENTRY|SENDGRID|OKTA|CLOUDFLARE|VERCEL|ARGOCD" 2>/dev/null || \
+     files_contain "*.yaml" "DATADOG|SENTRY|SENDGRID|OKTA|CLOUDFLARE|VERCEL|ARGOCD" 2>/dev/null; then
     _has_integrations=true
   fi
 

@@ -383,6 +383,20 @@ TS
 SCAN_DIR="$tmpdir/ai_ts" run_check
 assert_has_result "TS openai import, env var key -> PASS AI-001" "PASS" "AI-001"
 
+# ── REGRESSION (grep -E alternation): AI-007 eval() of LLM output -> FAIL ──────
+# The detection pattern was "eval\(.*completion\|...". Under grep -E (ERE) the
+# "\|" is a LITERAL pipe, not alternation, so eval(completion) was never matched
+# and AI-007 always PASSed. With the alternation fixed to (a|b), the eval is
+# detected -> FAIL. (OWASP A03 / LLM01 prompt-injection -> code execution.)
+mkdir -p "$tmpdir/ai_eval"
+cat > "$tmpdir/ai_eval/agent.py" <<'PY'
+import openai
+completion = openai.chat.completions.create(model="gpt-4o", messages=[])
+result = eval(completion)
+PY
+SCAN_DIR="$tmpdir/ai_eval" run_check
+assert_has_result "eval() of LLM completion -> FAIL AI-007 (grep -E alternation regression)" "FAIL" "AI-007"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 echo ""
