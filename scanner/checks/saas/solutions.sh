@@ -414,7 +414,7 @@ if [[ "$_zs_detected" == "true" ]]; then
 
   # Check for Zscaler credentials in config
   if files_contain "*.tf" "zscaler.*api_key|zia_api_key|zpa_client_secret" 2>/dev/null && \
-     ! files_contain "*.tf" "var\\.|data\\..*vault" 2>/dev/null; then
+     ! files_contain "*.tf" "var\\.[a-zA-Z_]|data\\..*vault" 2>/dev/null; then
     _zs_issues=$((_zs_issues + 1))
     _zs_details="${_zs_details}\n    Zscaler API credentials may be hardcoded in Terraform"
   fi
