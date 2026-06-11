@@ -133,10 +133,7 @@ assert_has_result "SHA-256 usage passes CODE-SEC-001" "PASS" "CODE-SEC-001"
 
 echo "=== CODE-SEC-002: Unsafe Deserialization ==="
 
-# yaml.load without SafeLoader -> FAIL (reliable path: separate yaml check in the check)
-# NOTE: pickle.loads goes through a combined ERE regex with a (?!Loader) lookahead that
-# macOS grep (BSD ERE) rejects, so that sub-path silently returns no hits.
-# yaml.load detection uses a separate, lookahead-free grep call on lines 68-71 and works.
+# yaml.load without SafeLoader -> FAIL (handled by a separate, lookahead-free grep)
 mkdir -p "$tmpdir/yaml_unsafe"
 cat > "$tmpdir/yaml_unsafe/loader.py" <<'PY'
 import yaml
@@ -166,6 +163,29 @@ function load_session($data) {
 PHP
 SCAN_DIR="$tmpdir/php_deser" run_check
 assert_has_result "PHP unserialize detected as unsafe deserialization" "FAIL" "CODE-SEC-002"
+
+# REGRESSION (ERE-lookahead bug): pickle.loads -> FAIL. The pickle/marshal/shelve
+# alternation previously shared a grep -E pattern with a PCRE (?!Loader) lookahead,
+# which made grep error out and silently miss ALL of them. The lookahead is gone,
+# so pickle.loads is detected again. (OWASP A08: Software & Data Integrity Failures)
+mkdir -p "$tmpdir/pickle_deser"
+cat > "$tmpdir/pickle_deser/loader.py" <<'PY'
+import pickle
+def load_obj(data):
+    return pickle.loads(data)
+PY
+SCAN_DIR="$tmpdir/pickle_deser" run_check
+assert_has_result "pickle.loads detected as unsafe deserialization (ERE-lookahead regression)" "FAIL" "CODE-SEC-002"
+
+# REGRESSION: marshal.loads also rides the same alternation -> FAIL
+mkdir -p "$tmpdir/marshal_deser"
+cat > "$tmpdir/marshal_deser/loader.py" <<'PY'
+import marshal
+def load_code(data):
+    return marshal.loads(data)
+PY
+SCAN_DIR="$tmpdir/marshal_deser" run_check
+assert_has_result "marshal.loads detected as unsafe deserialization (ERE-lookahead regression)" "FAIL" "CODE-SEC-002"
 
 # ── CODE-SEC-003: Hardcoded Credentials ──────────────────────────────────────
 

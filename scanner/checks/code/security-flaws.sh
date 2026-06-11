@@ -62,7 +62,12 @@ _deser_hits=""
 
 # Python: pickle, yaml.load (unsafe), marshal
 [[ "${_has_python:-}" == "true" ]] && {
-  _deser_hits=$(_code_grep '(pickle\.(loads?|Unpickler)|yaml\.load\s*\([^)]*(?!Loader)|yaml\.unsafe_load|marshal\.loads?|shelve\.open)\s*\(' "*.py")
+  # NOTE: _code_grep uses grep -E (ERE), which has no lookahead. The "yaml.load
+  # without a Loader=" case is handled separately and reliably below (lines that
+  # diff yaml.load vs yaml.load(...Loader=)). Keeping a PCRE-style (?!Loader) in
+  # this ERE alternation made grep error out, silently disabling pickle/marshal/
+  # shelve/unsafe_load detection entirely — so it is dropped here.
+  _deser_hits=$(_code_grep '(pickle\.(loads?|Unpickler)|yaml\.unsafe_load|marshal\.loads?|shelve\.open)\s*\(' "*.py")
   # yaml.load without SafeLoader
   _yaml_unsafe=$(_code_grep 'yaml\.load\s*\(' "*.py")
   _yaml_safe=$(_code_grep 'yaml\.load\s*\(.*Loader\s*=' "*.py")

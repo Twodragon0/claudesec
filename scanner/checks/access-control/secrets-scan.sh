@@ -155,7 +155,16 @@ _secret_details=""
 
 # Scan source code files for secret patterns
 for entry in "${SECRET_PATTERNS[@]}"; do
-  IFS='|' read -r secret_name secret_pattern _secret_severity <<< "$entry"
+  # Entries are "name|pattern|severity". Split on the FIRST and LAST '|' only,
+  # via parameter expansion, so a pattern that itself contains '|' alternation
+  # (GitHub App Token, Private Key Header, Vault, Generic*) survives intact. A
+  # plain `IFS='|' read` truncates the pattern at its first alternation '|',
+  # leaving an unbalanced-paren fragment that makes grep -E error out and
+  # silently detect nothing.
+  secret_name="${entry%%|*}"
+  _secret_severity="${entry##*|}"
+  secret_pattern="${entry#*|}"
+  secret_pattern="${secret_pattern%|*}"
 
   # Skip base64/generic patterns for source scan (too noisy)
   [[ "$secret_name" == "Base64"* ]] && continue
@@ -328,7 +337,10 @@ _cred_patterns=(
 )
 
 for cp in "${_cred_patterns[@]}"; do
-  IFS='|' read -r cred_pattern cred_desc <<< "$cp"
+  # Entries are "pattern|description". Split on the LAST '|' only so a pattern
+  # containing '|' alternation survives (descriptions never contain '|').
+  cred_pattern="${cp%|*}"
+  cred_desc="${cp##*|}"
 
   cred_hits=$(find "$SCAN_DIR" \
     \( -name "*.py" -o -name "*.js" -o -name "*.ts" -o -name "*.yaml" -o -name "*.yml" \
