@@ -616,7 +616,7 @@ if _prowler_should_run "nhn" && [[ -n "${NHN_API_URL:-}" || -n "${OS_AUTH_URL:-}
   _nhn_args=()
   [[ -n "${NHN_API_URL:-}" ]] && export OS_AUTH_URL="$NHN_API_URL"
   if [[ -f "$HOME/.config/openstack/clouds.yaml" ]]; then
-    _nhn_cloud=$(grep -B1 -A5 'nhn\|toast\|nhncloud' "$HOME/.config/openstack/clouds.yaml" 2>/dev/null | \
+    _nhn_cloud=$(grep -E -B1 -A5 '(nhn|toast|nhncloud)' "$HOME/.config/openstack/clouds.yaml" 2>/dev/null | \
       grep -oE '^  [a-zA-Z0-9_-]+:' | head -1 | tr -d ' :' || echo "")
     [[ -n "$_nhn_cloud" ]] && _nhn_args+=(--clouds-yaml-cloud "$_nhn_cloud")
   fi

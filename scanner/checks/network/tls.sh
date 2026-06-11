@@ -71,7 +71,7 @@ fi
 
 # NET-005: Firewall rules (cloud/IaC)
 if files_contain "*.tf" "0\.0\.0\.0/0" 2>/dev/null; then
-  if files_contain "*.tf" "0\.0\.0\.0/0.*22\|port.*22.*0\.0\.0\.0/0" 2>/dev/null; then
+  if files_contain "*.tf" "(0\.0\.0\.0/0.*22|port.*22.*0\.0\.0\.0/0)" 2>/dev/null; then
     fail "NET-005" "SSH (port 22) open to 0.0.0.0/0 in IaC" "critical" \
       "SSH should not be open to the internet" \
       "Restrict to specific IP ranges or use a bastion host"
