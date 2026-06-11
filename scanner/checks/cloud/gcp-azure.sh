@@ -19,7 +19,7 @@ if has_gcp_credentials 2>/dev/null; then
 
     # CLOUD-011: GCP default service account usage
     default_sa=$(gcloud iam service-accounts list --format="value(email)" 2>/dev/null | \
-      grep -c "compute@developer\|appspot" || echo "0")
+      grep -cE "(compute@developer|appspot)" || echo "0")
     if [[ "$default_sa" -gt 0 ]]; then
       warn "CLOUD-011" "Default service accounts in use" \
         "Create dedicated service accounts with minimal permissions"
