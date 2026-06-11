@@ -77,8 +77,8 @@ if [[ "$has_ai" == "true" ]]; then
   fi
 
   # AI-007: No eval() of LLM output
-  if files_contain "*.py" "eval\(.*completion\|eval\(.*response\|exec\(.*completion" 2>/dev/null || \
-     files_contain "*.js" "eval\(.*completion\|eval\(.*response" 2>/dev/null; then
+  if files_contain "*.py" "eval\(.*completion|eval\(.*response|exec\(.*completion" 2>/dev/null || \
+     files_contain "*.js" "eval\(.*completion|eval\(.*response" 2>/dev/null; then
     fail "AI-007" "eval()/exec() used on LLM output" "critical" \
       "Executing LLM output as code enables arbitrary code execution" \
       "Never eval() LLM responses. Parse and validate structured output instead"

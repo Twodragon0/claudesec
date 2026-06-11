@@ -6,18 +6,14 @@
 # has_dir, files_contain, file_contains, find). All checks are hermetic: no
 # network calls, no live CLIs. Most checks are fully testable with fixtures.
 #
-# GREP PORTABILITY NOTE:
-# Several detection conditions in solutions.sh use files_contain with "\|"
-# (backslash-pipe) patterns. On macOS BSD grep, "\|" in ERE is NOT alternation —
-# it is a literal pipe character — so those patterns never match a normal file.
-# Only fixtures that trigger detection via patterns WITHOUT "\|" are tested here.
-# The following checks are SKIP-only in this test suite for that reason:
-#   SAAS-003  vercel.json security-header PASS: file_contains uses "\|" (BSD grep)
-#   SAAS-005  Sentry: all detection patterns use "\|" (sentry_sdk\|sentry-sdk)
-#   SAAS-009  SendGrid: all detection patterns use "\|" (@sendgrid\|sendgrid, etc.)
-#   SAAS-011  SentinelOne: all detection patterns use "\|"
-#   SAAS-014  QueryPie: all detection patterns use "\|"
-#   SAAS-015  Google Workspace: all detection patterns use "\|"
+# GREP PORTABILITY NOTE (resolved):
+# solutions.sh previously used files_contain with "\|" (backslash-pipe) in many
+# detection conditions. Under grep -E (ERE) "\|" is a LITERAL pipe, not alternation,
+# so those detectors never matched and always SKIPped. That bug is now fixed — every
+# "\|" was converted to proper (a|b) ERE alternation — and the detection paths for
+# SAAS-005 (Sentry), SAAS-009 (SendGrid), SAAS-011 (SentinelOne), SAAS-014 (QueryPie)
+# and SAAS-015 (Google Workspace) are exercised by the "alternation regression" tests
+# near the end of this file (integration-present fixture -> detected, not SKIP).
 #
 # CHECKS COVERED WITH FIXTURES:
 #   SAAS-001  GitHub security config (needs git repo)
@@ -183,10 +179,9 @@ YML
 SCAN_DIR="$tmpdir/wf_noconcur" run_check
 assert_has_result "Workflow missing concurrency -> WARN SAAS-002" "WARN" "SAAS-002"
 
-# ── SAAS-003: Vercel config (SKIP + WARN paths only) ─────────────────────────
-# NOTE: The PASS path requires file_contains with "\|" alternation which BSD
-# grep -E does not support. Only SKIP (no vercel files) and WARN (vercel.json
-# present but headers pattern never matches on BSD grep) are tested.
+# ── SAAS-003: Vercel config (SKIP + WARN paths) ──────────────────────────────
+# NOTE: only SKIP (no vercel files) and WARN (vercel.json present without security
+# headers) are exercised here; the PASS path (headers present) is left untested.
 
 echo "=== SAAS-003: no vercel files -> SKIP ==="
 
@@ -194,7 +189,7 @@ mkdir -p "$tmpdir/no_vercel"
 SCAN_DIR="$tmpdir/no_vercel" run_check
 assert_has_result "No vercel.json -> SKIP SAAS-003" "SKIP" "SAAS-003"
 
-echo "=== SAAS-003: vercel.json present -> WARN (BSD grep: header pattern won't match) ==="
+echo "=== SAAS-003: vercel.json present without security headers -> WARN ==="
 
 mkdir -p "$tmpdir/vercel_present"
 cat > "$tmpdir/vercel_present/vercel.json" <<'JSON'
@@ -548,6 +543,51 @@ cat > "$tmpdir/ide_bad/.vscode/settings.json" <<'JSON'
 JSON
 SCAN_DIR="$tmpdir/ide_bad" run_check
 assert_has_result ".vscode workspace trust disabled -> WARN SAAS-019" "WARN" "SAAS-019"
+
+# ── REGRESSION (grep -E alternation): integration detection used "\|" ──────────
+# These detectors keyed on patterns like "Sentry.init\|@sentry/node". Under
+# grep -E (ERE) "\|" is a LITERAL pipe, not alternation, so the integration was
+# never detected and the check always emitted SKIP. With the alternation fixed
+# to (a|b), an integration-present fixture is detected and emits PASS/WARN (never
+# SKIP). assert_no_result SKIP is RED on the old code, GREEN on the fix.
+mkdir -p "$tmpdir/sentry_app"
+cat > "$tmpdir/sentry_app/app.js" <<'JS'
+const Sentry = require("@sentry/node");
+Sentry.init({ dsn: process.env.SENTRY_DSN });
+JS
+SCAN_DIR="$tmpdir/sentry_app" run_check
+assert_no_result "Sentry detected -> not SKIP SAAS-005 (alternation regression)" "SKIP" "SAAS-005"
+
+mkdir -p "$tmpdir/sendgrid_app"
+cat > "$tmpdir/sendgrid_app/mail.js" <<'JS'
+const sgMail = require("@sendgrid/mail");
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+JS
+SCAN_DIR="$tmpdir/sendgrid_app" run_check
+assert_no_result "SendGrid detected -> not SKIP SAAS-009 (alternation regression)" "SKIP" "SAAS-009"
+
+mkdir -p "$tmpdir/s1_app"
+cat > "$tmpdir/s1_app/agents.yaml" <<'YAML'
+sentinelone:
+  console: https://example.sentinelone.net
+YAML
+SCAN_DIR="$tmpdir/s1_app" run_check
+assert_no_result "SentinelOne detected -> not SKIP SAAS-011 (alternation regression)" "SKIP" "SAAS-011"
+
+mkdir -p "$tmpdir/qp_app"
+cat > "$tmpdir/qp_app/config.yaml" <<'YAML'
+querypie:
+  url: https://example.querypie.com
+YAML
+SCAN_DIR="$tmpdir/qp_app" run_check
+assert_no_result "QueryPie detected -> not SKIP SAAS-014 (alternation regression)" "SKIP" "SAAS-014"
+
+mkdir -p "$tmpdir/gws_app"
+cat > "$tmpdir/gws_app/creds.json" <<'JSON'
+{ "endpoint": "https://www.googleapis.com/admin/directory/v1/users" }
+JSON
+SCAN_DIR="$tmpdir/gws_app" run_check
+assert_no_result "Google Workspace detected -> not SKIP SAAS-015 (alternation regression)" "SKIP" "SAAS-015"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 
