@@ -181,6 +181,14 @@ jobs:
         run: bash scanner/tests/test_check_network_tls.sh
       - name: Run bash unit tests (cicd/pipeline checks)
         run: bash scanner/tests/test_check_cicd_pipeline.sh
+      - name: Run bash unit tests (code/security-flaws checks)
+        run: bash scanner/tests/test_check_code_security_flaws.sh
+      - name: Run bash unit tests (code/sast-tools checks)
+        run: bash scanner/tests/test_check_code_sast_tools.sh
+      - name: Run bash unit tests (infra/iac checks)
+        run: bash scanner/tests/test_check_infra_iac.sh
+      - name: Run bash unit tests (access-control/secrets-scan checks)
+        run: bash scanner/tests/test_check_secrets_scan.sh
       - name: Run scanner pytest + coverage gate (>=99%)
         id: scanner_tests
         env:
