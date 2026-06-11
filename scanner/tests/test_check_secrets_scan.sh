@@ -126,6 +126,22 @@ printf '#!/usr/bin/env bash\nNPM_AUTH_TOKEN="%s%s"\n' "$_npm_prefix" 'ABCDEFGHIJ
 SCAN_DIR="$tmpdir/npm_leak" run_check
 assert_has_result "npm token in .sh -> FAIL SECRETS-001" "FAIL" "SECRETS-001"
 
+echo "=== SECRETS-001: GitHub App Token (|-alternation pattern) ==="
+
+# REGRESSION (IFS pipe-split bug): the "GitHub App Token" pattern is
+# (ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36,} — it contains '|' alternation. The old
+# `IFS='|' read` truncated it to the unbalanced "(ghp", so grep -E errored and the
+# detector silently matched nothing. A ghu_-prefixed token is matched ONLY by this
+# pattern (the gh[ps]_/gho_ patterns exclude ghu_), so it isolates the fix.
+# Build it from prefix + 36 fake chars at runtime so no contiguous token literal
+# sits in the committed source.
+mkdir -p "$tmpdir/ghapp_leak"
+_gh_prefix='ghu_'
+printf 'GH_APP_TOKEN="%s%s"\n' "$_gh_prefix" 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ab' \
+  > "$tmpdir/ghapp_leak/deploy.sh"
+SCAN_DIR="$tmpdir/ghapp_leak" run_check
+assert_has_result "GitHub App Token (ghu_) in source -> FAIL SECRETS-001 (IFS pipe-split regression)" "FAIL" "SECRETS-001"
+
 echo "=== SECRETS-001: Allowlisted path (scanner/tests/) not flagged ==="
 
 # PASS: A file under scanner/tests/ is in the allowlisted path, so SECRETS-001
