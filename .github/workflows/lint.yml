@@ -189,6 +189,24 @@ jobs:
         run: bash scanner/tests/test_check_infra_iac.sh
       - name: Run bash unit tests (access-control/secrets-scan checks)
         run: bash scanner/tests/test_check_secrets_scan.sh
+      - name: Run bash unit tests (ai/llm-security checks)
+        run: bash scanner/tests/test_check_ai_llm_security.sh
+      - name: Run bash unit tests (cloud/gcp-azure checks)
+        run: bash scanner/tests/test_check_cloud_gcp_azure.sh
+      - name: Run bash unit tests (macos/cis-security checks)
+        run: bash scanner/tests/test_check_macos_cis_security.sh
+      - name: Run bash unit tests (windows/kisa-security checks)
+        run: bash scanner/tests/test_check_windows_kisa_security.sh
+      - name: Run bash unit tests (saas/api-checks)
+        run: bash scanner/tests/test_check_saas_api_checks.sh
+      - name: Run bash unit tests (saas/api-extended)
+        run: bash scanner/tests/test_check_saas_api_extended.sh
+      - name: Run bash unit tests (saas/audit-points)
+        run: bash scanner/tests/test_check_saas_audit_points.sh
+      - name: Run bash unit tests (saas/solutions)
+        run: bash scanner/tests/test_check_saas_solutions.sh
+      - name: Run bash unit tests (saas/zscaler)
+        run: bash scanner/tests/test_check_saas_zscaler.sh
       - name: Run scanner pytest + coverage gate (>=99%)
         id: scanner_tests
         env:
