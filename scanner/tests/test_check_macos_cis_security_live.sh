@@ -171,6 +171,42 @@ for id in CIS-001 CIS-002 CIS-003 CIS-004 CIS-005 \
 done
 
 # ---------------------------------------------------------------------------
+# Deterministic-verdict assertion (Phase 3): weak ~/.ssh/config -> real CIS-006 FAIL
+# ---------------------------------------------------------------------------
+# Beyond the structural checks above (which planted a STRONG-cipher config),
+# re-run the REAL CIS-006 against a WEAK-cipher ~/.ssh/config and assert it
+# escalates to a high-severity FAIL. This drives the actual check code (not a
+# copy) and is DETERMINISTIC regardless of the runner's /etc/ssh: CIS-006 fails
+# on ANY config file with a weak cipher, and $HOME/.ssh/config is read first.
+# The PASS direction is intentionally NOT asserted — it would depend on the
+# runner's uncontrolled /etc/ssh contents.
+echo ""
+echo "=== Deterministic: weak ~/.ssh/config -> real CIS-006 FAIL ==="
+weak_home="$tmpdir/weak_home"
+mkdir -p "$weak_home/.ssh"
+cat > "$weak_home/.ssh/config" <<'SSHCONF'
+Host *
+Ciphers aes128-cbc,arcfour
+MACs hmac-md5
+SSHCONF
+RESULTS=()
+HOME="$weak_home"
+# shellcheck source=../checks/macos/cis-security.sh
+source "$CHECKS_DIR/macos/cis-security.sh"
+export HOME="$fake_home"   # restore the strong-cipher home used above
+_cis006_fail=false
+for r in "${RESULTS[@]+"${RESULTS[@]}"}"; do
+  if [[ "$r" == FAIL:CIS-006* ]]; then _cis006_fail=true; break; fi
+done
+if $_cis006_fail; then
+  echo "  PASS: weak ~/.ssh/config -> CIS-006 FAIL (real check, deterministic)"
+  ((TEST_PASSED++))
+else
+  echo "  FAIL: expected FAIL:CIS-006 from weak ~/.ssh/config, got: ${RESULTS[*]:-none}"
+  ((TEST_FAILED++))
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
