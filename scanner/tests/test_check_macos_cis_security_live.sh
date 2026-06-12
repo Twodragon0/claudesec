@@ -131,10 +131,14 @@ export HOME="$fake_home"
 # Run the live macOS CIS check
 # ---------------------------------------------------------------------------
 
+# On a non-Darwin host (e.g. the Linux kcov runner that globs every test_*.sh)
+# the check short-circuits to SKIP for all 20 IDs via its `uname` guard. Rather
+# than hard-exit (which logged a spurious WARN every kcov run), proceed and let
+# the structural assertions verify the all-SKIP shape — matching the windows leg.
+# Real verdicts are produced only on the macos-latest runner.
 if [[ "$(uname)" != "Darwin" ]]; then
-  echo "ERROR: this test requires macOS (Darwin). Current uname: $(uname)"
-  echo "Run it on a macos-latest GitHub Actions runner or a local Mac."
-  exit 1
+  echo "=== Non-Darwin host ($(uname)): every check SKIPs via the OS guard; ==="
+  echo "    asserting all-SKIP structure (live verdicts run only on macos-latest)."
 fi
 
 echo "=== Running live macOS CIS check on $(uname -r) ==="
@@ -180,30 +184,36 @@ done
 # on ANY config file with a weak cipher, and $HOME/.ssh/config is read first.
 # The PASS direction is intentionally NOT asserted — it would depend on the
 # runner's uncontrolled /etc/ssh contents.
-echo ""
-echo "=== Deterministic: weak ~/.ssh/config -> real CIS-006 FAIL ==="
-weak_home="$tmpdir/weak_home"
-mkdir -p "$weak_home/.ssh"
-cat > "$weak_home/.ssh/config" <<'SSHCONF'
+# Darwin only: on a non-Darwin host the check SKIPs CIS-006 (no FAIL to assert).
+if [[ "$(uname)" == "Darwin" ]]; then
+  echo ""
+  echo "=== Deterministic: weak ~/.ssh/config -> real CIS-006 FAIL ==="
+  weak_home="$tmpdir/weak_home"
+  mkdir -p "$weak_home/.ssh"
+  cat > "$weak_home/.ssh/config" <<'SSHCONF'
 Host *
 Ciphers aes128-cbc,arcfour
 MACs hmac-md5
 SSHCONF
-RESULTS=()
-HOME="$weak_home"
-# shellcheck source=../checks/macos/cis-security.sh
-source "$CHECKS_DIR/macos/cis-security.sh"
-export HOME="$fake_home"   # restore the strong-cipher home used above
-_cis006_fail=false
-for r in "${RESULTS[@]+"${RESULTS[@]}"}"; do
-  if [[ "$r" == FAIL:CIS-006* ]]; then _cis006_fail=true; break; fi
-done
-if $_cis006_fail; then
-  echo "  PASS: weak ~/.ssh/config -> CIS-006 FAIL (real check, deterministic)"
-  ((TEST_PASSED++))
+  RESULTS=()
+  HOME="$weak_home"
+  # shellcheck source=../checks/macos/cis-security.sh
+  source "$CHECKS_DIR/macos/cis-security.sh"
+  export HOME="$fake_home"   # restore the strong-cipher home used above
+  _cis006_fail=false
+  for r in "${RESULTS[@]+"${RESULTS[@]}"}"; do
+    if [[ "$r" == FAIL:CIS-006* ]]; then _cis006_fail=true; break; fi
+  done
+  if $_cis006_fail; then
+    echo "  PASS: weak ~/.ssh/config -> CIS-006 FAIL (real check, deterministic)"
+    ((TEST_PASSED++))
+  else
+    echo "  FAIL: expected FAIL:CIS-006 from weak ~/.ssh/config, got: ${RESULTS[*]:-none}"
+    ((TEST_FAILED++))
+  fi
 else
-  echo "  FAIL: expected FAIL:CIS-006 from weak ~/.ssh/config, got: ${RESULTS[*]:-none}"
-  ((TEST_FAILED++))
+  echo ""
+  echo "=== Deterministic CIS-006 assertion skipped on non-Darwin ($(uname)) ==="
 fi
 
 # ---------------------------------------------------------------------------
