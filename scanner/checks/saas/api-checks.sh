@@ -319,7 +319,7 @@ if [[ -n "${VERCEL_TOKEN:-}" ]]; then
     _v_proj_ids=$(echo "$_v_projects" | grep -oE '"id":"[^"]*"' | head -5 | cut -d'"' -f4 || true)
     for _pid in $_v_proj_ids; do
       _v_envs=$(_saas_api "https://api.vercel.com/v9/projects/${_pid}/env" "${VERCEL_TOKEN}")
-      _plain_envs=$(echo "$_v_envs" | grep -c '"type":"plain"' || echo "0")
+      _plain_envs=$(echo "$_v_envs" | grep -c '"type":"plain"' || true)
       if [[ "$_plain_envs" -gt 0 ]]; then
         _v_details="${_v_details}\n    Project has ${_plain_envs} plain-text env var(s) (use 'secret' type)"
       fi
@@ -360,7 +360,7 @@ if [[ -n "${SENTRY_AUTH_TOKEN:-}" ]]; then
     if [[ -n "$_org_slug" ]]; then
       # Check for unresolved issues with high priority
       _sentry_issues=$(_saas_api "https://sentry.io/api/0/organizations/${_org_slug}/issues/?query=is:unresolved+level:fatal&limit=5" "${SENTRY_AUTH_TOKEN}")
-      _fatal_count=$(echo "$_sentry_issues" | grep -c '"level":"fatal"' || echo "0")
+      _fatal_count=$(echo "$_sentry_issues" | grep -c '"level":"fatal"' || true)
       if [[ "$_fatal_count" -gt 0 ]]; then
         _s_issues=$((_s_issues + 1))
         _s_details="${_s_details}\n    ${_fatal_count} unresolved fatal issue(s) in Sentry"
@@ -529,13 +529,13 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
       -H "${_okta_auth_header}" \
       -H "Accept: application/json" \
       "${OKTA_ORG_URL}/api/v1/users?filter=status+eq+%22ACTIVE%22&limit=200" 2>/dev/null | \
-      grep -c '"status":"ACTIVE"' || echo "0")
+      grep -c '"status":"ACTIVE"' || true)
 
     _mfa_enrolled=$(run_with_timeout 15 curl -sSf \
       -H "${_okta_auth_header}" \
       -H "Accept: application/json" \
       "${OKTA_ORG_URL}/api/v1/users?search=profile.mfaEnabled+eq+true&limit=200" 2>/dev/null | \
-      grep -c '"id"' || echo "0")
+      grep -c '"id"' || true)
 
     if [[ -z "$_okta_pwd_policies" ]]; then
       _okta_pwd_policies=$(_saas_api_header \
@@ -579,7 +579,7 @@ if [[ -n "${SENDGRID_API_KEY:-}" ]]; then
 
     # Check API key scopes (should be restricted)
     _sg_scopes=$(_saas_api "https://api.sendgrid.com/v3/scopes" "${SENDGRID_API_KEY}")
-    _scope_count=$(echo "$_sg_scopes" | grep -c '"scope"' || echo "0")
+    _scope_count=$(echo "$_sg_scopes" | grep -c '"scope"' || true)
     if [[ "$_scope_count" -gt 20 ]]; then
       _sg_api_details="${_sg_api_details}\n    API key has ${_scope_count} scopes (use minimal permissions)"
     fi

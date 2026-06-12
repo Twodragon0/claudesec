@@ -99,8 +99,8 @@ if [[ -n "${PAGERDUTY_API_KEY:-}" || -n "${PD_API_KEY:-}" ]]; then
       -H "Content-Type: application/json" \
       "https://api.pagerduty.com/services?limit=100" 2>/dev/null || echo "")
 
-    _pd_svc_count=$(echo "$_pd_services" | grep -c '"id"' || echo "0")
-    _pd_no_escalation=$(echo "$_pd_services" | grep -c '"escalation_policy":null' || echo "0")
+    _pd_svc_count=$(echo "$_pd_services" | grep -c '"id"' || true)
+    _pd_no_escalation=$(echo "$_pd_services" | grep -c '"escalation_policy":null' || true)
     if [[ "$_pd_no_escalation" -gt 0 ]]; then
       _pd_issues=$((_pd_issues + 1))
       _pd_details="${_pd_details}\\n    ${_pd_no_escalation} service(s) without escalation policy"
@@ -112,7 +112,7 @@ if [[ -n "${PAGERDUTY_API_KEY:-}" || -n "${PD_API_KEY:-}" ]]; then
       -H "Content-Type: application/json" \
       "https://api.pagerduty.com/oncalls?limit=1" 2>/dev/null || echo "")
 
-    _pd_oncall_count=$(echo "$_pd_oncalls" | grep -c '"user"' || echo "0")
+    _pd_oncall_count=$(echo "$_pd_oncalls" | grep -c '"user"' || true)
     if [[ "$_pd_oncall_count" -eq 0 ]]; then
       _pd_details="${_pd_details}\\n    No on-call schedules configured"
     fi
@@ -123,7 +123,7 @@ if [[ -n "${PAGERDUTY_API_KEY:-}" || -n "${PD_API_KEY:-}" ]]; then
       -H "Content-Type: application/json" \
       "https://api.pagerduty.com/incidents?statuses[]=triggered&limit=100" 2>/dev/null || echo "")
 
-    _pd_triggered=$(echo "$_pd_incidents" | grep -c '"status":"triggered"' || echo "0")
+    _pd_triggered=$(echo "$_pd_incidents" | grep -c '"status":"triggered"' || true)
     if [[ "$_pd_triggered" -gt 5 ]]; then
       _pd_issues=$((_pd_issues + 1))
       _pd_details="${_pd_details}\\n    ${_pd_triggered} unacknowledged (triggered) incidents"
@@ -175,7 +175,7 @@ if [[ -n "${ATLASSIAN_API_TOKEN:-}" && -n "${ATLASSIAN_EMAIL:-}" && -n "${ATLASS
       -H "Content-Type: application/json" \
       "https://${ATLASSIAN_DOMAIN}.atlassian.net/rest/api/3/project?maxResults=50" 2>/dev/null || echo "")
 
-    _proj_count=$(echo "$_jira_projects" | grep -c '"key"' || echo "0")
+    _proj_count=$(echo "$_jira_projects" | grep -c '"key"' || true)
 
     if [[ $_j_issues -eq 0 && -z "$_j_details" ]]; then
       pass "SAAS-API-011" "Atlassian/Jira security verified (${_proj_count} project(s), user: ${_j_user})"
@@ -224,7 +224,7 @@ if [[ -n "${GRAFANA_API_KEY:-}" || -n "${GRAFANA_TOKEN:-}" ]] && [[ -n "${GRAFAN
       -H "Authorization: Bearer ${_graf_token}" \
       "${GRAFANA_URL}/api/search?type=dash-db&limit=100" 2>/dev/null || echo "")
 
-    _public_dash=$(echo "$_graf_dashboards" | grep -c '"isPublic":true' || echo "0")
+    _public_dash=$(echo "$_graf_dashboards" | grep -c '"isPublic":true' || true)
     if [[ "$_public_dash" -gt 0 ]]; then
       _g_details="${_g_details}\\n    ${_public_dash} public dashboard(s) found"
     fi
@@ -234,7 +234,7 @@ if [[ -n "${GRAFANA_API_KEY:-}" || -n "${GRAFANA_TOKEN:-}" ]] && [[ -n "${GRAFAN
       -H "Authorization: Bearer ${_graf_token}" \
       "${GRAFANA_URL}/api/v1/provisioning/alert-rules" 2>/dev/null || echo "")
 
-    _alert_count=$(echo "$_graf_alerts" | grep -c '"uid"' || echo "0")
+    _alert_count=$(echo "$_graf_alerts" | grep -c '"uid"' || true)
     if [[ "$_alert_count" -eq 0 ]]; then
       _g_details="${_g_details}\\n    No alert rules configured"
     fi
@@ -271,7 +271,7 @@ if [[ -n "${NEW_RELIC_API_KEY:-}" || -n "${NEWRELIC_API_KEY:-}" ]]; then
       -H "Api-Key: ${_nr_key}" \
       "https://api.newrelic.com/v2/alerts_policies.json" 2>/dev/null || echo "")
 
-    _nr_policy_count=$(echo "$_nr_policies" | grep -c '"id"' || echo "0")
+    _nr_policy_count=$(echo "$_nr_policies" | grep -c '"id"' || true)
     if [[ "$_nr_policy_count" -eq 0 ]]; then
       _nr_issues=$((_nr_issues + 1))
       _nr_details="${_nr_details}\\n    No alert policies configured"
@@ -282,7 +282,7 @@ if [[ -n "${NEW_RELIC_API_KEY:-}" || -n "${NEWRELIC_API_KEY:-}" ]]; then
       -H "Api-Key: ${_nr_key}" \
       "https://api.newrelic.com/v2/alerts_violations.json?only_open=true" 2>/dev/null || echo "")
 
-    _nr_open_viols=$(echo "$_nr_violations" | grep -c '"id"' || echo "0")
+    _nr_open_viols=$(echo "$_nr_violations" | grep -c '"id"' || true)
     if [[ "$_nr_open_viols" -gt 0 ]]; then
       _nr_details="${_nr_details}\\n    ${_nr_open_viols} open alert violation(s)"
     fi
@@ -319,7 +319,7 @@ if [[ -n "${SPLUNK_TOKEN:-}" && -n "${SPLUNK_URL:-}" ]]; then
       -H "Authorization: Bearer ${SPLUNK_TOKEN}" \
       "${SPLUNK_URL}/services/saved/searches?output_mode=json&count=0" 2>/dev/null || echo "")
 
-    _search_count=$(echo "$_splunk_searches" | grep -c '"name"' || echo "0")
+    _search_count=$(echo "$_splunk_searches" | grep -c '"name"' || true)
     if [[ "$_search_count" -eq 0 ]]; then
       _sp_details="${_sp_details}\\n    No saved searches/alerts configured"
     fi
@@ -371,7 +371,7 @@ if [[ -n "${TWILIO_ACCOUNT_SID:-}" && -n "${TWILIO_AUTH_TOKEN:-}" ]]; then
       -u "${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}" \
       "https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Keys.json" 2>/dev/null || echo "")
 
-    _key_count=$(echo "$_twilio_keys" | grep -c '"sid"' || echo "0")
+    _key_count=$(echo "$_twilio_keys" | grep -c '"sid"' || true)
     if [[ "$_key_count" -eq 0 ]]; then
       _tw_details="${_tw_details}\\n    No API keys created (using master auth token is less secure)"
     fi
@@ -410,7 +410,7 @@ if [[ -n "${MONGODB_ATLAS_PUBLIC_KEY:-}" && -n "${MONGODB_ATLAS_PRIVATE_KEY:-}" 
         -u "${MONGODB_ATLAS_PUBLIC_KEY}:${MONGODB_ATLAS_PRIVATE_KEY}" \
         "https://cloud.mongodb.com/api/atlas/v2/orgs/${_atlas_org_id}/groups" 2>/dev/null || echo "")
 
-      _proj_count=$(echo "$_atlas_projects" | grep -c '"id"' || echo "0")
+      _proj_count=$(echo "$_atlas_projects" | grep -c '"id"' || true)
 
       # Check for 2FA enforcement
       _atlas_settings=$(run_with_timeout 15 curl -sSf --digest \
@@ -474,7 +474,7 @@ if [[ -n "${ELASTIC_API_KEY:-}" || ( -n "${ELASTIC_CLOUD_ID:-}" && -n "${ELASTIC
       -H "Authorization: ApiKey ${ELASTIC_API_KEY}" \
       "https://api.elastic-cloud.com/api/v1/deployments?size=10" 2>/dev/null || echo "")
 
-    _deploy_count=$(echo "$_elastic_deployments" | grep -c '"id"' || echo "0")
+    _deploy_count=$(echo "$_elastic_deployments" | grep -c '"id"' || true)
 
     if [[ $_el_issues -eq 0 && -z "$_el_details" ]]; then
       pass "SAAS-API-017" "Elastic Cloud security verified (${_deploy_count} deployment(s))"
@@ -501,7 +501,7 @@ if [[ -n "${DD_API_KEY:-}" && -n "${DD_APP_KEY:-}" ]]; then
     -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
     "${_dd_base}/api/v2/security_monitoring/signals?filter[query]=type:posture_management&page[limit]=1" 2>/dev/null || echo "")
 
-  _dd_cspm_count=$(echo "$_dd_cspm" | grep -c '"id"' || echo "0")
+  _dd_cspm_count=$(echo "$_dd_cspm" | grep -c '"id"' || true)
 
   _dd_deep_issues=0
   _dd_deep_details=""
@@ -512,7 +512,7 @@ if [[ -n "${DD_API_KEY:-}" && -n "${DD_APP_KEY:-}" ]]; then
     -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
     "${_dd_base}/api/v2/security_monitoring/rules?page[size]=5" 2>/dev/null || echo "")
 
-  _dd_rule_count=$(echo "$_dd_log_rules" | grep -c '"id"' || echo "0")
+  _dd_rule_count=$(echo "$_dd_log_rules" | grep -c '"id"' || true)
 
   # Check for Cloud Workload Security
   _dd_cws=$(run_with_timeout 15 curl -sSf \
@@ -526,7 +526,7 @@ if [[ -n "${DD_API_KEY:-}" && -n "${DD_APP_KEY:-}" ]]; then
     -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
     "${_dd_base}/api/v1/slo?limit=100" 2>/dev/null || echo "")
 
-  _slo_count=$(echo "$_dd_slos" | grep -c '"id"' || echo "0")
+  _slo_count=$(echo "$_dd_slos" | grep -c '"id"' || true)
 
   if [[ "$_dd_rule_count" -eq 0 ]]; then
     _dd_deep_issues=$((_dd_deep_issues + 1))
@@ -568,7 +568,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
     -H "Accept: application/json" \
     "${OKTA_ORG_URL}/api/v1/policies?type=OKTA_SIGN_ON" 2>/dev/null || echo "")
 
-  _signon_count=$(echo "$_okta_signon" | grep -c '"id"' || echo "0")
+  _signon_count=$(echo "$_okta_signon" | grep -c '"id"' || true)
   if [[ "$_signon_count" -lt 2 ]]; then
     _okta_deep_details="${_okta_deep_details}\\n    Only ${_signon_count} sign-on policy(ies) (consider context-aware policies)"
   fi
@@ -579,7 +579,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
     -H "Accept: application/json" \
     "${OKTA_ORG_URL}/api/v1/policies?type=MFA_ENROLL" 2>/dev/null || echo "")
 
-  _mfa_policies=$(echo "$_okta_mfa" | grep -c '"id"' || echo "0")
+  _mfa_policies=$(echo "$_okta_mfa" | grep -c '"id"' || true)
   if [[ "$_mfa_policies" -eq 0 ]]; then
     _okta_deep_issues=$((_okta_deep_issues + 1))
     _okta_deep_details="${_okta_deep_details}\\n    No MFA enrollment policy found"
@@ -591,8 +591,8 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
     -H "Accept: application/json" \
     "${OKTA_ORG_URL}/api/v1/apps?limit=50&filter=status+eq+%22ACTIVE%22" 2>/dev/null || echo "")
 
-  _app_count=$(echo "$_okta_apps" | grep -c '"id"' || echo "0")
-  _http_redirects=$(echo "$_okta_apps" | grep -c '"http://' || echo "0")
+  _app_count=$(echo "$_okta_apps" | grep -c '"id"' || true)
+  _http_redirects=$(echo "$_okta_apps" | grep -c '"http://' || true)
   if [[ "$_http_redirects" -gt 0 ]]; then
     _okta_deep_issues=$((_okta_deep_issues + 1))
     _okta_deep_details="${_okta_deep_details}\\n    ${_http_redirects} app(s) with HTTP (non-HTTPS) redirect URIs"
@@ -606,7 +606,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
       -H "Accept: application/json" \
       "${OKTA_ORG_URL}/api/v1/logs?since=${_yesterday}&filter=outcome.result+eq+%22FAILURE%22+and+severity+eq+%22WARN%22&limit=5" 2>/dev/null || echo "")
 
-    _threat_count=$(echo "$_okta_threats" | grep -c '"uuid"' || echo "0")
+    _threat_count=$(echo "$_okta_threats" | grep -c '"uuid"' || true)
     if [[ "$_threat_count" -gt 0 ]]; then
       _okta_deep_details="${_okta_deep_details}\\n    ${_threat_count} warning-level failure event(s) in system log (last 24h)"
     fi
