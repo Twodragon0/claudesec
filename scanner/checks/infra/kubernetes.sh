@@ -93,7 +93,7 @@ if has_kubectl_access 2>/dev/null; then
   [[ -n "${CLAUDESEC_KUBE_NAMESPACE:-}" ]] && info "K8s namespace filter: ${CLAUDESEC_KUBE_NAMESPACE}"
 
   # Check for pods running as root
-  root_pods=$($_kcmd get pods $_ns_flag -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}: {.spec.securityContext.runAsNonRoot}{"\n"}{end}' 2>/dev/null | grep -c "false" || echo "0")
+  root_pods=$($_kcmd get pods $_ns_flag -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}: {.spec.securityContext.runAsNonRoot}{"\n"}{end}' 2>/dev/null | grep -c "false" || true)
   if [[ "$root_pods" -gt 0 ]]; then
     fail "INFRA-016" "$root_pods pod(s) running without runAsNonRoot" "high" \
       "Live cluster has pods that may run as root" \
@@ -103,7 +103,7 @@ if has_kubectl_access 2>/dev/null; then
   fi
 
   # INFRA-017: Pod Security Standards (PSS) enforcement
-  pss_labels=$($_kcmd get namespaces -o jsonpath='{range .items[*]}{.metadata.labels.pod-security\.kubernetes\.io/enforce}{"\n"}{end}' 2>/dev/null | grep -cv '^$' || echo "0")
+  pss_labels=$($_kcmd get namespaces -o jsonpath='{range .items[*]}{.metadata.labels.pod-security\.kubernetes\.io/enforce}{"\n"}{end}' 2>/dev/null | grep -cv '^$' || true)
   total_ns=$($_kcmd get namespaces --no-headers 2>/dev/null | wc -l | tr -d ' ' || echo "0")
   if [[ "$pss_labels" -gt 0 ]]; then
     pass "INFRA-017" "Pod Security Standards enforced ($pss_labels/$total_ns namespaces)"
@@ -113,7 +113,7 @@ if has_kubectl_access 2>/dev/null; then
   fi
 
   # INFRA-018: Cluster RBAC — check for overly permissive ClusterRoleBindings
-  wildcard_crb=$($_kcmd get clusterrolebindings -o jsonpath='{range .items[*]}{.roleRef.name}{"\n"}{end}' 2>/dev/null | grep -c 'cluster-admin' || echo "0")
+  wildcard_crb=$($_kcmd get clusterrolebindings -o jsonpath='{range .items[*]}{.roleRef.name}{"\n"}{end}' 2>/dev/null | grep -c 'cluster-admin' || true)
   if [[ "$wildcard_crb" -le 1 ]]; then
     pass "INFRA-018" "Minimal cluster-admin bindings ($wildcard_crb)"
   else
