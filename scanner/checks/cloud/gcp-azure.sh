@@ -8,8 +8,11 @@ if has_gcp_credentials 2>/dev/null; then
 
   if [[ -n "$project" ]]; then
     # CLOUD-010: GCP audit logging
+    # `grep -c` already prints the count (0 on no match) and exits 1 when zero;
+    # use `|| true` (not `|| echo 0`, which would append a SECOND "0" and yield a
+    # two-line "0\n0" that breaks the `-gt` arithmetic below).
     audit_policy=$(gcloud projects get-iam-policy "$project" --format=json 2>/dev/null | \
-      grep -c "auditLogConfigs" 2>/dev/null || echo "0")
+      grep -c "auditLogConfigs" 2>/dev/null || true)
     if [[ "$audit_policy" -gt 0 ]]; then
       pass "CLOUD-010" "GCP audit logging configured"
     else
@@ -19,7 +22,7 @@ if has_gcp_credentials 2>/dev/null; then
 
     # CLOUD-011: GCP default service account usage
     default_sa=$(gcloud iam service-accounts list --format="value(email)" 2>/dev/null | \
-      grep -cE "(compute@developer|appspot)" || echo "0")
+      grep -cE "(compute@developer|appspot)" || true)
     if [[ "$default_sa" -gt 0 ]]; then
       warn "CLOUD-011" "Default service accounts in use" \
         "Create dedicated service accounts with minimal permissions"
