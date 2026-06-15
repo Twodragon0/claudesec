@@ -7,6 +7,9 @@
 # ── Stage 1: build prowler wheels ────────────────────────────────────────────
 # Base image pinned by digest for reproducible, supply-chain-safe builds.
 # Dependabot (docker ecosystem) bumps the digest when alpine:3.20 is rebuilt.
+# DO NOT bump the alpine MINOR version: prowler 3.11.3 pins pydantic v1, which
+# cannot run on Python >3.12. alpine 3.24 ships py3.14 -> `prowler -v` crashes.
+# Dependabot is configured to ignore alpine minor/major bumps (.github/dependabot.yml).
 FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc AS builder
 
 RUN apk add --no-cache \

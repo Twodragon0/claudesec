@@ -36,3 +36,14 @@ updates:
       docker:
         patterns:
           - "*"
+    ignore:
+      # Hold alpine on its current minor line (3.20 / Python 3.12). prowler 3.11.3
+      # pins pydantic v1, which cannot run on Python >3.12, and an alpine minor bump
+      # changes the bundled Python (3.24 ships py3.14 -> `prowler -v` crashes with
+      # pydantic ConfigError). Digest/patch rebuilds of 3.20 still flow; minor/major
+      # bumps are blocked until prowler is upgraded to a py3.13+ compatible major.
+      # See PR #220 (alpine 3.20->3.24 build green but prowler broken at runtime).
+      - dependency-name: "alpine"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
