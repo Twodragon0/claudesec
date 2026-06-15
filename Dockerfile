@@ -18,47 +18,54 @@ RUN apk add --no-cache \
     libffi-dev
 
 RUN pip install --no-cache-dir --no-compile --break-system-packages --prefix=/install prowler \
+    # Resolve site-packages without hardcoding the Python minor version, so an
+    # alpine base bump (e.g. 3.20/py3.12 -> 3.24/py3.13) does not break the build.
+    && SITE="$(find /install/lib -maxdepth 1 -type d -name 'python3.*' | sort | head -n1)/site-packages" \
     && find /install -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /install -type d -name 'tests' -exec rm -rf {} + 2>/dev/null || true \
     && find /install -name '*.dist-info' -type d -exec sh -c 'rm -rf "$1"/top_level.txt "$1"/RECORD' _ {} \; 2>/dev/null || true \
     # Remove unused cloud provider SDKs (OCI, Azure, GCP, Alibaba, Cloudflare)
     && rm -rf \
-       /install/lib/python3.12/site-packages/oci* \
-       /install/lib/python3.12/site-packages/azure* \
-       /install/lib/python3.12/site-packages/msgraph* \
-       /install/lib/python3.12/site-packages/msal* \
-       /install/lib/python3.12/site-packages/microsoft* \
-       /install/lib/python3.12/site-packages/googleapiclient* \
-       /install/lib/python3.12/site-packages/google/cloud* \
-       /install/lib/python3.12/site-packages/google_cloud* \
-       /install/lib/python3.12/site-packages/googleapis* \
-       /install/lib/python3.12/site-packages/cloudflare* \
-       /install/lib/python3.12/site-packages/alibabacloud* \
-       /install/lib/python3.12/site-packages/openstacksdk* \
-       /install/lib/python3.12/site-packages/openstack* \
-       /install/lib/python3.12/site-packages/plotly* \
-       /install/lib/python3.12/site-packages/pandas* \
-       /install/lib/python3.12/site-packages/numpy* \
-       /install/lib/python3.12/site-packages/iamdata* \
-       /install/lib/python3.12/site-packages/pip* \
-       /install/lib/python3.12/site-packages/prowler/providers/alibabacloud \
-       /install/lib/python3.12/site-packages/prowler/providers/azure \
-       /install/lib/python3.12/site-packages/prowler/providers/cloudflare \
-       /install/lib/python3.12/site-packages/prowler/providers/gcp \
-       /install/lib/python3.12/site-packages/prowler/providers/googleworkspace \
-       /install/lib/python3.12/site-packages/prowler/providers/llm \
-       /install/lib/python3.12/site-packages/prowler/providers/m365 \
-       /install/lib/python3.12/site-packages/prowler/providers/mongodbatlas \
-       /install/lib/python3.12/site-packages/prowler/providers/nhn \
-       /install/lib/python3.12/site-packages/prowler/providers/openstack \
-       /install/lib/python3.12/site-packages/prowler/providers/oraclecloud \
-       /install/lib/python3.12/site-packages/prowler/providers/image \
+       "${SITE}"/oci* \
+       "${SITE}"/azure* \
+       "${SITE}"/msgraph* \
+       "${SITE}"/msal* \
+       "${SITE}"/microsoft* \
+       "${SITE}"/googleapiclient* \
+       "${SITE}"/google/cloud* \
+       "${SITE}"/google_cloud* \
+       "${SITE}"/googleapis* \
+       "${SITE}"/cloudflare* \
+       "${SITE}"/alibabacloud* \
+       "${SITE}"/openstacksdk* \
+       "${SITE}"/openstack* \
+       "${SITE}"/plotly* \
+       "${SITE}"/pandas* \
+       "${SITE}"/numpy* \
+       "${SITE}"/iamdata* \
+       "${SITE}"/pip* \
+       "${SITE}"/prowler/providers/alibabacloud \
+       "${SITE}"/prowler/providers/azure \
+       "${SITE}"/prowler/providers/cloudflare \
+       "${SITE}"/prowler/providers/gcp \
+       "${SITE}"/prowler/providers/googleworkspace \
+       "${SITE}"/prowler/providers/llm \
+       "${SITE}"/prowler/providers/m365 \
+       "${SITE}"/prowler/providers/mongodbatlas \
+       "${SITE}"/prowler/providers/nhn \
+       "${SITE}"/prowler/providers/openstack \
+       "${SITE}"/prowler/providers/oraclecloud \
+       "${SITE}"/prowler/providers/image \
        2>/dev/null || true \
-    # Patch prowler to skip removed provider imports
-    && MAIN=/install/lib/python3.12/site-packages/prowler/__main__.py \
-    && for p in alibabacloud azure gcp googleworkspace llm m365 mongodbatlas nhn cloudflare openstack oraclecloud image; do \
-         sed -i "s|^from prowler\.providers\.${p}|# removed: ${p} #|" "$MAIN"; \
-       done
+    # Patch prowler to skip removed provider imports (guard: skip if entrypoint moved)
+    && MAIN="${SITE}/prowler/__main__.py" \
+    && if [ -f "$MAIN" ]; then \
+         for p in alibabacloud azure gcp googleworkspace llm m365 mongodbatlas nhn cloudflare openstack oraclecloud image; do \
+           sed -i "s|^from prowler\.providers\.${p}|# removed: ${p} #|" "$MAIN"; \
+         done; \
+       else \
+         echo "WARNING: $MAIN not found; skipping provider-import patch" >&2; \
+       fi
 
 # ── Stage 2: runtime image ──────────────────────────────────────────────────
 # Pinned by digest (same alpine:3.20 release as the builder stage).
