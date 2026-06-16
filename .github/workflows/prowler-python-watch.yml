@@ -1,0 +1,201 @@
+# Prowler Python Ceiling Watcher
+#
+# NOTIFICATION-ONLY scheduled workflow that monitors prowler's PyPI metadata
+# for the <3.13 Python ceiling being lifted.  When the ceiling is gone (i.e.
+# Python 3.13+ becomes allowed), it opens a single GitHub issue to signal
+# that the alpine py3.12 freeze can be unblocked.
+#
+# Background:
+#   Dockerfile is pinned to alpine:3.20 (py3.12) + prowler==5.30.1 because
+#   prowler requires Python >=3.10,<3.13 (prowler-cloud/prowler#6737).
+#   .github/dependabot.yml ignores alpine minor/major bumps for the same
+#   reason.  This watcher fires when that constraint is relaxed upstream.
+#
+# Idempotency:
+#   Before creating an issue it searches for an existing open issue labelled
+#   'prowler-py-watch'.  If one already exists the job logs a note and exits 0.
+#
+# Fail-safe:
+#   Transient network errors (curl failure, empty JSON) cause an exit 0 no-op,
+#   NOT a false-positive issue or a noisy failure on the schedule.
+#
+# This workflow MUST NOT run on pull_request events — it is a scheduled
+# notifier only and must not become a required PR status check.
+
+name: Prowler Python Ceiling Watch
+
+on:
+  schedule:
+    # 06:00 UTC on the 1st of every month
+    - cron: '0 6 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    name: Check prowler requires-python ceiling
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v4.2.2
+
+      - name: Check prowler Python ceiling
+        id: ceiling
+        run: |
+          set -euo pipefail
+          # Run the check script; exit 2 means ceiling lifted, 0 means frozen/error.
+          result_code=0
+          bash scripts/check-prowler-python-ceiling.sh > /tmp/ceiling-result.txt 2>&1 || result_code=$?
+
+          echo "--- check-prowler-python-ceiling.sh output ---"
+          cat /tmp/ceiling-result.txt
+
+          # Parse key=value lines into step outputs
+          prowler_version="unknown"
+          requires_python="unknown"
+          ceiling_lifted="false"
+
+          while IFS='=' read -r key value; do
+            case "${key}" in
+              PROWLER_VERSION)  prowler_version="${value}" ;;
+              REQUIRES_PYTHON)  requires_python="${value}" ;;
+              CEILING_LIFTED)   ceiling_lifted="${value}" ;;
+            esac
+          done < /tmp/ceiling-result.txt
+
+          echo "prowler_version=${prowler_version}" >> "${GITHUB_OUTPUT}"
+          echo "requires_python=${requires_python}"  >> "${GITHUB_OUTPUT}"
+          echo "ceiling_lifted=${ceiling_lifted}"    >> "${GITHUB_OUTPUT}"
+
+          if [ "${ceiling_lifted}" = "true" ]; then
+            echo "CEILING LIFTED: prowler ${prowler_version} now supports Python 3.13+"
+          else
+            echo "Still frozen: prowler ${prowler_version} requires_python='${requires_python}' — no action needed"
+          fi
+
+      - name: Ensure prowler-py-watch label exists
+        if: steps.ceiling.outputs.ceiling_lifted == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh label list --repo "${GITHUB_REPOSITORY}" --json name \
+               | python3 -c "
+          import sys, json
+          labels = [l['name'] for l in json.load(sys.stdin)]
+          sys.exit(0 if 'prowler-py-watch' in labels else 1)
+          " 2>/dev/null; then
+            echo "Creating label prowler-py-watch"
+            gh label create prowler-py-watch \
+              --repo "${GITHUB_REPOSITORY}" \
+              --description "Prowler Python ceiling watcher alert" \
+              --color "e4e669"
+          else
+            echo "Label prowler-py-watch already exists"
+          fi
+
+      - name: Check for existing open alert issue
+        id: existing_issue
+        if: steps.ceiling.outputs.ceiling_lifted == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          existing="$(gh issue list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --label "prowler-py-watch" \
+            --state open \
+            --json number,title \
+            --limit 5)"
+
+          echo "Existing open prowler-py-watch issues: ${existing}"
+
+          count="$(echo "${existing}" | python3 -c 'import sys, json; print(len(json.load(sys.stdin)))')"
+          if [ "${count}" -gt 0 ]; then
+            echo "issue_exists=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "issue_exists=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Write issue body to file
+        if: >-
+          steps.ceiling.outputs.ceiling_lifted == 'true' &&
+          steps.existing_issue.outputs.issue_exists == 'false'
+        env:
+          PROWLER_VERSION: ${{ steps.ceiling.outputs.prowler_version }}
+          REQUIRES_PYTHON: ${{ steps.ceiling.outputs.requires_python }}
+        run: |
+          set -euo pipefail
+          python3 - << 'PYEOF'
+          import os, textwrap
+          v  = os.environ["PROWLER_VERSION"]
+          rp = os.environ["REQUIRES_PYTHON"]
+          body = textwrap.dedent(f"""\
+          ## Prowler Python ceiling lifted
+
+          The automated watcher detected that **prowler** no longer restricts Python to `<3.13`.
+
+          | Field            | Value |
+          |------------------|-------|
+          | Detected version | {v} |
+          | requires_python  | `{rp}` |
+          | Detected by      | prowler-python-watch scheduled workflow |
+
+          ## Why this matters
+
+          The `Dockerfile` is currently pinned to `alpine:3.20` (Python 3.12) and
+          `ARG PROWLER_VERSION=5.30.1` specifically because prowler previously required
+          `Python >=3.10,<3.13` (see prowler-cloud/prowler#6737).  The
+          `.github/dependabot.yml` also ignores alpine minor/major bumps for the same
+          reason.
+
+          Now that prowler supports Python 3.13+, the freeze can be lifted.
+
+          ## Unblock steps
+
+          1. **Update `Dockerfile`**: bump `alpine:3.20` to a newer release that ships
+             Python 3.13+ and update the digest pin.
+          2. **Update `ARG PROWLER_VERSION`**: set to the new prowler release that
+             declares the wider Python support.
+          3. **Update `.github/dependabot.yml`**: remove or loosen the
+             `ignore: versions: [">=3.21"]` rule for the alpine docker dependency.
+          4. **Update MEMORY.md**: mark the `[Prowler unpinned version drift]` and
+             `[Dockerfile python-version brittle]` backlog items as resolved.
+          5. Run `docker build` + CI to validate the new combination before merging.
+
+          ## References
+
+          - Dockerfile pin comment: `prowler requires Python >=3.10,<3.13`
+          - Dependabot alpine ignore: `.github/dependabot.yml`
+          - MEMORY.md: `[Prowler unpinned version drift]` and `[Dockerfile python-version brittle]`
+          """)
+          with open("/tmp/issue-body.md", "w") as f:
+              f.write(body)
+          print("Issue body written to /tmp/issue-body.md")
+          PYEOF
+
+      - name: Open alert issue (ceiling lifted, no existing issue)
+        if: >-
+          steps.ceiling.outputs.ceiling_lifted == 'true' &&
+          steps.existing_issue.outputs.issue_exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh issue create \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "chore(docker): prowler now supports Python 3.13+ -- unblock alpine freeze" \
+            --label "prowler-py-watch" \
+            --body-file /tmp/issue-body.md
+
+      - name: Skip (duplicate issue already open)
+        if: >-
+          steps.ceiling.outputs.ceiling_lifted == 'true' &&
+          steps.existing_issue.outputs.issue_exists == 'true'
+        run: |
+          echo "An open prowler-py-watch issue already exists — skipping duplicate creation."
