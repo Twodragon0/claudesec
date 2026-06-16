@@ -20,14 +20,23 @@ RUN apk add --no-cache \
     py3-pip \
     libffi-dev
 
-RUN pip install --no-cache-dir --no-compile --break-system-packages --prefix=/install prowler \
+# Pin prowler explicitly for reproducible builds. UNPINNED installs are resolved
+# against the base image's Python: py3.12 -> 5.30.1, but py3.14 silently backtracks
+# to ancient 3.11.3 (pydantic v1, crashes at runtime) instead of failing fast.
+# prowler requires Python >=3.10,<3.13 (no 3.13/3.14 support yet — see
+# prowler-cloud/prowler#6737), which is why alpine is held on the py3.12 line
+# (.github/dependabot.yml). Bump in lockstep with prowler releases.
+ARG PROWLER_VERSION=5.30.1
+RUN pip install --no-cache-dir --no-compile --break-system-packages --prefix=/install "prowler==${PROWLER_VERSION}" \
     # Resolve site-packages without hardcoding the Python minor version, so an
     # alpine base bump (e.g. 3.20/py3.12 -> 3.24/py3.13) does not break the build.
     && SITE="$(find /install/lib -maxdepth 1 -type d -name 'python3.*' | sort | head -n1)/site-packages" \
     && find /install -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /install -type d -name 'tests' -exec rm -rf {} + 2>/dev/null || true \
     && find /install -name '*.dist-info' -type d -exec sh -c 'rm -rf "$1"/top_level.txt "$1"/RECORD' _ {} \; 2>/dev/null || true \
-    # Remove unused cloud provider SDKs (OCI, Azure, GCP, Alibaba, Cloudflare)
+    # Remove unused cloud provider SDKs (OCI, Azure, GCP, Alibaba, Cloudflare).
+    # scanner/checks/prowler/integration.sh detects absent provider dirs at runtime
+    # and emits an accurate skip message instead of a misleading auth warning.
     && rm -rf \
        "${SITE}"/oci* \
        "${SITE}"/azure* \

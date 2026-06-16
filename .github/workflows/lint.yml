@@ -207,6 +207,8 @@ jobs:
         run: bash scanner/tests/test_check_saas_solutions.sh
       - name: Run bash unit tests (saas/zscaler)
         run: bash scanner/tests/test_check_saas_zscaler.sh
+      - name: Run bash unit tests (prowler provider build parity)
+        run: bash scanner/tests/test_prowler_provider_build_parity.sh
       - name: Run scanner pytest + coverage gate (>=99%)
         id: scanner_tests
         env:
@@ -481,6 +483,43 @@ jobs:
       - name: Verify container tooling (kubectl, prowler)
         run: |
           docker run --rm --entrypoint sh claudesec:ci -c 'kubectl version --client && prowler -v'
+      - name: Smoke test prowler provider detection (_prowler_provider_available)
+        # Guard against a future prowler package-layout change silently breaking
+        # _prowler_install_dir detection (open risk flagged in #238).
+        # We define _prowler_install_dir + _prowler_provider_available inline
+        # (same body as integration.sh) rather than sourcing the whole file
+        # (which has top-level side effects requiring has_command, skip, etc.).
+        # aws must exit 0 (kept); azure must exit 1 (stripped).
+        run: |
+          docker run --rm --entrypoint bash claudesec:ci -c '
+            set -euo pipefail
+            _prowler_install_dir=$(python3 -c "import prowler,os;print(os.path.dirname(prowler.__file__))" 2>/dev/null || true)
+            if [ -z "$_prowler_install_dir" ]; then
+              echo "ERROR: could not resolve prowler install dir" >&2
+              exit 1
+            fi
+            echo "Prowler install dir: $_prowler_install_dir"
+            _prowler_provider_available() {
+              local provider="$1"
+              [ "$provider" = "nhn" ] && provider="openstack"
+              [ -z "$_prowler_install_dir" ] && return 0
+              [ -d "${_prowler_install_dir}/providers/${provider}" ]
+            }
+            echo "--- Checking kept provider: aws ---"
+            if _prowler_provider_available aws; then
+              echo "PASS: aws provider dir present (kept in lean image)"
+            else
+              echo "FAIL: aws provider dir missing — _prowler_install_dir detection broken" >&2
+              exit 1
+            fi
+            echo "--- Checking stripped provider: azure ---"
+            if _prowler_provider_available azure; then
+              echo "FAIL: azure provider dir present — should have been stripped from lean image" >&2
+              exit 1
+            else
+              echo "PASS: azure provider dir absent (stripped from lean image)"
+            fi
+          '
       - name: Verify non-root user
         run: |
           docker run --rm --entrypoint sh claudesec:ci -c 'test "$(id -u)" -ne 0'
