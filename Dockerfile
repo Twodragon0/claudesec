@@ -20,7 +20,14 @@ RUN apk add --no-cache \
     py3-pip \
     libffi-dev
 
-RUN pip install --no-cache-dir --no-compile --break-system-packages --prefix=/install prowler \
+# Pin prowler explicitly for reproducible builds. UNPINNED installs are resolved
+# against the base image's Python: py3.12 -> 5.30.1, but py3.14 silently backtracks
+# to ancient 3.11.3 (pydantic v1, crashes at runtime) instead of failing fast.
+# prowler requires Python >=3.10,<3.13 (no 3.13/3.14 support yet — see
+# prowler-cloud/prowler#6737), which is why alpine is held on the py3.12 line
+# (.github/dependabot.yml). Bump in lockstep with prowler releases.
+ARG PROWLER_VERSION=5.30.1
+RUN pip install --no-cache-dir --no-compile --break-system-packages --prefix=/install "prowler==${PROWLER_VERSION}" \
     # Resolve site-packages without hardcoding the Python minor version, so an
     # alpine base bump (e.g. 3.20/py3.12 -> 3.24/py3.13) does not break the build.
     && SITE="$(find /install/lib -maxdepth 1 -type d -name 'python3.*' | sort | head -n1)/site-packages" \
