@@ -34,7 +34,9 @@ RUN pip install --no-cache-dir --no-compile --break-system-packages --prefix=/in
     && find /install -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /install -type d -name 'tests' -exec rm -rf {} + 2>/dev/null || true \
     && find /install -name '*.dist-info' -type d -exec sh -c 'rm -rf "$1"/top_level.txt "$1"/RECORD' _ {} \; 2>/dev/null || true \
-    # Remove unused cloud provider SDKs (OCI, Azure, GCP, Alibaba, Cloudflare)
+    # Remove unused cloud provider SDKs (OCI, Azure, GCP, Alibaba, Cloudflare).
+    # scanner/checks/prowler/integration.sh detects absent provider dirs at runtime
+    # and emits an accurate skip message instead of a misleading auth warning.
     && rm -rf \
        "${SITE}"/oci* \
        "${SITE}"/azure* \

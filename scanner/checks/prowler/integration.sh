@@ -16,6 +16,30 @@ fi
 _prowler_version=$(prowler -v 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
 info "Prowler v${_prowler_version} detected"
 
+# ── Build-parity: detect which provider modules are present ──────────────────
+# The lean container image (Dockerfile) strips unused cloud SDK dependencies and
+# removes provider module dirs to save ~700MB. integration.sh detects available
+# providers at runtime so it can emit an accurate skip message instead of
+# attempting a scan that would fail at the commented import and misleadingly
+# warning about authentication. See Dockerfile builder stage for the strip list.
+#
+# If detection is inconclusive (no python3, empty install dir), we default to
+# AVAILABLE so a full local `pip install prowler` is never regressed.
+
+_prowler_install_dir=$(python3 -c 'import prowler,os;print(os.path.dirname(prowler.__file__))' 2>/dev/null || true)
+
+# _prowler_provider_available <provider>
+# Returns 0 (available/unknown) or 1 (positively absent).
+# nhn uses the openstack provider module — map it accordingly.
+_prowler_provider_available() {
+  local provider="$1"
+  # Map nhn -> openstack (NHN Cloud scans via the openstack provider)
+  [[ "$provider" == "nhn" ]] && provider="openstack"
+  # If we couldn't resolve the install dir, default to available (full install)
+  [[ -z "$_prowler_install_dir" ]] && return 0
+  [[ -d "${_prowler_install_dir}/providers/${provider}" ]]
+}
+
 # ── Configuration ──────────────────────────────────────────────────────────
 
 PROWLER_OUTPUT_DIR="${SCAN_DIR}/.claudesec-prowler"
@@ -332,13 +356,21 @@ fi
 # ── Azure ──────────────────────────────────────────────────────────────────
 
 if _prowler_should_run "azure" && [[ -n "${AZURE_CLIENT_ID:-}" && -n "${AZURE_TENANT_ID:-}" ]]; then
-  info "Prowler: Scanning Azure (service principal)"
-  _azure_json=$(_prowler_scan "azure" --sp-env-auth)
-  _prowler_report "Azure" "$_azure_json" "PROWLER-AZ"
+  if ! _prowler_provider_available "azure"; then
+    skip "PROWLER-AZ-001" "Prowler Azure scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    info "Prowler: Scanning Azure (service principal)"
+    _azure_json=$(_prowler_scan "azure" --sp-env-auth)
+    _prowler_report "Azure" "$_azure_json" "PROWLER-AZ"
+  fi
 elif _prowler_should_run "azure" && has_command az && az account show &>/dev/null; then
-  info "Prowler: Scanning Azure (CLI auth)"
-  _azure_json=$(_prowler_scan "azure" --az-cli-auth)
-  _prowler_report "Azure" "$_azure_json" "PROWLER-AZ"
+  if ! _prowler_provider_available "azure"; then
+    skip "PROWLER-AZ-001" "Prowler Azure scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    info "Prowler: Scanning Azure (CLI auth)"
+    _azure_json=$(_prowler_scan "azure" --az-cli-auth)
+    _prowler_report "Azure" "$_azure_json" "PROWLER-AZ"
+  fi
 elif ! _prowler_should_run "azure"; then
   skip "PROWLER-AZ-001" "Prowler Azure scan" "Disabled by config (set prowler_providers in .claudesec.yml)"
 else
@@ -356,14 +388,22 @@ elif [[ -n "${GCP_PROJECT:-}" ]]; then
 fi
 
 if _prowler_should_run "gcp" && has_gcp_credentials 2>/dev/null; then
-  _gcp_project=$(gcloud config get-value project 2>/dev/null || echo "")
-  info "Prowler: Scanning GCP (gcloud auth${_gcp_project:+, project: ${_gcp_project}})"
-  _gcp_json=$(_prowler_scan "gcp" "${_gcp_prowler_args[@]}")
-  _prowler_report "GCP" "$_gcp_json" "PROWLER-GCP"
+  if ! _prowler_provider_available "gcp"; then
+    skip "PROWLER-GCP-001" "Prowler GCP scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    _gcp_project=$(gcloud config get-value project 2>/dev/null || echo "")
+    info "Prowler: Scanning GCP (gcloud auth${_gcp_project:+, project: ${_gcp_project}})"
+    _gcp_json=$(_prowler_scan "gcp" "${_gcp_prowler_args[@]}")
+    _prowler_report "GCP" "$_gcp_json" "PROWLER-GCP"
+  fi
 elif _prowler_should_run "gcp" && [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]]; then
-  info "Prowler: Scanning GCP (service account key)"
-  _gcp_json=$(_prowler_scan "gcp" "${_gcp_prowler_args[@]}")
-  _prowler_report "GCP" "$_gcp_json" "PROWLER-GCP"
+  if ! _prowler_provider_available "gcp"; then
+    skip "PROWLER-GCP-001" "Prowler GCP scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    info "Prowler: Scanning GCP (service account key)"
+    _gcp_json=$(_prowler_scan "gcp" "${_gcp_prowler_args[@]}")
+    _prowler_report "GCP" "$_gcp_json" "PROWLER-GCP"
+  fi
 elif ! _prowler_should_run "gcp"; then
   skip "PROWLER-GCP-001" "Prowler GCP scan" "Disabled by config (set prowler_providers in .claudesec.yml)"
 else
@@ -482,15 +522,23 @@ fi
 # ── Microsoft 365 ──────────────────────────────────────────────────────────
 
 if _prowler_should_run "m365" && [[ -n "${AZURE_CLIENT_ID:-}" && -n "${AZURE_TENANT_ID:-}" && -n "${AZURE_CLIENT_SECRET:-}" ]]; then
-  export CLAUDESEC_ENV_M365_CONNECTED="true"
-  info "Prowler: Scanning Microsoft 365 (service principal)"
-  _m365_json=$(_prowler_scan "m365" --sp-env-auth)
-  _prowler_report "M365" "$_m365_json" "PROWLER-M365"
+  if ! _prowler_provider_available "m365"; then
+    skip "PROWLER-M365-001" "Prowler M365 scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    export CLAUDESEC_ENV_M365_CONNECTED="true"
+    info "Prowler: Scanning Microsoft 365 (service principal)"
+    _m365_json=$(_prowler_scan "m365" --sp-env-auth)
+    _prowler_report "M365" "$_m365_json" "PROWLER-M365"
+  fi
 elif _prowler_should_run "m365" && has_command az && az account show &>/dev/null; then
-  export CLAUDESEC_ENV_M365_CONNECTED="true"
-  info "Prowler: Scanning Microsoft 365 (CLI auth)"
-  _m365_json=$(_prowler_scan "m365" --az-cli-auth)
-  _prowler_report "M365" "$_m365_json" "PROWLER-M365"
+  if ! _prowler_provider_available "m365"; then
+    skip "PROWLER-M365-001" "Prowler M365 scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    export CLAUDESEC_ENV_M365_CONNECTED="true"
+    info "Prowler: Scanning Microsoft 365 (CLI auth)"
+    _m365_json=$(_prowler_scan "m365" --az-cli-auth)
+    _prowler_report "M365" "$_m365_json" "PROWLER-M365"
+  fi
 elif ! _prowler_should_run "m365"; then
   skip "PROWLER-M365-001" "Prowler M365 scan" "Disabled by config (set prowler_providers in .claudesec.yml)"
 else
@@ -501,13 +549,17 @@ fi
 
 if _prowler_should_run "googleworkspace" && [[ -n "${GOOGLE_WORKSPACE_CUSTOMER_ID:-}" ]] && \
    { has_gcp_credentials 2>/dev/null || [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]]; }; then
-  export CLAUDESEC_ENV_GWS_CONNECTED="true"
-  export CLAUDESEC_ENV_GWS_CUSTOMER_ID="${GOOGLE_WORKSPACE_CUSTOMER_ID}"
-  info "Prowler: Scanning Google Workspace (customer: ${GOOGLE_WORKSPACE_CUSTOMER_ID})"
-  _gws_args=()
-  [[ -n "${GOOGLE_WORKSPACE_CUSTOMER_ID:-}" ]] && _gws_args+=(--customer-id "$GOOGLE_WORKSPACE_CUSTOMER_ID")
-  _gws_json=$(_prowler_scan "googleworkspace" "${_gws_args[@]}")
-  _prowler_report "Google Workspace" "$_gws_json" "PROWLER-GWS"
+  if ! _prowler_provider_available "googleworkspace"; then
+    skip "PROWLER-GWS-001" "Prowler Google Workspace scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    export CLAUDESEC_ENV_GWS_CONNECTED="true"
+    export CLAUDESEC_ENV_GWS_CUSTOMER_ID="${GOOGLE_WORKSPACE_CUSTOMER_ID}"
+    info "Prowler: Scanning Google Workspace (customer: ${GOOGLE_WORKSPACE_CUSTOMER_ID})"
+    _gws_args=()
+    [[ -n "${GOOGLE_WORKSPACE_CUSTOMER_ID:-}" ]] && _gws_args+=(--customer-id "$GOOGLE_WORKSPACE_CUSTOMER_ID")
+    _gws_json=$(_prowler_scan "googleworkspace" "${_gws_args[@]}")
+    _prowler_report "Google Workspace" "$_gws_json" "PROWLER-GWS"
+  fi
 elif has_gcp_credentials 2>/dev/null; then
   if ! _prowler_should_run "googleworkspace"; then
     skip "PROWLER-GWS-001" "Prowler Google Workspace scan" "Disabled by config (set prowler_providers in .claudesec.yml)"
@@ -525,17 +577,25 @@ fi
 # ── Cloudflare ─────────────────────────────────────────────────────────────
 
 if _prowler_should_run "cloudflare" && [[ -n "${CLOUDFLARE_API_TOKEN:-}" || ( -n "${CLOUDFLARE_API_KEY:-}" && -n "${CLOUDFLARE_API_EMAIL:-}" ) ]]; then
-  export CLAUDESEC_ENV_CF_CONNECTED="true"
-  info "Prowler: Scanning Cloudflare (API token)"
-  _cf_json=$(_prowler_scan "cloudflare")
-  _prowler_report "Cloudflare" "$_cf_json" "PROWLER-CF"
+  if ! _prowler_provider_available "cloudflare"; then
+    skip "PROWLER-CF-001" "Prowler Cloudflare scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    export CLAUDESEC_ENV_CF_CONNECTED="true"
+    info "Prowler: Scanning Cloudflare (API token)"
+    _cf_json=$(_prowler_scan "cloudflare")
+    _prowler_report "Cloudflare" "$_cf_json" "PROWLER-CF"
+  fi
 elif _prowler_should_run "cloudflare" && [[ -n "${CF_API_TOKEN:-}" ]]; then
-  export CLOUDFLARE_API_TOKEN="${CF_API_TOKEN}"
-  export CLAUDESEC_ENV_CF_CONNECTED="true"
-  info "Prowler: Scanning Cloudflare (CF_API_TOKEN)"
-  _cf_json=$(_prowler_scan "cloudflare")
-  _prowler_report "Cloudflare" "$_cf_json" "PROWLER-CF"
-  unset CLOUDFLARE_API_TOKEN
+  if ! _prowler_provider_available "cloudflare"; then
+    skip "PROWLER-CF-001" "Prowler Cloudflare scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    export CLOUDFLARE_API_TOKEN="${CF_API_TOKEN}"
+    export CLAUDESEC_ENV_CF_CONNECTED="true"
+    info "Prowler: Scanning Cloudflare (CF_API_TOKEN)"
+    _cf_json=$(_prowler_scan "cloudflare")
+    _prowler_report "Cloudflare" "$_cf_json" "PROWLER-CF"
+    unset CLOUDFLARE_API_TOKEN
+  fi
 else
   if ! _prowler_should_run "cloudflare"; then
     skip "PROWLER-CF-001" "Prowler Cloudflare scan" "Disabled by config (set prowler_providers in .claudesec.yml)"
@@ -547,11 +607,15 @@ fi
 # ── MongoDB Atlas ──────────────────────────────────────────────────────────
 
 if _prowler_should_run "mongodbatlas" && [[ -n "${MONGODB_ATLAS_PUBLIC_KEY:-}" && -n "${MONGODB_ATLAS_PRIVATE_KEY:-}" ]]; then
-  info "Prowler: Scanning MongoDB Atlas"
-  _mongo_args=()
-  [[ -n "${MONGODB_ATLAS_ORG_ID:-}" ]] && _mongo_args+=(--organization-id "$MONGODB_ATLAS_ORG_ID")
-  _mongo_json=$(_prowler_scan "mongodbatlas" "${_mongo_args[@]}")
-  _prowler_report "MongoDB Atlas" "$_mongo_json" "PROWLER-MONGO"
+  if ! _prowler_provider_available "mongodbatlas"; then
+    skip "PROWLER-MONGO-001" "Prowler MongoDB Atlas scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    info "Prowler: Scanning MongoDB Atlas"
+    _mongo_args=()
+    [[ -n "${MONGODB_ATLAS_ORG_ID:-}" ]] && _mongo_args+=(--organization-id "$MONGODB_ATLAS_ORG_ID")
+    _mongo_json=$(_prowler_scan "mongodbatlas" "${_mongo_args[@]}")
+    _prowler_report "MongoDB Atlas" "$_mongo_json" "PROWLER-MONGO"
+  fi
 elif ! _prowler_should_run "mongodbatlas"; then
   skip "PROWLER-MONGO-001" "Prowler MongoDB Atlas scan" "Disabled by config (set prowler_providers in .claudesec.yml)"
 else
@@ -561,13 +625,21 @@ fi
 # ── Oracle Cloud (OCI) ────────────────────────────────────────────────────
 
 if _prowler_should_run "oraclecloud" && [[ -f "$HOME/.oci/config" || -n "${OCI_CLI_AUTH:-}" ]]; then
-  info "Prowler: Scanning Oracle Cloud (OCI)"
-  _oci_json=$(_prowler_scan "oraclecloud")
-  _prowler_report "Oracle Cloud" "$_oci_json" "PROWLER-OCI"
+  if ! _prowler_provider_available "oraclecloud"; then
+    skip "PROWLER-OCI-001" "Prowler Oracle Cloud scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    info "Prowler: Scanning Oracle Cloud (OCI)"
+    _oci_json=$(_prowler_scan "oraclecloud")
+    _prowler_report "Oracle Cloud" "$_oci_json" "PROWLER-OCI"
+  fi
 elif _prowler_should_run "oraclecloud" && [[ -n "${OCI_TENANCY:-}" && -n "${OCI_USER:-}" && -n "${OCI_FINGERPRINT:-}" ]]; then
-  info "Prowler: Scanning Oracle Cloud (env auth)"
-  _oci_json=$(_prowler_scan "oraclecloud")
-  _prowler_report "Oracle Cloud" "$_oci_json" "PROWLER-OCI"
+  if ! _prowler_provider_available "oraclecloud"; then
+    skip "PROWLER-OCI-001" "Prowler Oracle Cloud scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    info "Prowler: Scanning Oracle Cloud (env auth)"
+    _oci_json=$(_prowler_scan "oraclecloud")
+    _prowler_report "Oracle Cloud" "$_oci_json" "PROWLER-OCI"
+  fi
 elif ! _prowler_should_run "oraclecloud"; then
   skip "PROWLER-OCI-001" "Prowler Oracle Cloud scan" "Disabled by config (set prowler_providers in .claudesec.yml)"
 else
@@ -577,13 +649,21 @@ fi
 # ── Alibaba Cloud ─────────────────────────────────────────────────────────
 
 if _prowler_should_run "alibabacloud" && [[ -n "${ALIBABA_CLOUD_ACCESS_KEY_ID:-}" && -n "${ALIBABA_CLOUD_ACCESS_KEY_SECRET:-}" ]]; then
-  info "Prowler: Scanning Alibaba Cloud"
-  _ali_json=$(_prowler_scan "alibabacloud")
-  _prowler_report "Alibaba Cloud" "$_ali_json" "PROWLER-ALI"
+  if ! _prowler_provider_available "alibabacloud"; then
+    skip "PROWLER-ALI-001" "Prowler Alibaba Cloud scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    info "Prowler: Scanning Alibaba Cloud"
+    _ali_json=$(_prowler_scan "alibabacloud")
+    _prowler_report "Alibaba Cloud" "$_ali_json" "PROWLER-ALI"
+  fi
 elif _prowler_should_run "alibabacloud" && [[ -f "$HOME/.aliyun/config.json" ]]; then
-  info "Prowler: Scanning Alibaba Cloud (CLI config)"
-  _ali_json=$(_prowler_scan "alibabacloud")
-  _prowler_report "Alibaba Cloud" "$_ali_json" "PROWLER-ALI"
+  if ! _prowler_provider_available "alibabacloud"; then
+    skip "PROWLER-ALI-001" "Prowler Alibaba Cloud scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    info "Prowler: Scanning Alibaba Cloud (CLI config)"
+    _ali_json=$(_prowler_scan "alibabacloud")
+    _prowler_report "Alibaba Cloud" "$_ali_json" "PROWLER-ALI"
+  fi
 elif ! _prowler_should_run "alibabacloud"; then
   skip "PROWLER-ALI-001" "Prowler Alibaba Cloud scan" "Disabled by config (set prowler_providers in .claudesec.yml)"
 else
@@ -593,14 +673,18 @@ fi
 # ── OpenStack ──────────────────────────────────────────────────────────────
 
 if _prowler_should_run "openstack" && [[ -n "${OS_AUTH_URL:-}" || -f "$HOME/.config/openstack/clouds.yaml" ]]; then
-  info "Prowler: Scanning OpenStack"
-  _os_args=()
-  if [[ -f "$HOME/.config/openstack/clouds.yaml" ]]; then
-    _os_cloud=$(grep -oE '^  [a-zA-Z0-9_-]+:' "$HOME/.config/openstack/clouds.yaml" 2>/dev/null | head -1 | tr -d ' :' || echo "")
-    [[ -n "$_os_cloud" ]] && _os_args+=(--clouds-yaml-cloud "$_os_cloud")
+  if ! _prowler_provider_available "openstack"; then
+    skip "PROWLER-OS-001" "Prowler OpenStack scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    info "Prowler: Scanning OpenStack"
+    _os_args=()
+    if [[ -f "$HOME/.config/openstack/clouds.yaml" ]]; then
+      _os_cloud=$(grep -oE '^  [a-zA-Z0-9_-]+:' "$HOME/.config/openstack/clouds.yaml" 2>/dev/null | head -1 | tr -d ' :' || echo "")
+      [[ -n "$_os_cloud" ]] && _os_args+=(--clouds-yaml-cloud "$_os_cloud")
+    fi
+    _os_json=$(_prowler_scan "openstack" "${_os_args[@]}")
+    _prowler_report "OpenStack" "$_os_json" "PROWLER-OS"
   fi
-  _os_json=$(_prowler_scan "openstack" "${_os_args[@]}")
-  _prowler_report "OpenStack" "$_os_json" "PROWLER-OS"
 elif ! _prowler_should_run "openstack"; then
   skip "PROWLER-OS-001" "Prowler OpenStack scan" "Disabled by config (set prowler_providers in .claudesec.yml)"
 else
@@ -611,17 +695,21 @@ fi
 
 if _prowler_should_run "nhn" && [[ -n "${NHN_API_URL:-}" || -n "${OS_AUTH_URL:-}" ]] && \
    [[ "${OS_AUTH_URL:-}" == *"nhncloud"* || "${OS_AUTH_URL:-}" == *"toast"* || -n "${NHN_API_URL:-}" ]]; then
-  export CLAUDESEC_ENV_NHN_CONNECTED="true"
-  info "Prowler: Scanning NHN Cloud (via OpenStack provider)"
-  _nhn_args=()
-  [[ -n "${NHN_API_URL:-}" ]] && export OS_AUTH_URL="$NHN_API_URL"
-  if [[ -f "$HOME/.config/openstack/clouds.yaml" ]]; then
-    _nhn_cloud=$(grep -E -B1 -A5 '(nhn|toast|nhncloud)' "$HOME/.config/openstack/clouds.yaml" 2>/dev/null | \
-      grep -oE '^  [a-zA-Z0-9_-]+:' | head -1 | tr -d ' :' || echo "")
-    [[ -n "$_nhn_cloud" ]] && _nhn_args+=(--clouds-yaml-cloud "$_nhn_cloud")
+  if ! _prowler_provider_available "nhn"; then
+    skip "PROWLER-NHN-001" "Prowler NHN Cloud scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    export CLAUDESEC_ENV_NHN_CONNECTED="true"
+    info "Prowler: Scanning NHN Cloud (via OpenStack provider)"
+    _nhn_args=()
+    [[ -n "${NHN_API_URL:-}" ]] && export OS_AUTH_URL="$NHN_API_URL"
+    if [[ -f "$HOME/.config/openstack/clouds.yaml" ]]; then
+      _nhn_cloud=$(grep -E -B1 -A5 '(nhn|toast|nhncloud)' "$HOME/.config/openstack/clouds.yaml" 2>/dev/null | \
+        grep -oE '^  [a-zA-Z0-9_-]+:' | head -1 | tr -d ' :' || echo "")
+      [[ -n "$_nhn_cloud" ]] && _nhn_args+=(--clouds-yaml-cloud "$_nhn_cloud")
+    fi
+    _nhn_json=$(_prowler_scan "openstack" "${_nhn_args[@]}")
+    _prowler_report "NHN Cloud" "$_nhn_json" "PROWLER-NHN"
   fi
-  _nhn_json=$(_prowler_scan "openstack" "${_nhn_args[@]}")
-  _prowler_report "NHN Cloud" "$_nhn_json" "PROWLER-NHN"
 elif ! _prowler_should_run "nhn"; then
   skip "PROWLER-NHN-001" "Prowler NHN Cloud scan" "Disabled by config (set prowler_providers in .claudesec.yml)"
 else
@@ -649,10 +737,14 @@ fi
 # ── LLM (AI Red-Team via promptfoo) ──────────────────────────────────────
 
 if _prowler_should_run "llm" && has_command promptfoo && [[ -n "${OPENAI_API_KEY:-}" || -n "${ANTHROPIC_API_KEY:-}" ]]; then
-  export CLAUDESEC_ENV_LLM_CONNECTED="true"
-  info "Prowler: Running LLM red-team checks"
-  _llm_json=$(_prowler_scan "llm")
-  _prowler_report "LLM" "$_llm_json" "PROWLER-LLM"
+  if ! _prowler_provider_available "llm"; then
+    skip "PROWLER-LLM-001" "Prowler LLM red-team" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    export CLAUDESEC_ENV_LLM_CONNECTED="true"
+    info "Prowler: Running LLM red-team checks"
+    _llm_json=$(_prowler_scan "llm")
+    _prowler_report "LLM" "$_llm_json" "PROWLER-LLM"
+  fi
 else
   if ! _prowler_should_run "llm"; then
     skip "PROWLER-LLM-001" "Prowler LLM red-team" "Disabled by config (set prowler_providers in .claudesec.yml)"
@@ -672,9 +764,13 @@ if [[ -z "$_scan_image" ]]; then
 fi
 
 if _prowler_should_run "image" && [[ -n "$_scan_image" ]]; then
-  info "Prowler: Scanning container image ${_scan_image}"
-  _img_json=$(_prowler_scan "image" --image "$_scan_image")
-  _prowler_report "Image" "$_img_json" "PROWLER-IMG"
+  if ! _prowler_provider_available "image"; then
+    skip "PROWLER-IMG-001" "Prowler Image scan" "Provider not included in this build (lean container image — see Dockerfile). Use a full prowler install."
+  else
+    info "Prowler: Scanning container image ${_scan_image}"
+    _img_json=$(_prowler_scan "image" --image "$_scan_image")
+    _prowler_report "Image" "$_img_json" "PROWLER-IMG"
+  fi
 elif ! _prowler_should_run "image"; then
   skip "PROWLER-IMG-001" "Prowler Image scan" "Disabled by config (set prowler_providers in .claudesec.yml)"
 else
