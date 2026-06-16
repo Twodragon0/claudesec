@@ -72,19 +72,47 @@ tags: [memory, operations, quality, continuous-improvement]
 - **Worktree gitignore (#240):** added `.claude/worktrees/` to `.gitignore` so
   background-agent worktrees no longer land as untracked files.
 
+### Cycle #243–#246 — ERE-regression CI guards, prowler watch automation, deps (merged 2026-06)
+
+- **ERE-pipe CI regression guard (#244):** `test_ci_no_ere_pipe_regression.py` (stdlib,
+  mutation-verified) fails when a new `\|` appears in a `grep -E` ERE context under
+  `scanner/checks`, allowlisting the 2 intentional literals (`code/injection.sh` `\|safe`,
+  `solutions.sh:704` `curl|sh`).
+- **ERE guard extended (#245):** scan widened to `scanner/lib` helpers
+  (`files_contain`/`_code_grep`) and multi-line `_code_grep` calls; `scanner/lib` confirmed
+  clean (no real bug).
+- **Prowler Requires-Python watch (#246):** notification-only scheduled action +
+  `scripts/check-prowler-python-ceiling.sh` that opens an issue only when prowler drops the
+  `<3.13` ceiling (the alpine-unblock trigger). Verified no-op today via `workflow_dispatch`
+  (`CEILING_LIFTED=false`, no issue).
+- **Delta-log doc (#243):** recorded the #238–#242 cycle (this file).
+- **Dependency bumps:** nginx `1.27`→`1.31-alpine` in `Dockerfile.nginx` (#235, the separate
+  nginx image — unrelated to the prowler/alpine scanner base); pytest `>=9.1.0` in
+  `requirements-ci.txt` (#236). Both required a code-owner approval (Dependabot is not a
+  code owner — see backlog).
+
 ## Open Backlog
 
 - **Prowler provider build-parity** — DONE. #238 merged (runtime provider detection +
-  graceful skips); follow-up tests merged in #241; guard-ordering invariant in #242
-  (merging). No auth-`WARN` for stripped providers; Docker smoke test added.
-- **`grep -E` ERE bug class — sweep complete; CI guard in flight.** #221/#223/#224
-  cleared all known sites (AI-007, SAAS-005/009/011/014/015, network/cloud/prowler);
-  2 intentional literal-pipe occurrences remain (`code/injection.sh` `\|safe`,
-  `solutions.sh:704` `curl|sh`). A CI regression guard for this class is in progress
-  (separate PR).
+  graceful skips); follow-up tests merged in #241; guard-ordering invariant merged in #242.
+  No auth-`WARN` for stripped providers; Docker smoke test added.
+- **`grep -E` ERE bug class** — DONE. #221/#223/#224 cleared all known sites (AI-007,
+  SAAS-005/009/011/014/015, network/cloud/prowler); 2 intentional literal-pipe occurrences
+  remain (`code/injection.sh` `\|safe`, `solutions.sh:704` `curl|sh`). CI regression guard
+  merged (#244) and extended to `scanner/lib` + multi-line calls (#245).
 - **Prowler 4.x/5.x → unblock alpine bumps.** Alpine is pinned to the py3.12 line only
-  because prowler lacks py3.13+ support; revisit alpine minor/major Dependabot bumps
-  once prowler ships py3.13+ compatibility.
+  because prowler lacks py3.13+ support; revisit alpine minor/major Dependabot bumps once
+  prowler ships py3.13+ compatibility. **Now auto-watched** by the #246 scheduled action
+  (alerts via issue when prowler's PyPI `Requires-Python` drops the `<3.13` ceiling). Manual
+  check: `curl -fsSL https://pypi.org/pypi/prowler/json | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["info"]["version"], d["info"]["requires_python"])'`.
+- **Dependabot auto-merge policy is broken / TODO.** The existing
+  `.github/workflows/dependabot-auto-merge.yml` auto-approves with `GITHUB_TOKEN`, but
+  `github-actions[bot]` is NOT a code owner so those approvals do NOT satisfy
+  `require_code_owner_reviews` (proven by #235: 4 bot approvals, still BLOCKED, human had to
+  approve+merge). Its `--auto` is also a silent no-op because repo `allow_auto_merge=false`.
+  Recommended fix (architect plan, this session): enable repo auto-merge, drop the broken
+  approve-as-bot step, and only auto-*arm* auto-merge on safe patch/minor pip/docker updates
+  (never Dockerfile/base-image/major) — human code-owner approval stays the gate.
 - **`.claude/worktrees/` not gitignored** — DONE (#240 merged).
 
 > Reference: CIS Controls v8 (secure configuration & continuous vulnerability
