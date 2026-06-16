@@ -55,24 +55,37 @@ tags: [memory, operations, quality, continuous-improvement]
   (#226), deterministic CIS-006 FAIL assertion (#230); macOS test all-SKIPs on
   non-Darwin instead of hard-exiting (#232).
 
+### Cycle #238–#242 — prowler provider parity, guard invariant, worktree hygiene (merged 2026-06)
+
+- **Prowler provider build-parity (#238):** `integration.sh` now runtime-detects
+  available prowler providers via `_prowler_install_dir` + `_prowler_provider_available()`.
+  The 12 stripped providers (azure, gcp, m365, googleworkspace, cloudflare, mongodbatlas,
+  oraclecloud, alibabacloud, openstack, nhn→openstack, llm, image) now emit an accurate
+  "not included in this build" skip instead of a misleading "check authentication" warning.
+  NHN scans via the stripped `openstack` provider are also handled.
+- **Provider-parity test coverage (#241):** asserts no auth-`WARN` is emitted for stripped
+  providers; adds a Docker smoke test confirming `_prowler_provider_available aws` resolves
+  correctly inside the built lean image.
+- **Guard-ordering invariant (#242):** stdlib-only pytest guard
+  `test_ci_prowler_provider_guard_ordering.py` asserts that `_prowler_provider_available`
+  precedes `_prowler_report` in `integration.sh`, mutation-verified.
+- **Worktree gitignore (#240):** added `.claude/worktrees/` to `.gitignore` so
+  background-agent worktrees no longer land as untracked files.
+
 ## Open Backlog
 
-- **Prowler provider build-parity** — *in flight, PR #238.* The lean Docker image
-  strips 12 prowler provider modules (azure, gcp, m365, googleworkspace, cloudflare,
-  mongodbatlas, oraclecloud, alibabacloud, openstack, nhn→openstack, llm, image) but
-  `scanner/checks/prowler/integration.sh` still attempts all 16, producing a
-  misleading "check authentication" warning for stripped providers. #238 adds runtime
-  provider detection + graceful skips. Follow-up after merge: assert no auth-warning
-  `WARN` is emitted for stripped providers; add a Docker smoke test for
-  `_prowler_provider_available aws` inside the built image.
-- **`grep -E` ERE bug class — remaining sweep.** #221/#223/#224/#231 cleared the known
-  sites; periodically re-audit `scanner/checks/**` for PCRE lookahead, `\|`-alternation,
-  and `IFS='|'` split regressions (silent ERE breakage class).
+- **Prowler provider build-parity** — DONE. #238 merged (runtime provider detection +
+  graceful skips); follow-up tests merged in #241; guard-ordering invariant in #242
+  (merging). No auth-`WARN` for stripped providers; Docker smoke test added.
+- **`grep -E` ERE bug class — sweep complete; CI guard in flight.** #221/#223/#224
+  cleared all known sites (AI-007, SAAS-005/009/011/014/015, network/cloud/prowler);
+  2 intentional literal-pipe occurrences remain (`code/injection.sh` `\|safe`,
+  `solutions.sh:704` `curl|sh`). A CI regression guard for this class is in progress
+  (separate PR).
 - **Prowler 4.x/5.x → unblock alpine bumps.** Alpine is pinned to the py3.12 line only
   because prowler lacks py3.13+ support; revisit alpine minor/major Dependabot bumps
   once prowler ships py3.13+ compatibility.
-- **`.claude/worktrees/` not gitignored.** Background-agent worktrees land untracked in
-  the repo root; consider a `.gitignore` entry to prevent accidental commits.
+- **`.claude/worktrees/` not gitignored** — DONE (#240 merged).
 
 > Reference: CIS Controls v8 (secure configuration & continuous vulnerability
 > management) anchors the Docker-pinning and scanner-correctness work above.
