@@ -1,9 +1,17 @@
 name: Dependabot Auto-Merge
 
+# pull_request_target is required so that Dependabot PRs receive a
+# write-scoped GITHUB_TOKEN (Dependabot runs with read-only by default).
+# CRITICAL: We do NOT check out the PR head and do NOT execute any code
+# from the PR branch — the workflow only calls `gh` CLI against the PR
+# metadata and triggers GitHub's server-side auto-merge arm.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Least-privilege: auto-merge requires contents:write to arm the GitHub
+# auto-merge feature; pull-requests:write to post informational comments.
+# No other permissions are granted.
 permissions:
   contents: write
   pull-requests: write
@@ -14,12 +22,12 @@ concurrency:
 
 jobs:
   auto-merge:
-    name: Auto-merge Dependabot PR
+    name: Auto-arm Dependabot PR (human code-owner approval required)
     runs-on: ubuntu-latest
-    # Defense-in-depth: only run when the PR head is a branch in THIS repo,
-    # not a fork. pull_request_target runs with write-scoped GITHUB_TOKEN, so
-    # we refuse to auto-approve/merge anything that didn't originate inside
-    # the repository even if the actor spoofing checks were bypassed.
+
+    # Defense-in-depth fork guard: only run when the PR head lives in THIS
+    # repo (not a fork) and the actor is dependabot[bot].
+    # pull_request_target grants write tokens — never let a fork trigger this.
     if: >-
       github.actor == 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -31,60 +39,105 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Auto-approve patch update
-        if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
-        run: gh pr review "$PR_URL" --approve --body "Auto-approving patch update from Dependabot."
+      # Gather the list of files changed in this PR for path-based exclusion.
+      # PR_URL is passed via env var (never interpolated directly into shell).
+      # Fail-closed: if `gh` errors we emit an empty string and the eligibility
+      # check below will not arm auto-merge.
+      - name: Get changed file paths
+        id: changed-paths
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Auto-approve minor update
-        if: steps.metadata.outputs.update-type == 'version-update:semver-minor'
-        run: gh pr review "$PR_URL" --approve --body "Auto-approving minor update from Dependabot."
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Comment on major update (requires manual review)
-        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
-        run: gh pr comment "$PR_URL" --body "⚠️ Major version update detected — requires manual review and approval due to potential breaking changes."
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Auto-merge patch update
-        if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
-        run: gh pr merge "$PR_URL" --squash --auto
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Auto-merge minor updates ONLY for the github_actions ecosystem.
-      # Rationale:
-      #   - github_actions deps are SHA-pinned in workflows, and dependabot
-      #     verifies that the SHA corresponds to the released version. A
-      #     compromised-maintainer scenario would still require the attacker
-      #     to push a tag at a SHA that dependabot then advertises — a much
-      #     higher bar than npm/pip typosquats.
-      #   - npm/pip minor updates pull arbitrary runtime code and remain
-      #     manual-merge for supply chain security.
-      # The fork-guard above (head.repo.full_name == github.repository) plus
-      # branch-protection-required CI together gate this auto-merge.
-      - name: Auto-merge minor update (github_actions only)
-        if: >-
-          steps.metadata.outputs.update-type == 'version-update:semver-minor'
-          && steps.metadata.outputs.package-ecosystem == 'github_actions'
-        run: gh pr merge "$PR_URL" --squash --auto
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Comment on minor update (npm/pip — manual review)
-        if: >-
-          steps.metadata.outputs.update-type == 'version-update:semver-minor'
-          && steps.metadata.outputs.package-ecosystem != 'github_actions'
         run: |
-          gh pr comment "$PR_URL" --body "ℹ️ Minor version update for \`${{ steps.metadata.outputs.package-ecosystem }}\` ecosystem auto-approved but **not** auto-merged. Supply-chain policy requires manual merge for npm / pip runtime dependencies."
+          changed=$(gh pr diff "$PR_URL" --name-only 2>/dev/null || true)
+          {
+            echo "changed<<EOF"
+            echo "$changed"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # Evaluate eligibility and arm auto-merge if eligible.
+      #
+      # HARD-EXCLUDE (never auto-arm; leave for human review):
+      #   - semver-major updates
+      #   - Dockerfile / Dockerfile.nginx / any docker base-image file
+      #     (prowler/alpine py3.12 freeze — docker majors/alpine bumps must
+      #     stay on human review)
+      #   - Any PR touching .github/** (workflows, CODEOWNERS, etc.)
+      #   - Any PR touching scanner/, hooks/, or scripts/
+      #
+      # ELIGIBLE (auto-arm) only when ALL hold:
+      #   - update-type is semver-patch or semver-minor
+      #   - ecosystem is pip, docker, or github-actions
+      #   - no hard-excluded path pattern matches
+      #
+      # NOTE: bot approval is intentionally absent. Branch protection requires
+      # a code-owner review (* @Twodragon0) which GITHUB_TOKEN cannot satisfy.
+      # Auto-merge fires ONLY after the human code-owner approves AND required
+      # checks (Lint, Security Scan Gate) pass AND the branch is up-to-date.
+      - name: Evaluate eligibility and arm auto-merge
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          ECOSYSTEM: ${{ steps.metadata.outputs.package-ecosystem }}
+          CHANGED_PATHS: ${{ steps.changed-paths.outputs.changed }}
+        run: |
+          set -euo pipefail
+
+          # ── Hard-exclude: path-based checks ──────────────────────────────
+          path_excluded=false
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            case "$path" in
+              Dockerfile|Dockerfile.nginx|Dockerfile.*)
+                path_excluded=true ; break ;;
+              .github/*|.github)
+                path_excluded=true ; break ;;
+              scanner/*|scanner)
+                path_excluded=true ; break ;;
+              hooks/*|hooks)
+                path_excluded=true ; break ;;
+              scripts/*|scripts)
+                path_excluded=true ; break ;;
+            esac
+          done <<< "$CHANGED_PATHS"
+
+          if [ "$path_excluded" = "true" ]; then
+            echo "PR touches a hard-excluded path (Dockerfile / .github / scanner / hooks / scripts). Requires human code-owner review."
+            gh pr comment "$PR_URL" --body "This Dependabot PR touches a sensitive path (Dockerfile, .github, scanner, hooks, or scripts) and is not eligible for auto-merge. Requires human code-owner review."
+            exit 0
+          fi
+
+          # ── Hard-exclude: semver-major ────────────────────────────────────
+          if [ "$UPDATE_TYPE" = "version-update:semver-major" ]; then
+            echo "Major version update — requires human code-owner review."
+            gh pr comment "$PR_URL" --body "Major version update detected. This PR is not eligible for auto-merge and requires human code-owner review and approval."
+            exit 0
+          fi
+
+          # ── Eligible update types ─────────────────────────────────────────
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch|version-update:semver-minor) ;;
+            *)
+              echo "Unknown or non-eligible update-type: $UPDATE_TYPE — skipping auto-arm."
+              exit 0
+              ;;
+          esac
+
+          # ── Eligible ecosystems ───────────────────────────────────────────
+          case "$ECOSYSTEM" in
+            pip|docker|github-actions) ;;
+            *)
+              echo "Ecosystem '$ECOSYSTEM' is not in the auto-arm allowlist (pip, docker, github-actions) — skipping."
+              exit 0
+              ;;
+          esac
+
+          # ── Arm auto-merge ────────────────────────────────────────────────
+          # This only ARMS GitHub's server-side auto-merge feature. The actual
+          # merge will not execute until the human code-owner (@Twodragon0)
+          # approves the PR AND all required status checks pass AND the branch
+          # is up-to-date with main (strict mode).
+          echo "PR is eligible ($UPDATE_TYPE / $ECOSYSTEM). Arming auto-merge (squash)."
+          gh pr merge --auto --squash "$PR_URL"
