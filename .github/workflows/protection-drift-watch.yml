@@ -1,0 +1,209 @@
+# Branch-Protection Drift Watch
+#
+# NOTIFICATION-ONLY scheduled workflow that runs
+#   scripts/sync-repo-protection.sh --dry-run
+# nightly and surfaces any drift between the live branch-protection / merge
+# settings and the desired state codified in that script (introduced in #250).
+#
+# WHY A DEDICATED ADMIN TOKEN
+#   Reading repos/{repo}/branches/main/protection requires admin access.  The
+#   built-in GITHUB_TOKEN cannot read branch protection, so this workflow uses a
+#   fine-grained PAT stored as the REPO_ADMIN_TOKEN secret (Administration:read).
+#
+# FAIL-SAFE / GRACEFUL DEGRADATION
+#   - If REPO_ADMIN_TOKEN is absent, the job logs a warning and exits 0 (no-op),
+#     so merging this workflow never breaks CI before the secret is created.
+#   - exit 1 from the script is AMBIGUOUS (drift OR an auth/network/read error).
+#     We treat it as real drift ONLY when the output contains 'DRIFT DETECTED';
+#     any other non-zero exit is reported as a tooling error (job fails, but no
+#     false-positive drift issue is opened).
+#
+# ALERTING
+#   On real drift the workflow opens — or updates — a single GitHub issue
+#   labelled 'protection-drift' containing the drift report.  When a later run
+#   finds no drift, it closes any open 'protection-drift' issue automatically.
+#
+# This workflow MUST NOT run on pull_request events — it is a scheduled notifier
+# only and must never become a required PR status check.
+
+name: Branch-Protection Drift Watch
+
+on:
+  schedule:
+    # 16:00 UTC daily (01:00 KST — overnight) so drift is caught each night.
+    - cron: '0 16 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift-watch:
+    name: Check branch-protection drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v4.2.2
+
+      - name: Verify admin token is configured
+        id: token_check
+        env:
+          REPO_ADMIN_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${REPO_ADMIN_TOKEN:-}" ]; then
+            echo "::warning::REPO_ADMIN_TOKEN secret is not configured — skipping drift check."
+            echo "Create a fine-grained PAT with 'Administration: read' on this repo"
+            echo "and store it as the REPO_ADMIN_TOKEN repository secret to enable this watch."
+            echo "token_present=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "token_present=true" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Run drift check (dry-run)
+        id: drift
+        if: steps.token_check.outputs.token_present == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+        run: |
+          set -uo pipefail  # NOT -e: we inspect the script's exit code ourselves.
+
+          exit_code=0
+          bash scripts/sync-repo-protection.sh --dry-run > /tmp/drift-report.txt 2>&1 || exit_code=$?
+
+          echo "--- sync-repo-protection.sh --dry-run output ---"
+          cat /tmp/drift-report.txt
+          echo "--- exit code: ${exit_code} ---"
+
+          if [ "${exit_code}" -eq 0 ]; then
+            echo "result=clean" >> "${GITHUB_OUTPUT}"
+          elif grep -q "DRIFT DETECTED" /tmp/drift-report.txt; then
+            echo "result=drift" >> "${GITHUB_OUTPUT}"
+          else
+            # Non-zero exit with no drift marker = tooling/auth/network error.
+            echo "result=error" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Ensure protection-drift label exists
+        if: steps.drift.outputs.result == 'drift'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh label list --repo "${GITHUB_REPOSITORY}" --json name \
+               | python3 -c "
+          import sys, json
+          labels = [l['name'] for l in json.load(sys.stdin)]
+          sys.exit(0 if 'protection-drift' in labels else 1)
+          " 2>/dev/null; then
+            echo "Creating label protection-drift"
+            gh label create protection-drift \
+              --repo "${GITHUB_REPOSITORY}" \
+              --description "Branch-protection drift watcher alert" \
+              --color "d73a4a"
+          else
+            echo "Label protection-drift already exists"
+          fi
+
+      - name: Find existing open drift issue
+        id: existing
+        if: steps.drift.outputs.result == 'drift' || steps.drift.outputs.result == 'clean'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          existing="$(gh issue list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --label "protection-drift" \
+            --state open \
+            --json number \
+            --limit 5)"
+          number="$(echo "${existing}" | python3 -c 'import sys, json; d=json.load(sys.stdin); print(d[0]["number"] if d else "")')"
+          if [ -n "${number}" ]; then
+            echo "issue_number=${number}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "issue_number=" >> "${GITHUB_OUTPUT}"
+          fi
+          echo "Existing open protection-drift issue: '${number:-none}'"
+
+      - name: Build issue body from drift report
+        if: steps.drift.outputs.result == 'drift'
+        run: |
+          set -euo pipefail
+          {
+            echo "## Branch-protection drift detected"
+            echo
+            echo "The nightly \`Branch-Protection Drift Watch\` workflow found that the live"
+            echo "settings for \`${GITHUB_REPOSITORY}:main\` no longer match the desired state"
+            echo "codified in \`scripts/sync-repo-protection.sh\`."
+            echo
+            echo "### Drift report"
+            echo
+            echo '```text'
+            cat /tmp/drift-report.txt
+            echo '```'
+            echo
+            echo "### Remediate"
+            echo
+            echo "Review the diff above. If the desired state is still correct, re-apply it:"
+            echo
+            echo '```bash'
+            echo "./scripts/sync-repo-protection.sh --apply"
+            echo '```'
+            echo
+            echo "If the *live* setting is intentional, update the \`DESIRED_*\` variables in"
+            echo "\`scripts/sync-repo-protection.sh\` instead, then re-run this workflow."
+            echo
+            echo "_Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}_"
+          } > /tmp/issue-body.md
+          echo "Issue body written."
+
+      - name: Open or update drift issue
+        if: steps.drift.outputs.result == 'drift'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXISTING_ISSUE: ${{ steps.existing.outputs.issue_number }}
+        run: |
+          set -euo pipefail
+          title="ci: branch-protection drift detected on main"
+          if [ -n "${EXISTING_ISSUE}" ]; then
+            echo "Updating existing drift issue #${EXISTING_ISSUE}"
+            gh issue edit "${EXISTING_ISSUE}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --body-file /tmp/issue-body.md
+            gh issue comment "${EXISTING_ISSUE}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --body "Drift still present as of run ${GITHUB_RUN_ID} (report refreshed above)."
+          else
+            echo "Opening new drift issue"
+            gh issue create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --label "protection-drift" \
+              --body-file /tmp/issue-body.md
+          fi
+
+      - name: Close drift issue when settings are back in sync
+        if: steps.drift.outputs.result == 'clean' && steps.existing.outputs.issue_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXISTING_ISSUE: ${{ steps.existing.outputs.issue_number }}
+        run: |
+          set -euo pipefail
+          echo "No drift detected — closing stale drift issue #${EXISTING_ISSUE}"
+          gh issue comment "${EXISTING_ISSUE}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --body "Branch-protection drift cleared as of run ${GITHUB_RUN_ID}. Closing automatically."
+          gh issue close "${EXISTING_ISSUE}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --reason completed
+
+      - name: Fail on tooling error
+        if: steps.drift.outputs.result == 'error'
+        run: |
+          echo "::error::Drift check failed with a tooling/auth/network error (see log above)."
+          echo "This is NOT confirmed drift — no issue was opened. Check REPO_ADMIN_TOKEN scope/validity."
+          exit 1
