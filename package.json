@@ -16,9 +16,14 @@
     "bin/",
     "scanner/",
     "scripts/",
+    "!scripts/sync-cost-xlsx.py",
+    "!scripts/update-license-active-accounts.py",
+    "!scripts/update-pc-sheet.py",
+    "!scripts/full-asset-sync.py",
+    "!scripts/gsheet-auth.py",
+    "!scripts/gsheet-auth-setup.py",
     "hooks/",
     "templates/",
-    "docs/",
     ".claude-plugin/",
     "Dockerfile",
     "Dockerfile.nginx",
@@ -27,6 +32,7 @@
     "nginx/",
     ".env.example",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "keywords": [

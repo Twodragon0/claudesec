@@ -116,19 +116,19 @@ if has_command gh && is_git_repo; then
       wait "$_pid_secret" 2>/dev/null || true
       wait "$_pid_actions" 2>/dev/null || true
 
-      _code_alerts=$(<"$_tmpdir_gh/code_alerts" 2>/dev/null || echo "")
+      _code_alerts=$(cat "$_tmpdir_gh/code_alerts" 2>/dev/null || echo "")
       if [[ -n "$_code_alerts" && "$_code_alerts" =~ ^[0-9]+$ && "$_code_alerts" -gt 0 ]]; then
         _gh_api_issues=$((_gh_api_issues + 1))
         _gh_api_details="${_gh_api_details}\n    ${_code_alerts} open code scanning alert(s)"
       fi
 
-      _secret_alerts=$(<"$_tmpdir_gh/secret_alerts" 2>/dev/null || echo "")
+      _secret_alerts=$(cat "$_tmpdir_gh/secret_alerts" 2>/dev/null || echo "")
       if [[ -n "$_secret_alerts" && "$_secret_alerts" =~ ^[0-9]+$ && "$_secret_alerts" -gt 0 ]]; then
         _gh_api_issues=$((_gh_api_issues + 1))
         _gh_api_details="${_gh_api_details}\n    ${_secret_alerts} open secret scanning alert(s)"
       fi
 
-      _actions_perms=$(<"$_tmpdir_gh/actions_perms" 2>/dev/null || echo "")
+      _actions_perms=$(cat "$_tmpdir_gh/actions_perms" 2>/dev/null || echo "")
       _allowed_actions=$(echo "$_actions_perms" | grep -o '"allowed_actions":"[^"]*"' | cut -d'"' -f4 || echo "")
       if [[ "$_allowed_actions" == "all" ]]; then
         _gh_api_details="${_gh_api_details}\n    All GitHub Actions are allowed (consider restricting)"
@@ -169,8 +169,8 @@ if has_command gh && [[ -n "${_gh_repo:-}" ]] && echo "${_gh_auth:-}" | grep -q 
     > "$_tmpdir_wf/total" 2>/dev/null &
   wait
 
-  _recent_failures=$(<"$_tmpdir_wf/failures" 2>/dev/null || echo "")
-  _total_runs=$(<"$_tmpdir_wf/total" 2>/dev/null || echo "0")
+  _recent_failures=$(cat "$_tmpdir_wf/failures" 2>/dev/null || echo "")
+  _total_runs=$(cat "$_tmpdir_wf/total" 2>/dev/null || echo "0")
   rm -rf "$_tmpdir_wf"
 
   if [[ -n "$_total_runs" && "$_total_runs" -gt 0 ]]; then

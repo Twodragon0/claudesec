@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
 # Cover scanner/lib/output.sh L545-561: _prowler_dashboard_summary main
 # rendering loop including the awk severity counter at L551-558.
 #

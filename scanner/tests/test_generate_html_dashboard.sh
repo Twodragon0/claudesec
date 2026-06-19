@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
 # Unit tests for output.sh::generate_html_dashboard()
 # Focus: scan-report.json persistence + HTML output (legacy fallback path)
 # Run: bash scanner/tests/test_generate_html_dashboard.sh

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
 # Direct-call coverage tests for scanner/lib/checks.sh.
 #
 # The existing test_checks_coverage.sh relies on var=$( source ...; cmd )
