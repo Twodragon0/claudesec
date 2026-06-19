@@ -58,6 +58,8 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_catalog_no_ghost_rows.py` | No ghost rows in this catalog vs the on-disk guard suite | every concrete `scanner/tests/test_ci_<name>.py` path cited in this catalog resolves to a real file (existence) — the reverse of the completeness guard: a renamed/deleted guard left in the table is a ghost row that makes the inventory overstate coverage. Together the two guards verify a 1:1 catalog↔suite mapping | #255 |
 | `scanner/tests/test_ci_branch_protection_codified.py` | Codified branch protection (`scripts/sync-repo-protection.sh`) + its nightly notifier (`protection-drift-watch.yml`) | the desired state keeps `DESIRED_CONTEXTS=["Lint","Security Scan Gate"]` (both required checks), `DESIRED_ENFORCE_ADMINS="true"` (admins not exempt — no force-push to main), `strict`/`require_code_owner_reviews` true, `set -euo pipefail`, and the default-arm dry-run; the `DRIFT DETECTED` marker contract holds on both producer (script) and consumer (`grep -q`) sides; the watch keeps `schedule:` + tooling-error `exit 1` and its `on:` block never gains a `pull_request(_target)` trigger (scheduled notifier, must not become a required PR check). Protects the #250/#251 codification | #256 |
 | `scanner/tests/test_ci_dependabot_config.py` | `.github/dependabot.yml` update coverage + alpine version freeze | all four ecosystems stay declared (`github-actions`, `npm`, `pip`, `docker`) so no surface silently stops getting update PRs (OWASP CICD-SEC-3); the `docker` `ignore` keeps the `alpine` `semver-minor`+`semver-major` freeze that holds alpine on its py3.12 minor line — loosening it would let Dependabot propose the bump that ships py3.14 and crashes prowler (pydantic v1, incident #220). Distinct from `test_ci_dependabot_automerge.py` (guards the *workflow*, not this *config*) | #256 |
+| `scanner/tests/test_ci_prowler_version_pinned.py` | prowler install pin in `Dockerfile` | prowler is installed via an exact `==` pin through the `PROWLER_VERSION` build arg (version-shaped value), never a bare unpinned `pip install ... prowler`. An unpinned spec silently backtracks to ancient prowler 3.11.3 (pydantic v1) on a newer Python and crashes at runtime (incident #237). Pins the *pinning*, so a lockstep version bump stays green | #257 |
+| `scanner/tests/test_ci_dockerfile_base_pinned.py` | Container base-image pins (`Dockerfile`, `Dockerfile.nginx`) | every `FROM` carries an `@sha256:` digest (OWASP A08 — no moving-tag swap); the prowler `Dockerfile` holds every `FROM alpine:` on the `alpine:3.20` (py3.12) minor line and resolves site-packages with the version-agnostic `find ... -name 'python3.*'` glob (no hardcoded `python3.<n>/site-packages`, #234). Complements `test_ci_dependabot_config.py` (config freeze policy) by locking the actual image | #257 |
 
 ### Related enforcement (not a pytest guard)
 
@@ -92,12 +94,14 @@ triaged by the same bar used to add one (an incident, past or plausible, where
 *silent* weakening disables enforcement — no incident means it likely is not
 worth a guard, to avoid sprawl). Reviewed 2026-06-19.
 
-### Tier 2 — incident-backed, worth a guard next
+### Tier 2 — incident-backed (now implemented)
 
-| Candidate guard | Invariant | Incident / rationale |
-|-----------------|-----------|----------------------|
-| `test_ci_prowler_version_pinned.py` | `Dockerfile` keeps the **exact** `prowler==` pin (`PROWLER_VERSION`, currently `5.30.1`) — equality, not a floor | #237: an unpinned prowler drifted; prowler 3.11.3/pydantic-v1 cannot run on py3.13+, so an unpinned bump silently breaks `prowler -v` at runtime. Complements the alpine freeze (`test_ci_dependabot_config.py`) and the provider-ordering guard (`test_ci_prowler_provider_guard_ordering.py`). |
-| `test_ci_dockerfile_base_pinned.py` | `Dockerfile`/`Dockerfile.nginx` keep their `alpine:3.20` (py3.12) base pin and stay version-agnostic | #233/#234/#220: a minor alpine bump ships py3.14 and crashes prowler. The dependabot guard locks the *freeze policy* in `dependabot.yml`; this would lock the *actual image* a manual edit could still bump. |
+Both former Tier-2 candidates landed in #257 and are now in the Catalog above:
+
+- `test_ci_prowler_version_pinned.py` — exact `prowler==${PROWLER_VERSION}` pin
+  in `Dockerfile` (#237).
+- `test_ci_dockerfile_base_pinned.py` — `@sha256:` digest pins + `alpine:3.20`
+  minor freeze + version-agnostic site resolution (#233/#234/#220).
 
 ### Tier 3 — monitor only (no guard yet; would be sprawl)
 
