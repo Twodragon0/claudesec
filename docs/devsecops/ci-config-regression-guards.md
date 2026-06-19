@@ -119,6 +119,23 @@ Both former Tier-2 candidates landed in #257 and are now in the Catalog above:
   and none runs on `pull_request_target` with a write token, so silent weakening
   does not disable a merge gate. Add a guard only if one later gains enforcement
   responsibility (becomes required, or gains a write-token PR trigger).
+
+  **Decision (2026-06-19): no dedicated "promotion-watch" guard.** Both ways one
+  of these could *become* enforcement-bearing are already covered, so a guard
+  asserting "they stay non-required / non-`pull_request_target`" would be
+  redundant (the no-incident-it-catches bar fails):
+  - *Gains a `pull_request_target` trigger* → the `workflow-fork-guard` job audits
+    **every** `pull_request_target` workflow for the head-repo fork guard and is
+    wired into `lint-gate.needs`, so a promoted-but-unguarded workflow fails the
+    required `Lint` check.
+  - *Becomes a required status check* → that is branch-protection drift:
+    `test_ci_branch_protection_codified.py` pins `DESIRED_CONTEXTS` to exactly
+    `Lint` + `Security Scan Gate`, and `protection-drift-watch.yml` reports any
+    live divergence nightly.
+
+  (`og-meta-verify.yml` already runs on `pull_request` — not `_target` — with
+  `pull-requests: write`; a switch to `pull_request_target` is the case the
+  fork-guard job catches.)
 - **DAST trigger invariants** — `dast-baseline.yml` (`pull_request`) and
   `dast-full-scan.yml` (`schedule:`) triggers are already asserted by
   `test_ci_security_gate.py`; no separate guard needed.
