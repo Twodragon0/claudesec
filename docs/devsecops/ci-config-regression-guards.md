@@ -56,6 +56,8 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_prowler_provider_guard_ordering.py` | `_prowler_provider_available` precedes `_prowler_report` per provider (`scanner/checks/prowler/integration.sh`) | within each provider section of the Provider Scans block, `min(guard line) < min(report line)` — reordering would silently regress the #238 build-parity fix (lean image would emit a misleading auth warning instead of an accurate "not in this build" skip); promotes the shell-level `#241` assertion into the pytest CI gate | #242 |
 | `scanner/tests/test_ci_catalog_completeness.py` | Completeness of this catalog vs the on-disk guard suite | every `scanner/tests/test_ci_*.py` file has its repo-relative path listed in this catalog (presence) — a new guard added without a Catalog row is silent documentation drift that makes the inventory understate coverage; the meta-guard documents itself so the invariant is uniform | #254 |
 | `scanner/tests/test_ci_catalog_no_ghost_rows.py` | No ghost rows in this catalog vs the on-disk guard suite | every concrete `scanner/tests/test_ci_<name>.py` path cited in this catalog resolves to a real file (existence) — the reverse of the completeness guard: a renamed/deleted guard left in the table is a ghost row that makes the inventory overstate coverage. Together the two guards verify a 1:1 catalog↔suite mapping | #255 |
+| `scanner/tests/test_ci_branch_protection_codified.py` | Codified branch protection (`scripts/sync-repo-protection.sh`) + its nightly notifier (`protection-drift-watch.yml`) | the desired state keeps `DESIRED_CONTEXTS=["Lint","Security Scan Gate"]` (both required checks), `DESIRED_ENFORCE_ADMINS="true"` (admins not exempt — no force-push to main), `strict`/`require_code_owner_reviews` true, `set -euo pipefail`, and the default-arm dry-run; the `DRIFT DETECTED` marker contract holds on both producer (script) and consumer (`grep -q`) sides; the watch keeps `schedule:` + tooling-error `exit 1` and its `on:` block never gains a `pull_request(_target)` trigger (scheduled notifier, must not become a required PR check). Protects the #250/#251 codification | #256 |
+| `scanner/tests/test_ci_dependabot_config.py` | `.github/dependabot.yml` update coverage + alpine version freeze | all four ecosystems stay declared (`github-actions`, `npm`, `pip`, `docker`) so no surface silently stops getting update PRs (OWASP CICD-SEC-3); the `docker` `ignore` keeps the `alpine` `semver-minor`+`semver-major` freeze that holds alpine on its py3.12 minor line — loosening it would let Dependabot propose the bump that ships py3.14 and crashes prowler (pydantic v1, incident #220). Distinct from `test_ci_dependabot_automerge.py` (guards the *workflow*, not this *config*) | #256 |
 
 ### Related enforcement (not a pytest guard)
 
@@ -82,6 +84,38 @@ The topology guards check that every *present* job is gated; they cannot see a
 job that is **deleted entirely** (a removed job simply leaves the gated set, and
 the aggregator stays green). `test_ci_required_jobs_exist.py` closes that
 complementary gap by asserting the load-bearing security jobs still exist.
+
+## Unguarded invariants backlog
+
+A standing list of CI invariants that are **not yet** protected by a guard,
+triaged by the same bar used to add one (an incident, past or plausible, where
+*silent* weakening disables enforcement — no incident means it likely is not
+worth a guard, to avoid sprawl). Reviewed 2026-06-19.
+
+### Tier 2 — incident-backed, worth a guard next
+
+| Candidate guard | Invariant | Incident / rationale |
+|-----------------|-----------|----------------------|
+| `test_ci_prowler_version_pinned.py` | `Dockerfile` keeps the **exact** `prowler==` pin (`PROWLER_VERSION`, currently `5.30.1`) — equality, not a floor | #237: an unpinned prowler drifted; prowler 3.11.3/pydantic-v1 cannot run on py3.13+, so an unpinned bump silently breaks `prowler -v` at runtime. Complements the alpine freeze (`test_ci_dependabot_config.py`) and the provider-ordering guard (`test_ci_prowler_provider_guard_ordering.py`). |
+| `test_ci_dockerfile_base_pinned.py` | `Dockerfile`/`Dockerfile.nginx` keep their `alpine:3.20` (py3.12) base pin and stay version-agnostic | #233/#234/#220: a minor alpine bump ships py3.14 and crashes prowler. The dependabot guard locks the *freeze policy* in `dependabot.yml`; this would lock the *actual image* a manual edit could still bump. |
+
+### Tier 3 — monitor only (no guard yet; would be sprawl)
+
+- **Auxiliary scheduled workflows** — `prowler-python-watch.yml`,
+  `dashboard-refresh.yml`, `og-meta-verify.yml`: none is a required status check
+  and none runs on `pull_request_target` with a write token, so silent weakening
+  does not disable a merge gate. Add a guard only if one later gains enforcement
+  responsibility (becomes required, or gains a write-token PR trigger).
+- **DAST trigger invariants** — `dast-baseline.yml` (`pull_request`) and
+  `dast-full-scan.yml` (`schedule:`) triggers are already asserted by
+  `test_ci_security_gate.py`; no separate guard needed.
+
+### Verified already-guarded during this review (not backlog)
+
+lychee `v0.23.0` pin (`test_ci_gate_topology.py`), the `Security Scan Gate`
+CRITICAL `exit 1` severity block (`test_ci_security_gate.py`), CODEOWNERS
+coverage, ERE-pipe regressions, prowler provider ordering, coverage floors, npm
+`--provenance`, and the cross-OS non-required invariant.
 
 ## Adding a new guard
 
