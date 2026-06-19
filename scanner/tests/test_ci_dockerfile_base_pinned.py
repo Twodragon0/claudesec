@@ -52,9 +52,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILE = REPO_ROOT / "Dockerfile"
 DOCKERFILE_NGINX = REPO_ROOT / "Dockerfile.nginx"
 
-# A `FROM <image>[ AS stage]` line. Group 1 = the image ref (everything up to an
-# optional ` AS name` suffix).
-FROM_RE = re.compile(r"^\s*FROM\s+(\S+)(?:\s+AS\s+\S+)?\s*$", re.MULTILINE | re.IGNORECASE)
+# A `FROM [--flag=...]... <image>[ AS stage]` line. Group 1 = the image ref.
+# The `(?:--\S+\s+)*` prefix skips build flags like `--platform=$BUILDPLATFORM`
+# so a multi-arch FROM is still inspected, not silently dropped (sec-review F5).
+FROM_RE = re.compile(
+    r"^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+\S+)?\s*$", re.MULTILINE | re.IGNORECASE
+)
 
 # Version-agnostic site-packages resolution (#234).
 VERSION_AGNOSTIC_RE = re.compile(r"-name\s+'python3\.\*'")
@@ -62,8 +65,16 @@ VERSION_AGNOSTIC_RE = re.compile(r"-name\s+'python3\.\*'")
 HARDCODED_PY_PATH_RE = re.compile(r"python3\.\d+/site-packages")
 
 
+def _no_comments(text: str) -> str:
+    """Drop whole-line `#` comments so a token in a comment cannot satisfy (or
+    falsely trip) a check (sec-review Finding 6)."""
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
 def from_refs(text: str) -> list:
-    return FROM_RE.findall(text)
+    return FROM_RE.findall(_no_comments(text))
 
 
 def digest_violations(text: str, label: str) -> list:
@@ -98,13 +109,14 @@ def alpine_freeze_violations(text: str) -> list:
 
 def version_agnostic_violations(text: str) -> list:
     problems = []
-    if not VERSION_AGNOSTIC_RE.search(text):
+    active = _no_comments(text)
+    if not VERSION_AGNOSTIC_RE.search(active):
         problems.append(
             "version-agnostic site-packages resolution (find ... -name "
             "'python3.*') is gone — restore it so an alpine base bump does not "
             "break the build (#234)."
         )
-    if HARDCODED_PY_PATH_RE.search(text):
+    if HARDCODED_PY_PATH_RE.search(active):
         problems.append(
             "a hardcoded pythonX.Y/site-packages path was re-introduced — this is "
             "the #234 regression; use the version-agnostic glob instead."
@@ -196,6 +208,37 @@ class TestDockerfileBasePinnedMutation(unittest.TestCase):
             any("hardcoded" in p for p in version_agnostic_violations(mutant)),
             "Mutation FAILED: a hardcoded python3.12/site-packages path was NOT "
             "detected.",
+        )
+
+    def test_platform_flag_from_is_still_inspected(self):
+        # Finding 5: a `FROM --platform=... alpine:3.24@...` must NOT be silently
+        # dropped — the alpine minor bump still has to be caught.
+        mutant = "FROM --platform=$BUILDPLATFORM alpine:3.24@sha256:deadbeef AS builder"
+        self.assertTrue(
+            any("3.20" in p for p in alpine_freeze_violations(mutant)),
+            "Mutation FAILED (Finding 5): a `FROM --platform=...` alpine minor bump "
+            "was silently dropped by FROM_RE instead of being inspected.",
+        )
+
+    def test_platform_flag_undigested_from_is_detected(self):
+        # Finding 5: digest check must also see through a --platform flag.
+        mutant = "FROM --platform=linux/amd64 alpine:3.20 AS builder"
+        self.assertTrue(
+            any("not digest-pinned" in p for p in digest_violations(mutant, "df")),
+            "Mutation FAILED (Finding 5): an un-digested `FROM --platform=...` was "
+            "NOT detected.",
+        )
+
+    def test_comment_hardcoded_py_path_does_not_false_positive(self):
+        # Finding 6: a comment mentioning python3.12/site-packages must not trip
+        # the hardcoded-path check.
+        good_with_comment = (
+            "# do not hardcode python3.12/site-packages here\n" + self._GOOD
+        )
+        self.assertEqual(
+            version_agnostic_violations(good_with_comment), [],
+            "False positive (Finding 6): a comment mentioning a hardcoded "
+            "python3.N/site-packages path tripped the guard.",
         )
 
     def test_real_dockerfiles_clean(self):
