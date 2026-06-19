@@ -68,17 +68,55 @@ ALPINE_FREEZE_TOKENS = {
 # Schema sanity.
 SCHEMA_VERSION = "version: 2"
 
+# Co-location window (lines): the alpine dependency-name and BOTH excluded
+# update-types must appear within this many lines of each other, i.e. inside one
+# `ignore:` block — not scattered across unrelated blocks (sec-review DC-3).
+FREEZE_WINDOW = 6
+
+
+def _non_comment_lines(text: str) -> list:
+    """Lines with whole-line comments dropped, so a token living only in a
+    comment cannot satisfy a presence check (sec-review DC-1/DC-2/DC-4)."""
+    return [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+
+
+def _alpine_freeze_colocated(lines: list) -> bool:
+    """True if an `alpine` dependency-name line is followed, within FREEZE_WINDOW
+    lines, by BOTH excluded update-types (DC-3: the freeze must be one block)."""
+    for i, line in enumerate(lines):
+        if ALPINE_FREEZE_TOKENS["alpine_dependency"] in line:
+            window = "\n".join(lines[i : i + FREEZE_WINDOW + 1])
+            if (
+                ALPINE_FREEZE_TOKENS["freeze_minor"] in window
+                and ALPINE_FREEZE_TOKENS["freeze_major"] in window
+            ):
+                return True
+    return False
+
 
 def config_violations(text: str) -> list:
+    lines = _non_comment_lines(text)
+    scan = "\n".join(lines)
     problems = []
-    if SCHEMA_VERSION not in text:
+    if SCHEMA_VERSION not in scan:
         problems.append(f"MISSING dependabot schema marker: {SCHEMA_VERSION!r}")
     for eco in REQUIRED_ECOSYSTEMS:
-        if eco not in text:
+        if eco not in scan:
             problems.append(f"MISSING ecosystem coverage: {eco!r}")
     for name, tok in sorted(ALPINE_FREEZE_TOKENS.items()):
-        if tok not in text:
+        if tok not in scan:
             problems.append(f"MISSING alpine-freeze token [{name}]: {tok!r}")
+    # DC-3: all three freeze tokens present but NOT co-located in one ignore
+    # block means the alpine freeze was moved/split and is no longer effective.
+    if (
+        all(tok in scan for tok in ALPINE_FREEZE_TOKENS.values())
+        and not _alpine_freeze_colocated(lines)
+    ):
+        problems.append(
+            "DC-3: alpine-freeze tokens are present but not co-located in a single "
+            f"ignore block (within {FREEZE_WINDOW} lines) — the freeze may have "
+            "been split across unrelated blocks and is no longer effective."
+        )
     return problems
 
 
@@ -198,6 +236,61 @@ class TestDependabotConfigGuardMutation(unittest.TestCase):
         self.assertTrue(
             any("alpine_dependency" in p for p in config_violations(mutant)),
             "Mutation FAILED: removing the alpine ignore entry was NOT detected.",
+        )
+
+    def test_commented_out_ecosystem_is_detected(self):
+        # DC-2: an ecosystem present only in a comment must NOT satisfy the check.
+        mutant = self._GOOD.replace(
+            '  - package-ecosystem: "docker"',
+            '  # - package-ecosystem: "docker"  (removed)',
+        )
+        self.assertTrue(
+            any('"docker"' in p for p in config_violations(mutant)),
+            "Mutation FAILED (DC-2): a commented-out docker ecosystem was NOT "
+            "detected.",
+        )
+
+    def test_commented_alpine_freeze_is_detected(self):
+        # DC-1: the freeze surviving only in a comment must NOT satisfy the check.
+        mutant = self._GOOD.replace(
+            '      - dependency-name: "alpine"',
+            '      # - dependency-name: "alpine"  (freeze removed)',
+        )
+        self.assertTrue(
+            any("alpine_dependency" in p for p in config_violations(mutant)),
+            "Mutation FAILED (DC-1): a commented-out alpine freeze was NOT detected.",
+        )
+
+    def test_non_colocated_alpine_freeze_is_detected(self):
+        # DC-3: alpine dependency-name in one block, the semver tokens in an
+        # unrelated block far away — all three tokens present, freeze ineffective.
+        mutant = "\n".join(
+            [
+                "version: 2",
+                "updates:",
+                '  - package-ecosystem: "github-actions"',
+                '  - package-ecosystem: "npm"',
+                '  - package-ecosystem: "pip"',
+                '  - package-ecosystem: "docker"',
+                "    ignore:",
+                '      - dependency-name: "alpine"',
+                "        update-types: []",
+                "        # padding to push the semver tokens out of the window",
+                "        a: 1",
+                "        b: 2",
+                "        c: 3",
+                "        d: 4",
+                "        e: 5",
+                '      - dependency-name: "some-other-pkg"',
+                "        update-types:",
+                '          - "version-update:semver-minor"',
+                '          - "version-update:semver-major"',
+            ]
+        )
+        self.assertTrue(
+            any("DC-3" in p for p in config_violations(mutant)),
+            "Mutation FAILED (DC-3): a non-co-located (split) alpine freeze was "
+            "NOT detected.",
         )
 
     def test_real_config_clean(self):

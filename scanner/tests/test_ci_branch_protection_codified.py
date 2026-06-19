@@ -50,13 +50,21 @@ Mutation self-test
 snippets, confirms they pass, then verifies each invariant is detected when
 weakened, and that the real on-disk files pass cleanly.
 
-stdlib-only (no PyYAML — not in requirements-ci.txt). Substring / line scanning,
-no regex on the YAML body so commentary like the "MUST NOT run on pull_request"
-comment is never mistaken for a trigger. No `scanner/lib` import (does not touch
-the 99% coverage gate). No network, no subprocess. Runs under pytest (the CI
-runner) and `python3 -m unittest`.
+Hardened (sec-review, 2026-06-19) against false negatives: whole-line comments
+are stripped before every presence check so a token living only in a comment
+cannot satisfy it (BP-5/BP-8); the `on:` block parser handles flow-style
+(`on: [push, pull_request]`) and quoted (`'on':` / `"on":`) keys (BP-1/BP-2);
+and each boolean `DESIRED_*` var must be assigned exactly once to its expected
+value, so a second last-wins `="false"` cannot hide behind the first `="true"`
+(BP-4).
+
+stdlib-only (no PyYAML — not in requirements-ci.txt). Line scanning + small
+regexes that never match commentary (comments are stripped first). No
+`scanner/lib` import (does not touch the 99% coverage gate). No network, no
+subprocess. Runs under pytest (the CI runner) and `python3 -m unittest`.
 """
 
+import re
 import unittest
 from pathlib import Path
 
@@ -95,22 +103,58 @@ REQUIRED_WATCH_TOKENS = {
 }
 
 
+# Boolean desired-state vars that must be assigned exactly once to "true"
+# (BP-4: a second last-wins `="false"` would weaken the posture while the first
+# `="true"` still satisfies the token presence check).
+BOOLEAN_DESIRED = {
+    "DESIRED_ENFORCE_ADMINS": "true",
+    "DESIRED_STRICT": "true",
+    "DESIRED_CODE_OWNER_REVIEWS": "true",
+}
+_ASSIGN_RE = re.compile(r'^\s*(DESIRED_\w+)=["\']?([^"\'\s#]+)')
+
+
+def _strip_comment_lines(text: str) -> str:
+    """Drop whole-line comments (lstrip starts with '#') so a token that lives
+    only in a comment cannot satisfy a presence check (sec-review BP-5/BP-8)."""
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
+def _on_key_inline(line: str):
+    """If `line` is a top-level `on:` mapping key (bare or quoted, BP-2), return
+    the text after the colon — possibly empty, or flow-style content like
+    `[push, pull_request]` (BP-1). Otherwise return None."""
+    s = line.rstrip()
+    # Only top-level keys (no leading indentation) are real `on:` triggers.
+    if s != s.lstrip():
+        return None
+    for key in ("on:", "'on':", '"on":'):
+        if s == key:
+            return ""
+        if s.startswith(key):
+            return s[len(key):]
+    return None
+
+
 def _extract_on_block(text: str) -> str:
-    """Return the body of the workflow's top-level `on:` block (the indented
-    lines under `on:`, up to the next top-level key). Comment lines are dropped
-    so prose like '# ... MUST NOT run on pull_request events' is never matched.
-    """
-    lines = text.splitlines()
+    """Return the workflow's top-level `on:` trigger content: the inline
+    remainder of the `on:` line (flow style, BP-1) PLUS the indented child lines
+    under it, up to the next top-level key. Whole-line comments are dropped so
+    prose like '# ... MUST NOT run on pull_request events' is never matched, and
+    bare/quoted `on:` keys are both handled (BP-2)."""
     body = []
     in_on = False
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("#"):
+    for line in text.splitlines():
+        if line.lstrip().startswith("#"):
             continue
         if not in_on:
-            # Top-level `on:` key (no indentation).
-            if line.rstrip() == "on:" or line.startswith("on:"):
+            inline = _on_key_inline(line)
+            if inline is not None:
                 in_on = True
+                if inline.strip():
+                    body.append(inline)  # flow-style content on the `on:` line
             continue
         # Inside the on: block. A new top-level key (non-space first char,
         # non-empty) ends it.
@@ -121,26 +165,47 @@ def _extract_on_block(text: str) -> str:
 
 
 def script_violations(text: str) -> list:
-    return [
+    scan = _strip_comment_lines(text)
+    problems = [
         f"MISSING required script invariant [{name}]: {tok!r}"
         for name, tok in sorted(REQUIRED_SCRIPT_TOKENS.items())
-        if tok not in text
+        if tok not in scan
     ]
+    # BP-4: each boolean desired var assigned exactly once, to its expected value.
+    for var, expected in sorted(BOOLEAN_DESIRED.items()):
+        assigns = []
+        for line in scan.splitlines():
+            m = _ASSIGN_RE.match(line)
+            if m and m.group(1) == var:
+                assigns.append(m.group(2))
+        if len(assigns) != 1:
+            problems.append(
+                f"BP-4 [{var}] must be assigned exactly once (found {len(assigns)}: "
+                f"{assigns}) — a second assignment (bash last-wins) could silently "
+                "override the posture."
+            )
+        elif assigns[0] != expected:
+            problems.append(
+                f"BP-4 [{var}] assigned {assigns[0]!r}, expected {expected!r} — "
+                "branch-protection posture weakened."
+            )
+    return problems
 
 
 def watch_violations(text: str) -> list:
+    scan = _strip_comment_lines(text)
     problems = [
         f"MISSING required watch invariant [{name}]: {tok!r}"
         for name, tok in sorted(REQUIRED_WATCH_TOKENS.items())
-        if tok not in text
+        if tok not in scan
     ]
-    on_block = _extract_on_block(text)
-    for forbidden in ("pull_request:", "pull_request_target:"):
-        if forbidden in on_block:
-            problems.append(
-                f"FORBIDDEN trigger in on: block [{forbidden}] — the drift watch "
-                "is a scheduled notifier and must never become a PR status check."
-            )
+    # Bare `pull_request` substring catches both `pull_request:` (block style) and
+    # flow-style `[push, pull_request]`, and subsumes `pull_request_target`.
+    if "pull_request" in _extract_on_block(text):
+        problems.append(
+            "FORBIDDEN pull_request(_target) trigger in the on: block — the drift "
+            "watch is a scheduled notifier and must never become a PR status check."
+        )
     return problems
 
 
@@ -311,6 +376,67 @@ class TestBranchProtectionCodifiedMutation(unittest.TestCase):
             watch_violations(self._GOOD_WATCH), [],
             "False positive: prose mentioning 'pull_request' was treated as a "
             "trigger. Only the on: block should be scanned for triggers.",
+        )
+
+    def test_flow_style_pull_request_trigger_is_detected(self):
+        # BP-1: flow-style on: list with pull_request must be caught.
+        mutant = "\n".join(
+            [
+                "on: [schedule, workflow_dispatch, pull_request]",
+                "permissions:",
+                "  contents: read",
+                '          elif grep -q "DRIFT DETECTED" /tmp/drift-report.txt; then',
+                "          exit 1",
+                "  schedule:",  # keep the schedule token present in full text
+            ]
+        )
+        self.assertTrue(
+            any("pull_request" in p for p in watch_violations(mutant)),
+            "Mutation FAILED (BP-1): a flow-style `on: [..., pull_request]` trigger "
+            "was NOT detected.",
+        )
+
+    def test_quoted_on_key_pull_request_is_detected(self):
+        # BP-2: quoted 'on': key must still be parsed as the on: block.
+        mutant = "\n".join(
+            [
+                "'on':",
+                "  schedule:",
+                "    - cron: '0 16 * * *'",
+                "  pull_request:",
+                "    branches: [main]",
+                "permissions:",
+                '          elif grep -q "DRIFT DETECTED" /tmp/drift-report.txt; then',
+                "          exit 1",
+            ]
+        )
+        self.assertTrue(
+            any("pull_request" in p for p in watch_violations(mutant)),
+            "Mutation FAILED (BP-2): a quoted `'on':` key with a pull_request "
+            "trigger was NOT detected.",
+        )
+
+    def test_comment_only_token_does_not_satisfy_check(self):
+        # BP-5: enforce_admins="true" only in a comment, active value "false".
+        mutant = self._GOOD_SCRIPT.replace(
+            'DESIRED_ENFORCE_ADMINS="true"',
+            '# legacy: DESIRED_ENFORCE_ADMINS="true"\nDESIRED_ENFORCE_ADMINS="false"',
+        )
+        problems = script_violations(mutant)
+        self.assertTrue(
+            problems,
+            "Mutation FAILED (BP-5): enforce_admins='true' surviving only in a "
+            "comment while the active assignment is 'false' was NOT detected.",
+        )
+
+    def test_second_enforce_admins_assignment_is_detected(self):
+        # BP-4: a second last-wins assignment to "false".
+        mutant = self._GOOD_SCRIPT + '\nDESIRED_ENFORCE_ADMINS="false"'
+        self.assertTrue(
+            any("BP-4" in p and "DESIRED_ENFORCE_ADMINS" in p
+                for p in script_violations(mutant)),
+            "Mutation FAILED (BP-4): a duplicate DESIRED_ENFORCE_ADMINS assignment "
+            "(last-wins override) was NOT detected.",
         )
 
     def test_real_files_clean(self):
