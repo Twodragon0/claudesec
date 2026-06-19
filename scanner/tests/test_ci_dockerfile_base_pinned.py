@@ -44,6 +44,7 @@ CI runner) and `python3 -m unittest`.
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -51,6 +52,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILE = REPO_ROOT / "Dockerfile"
 DOCKERFILE_NGINX = REPO_ROOT / "Dockerfile.nginx"
+
+# Shared guard primitive (comment-stripping). Import as a top-level module so it
+# resolves under both pytest and `python3 -m unittest`.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import strip_comment_lines  # noqa: E402
 
 # A `FROM [--flag=...]... <image>[ AS stage]` line. Group 1 = the image ref.
 # The `(?:--\S+\s+)*` prefix skips build flags like `--platform=$BUILDPLATFORM`
@@ -65,16 +71,8 @@ VERSION_AGNOSTIC_RE = re.compile(r"-name\s+'python3\.\*'")
 HARDCODED_PY_PATH_RE = re.compile(r"python3\.\d+/site-packages")
 
 
-def _no_comments(text: str) -> str:
-    """Drop whole-line `#` comments so a token in a comment cannot satisfy (or
-    falsely trip) a check (sec-review Finding 6)."""
-    return "\n".join(
-        line for line in text.splitlines() if not line.lstrip().startswith("#")
-    )
-
-
 def from_refs(text: str) -> list:
-    return FROM_RE.findall(_no_comments(text))
+    return FROM_RE.findall(strip_comment_lines(text))
 
 
 def digest_violations(text: str, label: str) -> list:
@@ -109,7 +107,7 @@ def alpine_freeze_violations(text: str) -> list:
 
 def version_agnostic_violations(text: str) -> list:
     problems = []
-    active = _no_comments(text)
+    active = strip_comment_lines(text)
     if not VERSION_AGNOSTIC_RE.search(active):
         problems.append(
             "version-agnostic site-packages resolution (find ... -name "

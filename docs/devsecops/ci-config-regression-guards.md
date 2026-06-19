@@ -37,6 +37,15 @@ All guards follow the same rules (see the existing files for reference):
 - **Non-vacuous**: prove the guard fires on the regression it targets (simulate
   it) before shipping. Avoid regexes that match commentary in the workflow.
 - **Dual-runner**: pass under both `pytest` (CI) and `python3 -m unittest`.
+- **Shared primitives**: comment-stripping, continuation-joining, and `on:`-block
+  extraction live in `scanner/tests/_ci_guard_util.py` (`strip_comment_lines`,
+  `non_comment_lines`, `join_continuations`, `extract_on_block`). Import them as a
+  top-level module after putting the test dir on `sys.path` so they resolve under
+  both runners. The `_`-prefixed name keeps the module out of pytest collection
+  and the `test_ci_*.py` catalog glob (no Catalog row needed). **Always strip
+  comments and scope tokens** before a presence check — a token in a `#` comment
+  or a second weaker assignment must not satisfy an invariant (the false-negative
+  class hardened across these guards).
 
 ## Catalog
 

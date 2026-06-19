@@ -39,12 +39,18 @@ not touch the 99% coverage gate). No network, no subprocess. Runs under pytest
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILE = REPO_ROOT / "Dockerfile"
+
+# Shared guard primitives (comment-stripping, continuation-joining). Import as a
+# top-level module so it resolves under both pytest and `python3 -m unittest`.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import join_continuations, strip_comment_lines  # noqa: E402
 
 # `ARG PROWLER_VERSION=<x.y.z>` — the pin value must be version-shaped, not blank
 # or a placeholder. Matches e.g. ARG PROWLER_VERSION=5.30.1
@@ -74,10 +80,7 @@ def _active_text(text: str) -> str:
     (so a token in a comment can't satisfy a check — Finding 2/6), and backslash
     line-continuations joined onto one line (so a `RUN pip install \\` that wraps
     `prowler` onto the next line is still seen — Finding 1, CRITICAL)."""
-    no_comments = "\n".join(
-        line for line in text.splitlines() if not line.lstrip().startswith("#")
-    )
-    return no_comments.replace("\\\n", " ")
+    return join_continuations(strip_comment_lines(text))
 
 
 def violations(text: str) -> list:
