@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
 # Unit tests for output.sh: fail(), append_json(), _emit_finding_json()
 # Run: bash scanner/tests/test_output_functions.sh
 set -uo pipefail

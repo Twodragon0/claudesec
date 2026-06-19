@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
 # Unit tests for output.sh: coverage for previously-uncovered branches.
 # Targets: _id_to_category (L651-668), _emit_finding_json FINDINGS_WARN/LOW (L697-701),
 #          _print_finding_inline_fail severity-color branches (L93-99),

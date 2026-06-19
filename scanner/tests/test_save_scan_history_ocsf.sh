@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
 # Unit tests for scanner/lib/output.sh: save_scan_history prowler OCSF
 # compliance python block (L414-445). Exercises:
 #   L414-416  prowler-*.ocsf.json detection loop

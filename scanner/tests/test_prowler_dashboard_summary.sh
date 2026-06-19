@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
 # Unit tests for output.sh::_prowler_dashboard_summary()
 # Run: bash scanner/tests/test_prowler_dashboard_summary.sh
 set -uo pipefail

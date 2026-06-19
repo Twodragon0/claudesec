@@ -105,14 +105,16 @@ tags: [memory, operations, quality, continuous-improvement]
   prowler ships py3.13+ compatibility. **Now auto-watched** by the #246 scheduled action
   (alerts via issue when prowler's PyPI `Requires-Python` drops the `<3.13` ceiling). Manual
   check: `curl -fsSL https://pypi.org/pypi/prowler/json | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["info"]["version"], d["info"]["requires_python"])'`.
-- **Dependabot auto-merge policy is broken / TODO.** The existing
-  `.github/workflows/dependabot-auto-merge.yml` auto-approves with `GITHUB_TOKEN`, but
-  `github-actions[bot]` is NOT a code owner so those approvals do NOT satisfy
-  `require_code_owner_reviews` (proven by #235: 4 bot approvals, still BLOCKED, human had to
-  approve+merge). Its `--auto` is also a silent no-op because repo `allow_auto_merge=false`.
-  Recommended fix (architect plan, this session): enable repo auto-merge, drop the broken
-  approve-as-bot step, and only auto-*arm* auto-merge on safe patch/minor pip/docker updates
-  (never Dockerfile/base-image/major) — human code-owner approval stays the gate.
+- **Dependabot auto-merge policy** — DONE (#249/#250/#251 merged). The original
+  `dependabot-auto-merge.yml` auto-approved with `GITHUB_TOKEN`, but `github-actions[bot]`
+  is NOT a code owner so those approvals did NOT satisfy `require_code_owner_reviews`
+  (proven by #235: 4 bot approvals, still BLOCKED, human had to approve+merge); its `--auto`
+  was also a silent no-op while repo `allow_auto_merge=false`. Fix: #249 dropped the broken
+  approve-as-bot step and now only *arms* server-side auto-merge for semver-patch/minor
+  pip/docker/actions updates (sensitive paths — Dockerfile/base-image/.github/scanner/hooks/
+  scripts — and major bumps are excluded); #250 codified branch-protection + `allow_auto_merge`
+  via an idempotent `gh` script; #251 added a nightly branch-protection drift-watch workflow.
+  Human code-owner approval remains the gate.
 - **`.claude/worktrees/` not gitignored** — DONE (#240 merged).
 
 > Reference: CIS Controls v8 (secure configuration & continuous vulnerability

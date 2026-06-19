@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
 # Unit tests for kubectl_auto_find_kubeconfig() and kubectl_current_context_uses_oidc_exec()
 # Run: bash scanner/tests/test_kubeconfig_discovery.sh
 

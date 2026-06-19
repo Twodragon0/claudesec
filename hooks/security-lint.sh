@@ -10,6 +10,7 @@
 
 set -euo pipefail
 
+# shellcheck disable=SC2034  # $1 (file path) documents the hook arg contract; only CONTENT is scanned
 FILE="${1:-}"
 CONTENT="${2:-}"
 
