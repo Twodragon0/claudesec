@@ -50,6 +50,8 @@ jobs:
       - name: Install published claudesec and verify signatures
         id: verify
         run: |
+          # No -e on purpose: the `npm audit signatures` non-zero exit is the
+          # real signal and is handled via if/else below, not via early-exit.
           set -uo pipefail
           workdir="$(mktemp -d)"
           cd "$workdir"

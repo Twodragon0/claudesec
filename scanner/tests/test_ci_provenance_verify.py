@@ -51,6 +51,14 @@ class TestProvenanceVerifyWorkflow(unittest.TestCase):
             "provenance-verify.yml lost its `schedule:` trigger — the published "
             "package provenance/signature check would no longer run periodically.",
         )
+        # A bare `schedule:` with no cron entry is invalid (and a plausible
+        # mistaken weakening that would silently stop the cadence) — require one.
+        self.assertRegex(
+            self.text,
+            r"(?m)^\s*-\s*cron:\s*['\"][^'\"]+['\"]\s*$",
+            "schedule trigger has no `- cron:` expression — the periodic run "
+            "would never fire.",
+        )
 
     def test_no_pull_request_trigger(self):
         offenders = [
