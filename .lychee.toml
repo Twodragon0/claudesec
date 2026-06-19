@@ -16,6 +16,10 @@ exclude = [
   "conventionalcommits.org",
   # GitHub features not yet enabled
   "github.com/Twodragon0/claudesec/discussions",
+  # CHANGELOG version-compare links point at release-time tags (the newest
+  # entry references a tag created only when that version publishes), so they
+  # 404 at PR time by design — not link rot.
+  "github.com/Twodragon0/claudesec/compare/",
   # MITRE ATLAS — URL structure changed
   "atlas.mitre.org",
   # NIST AI — URL structure varies

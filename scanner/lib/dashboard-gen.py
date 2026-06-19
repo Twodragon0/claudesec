@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ClaudeSec Dashboard Generator v0.7.1
+ClaudeSec Dashboard Generator v0.7.2
 Generates a tabbed HTML security dashboard from scan results and Prowler OCSF data.
 
 Modules:

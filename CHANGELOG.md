@@ -9,28 +9,24 @@ Releases are published to npm via the `npm-publish.yml` workflow (Trusted
 Publisher + SLSA provenance), triggered by pushing a `v*` tag. For the complete
 per-commit history, see the git log and `MEMORY.md` (delta log).
 
-## [Unreleased]
+## [0.7.2]
 
-### Changed
+### Added
 
-- Synced the Claude plugin manifest version (`.claude-plugin/marketplace.json`)
-  with `package.json` (0.7.1).
-- Cleaned up `shellcheck` warnings across the scanner test suite and hooks
-  (`SC2034` test-stub directives, `SC2188` redirection fixes in
-  `scanner/checks/saas/api-checks.sh`). CI `shell-lint` (severity `error`) was
-  already green; this clears the remaining non-blocking warnings.
-- Refreshed the `MEMORY.md` backlog to mark the Dependabot auto-merge policy as
-  resolved (#249/#250/#251).
+- **Supply-chain provenance verification.** New scheduled `provenance-verify.yml`
+  workflow installs the published `claudesec` package weekly and runs
+  `npm audit signatures` to confirm the npm registry signature and SLSA provenance
+  attestation are intact; on a genuine failure it opens an idempotent
+  `provenance-watch` issue (transient registry blips are a no-op). Guarded by
+  `scanner/tests/test_ci_provenance_verify.py`.
+- README **"Verify supply-chain integrity"** section documenting
+  `npm audit signatures` for end users (OWASP A08; SLSA).
 
 ### Fixed
 
-- **npm package slimming.** The published tarball dropped from ~43 MB to ~580 kB
-  (536 → 220 files): removed `docs/` from the `files` allowlist (not needed at
-  runtime — it shipped two large `.pptx` seminar templates totalling ~38 MB), and
-  excluded operator-only scripts (cost/license/PC-sheet and Google-Sheets-auth
-  helpers) that are not part of the CLI surface. `.npmignore` could not exclude
-  these because paths listed in `files` take precedence over it; the exclusions
-  are now expressed as negated `files` patterns. Added `CHANGELOG.md` to `files`.
+- Regenerated the stale `package-lock.json` (it still declared `0.6.0` /
+  `node >=16`; now matches `package.json` at `0.7.2` / `node >=18`), restoring
+  reproducible `npm ci`.
 
 ## [0.7.1]
 
@@ -39,6 +35,27 @@ per-commit history, see the git log and `MEMORY.md` (delta log).
 - Upgraded the Node.js engine baseline and CI to **Node 22 LTS**.
 - Bumped the embedded version string across the CLI, dashboard generator, and
   agent docs to keep them in sync with `package.json`.
+- Synced the Claude plugin manifest version (`.claude-plugin/marketplace.json`).
+- Cleaned up `shellcheck` warnings across the scanner test suite and hooks
+  (`SC2034` test-stub directives, `SC2188` redirection fixes in
+  `scanner/checks/saas/api-checks.sh`).
+- Refreshed the `MEMORY.md` backlog to mark the Dependabot auto-merge policy as
+  resolved (#249/#250/#251).
+
+### Fixed
+
+- **npm release actually works now (OIDC).** Node 22 bundles npm 10.x, but OIDC
+  tokenless trusted publishing needs npm ≥ 11.5.1, so prior publish runs failed
+  silently and the registry was stuck at 0.6.1. `npm-publish.yml` now upgrades
+  npm, publishes tokenless with `--provenance`, auto-detects a version bump on
+  `main` (idempotent), and auto-creates the `vX.Y.Z` tag. Guarded by an extended
+  `test_ci_npm_publish.py`.
+- **npm package slimming.** The published tarball dropped from ~43 MB to ~580 kB
+  (536 → 220 files): removed `docs/` from the `files` allowlist (not needed at
+  runtime — it shipped two large `.pptx` seminar templates totalling ~38 MB), and
+  excluded operator-only scripts (cost/license/PC-sheet and Google-Sheets-auth
+  helpers) via negated `files` patterns (`.npmignore` is overridden by `files`).
+  Added `CHANGELOG.md` to `files`. Guarded by `scanner/tests/test_ci_npm_files.py`.
 
 ## [0.7.0]
 
@@ -81,7 +98,7 @@ Branding (OG social cards, light-mode variants), accessibility fixes, Docker
 image size optimization (1.47 GB → 479 MB), the Claude plugin manifest, and the
 quickstart Docker flow. See the git history for details.
 
-[Unreleased]: https://github.com/Twodragon0/claudesec/compare/v0.7.1...HEAD
+[0.7.2]: https://github.com/Twodragon0/claudesec/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Twodragon0/claudesec/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Twodragon0/claudesec/compare/v0.6.5...v0.7.0
 [0.6.5]: https://github.com/Twodragon0/claudesec/releases/tag/v0.6.5

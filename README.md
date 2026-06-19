@@ -27,6 +27,22 @@ npx claudesec scan                # Security scan — no install needed
 npx claudesec dashboard           # Full scan + dashboard (safe local runner)
 ```
 
+**Verify supply-chain integrity (recommended)**
+
+ClaudeSec is published to npm with [SLSA build provenance](https://docs.npmjs.com/generating-provenance-statements)
+(attested via GitHub Actions OIDC trusted publishing). Verify the registry
+signature and provenance attestation before trusting an install:
+
+```bash
+npm install claudesec                  # add to a project
+npm audit signatures                   # verifies npm signature + SLSA provenance
+```
+
+A healthy result reports the package as having a verified registry signature and
+attestation. Provenance links the published tarball back to the exact GitHub
+commit and workflow that built it (OWASP A08 — Software & Data Integrity
+Failures; [SLSA](https://slsa.dev/)).
+
 **Git clone + local-safe default**
 
 ```bash

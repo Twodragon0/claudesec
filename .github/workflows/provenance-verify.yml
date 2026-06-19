@@ -1,0 +1,125 @@
+# Published-Package Provenance & Signature Watch
+#
+# SCHEDULED supply-chain integrity check for the PUBLISHED `claudesec` npm
+# package. Installs the latest release from the registry and runs
+# `npm audit signatures`, which verifies BOTH the npm registry signature and the
+# SLSA build provenance attestation of every installed package (claudesec ships
+# with provenance via the OIDC trusted-publisher flow in npm-publish.yml).
+#
+# Why scheduled, not a per-PR lint gate:
+#   claudesec has zero runtime dependencies, so `npm audit signatures` run in the
+#   repo checkout has nothing to verify — and it checks the *published* artifact,
+#   not the PR's working tree. The meaningful check is "does the artifact users
+#   actually `npx`/install still carry a valid signature + provenance", which is a
+#   registry-state question, hence a schedule.
+#
+# Fail-safe:
+#   A transient install/network failure is a no-op (exit 0), NOT a false alarm.
+#   A genuine signature/provenance failure opens a single idempotent issue
+#   (label 'provenance-watch') and fails the run so the schedule surfaces it.
+#
+# This workflow MUST NOT run on pull_request events — it is a scheduled monitor
+# and must never become a required PR status check.
+
+name: Provenance Verify
+
+on:
+  schedule:
+    # 06:30 UTC every Monday
+    - cron: '30 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  verify:
+    name: Verify published package signature + provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Upgrade npm (audit signatures + provenance support)
+        run: npm install -g npm@latest
+
+      - name: Install published claudesec and verify signatures
+        id: verify
+        run: |
+          # No -e on purpose: the `npm audit signatures` non-zero exit is the
+          # real signal and is handled via if/else below, not via early-exit.
+          set -uo pipefail
+          workdir="$(mktemp -d)"
+          cd "$workdir"
+          npm init -y >/dev/null 2>&1
+
+          # Transient install/network failure -> no-op (don't cry wolf).
+          if ! npm install claudesec@latest --no-audit --no-fund > install.log 2>&1; then
+            echo "::warning::Could not install claudesec@latest (transient?). Skipping."
+            cat install.log || true
+            echo "status=transient" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # `npm audit signatures` exits non-zero on a missing/invalid signature
+          # or provenance attestation — that is the real supply-chain alarm.
+          if npm audit signatures > sig.log 2>&1; then
+            echo "Signature + provenance verification PASSED:"
+            cat sig.log
+            echo "status=ok" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::npm audit signatures FAILED for claudesec@latest"
+            cat sig.log
+            echo "status=failed" >> "$GITHUB_OUTPUT"
+            cp sig.log "${GITHUB_WORKSPACE}/sig.log"
+          fi
+
+      - name: Open alert issue on verification failure (idempotent)
+        if: steps.verify.outputs.status == 'failed'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh label list --repo "${GITHUB_REPOSITORY}" --json name \
+            | python3 -c "import sys,json; sys.exit(0 if 'provenance-watch' in [l['name'] for l in json.load(sys.stdin)] else 1)" 2>/dev/null \
+            || gh label create provenance-watch --repo "${GITHUB_REPOSITORY}" \
+                 --description "Published-package provenance/signature alert" --color "b60205"
+
+          existing="$(gh issue list --repo "${GITHUB_REPOSITORY}" \
+            --label provenance-watch --state open --json number --limit 5)"
+          if [ "$(echo "$existing" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)))')" -gt 0 ]; then
+            echo "An open provenance-watch issue already exists — skipping duplicate."
+            exit 0
+          fi
+
+          {
+            echo "## npm signature / provenance verification failed"
+            echo ""
+            echo "\`npm audit signatures\` failed for the published \`claudesec@latest\`."
+            echo "This may indicate a missing/invalid registry signature or a lost SLSA"
+            echo "provenance attestation (OWASP A08 — Software & Data Integrity Failures)."
+            echo ""
+            echo "### Output"
+            echo '```'
+            cat "${GITHUB_WORKSPACE}/sig.log" 2>/dev/null || echo "(log unavailable)"
+            echo '```'
+            echo ""
+            echo "### Next steps"
+            echo "1. Re-run this workflow to rule out a transient registry blip."
+            echo "2. Confirm the npm Trusted Publisher for \`claudesec\` is intact"
+            echo "   (workflow \`npm-publish.yml\`, environment \`npm-publish\`)."
+            echo "3. Re-publish with \`--provenance\` if the attestation was lost."
+          } > /tmp/body.md
+
+          gh issue create --repo "${GITHUB_REPOSITORY}" \
+            --title "security: claudesec npm provenance/signature verification failed" \
+            --label provenance-watch \
+            --body-file /tmp/body.md
+
+      - name: Fail the run on verification failure
+        if: steps.verify.outputs.status == 'failed'
+        run: exit 1
