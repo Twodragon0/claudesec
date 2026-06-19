@@ -1,6 +1,6 @@
 {
   "name": "claudesec",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "DevSecOps toolkit for AI-assisted secure development — security scanner, ISMS dashboard, asset management",
   "bin": {
     "claudesec": "./bin/claudesec-cli.sh"

@@ -1,7 +1,7 @@
 {
   "name": "claudesec",
   "displayName": "ClaudeSec — DevSecOps Scanner & Dashboard",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Security scanner, ISMS dashboard, and asset management for AI-assisted development",
   "author": "Twodragon0",
   "license": "MIT",
