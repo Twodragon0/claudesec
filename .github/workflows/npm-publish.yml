@@ -1,17 +1,29 @@
 # npm Publish with Trusted Publishers (Provenance)
 #
-# Uses GitHub Actions OIDC to publish to npm without stored tokens.
-# Generates SLSA provenance attestation for supply chain security.
+# Tokenless publish via GitHub Actions OIDC + SLSA provenance. No NPM_TOKEN
+# secret is used — authentication is the short-lived OIDC token exchanged with
+# npm's trusted-publisher flow.
 #
-# Setup:
-#   1. npmjs.com → Package Settings → Trusted Publishers → Add GitHub Actions
-#      - Owner: Twodragon0
-#      - Repository: claudesec
-#      - Workflow: npm-publish.yml
-#      - Environment: npm-publish
-#   2. GitHub → Settings → Environments → Create "npm-publish"
+# One-time setup (npmjs.com side):
+#   1. npmjs.com -> package "claudesec" -> Settings -> Trusted Publishers ->
+#      Add GitHub Actions:
+#        Owner:       Twodragon0
+#        Repository:  claudesec
+#        Workflow:    npm-publish.yml
+#        Environment: npm-publish
+#   2. GitHub -> Settings -> Environments -> create "npm-publish"
 #
-# Trigger: manual dispatch or tag push (v*)
+# Auto-release:
+#   - Push a package.json version bump to `main`  -> publishes the new version
+#     and creates the matching vX.Y.Z tag automatically.
+#   - Push a `v*` tag                              -> publishes that version.
+#   - Manual workflow_dispatch (optional dry_run)  -> publishes current version.
+#
+# Publishing is idempotent: a version already present on npm is skipped (the
+# job runs a --dry-run instead), so re-runs and unrelated main pushes are safe.
+#
+# OIDC trusted publishing requires npm >= 11.5.1. Node 22 bundles npm 10.x, so
+# the publish job upgrades npm before publishing.
 
 name: Publish to npm
 
@@ -23,6 +35,8 @@ on:
         type: boolean
         default: false
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -30,8 +44,46 @@ permissions:
   contents: read
 
 jobs:
+  detect:
+    name: Detect release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      should_publish: ${{ steps.v.outputs.should_publish }}
+      already_published: ${{ steps.v.outputs.already_published }}
+      dry_run: ${{ steps.v.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Resolve version and publish decision
+        id: v
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+
+          DRY="false"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+             && [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY="true"
+          fi
+          echo "dry_run=$DRY" >> "$GITHUB_OUTPUT"
+
+          if npm view "claudesec@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::claudesec@$PKG_VERSION already on npm — nothing to publish."
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::claudesec@$PKG_VERSION not on npm — will publish."
+          fi
+
+          echo "Resolved claudesec@$PKG_VERSION (event=${{ github.event_name }}, ref=${{ github.ref }}, dry_run=$DRY)"
+
   test:
     name: Test
+    needs: detect
+    if: needs.detect.outputs.should_publish == 'true' || needs.detect.outputs.dry_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -53,12 +105,13 @@ jobs:
 
   publish:
     name: Publish
-    needs: test
+    needs: [detect, test]
+    if: needs.detect.outputs.should_publish == 'true' || needs.detect.outputs.dry_run == 'true'
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
-      contents: read
-      id-token: write  # Required for npm provenance (OIDC)
+      contents: write  # create the vX.Y.Z release tag after a successful publish
+      id-token: write  # required for npm provenance / OIDC trusted publishing
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -68,37 +121,48 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Check version
-        id: version
-        run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Publishing claudesec@$PKG_VERSION"
-
-          # Check if version already exists
-          if npm view "claudesec@$PKG_VERSION" version 2>/dev/null; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::Version $PKG_VERSION already published"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Upgrade npm for OIDC trusted publishing (requires >= 11.5.1)
+        run: npm install -g npm@latest
 
       - name: Publish (dry run)
-        if: inputs.dry_run == true || steps.version.outputs.exists == 'true'
+        if: needs.detect.outputs.dry_run == 'true' || needs.detect.outputs.already_published == 'true'
         run: npm publish --access public --provenance --dry-run
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish
-        if: inputs.dry_run != true && steps.version.outputs.exists != 'true'
+        if: needs.detect.outputs.dry_run == 'false' && needs.detect.outputs.already_published == 'false'
         run: npm publish --access public --provenance
+
+      - name: Tag release vX.Y.Z
+        if: >-
+          needs.detect.outputs.dry_run == 'false'
+          && needs.detect.outputs.already_published == 'false'
+          && github.ref != format('refs/tags/v{0}', needs.detect.outputs.version)
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ needs.detect.outputs.version }}"
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "Tag v$VERSION already exists — skipping tag creation."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "v$VERSION" -m "Release v$VERSION"
+            git push origin "v$VERSION"
+            echo "Created and pushed tag v$VERSION"
+          fi
 
       - name: Summary
         run: |
-          echo "## 📦 Published claudesec@${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- npm: https://www.npmjs.com/package/claudesec" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Provenance: ✅ SLSA attestation" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Install: \`npx claudesec scan\`" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## 📦 claudesec@${{ needs.detect.outputs.version }}"
+            echo ""
+            if [ "${{ needs.detect.outputs.dry_run }}" = "true" ] || [ "${{ needs.detect.outputs.already_published }}" = "true" ]; then
+              echo "- Mode: **dry-run** (no publish)"
+            else
+              echo "- Mode: **published** ✅"
+              echo "- Tag: \`v${{ needs.detect.outputs.version }}\`"
+            fi
+            echo "- npm: https://www.npmjs.com/package/claudesec"
+            echo "- Provenance: ✅ SLSA attestation (OIDC trusted publisher)"
+            echo "- Install: \`npx claudesec scan\`"
+          } >> "$GITHUB_STEP_SUMMARY"
