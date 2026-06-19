@@ -42,12 +42,18 @@ stdlib-only (no PyYAML — not in requirements-ci.txt). Substring checks. No
 subprocess. Runs under pytest (the CI runner) and `python3 -m unittest`.
 """
 
+import sys
 import unittest
 from pathlib import Path
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
+
+# Shared guard primitive (comment-stripping). Import as a top-level module so it
+# resolves under both pytest and `python3 -m unittest`.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import non_comment_lines  # noqa: E402
 
 # Each ecosystem must stay declared, else that surface stops getting update PRs.
 REQUIRED_ECOSYSTEMS = (
@@ -74,12 +80,6 @@ SCHEMA_VERSION = "version: 2"
 FREEZE_WINDOW = 6
 
 
-def _non_comment_lines(text: str) -> list:
-    """Lines with whole-line comments dropped, so a token living only in a
-    comment cannot satisfy a presence check (sec-review DC-1/DC-2/DC-4)."""
-    return [line for line in text.splitlines() if not line.lstrip().startswith("#")]
-
-
 def _alpine_freeze_colocated(lines: list) -> bool:
     """True if an `alpine` dependency-name line is followed, within FREEZE_WINDOW
     lines, by BOTH excluded update-types (DC-3: the freeze must be one block)."""
@@ -95,7 +95,7 @@ def _alpine_freeze_colocated(lines: list) -> bool:
 
 
 def config_violations(text: str) -> list:
-    lines = _non_comment_lines(text)
+    lines = non_comment_lines(text)
     scan = "\n".join(lines)
     problems = []
     if SCHEMA_VERSION not in scan:

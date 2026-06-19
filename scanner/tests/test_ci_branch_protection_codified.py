@@ -65,6 +65,7 @@ subprocess. Runs under pytest (the CI runner) and `python3 -m unittest`.
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -72,6 +73,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "sync-repo-protection.sh"
 WATCH = REPO_ROOT / ".github" / "workflows" / "protection-drift-watch.yml"
+
+# Shared guard primitives (comment-stripping, on:-block extraction). Import as a
+# top-level module so it resolves under both pytest and `python3 -m unittest`.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import extract_on_block, strip_comment_lines  # noqa: E402
 
 # Literal desired-state assignments that MUST be present verbatim in the script.
 # Tightening the posture (e.g. adding a context) is allowed; weakening any of
@@ -114,58 +120,8 @@ BOOLEAN_DESIRED = {
 _ASSIGN_RE = re.compile(r'^\s*(DESIRED_\w+)=["\']?([^"\'\s#]+)')
 
 
-def _strip_comment_lines(text: str) -> str:
-    """Drop whole-line comments (lstrip starts with '#') so a token that lives
-    only in a comment cannot satisfy a presence check (sec-review BP-5/BP-8)."""
-    return "\n".join(
-        line for line in text.splitlines() if not line.lstrip().startswith("#")
-    )
-
-
-def _on_key_inline(line: str):
-    """If `line` is a top-level `on:` mapping key (bare or quoted, BP-2), return
-    the text after the colon — possibly empty, or flow-style content like
-    `[push, pull_request]` (BP-1). Otherwise return None."""
-    s = line.rstrip()
-    # Only top-level keys (no leading indentation) are real `on:` triggers.
-    if s != s.lstrip():
-        return None
-    for key in ("on:", "'on':", '"on":'):
-        if s == key:
-            return ""
-        if s.startswith(key):
-            return s[len(key):]
-    return None
-
-
-def _extract_on_block(text: str) -> str:
-    """Return the workflow's top-level `on:` trigger content: the inline
-    remainder of the `on:` line (flow style, BP-1) PLUS the indented child lines
-    under it, up to the next top-level key. Whole-line comments are dropped so
-    prose like '# ... MUST NOT run on pull_request events' is never matched, and
-    bare/quoted `on:` keys are both handled (BP-2)."""
-    body = []
-    in_on = False
-    for line in text.splitlines():
-        if line.lstrip().startswith("#"):
-            continue
-        if not in_on:
-            inline = _on_key_inline(line)
-            if inline is not None:
-                in_on = True
-                if inline.strip():
-                    body.append(inline)  # flow-style content on the `on:` line
-            continue
-        # Inside the on: block. A new top-level key (non-space first char,
-        # non-empty) ends it.
-        if line and not line[0].isspace():
-            break
-        body.append(line)
-    return "\n".join(body)
-
-
 def script_violations(text: str) -> list:
-    scan = _strip_comment_lines(text)
+    scan = strip_comment_lines(text)
     problems = [
         f"MISSING required script invariant [{name}]: {tok!r}"
         for name, tok in sorted(REQUIRED_SCRIPT_TOKENS.items())
@@ -193,7 +149,7 @@ def script_violations(text: str) -> list:
 
 
 def watch_violations(text: str) -> list:
-    scan = _strip_comment_lines(text)
+    scan = strip_comment_lines(text)
     problems = [
         f"MISSING required watch invariant [{name}]: {tok!r}"
         for name, tok in sorted(REQUIRED_WATCH_TOKENS.items())
@@ -201,7 +157,7 @@ def watch_violations(text: str) -> list:
     ]
     # Bare `pull_request` substring catches both `pull_request:` (block style) and
     # flow-style `[push, pull_request]`, and subsumes `pull_request_target`.
-    if "pull_request" in _extract_on_block(text):
+    if "pull_request" in extract_on_block(text):
         problems.append(
             "FORBIDDEN pull_request(_target) trigger in the on: block — the drift "
             "watch is a scheduled notifier and must never become a PR status check."
@@ -281,7 +237,7 @@ class TestBranchProtectionCodified(unittest.TestCase):
         )
 
     def test_notifier_has_no_pr_trigger(self):
-        on_block = _extract_on_block(self.watch)
+        on_block = extract_on_block(self.watch)
         self.assertNotIn(
             "pull_request", on_block,
             "protection-drift-watch.yml gained a pull_request(_target) trigger in "
