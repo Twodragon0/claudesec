@@ -22,9 +22,13 @@ runner) and `python3 -m unittest`.
 """
 
 import re
+import sys
 import unittest
 from glob import glob
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import strip_inline_comment as _strip_comment  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -41,11 +45,6 @@ LINT_YML = WORKFLOW_DIR / "lint.yml"
 # lint-gate.needs so its OWASP A08 fork-guard audit is merge-blocking — it is
 # therefore correctly NO LONGER allowlisted.)
 UNGATED_JOBS_ALLOWLIST = {"lint-gate"}
-
-
-def _strip_comment(line: str) -> str:
-    # Drop an inline "  # ..." comment without tripping on '#' inside a token.
-    return re.sub(r"\s+#.*$", "", line)
 
 
 class TestActionShaPinning(unittest.TestCase):
