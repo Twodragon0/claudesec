@@ -26,9 +26,13 @@ No network, no subprocess. Passes under pytest (the CI runner) and
 """
 
 import re
+import sys
 import unittest
 from glob import glob
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import strip_inline_comment as _strip_comment  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,10 +43,6 @@ WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 ANALYSIS_ACTION_RE = re.compile(
     r"uses:\s*github/codeql-action/(init|analyze)(?:[/@]|\s|$)"
 )
-
-
-def _strip_comment(line: str) -> str:
-    return re.sub(r"\s+#.*$", "", line)
 
 
 class TestCodeqlSingleModel(unittest.TestCase):

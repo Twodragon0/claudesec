@@ -36,15 +36,14 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import extract_on_block  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    extract_on_block,
+    strip_inline_comment as _strip_comment,
+)
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "provenance-verify.yml"
-
-
-def _strip_comment(line: str) -> str:
-    return re.sub(r"\s+#.*$", "", line)
 
 
 class TestProvenanceVerifyWorkflow(unittest.TestCase):

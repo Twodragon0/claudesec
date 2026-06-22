@@ -37,6 +37,8 @@ root):
     from _ci_guard_util import strip_comment_lines, extract_on_block
 """
 
+import re
+
 
 def non_comment_lines(text: str) -> list:
     """The lines of `text` with whole-line `#` comments dropped."""
@@ -47,6 +49,16 @@ def strip_comment_lines(text: str) -> str:
     """`text` with whole-line `#` comments removed, so a token living only in a
     comment cannot satisfy a presence check."""
     return "\n".join(non_comment_lines(text))
+
+
+def strip_inline_comment(line: str) -> str:
+    """A SINGLE line with a trailing inline `# ...` comment removed
+    (e.g. `uses: foo@<sha>  # v1.2.3` -> `uses: foo@<sha>`). Requires whitespace
+    before the `#` so a `#` inside a token (a URL fragment, a quoted value) is
+    not stripped. Per-line and distinct from strip_comment_lines/non_comment_lines,
+    which drop WHOLE comment lines from a multi-line text — several guards need
+    the trailing-comment form when scanning one `run:`/`uses:` line at a time."""
+    return re.sub(r"\s+#.*$", "", line)
 
 
 def join_continuations(text: str) -> str:
