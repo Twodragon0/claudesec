@@ -19,10 +19,15 @@ control whose silent removal disables enforcement
 (OWASP CICD-SEC-1 Insufficient Flow Control / CICD-SEC-7 Insecure System
 Configuration; NIST SSDF SP 800-218 PO.3/PW.4):
 
-  1. **Required-status contexts** — `DESIRED_CONTEXTS` must keep BOTH
-     `"Lint"` and `"Security Scan Gate"`. Dropping either un-requires that
-     aggregator, so a PR could merge with that whole gate red. (The "two
-     required checks" contract documented in ci-config-regression-guards.md.)
+  1. **Required-status contexts** — `DESIRED_CONTEXTS` must equal EXACTLY
+     `["Lint","Security Scan Gate"]`. The `desired_contexts` token is the full
+     assignment string up to and including the closing `]'`, so the check is a
+     two-sided pin, not a floor: *dropping* a context un-requires that aggregator
+     (a PR could merge with that whole gate red), and *adding* a third context
+     (appended or prepended) also breaks the exact match — so any change to the
+     required-check set is forced to be deliberate and update this guard. (The
+     "two required checks" contract documented in ci-config-regression-guards.md;
+     both directions are proven by mutation self-tests below.)
   2. **enforce_admins=true** — admins (including the owner) are NOT exempt from
      branch protection. Flipping to false would let an admin force-push to main.
   3. **strict=true** — PRs must be up to date with main before merge.
@@ -295,6 +300,25 @@ class TestBranchProtectionCodifiedMutation(unittest.TestCase):
             "Mutation FAILED: dropping 'Security Scan Gate' from the required "
             "contexts was NOT detected.",
         )
+
+    def test_adding_a_required_context_is_detected(self):
+        # Ceiling direction: the exact-string token (incl. the closing `]'`) must
+        # also catch a SILENTLY ADDED third required context — appended or
+        # prepended — so the required-check set is pinned, not just floored.
+        for label, extra in (
+            ("appended", 'DESIRED_CONTEXTS=\'["Lint","Security Scan Gate","Sneaky"]\''),
+            ("prepended", 'DESIRED_CONTEXTS=\'["Sneaky","Lint","Security Scan Gate"]\''),
+        ):
+            mutant = self._GOOD_SCRIPT.replace(
+                'DESIRED_CONTEXTS=\'["Lint","Security Scan Gate"]\'', extra
+            )
+            with self.subTest(position=label):
+                self.assertTrue(
+                    any("desired_contexts" in p for p in script_violations(mutant)),
+                    f"Mutation FAILED ({label}): adding a third required context "
+                    "was NOT detected — DESIRED_CONTEXTS is not pinned as an exact "
+                    "set.",
+                )
 
     def test_disabling_enforce_admins_is_detected(self):
         mutant = self._GOOD_SCRIPT.replace(

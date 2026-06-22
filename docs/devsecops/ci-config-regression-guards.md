@@ -104,7 +104,10 @@ complementary gap by asserting the load-bearing security jobs still exist.
 A standing list of CI invariants that are **not yet** protected by a guard,
 triaged by the same bar used to add one (an incident, past or plausible, where
 *silent* weakening disables enforcement — no incident means it likely is not
-worth a guard, to avoid sprawl). Reviewed 2026-06-19.
+worth a guard, to avoid sprawl). Reviewed 2026-06-19; re-triaged 2026-06-22
+(all Tier-3 workflows confirmed KEEP-AS-MONITOR — decision unchanged; the
+`workflow_run` trigger added to `provenance-verify.yml` in #263/#264 is already
+covered by `test_ci_provenance_verify.py`).
 
 ### Tier 2 — incident-backed (now implemented)
 
