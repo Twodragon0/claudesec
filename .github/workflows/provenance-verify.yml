@@ -13,6 +13,15 @@
 #   actually `npx`/install still carry a valid signature + provenance", which is a
 #   registry-state question, hence a schedule.
 #
+# Cadence:
+#   The published artifact only changes on a release, so the highest-value check
+#   runs right after the publish workflow (`workflow_run` on "Publish to npm"),
+#   verifying the just-published artifact. A daily `schedule:` is the safety net
+#   that catches a registry-side signature/provenance loss independent of any
+#   publish. (Hourly polling would re-install + re-audit a value that changes
+#   ~once per release — wasteful, so we tie the frequent run to the publish event
+#   instead.)
+#
 # Fail-safe:
 #   A transient install/network failure is a no-op (exit 0), NOT a false alarm.
 #   A genuine signature/provenance failure opens a single idempotent issue
@@ -24,9 +33,15 @@
 name: Provenance Verify
 
 on:
+  # Verify immediately after each publish-workflow run — the cadence that maps to
+  # when the published artifact actually changes.
+  workflow_run:
+    workflows: ["Publish to npm"]
+    types: [completed]
+    branches: [main]  # explicit scope — the publish workflow only runs on main
   schedule:
-    # 06:30 UTC every Monday
-    - cron: '30 6 * * 1'
+    # 06:30 UTC daily — registry-state safety net, independent of the publish path.
+    - cron: '30 6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -36,6 +51,12 @@ permissions:
 jobs:
   verify:
     name: Verify published package signature + provenance
+    # On a workflow_run trigger, only proceed if the publish actually succeeded
+    # (no point auditing after a failed/cancelled publish). schedule and manual
+    # dispatch always run.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -45,7 +66,11 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Upgrade npm (audit signatures + provenance support)
-        run: npm install -g npm@latest
+        # Pin the OIDC trusted-publishing floor (>= 11.5.1) — same floor the
+        # publish workflow needs (Node 22 ships npm 10.x). Quote only the range so
+        # `>` is not a shell redirect and the `-g npm@` token stays guard-matchable
+        # (test_ci_npm_oidc_floor.py).
+        run: npm install -g npm@'>=11.5.1'
 
       - name: Install published claudesec and verify signatures
         id: verify
