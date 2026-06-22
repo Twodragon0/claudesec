@@ -142,8 +142,11 @@ jobs:
           && github.ref != format('refs/tags/v{0}', needs.detect.outputs.version)
         env:
           GH_TOKEN: ${{ github.token }}
+          # Pass the version via env (not inline ${{ }} in the shell body) so an
+          # untrusted-looking value can never break out of the script — GitHub
+          # Actions hardening / OWASP CICD-SEC-4 defense-in-depth.
+          VERSION: ${{ needs.detect.outputs.version }}
         run: |
-          VERSION="${{ needs.detect.outputs.version }}"
           if git rev-parse "v$VERSION" >/dev/null 2>&1; then
             echo "Tag v$VERSION already exists — skipping tag creation."
           else
