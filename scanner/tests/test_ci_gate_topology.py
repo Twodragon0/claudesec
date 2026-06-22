@@ -28,7 +28,10 @@ from glob import glob
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_inline_comment as _strip_comment  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    strip_inline_comment as _strip_comment,
+    top_level_jobs,
+)
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -81,20 +84,6 @@ class TestLintGateNeedsCompleteness(unittest.TestCase):
     def setUpClass(cls):
         cls.text = LINT_YML.read_text(encoding="utf-8") if LINT_YML.is_file() else ""
 
-    def _top_level_jobs(self):
-        jobs, in_jobs = [], False
-        for raw in self.text.splitlines():
-            if re.match(r"^jobs:\s*$", raw):
-                in_jobs = True
-                continue
-            if in_jobs:
-                if re.match(r"^\S", raw):  # dedent back to a top-level key
-                    break
-                m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", _strip_comment(raw))
-                if m:
-                    jobs.append(m.group(1))
-        return jobs
-
     def _lint_gate_needs(self):
         needs, in_gate, in_needs = [], False, False
         for raw in self.text.splitlines():
@@ -122,7 +111,7 @@ class TestLintGateNeedsCompleteness(unittest.TestCase):
         self.assertTrue(LINT_YML.is_file(), f"{LINT_YML} not found")
 
     def test_every_job_is_gated_or_allowlisted(self):
-        jobs = set(self._top_level_jobs())
+        jobs = set(top_level_jobs(self.text))
         needs = set(self._lint_gate_needs())
         self.assertIn("changes", jobs, "job parsing broke — 'changes' not found")
         self.assertTrue(needs, "lint-gate.needs parsing broke — empty needs list")
@@ -141,7 +130,7 @@ class TestLintGateNeedsCompleteness(unittest.TestCase):
     def test_allowlist_has_no_stale_entries(self):
         # An allowlist entry that no longer names a real job (or that has since
         # been added to needs) is dead config — fail so it gets cleaned up.
-        jobs = set(self._top_level_jobs())
+        jobs = set(top_level_jobs(self.text))
         needs = set(self._lint_gate_needs())
         stale = {
             j
