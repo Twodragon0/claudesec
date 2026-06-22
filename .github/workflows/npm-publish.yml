@@ -122,7 +122,10 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Upgrade npm for OIDC trusted publishing (requires >= 11.5.1)
-        run: npm install -g npm@latest
+        # Pin the floor explicitly so the OIDC requirement is visible + guarded
+        # (test_ci_npm_oidc_floor.py). Quote only the range so `>` is not a shell
+        # redirect; `npm@'>=11.5.1'` resolves to the highest matching (= latest).
+        run: npm install -g npm@'>=11.5.1'
 
       - name: Publish (dry run)
         if: needs.detect.outputs.dry_run == 'true' || needs.detect.outputs.already_published == 'true'

@@ -18,14 +18,25 @@ Supply-chain integrity invariants, all silently weakenable:
    the command that checks the npm registry signature + SLSA provenance attestation
    of the installed package (OWASP A08 — Software & Data Integrity Failures).
 
+4. **It verifies right after each publish** — must keep a `workflow_run` trigger
+   on the "Publish to npm" workflow. The published artifact only changes on a
+   release, so post-publish verification is the highest-value cadence; dropping
+   the trigger would leave only the daily safety-net schedule, so a freshly
+   published artifact with a lost signature/provenance could sit unverified for
+   up to a day.
+
 stdlib-only (regex/line scanning, no PyYAML — absent from requirements-ci.txt).
 No network, no subprocess, does not import scanner/lib. Passes under pytest and
 `python3 -m unittest`. Action SHA-pinning is covered by test_ci_gate_topology.py.
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import extract_on_block  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -80,6 +91,35 @@ class TestProvenanceVerifyWorkflow(unittest.TestCase):
             r"\bnpm\s+audit\s+signatures\b",
             "provenance-verify.yml no longer runs `npm audit signatures` — the "
             "actual registry-signature + SLSA-provenance verification is gone.",
+        )
+
+    def test_keeps_workflow_run_post_publish_trigger(self):
+        # The `on:` block must keep a `workflow_run` trigger on "Publish to npm",
+        # so the published artifact is verified right after each release (the
+        # cadence that maps to when it actually changes). Whole-line comments are
+        # stripped so prose mentioning the trigger can't satisfy the check.
+        on_block = extract_on_block(self.text)
+        self.assertRegex(
+            on_block,
+            r"(?m)^\s*workflow_run:\s*$",
+            "provenance-verify.yml lost its `workflow_run:` trigger — the "
+            "published artifact would no longer be verified right after a publish, "
+            "leaving only the daily safety-net schedule.",
+        )
+        self.assertRegex(
+            on_block,
+            r"Publish to npm",
+            "the `workflow_run` trigger no longer references the \"Publish to "
+            "npm\" workflow — post-publish verification would never fire.",
+        )
+        # Guard the firing condition too: a `workflow_run:` key whose `types`
+        # dropped `completed` (or went empty) would never fire — a silent, vacuous
+        # weakening the key-presence check above cannot see.
+        self.assertRegex(
+            on_block,
+            r"(?m)^\s*types:\s*\[[^\]]*\bcompleted\b[^\]]*\]\s*$",
+            "the `workflow_run` trigger no longer fires on `types: [completed]` — "
+            "post-publish verification would never run.",
         )
 
 
