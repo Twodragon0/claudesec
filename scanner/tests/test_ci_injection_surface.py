@@ -75,10 +75,14 @@ UNTRUSTED_CONTEXT_PATTERNS = [
     # workflow_run: runs at base-branch perms with data from the untrusted head.
     r"github\.event\.workflow_run\.(head_branch|head_sha|display_title|name)",
     r"github\.event\.workflow_run\.head_commit\b[^}]*\.(message|author\.(email|name))",
-    r"github\.event\.workflow_run\.head_repository\.full_name",
+    r"github\.event\.workflow_run\.head_repository\.[^}\s]+",
     r"github\.event\.sender\.login",
     r"github\.event\.label\.name",
     r"github\.event\.milestone\.(title|description)",
+    # `edited` events expose the previous (attacker-controlled) text in changes.*.
+    r"github\.event\.changes\.(title|body)\.from",
+    # `release` events: name/body/tag are author free-text.
+    r"github\.event\.release\.(body|name|tag_name)",
     r"github\.head_ref",
 ]
 _UNTRUSTED_RE = re.compile("|".join(UNTRUSTED_CONTEXT_PATTERNS))
@@ -88,11 +92,6 @@ _EXPR_RE = re.compile(r"\$\{\{(.*?)\}\}")
 # sibling step key (e.g. `name:`) aligns with `run:` and must end the body, while
 # the body is indented deeper.
 _RUN_RE = re.compile(r"^(\s*(?:-\s+)?)run:\s?(.*)$")
-# A bare block-scalar indicator: `|` or `>` with an OPTIONAL chomping (`+`/`-`)
-# and OPTIONAL single indent digit, in EITHER YAML 1.2 order (`|2-` and `|-2`).
-# A too-narrow indicator regex makes the parser treat `run: |2-` as an inline
-# command and never scan the block body — a complete guard evasion.
-_SCALAR_INDICATOR_RE = re.compile(r"^[|>]([+-]\d?|\d[+-]?)?\s*$")
 
 
 def _lead_width(s: str) -> int:
@@ -125,7 +124,13 @@ def run_block_lines(text: str) -> list:
         # sibling keys. Body lines ARE leading-whitespace, so they use _lead_width.
         indent = len(m.group(1).expandtabs(8))
         rest = m.group(2).rstrip()
-        if rest and not _SCALAR_INDICATOR_RE.match(rest):
+        # In YAML a scalar value that STARTS with `|` or `>` is a block scalar —
+        # those are the only two block-scalar indicators; the remainder of that
+        # line is chomping/indent indicators and an optional `# comment`, never
+        # shell. Any other non-empty value is an inline command. This first-char
+        # rule is complete by the YAML grammar, unlike a header-enumerating regex
+        # (which missed `|2-` and `| # comment` across two reviews).
+        if rest and rest[0] not in "|>":
             out.append(rest)  # inline `run: <cmd>`
             i += 1
             continue
@@ -308,6 +313,40 @@ class TestInjectionDetectorMutation(unittest.TestCase):
                     any("github.event.issue.title" in c for _, c in injection_violations(wf)),
                     f"Mutation FAILED: `run: {indicator}` block body was not scanned "
                     "— the scalar-indicator regex is too narrow (guard evasion).",
+                )
+
+    def test_fires_on_block_scalar_with_trailing_comment(self):
+        # Second-review CRITICAL: a trailing YAML comment on the block-scalar
+        # header (`run: | # note`) is valid YAML — the body must still be scanned.
+        for indicator in ("| # shell", "> # script", "|2 # c", "|- # strip"):
+            wf = "\n".join(
+                [
+                    "jobs:", "  j:", "    steps:",
+                    f"      - run: {indicator}",
+                    "          echo '${{ github.event.issue.title }}'",
+                ]
+            )
+            with self.subTest(indicator=indicator):
+                self.assertTrue(
+                    any("github.event.issue.title" in c for _, c in injection_violations(wf)),
+                    f"Mutation FAILED: `run: {indicator}` body not scanned — a "
+                    "comment in the scalar header evaded the guard.",
+                )
+
+    def test_fires_on_changes_and_release_contexts(self):
+        for expr in (
+            "github.event.changes.title.from",
+            "github.event.changes.body.from",
+            "github.event.release.body",
+            "github.event.release.tag_name",
+        ):
+            wf = "\n".join(
+                ["jobs:", "  j:", "    steps:", f"      - run: echo '${{{{ {expr} }}}}'"]
+            )
+            with self.subTest(expr=expr):
+                self.assertTrue(
+                    injection_violations(wf),
+                    f"Mutation FAILED: untrusted context `{expr}` not detected.",
                 )
 
     def test_fires_on_workflow_dispatch_input(self):
