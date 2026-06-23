@@ -33,13 +33,12 @@ No network, no subprocess. Passes under pytest (the CI runner) and
 measured coverage gate.
 """
 
-import re
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_inline_comment as _strip_comment  # noqa: E402
+from _ci_guard_util import top_level_jobs  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -65,21 +64,6 @@ class TestRequiredLintJobsExist(unittest.TestCase):
     def setUpClass(cls):
         cls.text = LINT_YML.read_text(encoding="utf-8") if LINT_YML.is_file() else ""
 
-    def _top_level_jobs(self):
-        """Return the set of 2-space-indented job keys under `jobs:`."""
-        jobs, in_jobs = [], False
-        for raw in self.text.splitlines():
-            if re.match(r"^jobs:\s*$", raw):
-                in_jobs = True
-                continue
-            if in_jobs:
-                if re.match(r"^\S", raw):  # dedent back to a top-level key
-                    break
-                m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", _strip_comment(raw))
-                if m:
-                    jobs.append(m.group(1))
-        return set(jobs)
-
     def test_lint_yml_exists(self):
         self.assertTrue(
             LINT_YML.is_file(),
@@ -89,13 +73,13 @@ class TestRequiredLintJobsExist(unittest.TestCase):
     def test_parser_canary(self):
         # If the job parser breaks, fail loudly here rather than vacuously
         # "finding" the required jobs missing (or present).
-        jobs = self._top_level_jobs()
+        jobs = set(top_level_jobs(self.text))
         self.assertIn(
             "lint-gate", jobs, "job parsing broke — 'lint-gate' aggregator not found"
         )
 
     def test_required_security_jobs_present(self):
-        jobs = self._top_level_jobs()
+        jobs = set(top_level_jobs(self.text))
         missing = REQUIRED_LINT_JOBS - jobs
         self.assertEqual(
             missing,

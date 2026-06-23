@@ -61,6 +61,25 @@ def strip_inline_comment(line: str) -> str:
     return re.sub(r"\s+#.*$", "", line)
 
 
+def top_level_jobs(text: str) -> list:
+    """The job keys under a workflow's top-level `jobs:` map (2-space-indented
+    `name:` lines), in document order. Stops at the dedent to the next top-level
+    key, and strips trailing inline comments so `build:  # x` still matches.
+    Returns a list; callers wrap in `set()` where set semantics are needed."""
+    jobs, in_jobs = [], False
+    for raw in text.splitlines():
+        if re.match(r"^jobs:\s*$", raw):
+            in_jobs = True
+            continue
+        if in_jobs:
+            if re.match(r"^\S", raw):  # dedent back to a top-level key
+                break
+            m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", strip_inline_comment(raw))
+            if m:
+                jobs.append(m.group(1))
+    return jobs
+
+
 def join_continuations(text: str) -> str:
     """Join backslash-newline line continuations onto one line, so a shell/Docker
     instruction that wraps an argument onto the next line is seen as one command
