@@ -33,17 +33,32 @@ from _ci_guard_util import strip_inline_comment  # noqa: E402
 
 
 def conditional_body_from(text, var):
-    """The body of `if [ "$<var>" -gt 0 ]; then ... fi` with trailing inline `#`
-    comments stripped per line, so a commented-out `# exit 1` can neither satisfy
-    nor falsely trip the severity-block checks (comment-evasion class, F-1)."""
+    """The body of `if [ "$<var>" -gt 0 ]; then ... fi`.
+
+    Trailing inline `#` comments are stripped per line first, so a commented-out
+    `# exit 1` can neither satisfy nor falsely trip the severity-block checks
+    (comment-evasion class, F-1). The closing `fi` is found by a BALANCED if/fi
+    depth count — NOT the first `fi` — so a nested `if … fi` inside the block (or
+    a heredoc) cannot terminate the capture early and hide a trailing `exit 1`
+    (2nd-review Finding 1). `elif`/`else`/`then` are not `\\bfi\\b`/`\\bif\\b`
+    tokens, so they don't perturb the count.
+    """
     m = re.search(
-        r'\[\s*"\$' + re.escape(var) + r'"\s+-gt\s+0\s*\]\s*;\s*then(.*?)\bfi\b',
+        r'\[\s*"\$' + re.escape(var) + r'"\s+-gt\s+0\s*\]\s*;\s*then',
         text,
-        re.DOTALL,
     )
     if not m:
         return None
-    return "\n".join(strip_inline_comment(ln) for ln in m.group(1).splitlines())
+    # Comment-stripped remainder after the CRITS `then` (so a `# fi`/`# if` in a
+    # comment cannot skew the depth count).
+    rest = "\n".join(strip_inline_comment(ln) for ln in text[m.end():].splitlines())
+    depth, end = 1, len(rest)
+    for tk in re.finditer(r"\bif\b|\bfi\b", rest):
+        depth += 1 if tk.group(0) == "if" else -1
+        if depth == 0:
+            end = tk.start()
+            break
+    return rest[:end]
 
 
 # scanner/tests/this_file -> parents[2] == repo root
@@ -257,6 +272,22 @@ class TestSeverityBlockCommentEvasion(unittest.TestCase):
     def test_real_exit_one_satisfies(self):
         good = 'if [ "$CRITS" -gt 0 ]; then\n  exit 1\nfi'
         self.assertRegex(conditional_body_from(good, "CRITS"), r"\bexit\s+1\b")
+
+    def test_exit_one_after_nested_fi_is_captured(self):
+        # 2nd-review Finding 1: a nested `if … fi` must not terminate the capture
+        # before the outer `exit 1` (balanced fi-counter, not first-fi).
+        nested = (
+            'if [ "$CRITS" -gt 0 ]; then\n'
+            '  if [ "$X" -ge 1 ]; then\n    echo inner\n  fi\n'
+            "  exit 1\n"
+            "fi"
+        )
+        self.assertRegex(
+            conditional_body_from(nested, "CRITS"),
+            r"\bexit\s+1\b",
+            "Balanced-fi FAILED: `exit 1` after a nested `fi` was not captured — "
+            "a nested-if restructuring could silently disable the merge block.",
+        )
 
 
 if __name__ == "__main__":

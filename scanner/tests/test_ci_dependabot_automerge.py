@@ -54,7 +54,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_comment_lines  # noqa: E402
+from _ci_guard_util import strip_comment_lines, strip_inline_comment  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -101,13 +101,17 @@ FORBIDDEN_TOKENS = {
 def _violations(text: str) -> list:
     """Return a list of problem descriptions for REQUIRED/FORBIDDEN violations.
 
-    Whole-line `#` comments are stripped first (F-3): a fork-guard token surviving
-    only in a comment must NOT satisfy a REQUIRED check (the real `if:` could be
-    neutered to `true`), and a `--admin` quoted in a comment must NOT false-trip a
-    FORBIDDEN check. The case-arm strings live in the active `case` block, never
-    in commentary, so stripping is safe for them too.
+    Whole-line AND trailing-inline `#` comments are stripped first (F-3 + 2nd-review
+    Finding 2): a fork-guard token surviving only in a comment must NOT satisfy a
+    REQUIRED check (the real `if:` could be neutered to `true`), and a `--admin`
+    in a trailing comment must NOT false-trip a FORBIDDEN check. The case-arm /
+    fork-guard strings carry no inline `#`, so stripping is safe for them. (A
+    `--admin` in non-comment prose, e.g. an `echo`, is an accepted residual
+    false-positive — substring matching can't tell prose from a command.)
     """
-    scan = strip_comment_lines(text)
+    scan = "\n".join(
+        strip_inline_comment(ln) for ln in strip_comment_lines(text).splitlines()
+    )
     problems = []
     for name, tok in sorted(REQUIRED_TOKENS.items()):
         if tok not in scan:
