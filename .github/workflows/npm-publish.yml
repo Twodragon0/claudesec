@@ -57,13 +57,19 @@ jobs:
 
       - name: Resolve version and publish decision
         id: v
+        env:
+          # Pass the workflow_dispatch input via env (not inline ${{ }} in the
+          # shell body) so it can never be parsed as script — GitHub Actions
+          # hardening / OWASP CICD-SEC-4. event-name/ref use the runner built-ins
+          # ($GITHUB_EVENT_NAME / $GITHUB_REF), so the run body has no ${{ }}.
+          DRY_RUN_INPUT: ${{ github.event.inputs.dry_run }}
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
           echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
 
           DRY="false"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
-             && [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] \
+             && [ "$DRY_RUN_INPUT" = "true" ]; then
             DRY="true"
           fi
           echo "dry_run=$DRY" >> "$GITHUB_OUTPUT"
@@ -78,7 +84,7 @@ jobs:
             echo "::notice::claudesec@$PKG_VERSION not on npm — will publish."
           fi
 
-          echo "Resolved claudesec@$PKG_VERSION (event=${{ github.event_name }}, ref=${{ github.ref }}, dry_run=$DRY)"
+          echo "Resolved claudesec@$PKG_VERSION (event=$GITHUB_EVENT_NAME, ref=$GITHUB_REF, dry_run=$DRY)"
 
   test:
     name: Test
