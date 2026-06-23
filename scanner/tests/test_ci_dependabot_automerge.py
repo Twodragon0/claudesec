@@ -49,8 +49,12 @@ No `scanner/lib` import (does not touch the 99% coverage gate). No network, no
 subprocess. Runs under pytest (the CI runner) and `python3 -m unittest`.
 """
 
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import strip_comment_lines  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -95,13 +99,21 @@ FORBIDDEN_TOKENS = {
 
 
 def _violations(text: str) -> list:
-    """Return a list of problem descriptions for REQUIRED/FORBIDDEN violations."""
+    """Return a list of problem descriptions for REQUIRED/FORBIDDEN violations.
+
+    Whole-line `#` comments are stripped first (F-3): a fork-guard token surviving
+    only in a comment must NOT satisfy a REQUIRED check (the real `if:` could be
+    neutered to `true`), and a `--admin` quoted in a comment must NOT false-trip a
+    FORBIDDEN check. The case-arm strings live in the active `case` block, never
+    in commentary, so stripping is safe for them too.
+    """
+    scan = strip_comment_lines(text)
     problems = []
     for name, tok in sorted(REQUIRED_TOKENS.items()):
-        if tok not in text:
+        if tok not in scan:
             problems.append(f"MISSING required invariant [{name}]: {tok!r}")
     for name, tok in sorted(FORBIDDEN_TOKENS.items()):
-        if tok in text:
+        if tok in scan:
             problems.append(f"FORBIDDEN token present [{name}]: {tok!r}")
     return problems
 
@@ -223,6 +235,19 @@ class TestDependabotAutoMergeGuardMutation(unittest.TestCase):
         self.assertTrue(
             any("fork_guard_same_repo" in p for p in _violations(mutant)),
             "Mutation FAILED: removing the same-repo fork guard was NOT detected.",
+        )
+
+    def test_fork_guard_surviving_only_in_comment_is_detected(self):
+        # F-3 (comment-evasion): neuter the real same-repo fork guard but leave
+        # the token alive in a `#` comment — the guard must still fire.
+        mutant = self._GOOD.replace(
+            "  github.event.pull_request.head.repo.full_name == github.repository",
+            "  # github.event.pull_request.head.repo.full_name == github.repository",
+        )
+        self.assertTrue(
+            any("fork_guard_same_repo" in p for p in _violations(mutant)),
+            "Mutation FAILED (F-3): the same-repo fork guard surviving only in a "
+            "comment satisfied the REQUIRED check — comment-evasion not defended.",
         )
 
     def test_dropping_a_hard_exclude_path_is_detected(self):
