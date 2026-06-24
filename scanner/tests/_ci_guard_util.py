@@ -108,8 +108,10 @@ def on_key_inline(line: str):
 def extract_on_block(text: str) -> str:
     """Return a workflow's top-level `on:` trigger content: the inline remainder
     of the `on:` line (flow style) PLUS the indented child lines under it, up to
-    the next top-level key. Whole-line comments are dropped so prose mentioning a
-    trigger is never matched, and bare/quoted `on:` keys are both handled."""
+    the next top-level key. Whole-line comments are dropped AND trailing inline
+    `#` comments are stripped per retained line (F-7), so neither a prose line nor
+    a trailing comment mentioning a trigger can satisfy a consumer's presence
+    check; bare/quoted `on:` keys are both handled."""
     body = []
     in_on = False
     for line in text.splitlines():
@@ -119,11 +121,12 @@ def extract_on_block(text: str) -> str:
             inline = on_key_inline(line)
             if inline is not None:
                 in_on = True
+                inline = strip_inline_comment(inline)
                 if inline.strip():
                     body.append(inline)  # flow-style content on the `on:` line
             continue
         # A new top-level key (non-space first char, non-empty) ends the block.
         if line and not line[0].isspace():
             break
-        body.append(line)
+        body.append(strip_inline_comment(line))
     return "\n".join(body)

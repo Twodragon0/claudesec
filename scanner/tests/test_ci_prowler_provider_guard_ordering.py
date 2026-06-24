@@ -52,9 +52,13 @@ stdlib-only: no PyYAML, no third-party deps. Runs under pytest (CI) and
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
 from typing import Dict, List, Tuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import strip_inline_comment  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -129,6 +133,11 @@ def _parse_provider_sections(
         raw = lines[idx]
         lineno = idx + 1  # 1-based
 
+        # Section headers ARE comments (`# ── AWS ──`), so detect them on the RAW
+        # line. For guard/report CALL detection, ignore comment content (F-8):
+        # skip whole-line comments and strip trailing inline comments, so a guard
+        # surviving only in a comment cannot mask a real guard that is now after
+        # the report (which would skew the min(guard)<min(report) ordering check).
         if _SECTION_HEADER_RE.match(raw):
             _flush(current_label, current_guards, current_reports)
             current_label = raw.strip()
@@ -136,11 +145,13 @@ def _parse_provider_sections(
             current_reports = []
             continue
 
-        m = _GUARD_CALL_RE.search(raw)
+        active = "" if raw.lstrip().startswith("#") else strip_inline_comment(raw)
+
+        m = _GUARD_CALL_RE.search(active)
         if m:
             current_guards.append((m.group(1), lineno))
 
-        if _REPORT_CALL_RE.search(raw):
+        if _REPORT_CALL_RE.search(active):
             current_reports.append(lineno)
 
     _flush(current_label, current_guards, current_reports)
@@ -302,6 +313,29 @@ fi
             [],
             "Detector raised a false positive on correctly-ordered content: "
             + str(violations),
+        )
+
+    # F-8: a guard COMMENTED OUT above the report must not mask a real guard that
+    # now sits AFTER the report. Without comment-stripping, the commented guard's
+    # earlier line number satisfies min(guard)<min(report) and the bug hides.
+    _COMMENTED_GUARD_MASKS_BAD_ORDER = """\
+#!/usr/bin/env bash
+# ── Provider Scans ──────────────────────────────────────────────────────────
+
+# ── Fake Provider ────────────────────────────────────────────────────────────
+
+# _prowler_provider_available "fakeprovider"   # decoy: guard only in a comment
+_fake_json=$(_prowler_scan "fakeprovider")
+_prowler_report "FakeProvider" "$_fake_json" "PROWLER-FAKE"
+_prowler_provider_available "fakeprovider"
+"""
+
+    def test_commented_guard_does_not_mask_bad_ordering(self) -> None:
+        violations = self._check_ordering(self._COMMENTED_GUARD_MASKS_BAD_ORDER)
+        self.assertTrue(
+            violations,
+            "F-8: a guard surviving only in a comment masked a real guard placed "
+            "AFTER the report — the ordering check was evaded.",
         )
 
 

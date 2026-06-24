@@ -133,9 +133,18 @@ jobs:
         # redirect; `npm@'>=11.5.1'` resolves to the highest matching (= latest).
         run: npm install -g npm@'>=11.5.1'
 
+      # Dry-run only when the version is NOT already on npm: `npm publish
+      # --dry-run` still performs the registry pre-check and ERRORS with "cannot
+      # publish over the previously published versions" for an existing version,
+      # so a dry_run dispatch on an unbumped version would fail. The
+      # already-published case is handled by the informational skip below.
       - name: Publish (dry run)
-        if: needs.detect.outputs.dry_run == 'true' || needs.detect.outputs.already_published == 'true'
+        if: needs.detect.outputs.dry_run == 'true' && needs.detect.outputs.already_published == 'false'
         run: npm publish --access public --provenance --dry-run
+
+      - name: Already published (skip)
+        if: needs.detect.outputs.already_published == 'true'
+        run: echo "::notice::claudesec@${{ needs.detect.outputs.version }} already on npm — nothing to publish (skipping dry-run/publish)."
 
       - name: Publish
         if: needs.detect.outputs.dry_run == 'false' && needs.detect.outputs.already_published == 'false'

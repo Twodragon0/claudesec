@@ -144,16 +144,31 @@ class TestNpmPublishAutoRelease(unittest.TestCase):
 
     def test_npm_upgraded_before_publish(self):
         # OIDC trusted publishing needs npm >= 11.5.1; Node 22 bundles npm 10.x.
-        # Accept any global npm self-upgrade: `npm install -g npm...` / `npm i -g npm`.
-        run_lines = [_strip_comment(ln) for ln in self.text.splitlines()]
-        upgraded = any(
-            re.search(r"\bnpm\s+(?:install|i)\s+-g\s+npm\b", ln) for ln in run_lines
+        # F-6: require the upgrade to PRECEDE `npm publish` (an upgrade placed
+        # after the publish, or absent before it, would leave the publish on npm
+        # 10.x and lose OIDC). Lines are comment-stripped so a `# npm install -g
+        # npm` cannot satisfy it.
+        lines = [_strip_comment(ln) for ln in self.text.splitlines()]
+        upgrade_idx = next(
+            (i for i, ln in enumerate(lines)
+             if re.search(r"\bnpm\s+(?:install|i)\s+-g\s+npm\b", ln)),
+            None,
         )
-        self.assertTrue(
-            upgraded,
+        publish_idx = next(
+            (i for i, ln in enumerate(lines) if re.search(r"\bnpm\s+publish\b", ln)),
+            None,
+        )
+        self.assertIsNotNone(
+            upgrade_idx,
             "No `npm install -g npm` step found — Node 22 ships npm 10.x, which "
-            "cannot do OIDC trusted publishing (needs >= 11.5.1). The publish "
-            "would lose provenance / fall back to a missing token and fail.",
+            "cannot do OIDC trusted publishing (needs >= 11.5.1).",
+        )
+        self.assertIsNotNone(publish_idx, "No `npm publish` found in npm-publish.yml.")
+        self.assertLess(
+            upgrade_idx,
+            publish_idx,
+            "`npm install -g npm` must PRECEDE `npm publish` — an upgrade after "
+            "(or absent before) the publish leaves it on npm 10.x and loses OIDC.",
         )
 
     def test_auto_release_push_to_main_trigger(self):
@@ -177,11 +192,41 @@ class TestNpmPublishAutoRelease(unittest.TestCase):
         # The auto-release path pushes the vX.Y.Z tag from the publish job, which
         # needs job-level `contents: write`. Its ABSENCE means tag creation fails
         # (or the workflow-level grant was broadened — caught by the LP guard).
+        # F-6: comment-strip first so a `# contents: write` cannot satisfy it.
+        scan = "\n".join(_strip_comment(ln) for ln in self.text.splitlines())
         self.assertRegex(
-            self.text,
+            scan,
             r"contents:\s*write",
             "No `contents: write` anywhere — the publish job cannot push the "
             "release tag, so auto-tagging on version bump is broken.",
+        )
+
+
+class TestNpmPublishFsixHardening(unittest.TestCase):
+    """F-6 mutation self-tests: upgrade-ordering and comment-evasion."""
+
+    def test_upgrade_after_publish_is_detected(self):
+        # `npm publish` before `npm install -g npm` must trip (ordering invariant).
+        text = "run: npm publish --provenance\nrun: npm install -g npm@latest"
+        lines = [_strip_comment(ln) for ln in text.splitlines()]
+        up = next((i for i, ln in enumerate(lines)
+                   if re.search(r"\bnpm\s+(?:install|i)\s+-g\s+npm\b", ln)), None)
+        pub = next((i for i, ln in enumerate(lines)
+                    if re.search(r"\bnpm\s+publish\b", ln)), None)
+        self.assertFalse(
+            up is not None and pub is not None and up < pub,
+            "F-6: an upgrade placed AFTER publish should not satisfy the ordering.",
+        )
+
+    def test_contents_write_only_in_comment_does_not_satisfy(self):
+        scan = "\n".join(
+            _strip_comment(ln) for ln in "run: echo x  # contents: write".splitlines()
+        )
+        self.assertNotRegex(
+            scan,
+            r"contents:\s*write",
+            "F-6: a `# contents: write` surviving only in a comment must not "
+            "satisfy the tag-permission check.",
         )
 
 
