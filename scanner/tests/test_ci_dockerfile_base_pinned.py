@@ -56,7 +56,7 @@ DOCKERFILE_NGINX = REPO_ROOT / "Dockerfile.nginx"
 # Shared guard primitive (comment-stripping). Import as a top-level module so it
 # resolves under both pytest and `python3 -m unittest`.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_comment_lines  # noqa: E402
+from _ci_guard_util import strip_comment_lines, strip_inline_comment  # noqa: E402
 
 # A `FROM [--flag=...]... <image>[ AS stage]` line. Group 1 = the image ref.
 # The `(?:--\S+\s+)*` prefix skips build flags like `--platform=$BUILDPLATFORM`
@@ -72,7 +72,14 @@ HARDCODED_PY_PATH_RE = re.compile(r"python3\.\d+/site-packages")
 
 
 def from_refs(text: str) -> list:
-    return FROM_RE.findall(strip_comment_lines(text))
+    # Strip whole-line AND trailing-inline `#` comments before matching. FROM_RE
+    # anchors the image ref at line-end (`\s*$`), so a `FROM img@sha256:x # note`
+    # line would otherwise fail to match and be SILENTLY DROPPED from both the
+    # digest and alpine-freeze checks (comment-evasion false-negative — F-4).
+    active = "\n".join(
+        strip_inline_comment(ln) for ln in strip_comment_lines(text).splitlines()
+    )
+    return FROM_RE.findall(active)
 
 
 def digest_violations(text: str, label: str) -> list:
@@ -195,6 +202,30 @@ class TestDockerfileBasePinnedMutation(unittest.TestCase):
         self.assertTrue(
             any("3.20" in p for p in alpine_freeze_violations(mutant)),
             "Mutation FAILED: an alpine minor bump (3.20 -> 3.24) was NOT detected.",
+        )
+
+    def test_alpine_bump_on_commented_from_line_is_detected(self):
+        # F-4 (comment-evasion): a trailing inline comment on a FROM line must not
+        # make it slip past the freeze check (FROM_RE anchors the ref at line-end).
+        mutant = self._GOOD.replace(
+            "alpine:3.20@sha256:deadbeef AS builder",
+            "alpine:3.24@sha256:deadbeef AS builder  # interim bump",
+        )
+        self.assertTrue(
+            any("3.20" in p for p in alpine_freeze_violations(mutant)),
+            "Mutation FAILED (F-4): an alpine bump on a FROM line with a trailing "
+            "inline comment was silently dropped (not inspected).",
+        )
+
+    def test_undigested_from_with_trailing_comment_is_detected(self):
+        mutant = self._GOOD.replace(
+            "alpine:3.20@sha256:deadbeef AS builder",
+            "alpine:3.20 AS builder  # no digest",
+        )
+        self.assertTrue(
+            any("not digest-pinned" in p for p in digest_violations(mutant, "df")),
+            "Mutation FAILED (F-4): an un-digested FROM with a trailing comment "
+            "was silently dropped.",
         )
 
     def test_hardcoded_python_path_is_detected(self):
