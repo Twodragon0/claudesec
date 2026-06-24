@@ -35,7 +35,7 @@ jobs:
       shell: ${{ steps.detect.outputs.shell }}
       markdown: ${{ steps.detect.outputs.markdown }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           fetch-depth: 0
       - id: detect
@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Dependency Review
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0 (node24)
         with:
@@ -97,7 +97,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.npm_deps == 'true' || github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: '22'
@@ -110,7 +110,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.python_deps == 'true' || github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: '3.11'
@@ -130,7 +130,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.shell == 'true' || github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Run ShellCheck (pinned action + pinned engine version)
         # ludeeus/action-shellcheck@00cae500 is a composite action (no node runtime),
         # so it is unaffected by the 2026-06-02 node20 deprecation.
@@ -158,7 +158,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.scanner == 'true' || github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
@@ -230,7 +230,7 @@ jobs:
           exit 0
       - name: Publish scanner unittest report
         if: always()
-        uses: mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d  # v6.4.1
+        uses: mikepenz/action-junit-report@d9f48fc87bc235f7e214acf696ca5abc0a986f16  # v6.4.2
         with:
           report_paths: 'test-reports/*.xml'
           fail_on_failure: false
@@ -289,10 +289,10 @@ jobs:
       # written) so measured bash coverage is unchanged; local: 120s+ -> 3.7s.
       CLAUDESEC_DASHBOARD_OFFLINE: "1"
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Cache kcov v42 binary
         id: kcov-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8  # v6.0.0
         with:
           path: |
             /usr/local/bin/kcov
@@ -458,7 +458,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.docker == 'true' || needs.changes.outputs.scanner == 'true' || github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
       - name: Build claudesec runtime image (cache enabled)
@@ -549,7 +549,7 @@ jobs:
   pii-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Check for PII and personal information
         run: |
           find . -type f \( -name '*.py' -o -name '*.sh' -o -name '*.md' -o -name '*.yml' -o -name '*.yaml' -o -name '*.json' -o -name '*.html' -o -name '*.svg' \) \
@@ -563,7 +563,7 @@ jobs:
     # The audit script exits 1 on any unguarded job.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.1.0
         with:
           python-version: "3.13"
@@ -580,7 +580,7 @@ jobs:
       # dir --help` confirms it takes "[path]" and walks files. The history-
       # scanning subcommand `gitleaks git` is intentionally not used here;
       # full history checkout was a leftover from the gitleaks-action era.
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       # gitleaks/gitleaks-action v2.3.9 (latest) still runs on node20, and the
       # upstream node24 migration (gitleaks/gitleaks-action#215) was still open
       # as of 2026-05-19. To stay clear of the 2026-06-02 node20 deprecation we
@@ -615,7 +615,7 @@ jobs:
   frontmatter-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Check YAML frontmatter in docs
         # Uses find -print0 + while-read with process substitution to avoid
         # the shellcheck SC2044 fragile-for-loop pattern. Process substitution
@@ -646,7 +646,7 @@ jobs:
       && (needs.changes.outputs.docker == 'true' || needs.changes.outputs.scanner == 'true')
 
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
       - name: Create placeholder dashboard files
         run: |
@@ -696,7 +696,7 @@ jobs:
   markdown-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Lint Markdown
         uses: DavidAnson/markdownlint-cli2-action@ded1f9488f68a970bc66ea5619e13e9b52e601cd  # v23
         with:
@@ -713,7 +713,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.markdown == 'true' || github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Check links
         uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411
         with:
