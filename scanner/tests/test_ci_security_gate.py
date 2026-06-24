@@ -29,7 +29,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_inline_comment  # noqa: E402
+from _ci_guard_util import extract_on_block, strip_inline_comment  # noqa: E402
 
 
 def conditional_body_from(text, var):
@@ -73,6 +73,46 @@ DAST_FULL_SCAN = WORKFLOW_DIR / "dast-full-scan.yml"
 GATE_REQUIRED_NEEDS = {"changes", "scan", "lighthouse"}
 
 
+def gate_block_from(text):
+    """The `security-scan-gate:` job block (its 2-space header to the next
+    2-space top-level key, or EOF), with trailing inline `#` comments stripped
+    per line so a commented token can't satisfy the gate checks (F-5b)."""
+    out, in_gate = [], False
+    for raw in text.splitlines():
+        if re.match(r"^  security-scan-gate:\s*$", raw):
+            in_gate = True
+            out.append(strip_inline_comment(raw))
+            continue
+        if in_gate:
+            if re.match(r"^  [A-Za-z0-9_-]+:", raw):  # next top-level job
+                break
+            out.append(strip_inline_comment(raw))
+    return "\n".join(out)
+
+
+def gate_needs_from(text):
+    """The set of jobs under the gate job's `needs:` key ONLY (block- or
+    flow-style). Scoping to the `needs:` sub-block (not a findall over the whole
+    job block) prevents a `- foo` list item elsewhere — a matrix entry, a step
+    input — from masking a dependency dropped from `needs:` (F-5a)."""
+    needs, in_needs = [], False
+    for raw in gate_block_from(text).splitlines():
+        flow = re.match(r"^    needs:\s*\[(.*)\]\s*$", raw)
+        if flow:
+            needs += re.findall(r"[A-Za-z0-9_-]+", flow.group(1))
+            continue
+        if re.match(r"^    needs:\s*$", raw):
+            in_needs = True
+            continue
+        if in_needs:
+            m = re.match(r"^      -\s*([A-Za-z0-9_-]+)\s*$", raw)
+            if m:
+                needs.append(m.group(1))
+            elif re.match(r"^    [A-Za-z]", raw):  # next 4-space key under the job
+                in_needs = False
+    return set(needs)
+
+
 class TestSecurityScanGate(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -83,20 +123,7 @@ class TestSecurityScanGate(unittest.TestCase):
         )
 
     def _gate_block(self):
-        # Capture the `security-scan-gate:` job block: from its 2-space header to
-        # the next 2-space top-level key (or EOF). 4-space child keys (name:,
-        # needs:, steps:, ...) do not terminate the block.
-        out, in_gate = [], False
-        for raw in self.text.splitlines():
-            if re.match(r"^  security-scan-gate:\s*$", raw):
-                in_gate = True
-                out.append(raw)
-                continue
-            if in_gate:
-                if re.match(r"^  [A-Za-z0-9_-]+:", raw):  # next top-level job
-                    break
-                out.append(raw)
-        return "\n".join(out)
+        return gate_block_from(self.text)
 
     def test_security_scan_yml_exists(self):
         self.assertTrue(SECURITY_SCAN.is_file(), f"{SECURITY_SCAN} not found")
@@ -120,9 +147,9 @@ class TestSecurityScanGate(unittest.TestCase):
         )
 
     def test_gate_aggregates_required_needs(self):
-        block = self._gate_block()
-        # `needs:` block-list items within the gate job
-        needs = set(re.findall(r"^\s*-\s*([A-Za-z0-9_-]+)\s*$", block, re.MULTILINE))
+        # Scoped to the gate job's `needs:` sub-block (F-5a) — not a findall over
+        # the whole job block, which a list item elsewhere could satisfy.
+        needs = gate_needs_from(self.text)
         missing = GATE_REQUIRED_NEEDS - needs
         self.assertEqual(
             missing,
@@ -150,28 +177,19 @@ class TestDastBaselinePrTrigger(unittest.TestCase):
             DAST_BASELINE.read_text(encoding="utf-8") if DAST_BASELINE.is_file() else ""
         )
 
-    def _on_block(self):
-        # The `on:` region: from `^on:` to the next top-level key (`jobs:` etc.).
-        out, in_on = [], False
-        for raw in self.text.splitlines():
-            if re.match(r"^on:\s*$", raw):
-                in_on = True
-                continue
-            if in_on:
-                if re.match(r"^[A-Za-z]", raw):  # next top-level key (jobs:, etc.)
-                    break
-                out.append(raw)
-        return "\n".join(out)
-
     def test_dast_baseline_yml_exists(self):
         self.assertTrue(DAST_BASELINE.is_file(), f"{DAST_BASELINE} not found")
 
     def test_triggers_on_pull_request(self):
-        on_block = self._on_block()
+        # F-9: use the shared extract_on_block (handles flow-style `on: [..]`,
+        # quoted `'on':`, and strips comments) instead of a block-only `^on:$`
+        # parser that missed those forms. `pull_request` present in the on: block
+        # (block or flow) satisfies the trigger; comments are already stripped.
+        on_block = extract_on_block(self.text)
         self.assertTrue(on_block, "dast-baseline.yml `on:` block not found")
-        self.assertRegex(
+        self.assertIn(
+            "pull_request",
             on_block,
-            r"^\s*pull_request:",
             "dast-baseline.yml must keep its `pull_request` trigger — losing it "
             "would silently demote the DAST scan to schedule/dispatch-only, "
             "removing per-PR signal.",
@@ -187,28 +205,16 @@ class TestDastFullScanSchedule(unittest.TestCase):
             else ""
         )
 
-    def _on_block(self):
-        # The `on:` region: from `^on:` to the next top-level key (`jobs:` etc.).
-        out, in_on = [], False
-        for raw in self.text.splitlines():
-            if re.match(r"^on:\s*$", raw):
-                in_on = True
-                continue
-            if in_on:
-                if re.match(r"^[A-Za-z]", raw):  # next top-level key (jobs:, etc.)
-                    break
-                out.append(raw)
-        return "\n".join(out)
-
     def test_dast_full_scan_yml_exists(self):
         self.assertTrue(DAST_FULL_SCAN.is_file(), f"{DAST_FULL_SCAN} not found")
 
     def test_triggers_on_schedule(self):
-        on_block = self._on_block()
+        # F-9: shared extract_on_block (flow/quoted/comment-aware) — see baseline.
+        on_block = extract_on_block(self.text)
         self.assertTrue(on_block, "dast-full-scan.yml `on:` block not found")
-        self.assertRegex(
+        self.assertIn(
+            "schedule",
             on_block,
-            r"^\s*schedule:",
             "dast-full-scan.yml must keep its `schedule:` trigger — removing it "
             "would silently stop the nightly full DAST scan with no visible "
             "failure (parallels the dast-baseline pull_request guard).",
@@ -254,6 +260,48 @@ class TestScanCriticalSeverityBlock(unittest.TestCase):
                 "HIGH findings must remain non-blocking (warning only); only "
                 "CRITICAL blocks the merge.",
             )
+
+
+class TestGateNeedsScopingAndPassset(unittest.TestCase):
+    """F-5: needs aggregation is scoped to the `needs:` sub-block, and the pass-set
+    check ignores comments."""
+
+    def test_needs_scoped_to_needs_block(self):
+        mutant = "\n".join(
+            [
+                "  security-scan-gate:",
+                "    needs:",
+                "      - scan",
+                "      - lighthouse",
+                "    steps:",
+                "      - with:",
+                "          deps:",
+                "            - changes",  # decoy list item — NOT a gate dependency
+                "  next-job:",
+            ]
+        )
+        self.assertNotIn(
+            "changes",
+            gate_needs_from(mutant),
+            "F-5a: a `- changes` list item outside the `needs:` sub-block was "
+            "wrongly counted as a gate dependency.",
+        )
+
+    def test_passset_surviving_only_in_comment_does_not_satisfy(self):
+        mutant = "\n".join(
+            [
+                "  security-scan-gate:",
+                "    steps:",
+                '      - run: echo keep  # not in ("success", "skipped")',
+                "  next-job:",
+            ]
+        )
+        self.assertNotRegex(
+            gate_block_from(mutant),
+            r"""not\s+in\s*\(\s*["']success["']\s*,\s*["']skipped["']\s*\)""",
+            "F-5b: the pass-set surviving only in a `#` comment must not satisfy "
+            "the gate's not-loosened check.",
+        )
 
 
 class TestSeverityBlockCommentEvasion(unittest.TestCase):

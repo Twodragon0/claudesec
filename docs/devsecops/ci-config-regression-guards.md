@@ -178,3 +178,5 @@ coverage, ERE-pipe regressions, prowler provider ordering, coverage floors, npm
   <https://owasp.org/Top10/A08_2021-Software_and_Data_Integrity_Failures/>
 - In-repo: `.github/workflows/lint.yml`, `.github/workflows/security-scan.yml`,
   `scanner/tests/test_ci_*.py`
+- Decision record: [ADR-001 — CI Guard Hardening Discipline & Periodic
+  Adversarial Audit](./adr-001-ci-guard-hardening-and-audit-cadence.md)
