@@ -1,0 +1,74 @@
+# Quarterly CI-Guard Adversarial Audit Reminder
+#
+# Operationalizes the periodic-audit cadence from ADR-001
+# (docs/devsecops/adr-001-ci-guard-hardening-and-audit-cadence.md): every quarter,
+# open a single idempotent reminder issue to run a comprehensive adversarial
+# audit of all scanner/tests/test_ci_*.py guards — catching older guards that
+# predate a hardening primitive (the comment-evasion false-negative class).
+#
+# This is a SCHEDULED NOTIFIER, not a gate: it must never run on pull_request /
+# pull_request_target and must never become a required status check (mirrors
+# provenance-verify.yml / protection-drift-watch.yml). It opens an issue; a human
+# runs the audit. Idempotent: if an open `guard-audit-due` issue already exists,
+# it does nothing (no duplicate spam).
+
+name: Guard Audit Reminder
+
+on:
+  schedule:
+    # 09:00 UTC on the 1st of Jan / Apr / Jul / Oct (quarterly).
+    - cron: '0 9 1 1,4,7,10 *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  remind:
+    name: Open quarterly guard-audit reminder
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Open reminder issue (idempotent)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Ensure the label exists (no-op if it already does).
+          gh label list --repo "${GITHUB_REPOSITORY}" --json name \
+            | python3 -c "import sys,json; sys.exit(0 if 'guard-audit-due' in [l['name'] for l in json.load(sys.stdin)] else 1)" 2>/dev/null \
+            || gh label create guard-audit-due --repo "${GITHUB_REPOSITORY}" \
+                 --description "Quarterly ADR-001 CI-guard adversarial audit due" --color "1d76db"
+
+          # Idempotent: skip if an open reminder already exists.
+          existing="$(gh issue list --repo "${GITHUB_REPOSITORY}" \
+            --label guard-audit-due --state open --json number --limit 5)"
+          if [ "$(echo "$existing" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)))')" -gt 0 ]; then
+            echo "An open guard-audit-due issue already exists — skipping duplicate."
+            exit 0
+          fi
+
+          {
+            echo "## Quarterly CI-guard adversarial audit due (ADR-001)"
+            echo ""
+            echo "Run a comprehensive adversarial audit of every"
+            echo "\`scanner/tests/test_ci_*.py\` guard, per the cadence in ADR-001"
+            echo "(\`docs/devsecops/adr-001-ci-guard-hardening-and-audit-cadence.md\`)."
+            echo ""
+            echo "### Checklist"
+            echo "- [ ] Confirm baseline: \`pytest scanner/tests/test_ci_*.py scanner/tests/test__ci_guard_util.py -q\` is green."
+            echo "- [ ] Adversarially review each guard for the comment-evasion false-negative class (token surviving only in a \`#\` comment, unhandled YAML form)."
+            echo "- [ ] Confirm every presence/regex check routes through the \`_ci_guard_util\` comment-stripping primitives."
+            echo "- [ ] Confirm every detector has a non-vacuous mutation self-test."
+            echo "- [ ] Update the 'Unguarded invariants backlog' review date in \`docs/devsecops/ci-config-regression-guards.md\`."
+            echo "- [ ] File follow-up PRs for any finding; close this issue when the backlog is triaged."
+            echo ""
+            echo "Reference: OWASP CICD-SEC-1 (Insufficient Flow Control); NIST SSDF (SP 800-218) PO.3/PW.4."
+          } > /tmp/body.md
+
+          gh issue create --repo "${GITHUB_REPOSITORY}" \
+            --title "chore(ci): quarterly ADR-001 guard adversarial audit due" \
+            --label guard-audit-due \
+            --body-file /tmp/body.md
