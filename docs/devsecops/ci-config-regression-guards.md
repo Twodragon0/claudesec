@@ -147,6 +147,22 @@ Both former Tier-2 candidates landed in #258 and are now in the Catalog above:
   `dast-full-scan.yml` (`schedule:`) triggers are already asserted by
   `test_ci_security_gate.py`; no separate guard needed.
 
+- **`uses:` version-comment correctness vs the pinned SHA.**
+
+  **Decision (2026-06-24): no version-comment guard.** A guard asserting the
+  `# vX.Y.Z` comment matches the pinned SHA's actual tag would need to resolve
+  SHA → tag via the GitHub API — a **network call**, which violates the
+  stdlib-only / offline / no-subprocess constraint every guard here holds.
+  A weaker *presence* check (every `uses:` has *some* version comment) is
+  offline-feasible but would NOT have caught the real incident (a Dependabot bump
+  that updated the SHA but left a STALE `# v4.2.2` comment on a `v7.0.0` SHA,
+  normalized in the checkout-v7 cleanup) — it only catches a *missing* comment,
+  not a wrong one. Crucially, the comment is **cosmetic**: `test_ci_gate_topology.py`
+  already pins the 40-hex SHA (the actual supply-chain control), so a wrong
+  comment is a readability/doc-accuracy wart, not a security regression — below
+  the incident bar. Mitigation is a one-time normalization on each major action
+  bump, not a guard.
+
 ### Verified already-guarded during this review (not backlog)
 
 lychee `v0.23.0` pin (`test_ci_gate_topology.py`), the `Security Scan Gate`
