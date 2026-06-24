@@ -29,7 +29,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_inline_comment  # noqa: E402
+from _ci_guard_util import extract_on_block, strip_inline_comment  # noqa: E402
 
 
 def conditional_body_from(text, var):
@@ -177,28 +177,19 @@ class TestDastBaselinePrTrigger(unittest.TestCase):
             DAST_BASELINE.read_text(encoding="utf-8") if DAST_BASELINE.is_file() else ""
         )
 
-    def _on_block(self):
-        # The `on:` region: from `^on:` to the next top-level key (`jobs:` etc.).
-        out, in_on = [], False
-        for raw in self.text.splitlines():
-            if re.match(r"^on:\s*$", raw):
-                in_on = True
-                continue
-            if in_on:
-                if re.match(r"^[A-Za-z]", raw):  # next top-level key (jobs:, etc.)
-                    break
-                out.append(raw)
-        return "\n".join(out)
-
     def test_dast_baseline_yml_exists(self):
         self.assertTrue(DAST_BASELINE.is_file(), f"{DAST_BASELINE} not found")
 
     def test_triggers_on_pull_request(self):
-        on_block = self._on_block()
+        # F-9: use the shared extract_on_block (handles flow-style `on: [..]`,
+        # quoted `'on':`, and strips comments) instead of a block-only `^on:$`
+        # parser that missed those forms. `pull_request` present in the on: block
+        # (block or flow) satisfies the trigger; comments are already stripped.
+        on_block = extract_on_block(self.text)
         self.assertTrue(on_block, "dast-baseline.yml `on:` block not found")
-        self.assertRegex(
+        self.assertIn(
+            "pull_request",
             on_block,
-            r"^\s*pull_request:",
             "dast-baseline.yml must keep its `pull_request` trigger — losing it "
             "would silently demote the DAST scan to schedule/dispatch-only, "
             "removing per-PR signal.",
@@ -214,28 +205,16 @@ class TestDastFullScanSchedule(unittest.TestCase):
             else ""
         )
 
-    def _on_block(self):
-        # The `on:` region: from `^on:` to the next top-level key (`jobs:` etc.).
-        out, in_on = [], False
-        for raw in self.text.splitlines():
-            if re.match(r"^on:\s*$", raw):
-                in_on = True
-                continue
-            if in_on:
-                if re.match(r"^[A-Za-z]", raw):  # next top-level key (jobs:, etc.)
-                    break
-                out.append(raw)
-        return "\n".join(out)
-
     def test_dast_full_scan_yml_exists(self):
         self.assertTrue(DAST_FULL_SCAN.is_file(), f"{DAST_FULL_SCAN} not found")
 
     def test_triggers_on_schedule(self):
-        on_block = self._on_block()
+        # F-9: shared extract_on_block (flow/quoted/comment-aware) — see baseline.
+        on_block = extract_on_block(self.text)
         self.assertTrue(on_block, "dast-full-scan.yml `on:` block not found")
-        self.assertRegex(
+        self.assertIn(
+            "schedule",
             on_block,
-            r"^\s*schedule:",
             "dast-full-scan.yml must keep its `schedule:` trigger — removing it "
             "would silently stop the nightly full DAST scan with no visible "
             "failure (parallels the dast-baseline pull_request guard).",
