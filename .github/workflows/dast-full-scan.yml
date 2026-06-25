@@ -6,9 +6,8 @@ on:
   workflow_dispatch:
     inputs:
       target_url:
-        description: "Target URL for DAST scan"
+        description: "Target URL for DAST scan (no default — supply a real, authorized target)"
         required: true
-        default: "https://staging.example.com"
 
 permissions:
   contents: read
@@ -22,6 +21,12 @@ jobs:
   dast-full:
     runs-on: ubuntu-latest
     environment: staging
+    # Skip the nightly run unless a real target is configured. Manual
+    # workflow_dispatch always runs (the caller supplies an explicit URL);
+    # the schedule only runs when the repo variable DAST_TARGET_URL is set,
+    # so we never waste a nightly scan on a placeholder host.
+    if: >-
+      github.event_name == 'workflow_dispatch' || vars.DAST_TARGET_URL != ''
 
     steps:
       - name: Checkout
@@ -32,7 +37,7 @@ jobs:
         id: zap
         continue-on-error: true
         with:
-          target: ${{ github.event.inputs.target_url || 'https://staging.example.com' }}
+          target: ${{ github.event.inputs.target_url || vars.DAST_TARGET_URL }}
           rules_file_name: ".zap/rules.tsv"
           cmd_options: >-
             -z "-config scanner.maxScanDurationInMins=30"
@@ -63,10 +68,76 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
           script: |
-            github.rest.issues.create({
+            const fs = require('fs');
+            const TRACKER_TITLE = '[DAST] Full Scan — open critical/high findings';
+            const runUrl =
+              `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}` +
+              `/actions/runs/${context.runId}`;
+
+            // Parse the ZAP JSON report so the issue carries real detail instead
+            // of "check the artifacts". riskcode 3 = High, 2 = Medium.
+            let summary = '';
+            try {
+              const raw = JSON.parse(fs.readFileSync('report_json.json', 'utf8'));
+              const alerts = (raw.site || []).flatMap((s) => s.alerts || []);
+              const counts = alerts.reduce((acc, a) => {
+                const r = String(a.riskcode);
+                acc[r] = (acc[r] || 0) + 1;
+                return acc;
+              }, {});
+              const high = alerts
+                .filter((a) => String(a.riskcode) === '3')
+                .map((a) => `- **${a.name}** (${a.instances?.length || 0} instance(s))`)
+                .slice(0, 25);
+              summary =
+                `Risk breakdown — High: ${counts['3'] || 0}, ` +
+                `Medium: ${counts['2'] || 0}, Low: ${counts['1'] || 0}\n\n` +
+                (high.length ? `### High-risk alerts\n${high.join('\n')}\n` : '');
+            } catch (err) {
+              summary = `_Could not parse report_json.json: ${err.message}_\n`;
+            }
+
+            const body =
+              `DAST Full Scan reported critical/high findings.\n\n` +
+              `- Run: ${runUrl}\n` +
+              `- Date (UTC): ${new Date().toISOString().split('T')[0]}\n\n` +
+              `${summary}\n` +
+              `Full HTML/JSON/SARIF reports are attached to the workflow run artifacts; ` +
+              `SARIF is also published to the Security tab (category \`DAST\`).`;
+
+            // Deduplicate: reuse a single open tracker issue instead of opening a
+            // new dated issue every night. Comment on it (and reopen if closed)
+            // rather than piling up duplicates.
+            const existing = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: '[DAST] Critical vulnerability detected - ' + new Date().toISOString().split('T')[0],
-              labels: ['security', 'dast', 'critical'],
-              body: 'DAST Full Scan found critical vulnerabilities. Check workflow artifacts for details.'
-            })
+              state: 'all',
+              labels: 'dast',
+              per_page: 100,
+            });
+            const tracker = existing.data.find((i) => i.title === TRACKER_TITLE);
+
+            if (tracker) {
+              if (tracker.state === 'closed') {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: tracker.number,
+                  state: 'open',
+                });
+              }
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: tracker.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: TRACKER_TITLE,
+                labels: ['security', 'dast', 'critical'],
+                body,
+              });
+            }
