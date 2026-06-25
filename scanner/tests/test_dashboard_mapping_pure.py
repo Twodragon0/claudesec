@@ -23,11 +23,13 @@ import dashboard_mapping as dm  # noqa: E402
 
 
 def _reload_with_fallback():
-    """Reload dashboard_mapping with compliance-map.py import forced to fail.
+    """Reload dashboard_compliance with compliance-map.py import forced to fail.
 
     Returns a freshly-loaded module object whose inline fallback definitions
     (_match_prowler_compliance, map_compliance, COMPLIANCE_CONTROL_MAP) are
-    the ones used instead of the external compliance_map module.
+    the ones used instead of the external compliance_map module. The
+    compliance lazy-load + inline fallback live in dashboard_compliance.py
+    (extracted from dashboard_mapping.py); dashboard_mapping re-exports them.
     """
     # Force the spec_from_file_location call to raise so the except branch
     # runs and _COMPLIANCE_IMPORTED stays False. The inline definitions at
@@ -36,9 +38,12 @@ def _reload_with_fallback():
         "importlib.util.spec_from_file_location",
         side_effect=RuntimeError("forced fallback"),
     ):
-        if "dashboard_mapping" in sys.modules:
-            del sys.modules["dashboard_mapping"]
-        fallback_mod = importlib.import_module("dashboard_mapping")
+        for _mod in ("dashboard_compliance", "dashboard_mapping"):
+            if _mod in sys.modules:
+                del sys.modules[_mod]
+        fallback_mod = importlib.import_module("dashboard_compliance")
+        # Keep dashboard_mapping consistent with the fallback compliance module.
+        importlib.import_module("dashboard_mapping")
     return fallback_mod
 
 
@@ -514,9 +519,9 @@ class TestAllExports(unittest.TestCase):
 
 
 class TestFallbackBranch(unittest.TestCase):
-    """Exercise the inline fallback definitions at lines 603-605, 608, 931-976.
+    """Exercise the inline fallback definitions in dashboard_compliance.py.
 
-    When compliance-map.py cannot be imported, dashboard_mapping defines
+    When compliance-map.py cannot be imported, dashboard_compliance defines
     COMPLIANCE_CONTROL_MAP, _match_prowler_compliance, and map_compliance
     inline. These tests reload the module with the external import forced to
     fail so the fallback code runs.
@@ -528,9 +533,11 @@ class TestFallbackBranch(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        # Restore the canonical module for any later tests in the same run.
-        if "dashboard_mapping" in sys.modules:
-            del sys.modules["dashboard_mapping"]
+        # Restore the canonical modules for any later tests in the same run.
+        for _mod in ("dashboard_compliance", "dashboard_mapping"):
+            if _mod in sys.modules:
+                del sys.modules[_mod]
+        importlib.import_module("dashboard_compliance")
         importlib.import_module("dashboard_mapping")
 
     def test_fallback_compliance_control_map_populated(self):

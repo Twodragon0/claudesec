@@ -35,7 +35,9 @@ scanner/
 │   ├── dashboard_api_client.py
 │   ├── dashboard_auth.py
 │   ├── dashboard_data_loader.py
-│   ├── dashboard_mapping.py
+│   ├── dashboard_mapping.py    # Re-exports compliance/arch modules below
+│   ├── dashboard_compliance.py # Compliance frameworks + control map + mapping
+│   ├── dashboard_arch.py       # Architecture security-domain mapping
 │   ├── dashboard_utils.py
 │   ├── csp_utils.py
 │   └── zscaler-api.py
