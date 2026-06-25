@@ -34,7 +34,8 @@ scanner/
 │   ├── diagram-gen.py         # Architecture diagram generator
 │   ├── dashboard_api_client.py
 │   ├── dashboard_auth.py
-│   ├── dashboard_data_loader.py
+│   ├── dashboard_data_loader.py  # Re-exports dashboard_data_analysis below
+│   ├── dashboard_data_analysis.py # Prowler analysis + provider filters + env status
 │   ├── dashboard_mapping.py    # Re-exports compliance/arch modules below
 │   ├── dashboard_compliance.py # Compliance frameworks + control map + mapping
 │   ├── dashboard_arch.py       # Architecture security-domain mapping

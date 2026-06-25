@@ -91,6 +91,46 @@ tags: [memory, operations, quality, continuous-improvement]
   `requirements-ci.txt` (#236). Both required a code-owner approval (Dependabot is not a
   code owner — see backlog).
 
+### Cycle #283–#284 — DAST alert signal quality + dashboard_mapping split (merged 2026-06-25)
+
+- **DAST alert noise (#283):** `dast-full-scan.yml` defaulted its nightly scan to the
+  placeholder `staging.example.com`, and the notify step opened a fresh date-stamped,
+  detail-free critical issue on every failure (no dedup) — the root cause of the stale
+  #71/#72/#74 noise. Fix: gate the scheduled run with
+  `if: workflow_dispatch || vars.DAST_TARGET_URL != ''` (no more example.com fallback;
+  manual dispatch requires an explicit authorized URL), and rewrite the notify step to
+  deduplicate into a single open tracker issue (reopen + comment if present) carrying a
+  real High/Medium/Low risk breakdown parsed from `report_json.json` plus the run URL.
+  Retains the `schedule:` trigger + SARIF upload (guarded by `test_ci_security_gate.py`).
+  To re-enable nightly scanning, set repo variable `DAST_TARGET_URL`.
+- **dashboard_mapping split (#284):** `dashboard_mapping.py` (1293 lines, over the 800-line
+  coding-style cap) split behavior-preservingly via façade re-export into
+  `dashboard_compliance.py` (464) + `dashboard_arch.py` (243); `dashboard_mapping.py` now
+  625 lines and re-exports all 16 public names (`# noqa: F401`), so the 9 importers are
+  unchanged. The fallback-coverage test (`_reload_with_fallback`/`TestFallbackBranch`) now
+  reloads `dashboard_compliance` (where the inline compliance fallback moved) — otherwise
+  that branch drops to 29%. Verified: byte-for-byte block preservation, 1368 pytest passed,
+  scanner/lib coverage 99.12% (≥99% floor; 3 affected modules at 100%), 195 CI guards passed.
+- **Stale issue triage:** closed #71/#72/#73→#74 (DAST noise, superseded by #283) and #14
+  (npm OIDC `--provenance` live via #262 + `provenance-verify.yml` green + v0.7.2 published).
+  10 open issues remain (real backlog: compliance/perf/enhancement); #68 is the ZAP-baseline
+  single-tracker issue and is intentionally kept open.
+- **dashboard_data_loader split:** `dashboard_data_loader.py` (930 lines, over the cap) split
+  via façade re-export into `dashboard_data_analysis.py` (220: Prowler analysis + provider
+  filters + env status); loader now 735 lines, re-exports the moved public names plus
+  `_normalize_severity` (a test accesses it through the loader namespace). Verified 1368
+  pytest passed, scanner/lib 99.12%, both modules covered.
+- **Deferred (deliberate, NOT done):** `diagram-gen.py` (927) and `scanner/lib/checks.sh` (930)
+  are only ~16% over the 800-line *soft* cap and do not split cleanly via the façade pattern:
+  - `diagram-gen.py` is a hyphenated CLI script loaded by its test via
+    `spec_from_file_location` with **no `sys.path` setup**; any sibling-module extraction needs
+    a `sys.path` bootstrap in the script AND risks internal import cycles (overview builders
+    call the drawio primitives). Infra change for marginal benefit — revisit only if the file
+    grows materially.
+  - `checks.sh` is core Bash sourced by the scanner entry and gated by kcov (90% floor); a
+    source-split is a different, higher-risk mechanism than Python re-export. Defer to a
+    dedicated bash-refactor pass.
+
 ## Open Backlog
 
 - **Prowler provider build-parity** — DONE. #238 merged (runtime provider detection +
