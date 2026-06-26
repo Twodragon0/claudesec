@@ -734,6 +734,7 @@ jobs:
             --exclude 'krcert.or.kr'
             --exclude 'privacy.kisa.or.kr'
             --exclude 'ecrm.cyber.go.kr'
+            --exclude 'kimchang.com'
             --exclude 'atlas.mitre.org'
             --exclude 'airc.nist.gov'
             --exclude 'media.defense.gov'
