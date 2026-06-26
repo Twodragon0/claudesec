@@ -20,6 +20,16 @@
           "command": "npx claudesec scan"
         },
         {
+          "name": "prowler",
+          "description": "Run a Prowler multi-cloud security scan (AWS / Azure / GCP / Kubernetes)",
+          "command": "npx claudesec prowler"
+        },
+        {
+          "name": "compliance",
+          "description": "Scan and map findings to a compliance framework (NIST / ISO 27001 / ISMS-P, default ISMS-P)",
+          "command": "npx claudesec compliance"
+        },
+        {
           "name": "dashboard",
           "description": "Build and serve the ClaudeSec security dashboard",
           "command": "npx claudesec dashboard"
