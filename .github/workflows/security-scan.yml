@@ -190,7 +190,10 @@ jobs:
           name: security-dashboard
 
       # Serve the dashboard on port 8080 and run Lighthouse against it.
-      # Thresholds: Performance >= 80, Accessibility >= 90.
+      # PR-time signal on the freshly-built dashboard (single run → noisy), so
+      # this stays a ::warning:: only. The hard Performance/SEO/A11y gate at
+      # >= 0.90 runs against the live deployed Pages in lighthouse.yml.
+      # Thresholds: Performance >= 90, Accessibility >= 90.
       - name: Serve and audit
         run: |
           python3 -m http.server 8080 &
@@ -206,7 +209,7 @@ jobs:
 
           echo "Performance: $PERF, Accessibility: $A11Y"
 
-          if [ "$PERF" -lt 80 ] || [ "$A11Y" -lt 90 ]; then
+          if [ "$PERF" -lt 90 ] || [ "$A11Y" -lt 90 ]; then
             echo "::warning::Dashboard quality below threshold (Perf=$PERF, A11y=$A11Y)"
           fi
 

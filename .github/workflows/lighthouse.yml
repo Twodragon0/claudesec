@@ -1,13 +1,19 @@
-name: Lighthouse SEO & Accessibility Gate
+name: Lighthouse Performance, SEO & Accessibility Gate
 
-# Audits the live GitHub Pages URL for SEO and Accessibility regressions.
+# Audits the live GitHub Pages URL for Performance, SEO and Accessibility
+# regressions.
 #
 # Pages is always served from the merged main branch — unmerged PR content
 # is never published. Running against the live URL on PRs mirrors the same
 # model used by og-meta-verify.yml and catches regressions in the
 # currently-deployed baseline rather than speculative future state.
 #
+# numberOfRuns=3 (lighthouserc.json) → lhci asserts on the MEDIAN run, which
+# damps the single-run variance that would otherwise make a hard Performance
+# gate flaky (cold first paint vs. warm CDN cache).
+#
 # Thresholds (tune in lighthouserc.json):
+#   Performance   >= 0.90   # live baseline 0.93 (cold) — 100 (warm CDN), 2026-06
 #   SEO           >= 0.90
 #   Accessibility >= 0.90   # live baseline 0.93 after PR #152 theme overrides
 
