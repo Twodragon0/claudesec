@@ -1,0 +1,55 @@
+# Lychee link-checker configuration — single source of truth for link-check
+# excludes. Consumed by .github/workflows/lint.yml (the `link-check` job) via
+# `lychee --config lychee.toml`. Operational flags (accept range, timeout,
+# no-progress, the markdown glob) stay in the workflow args; THIS file owns the
+# exclude allowlist so it can never silently drift from a second inline copy in
+# the workflow (the drift this consolidation fixes — the old dotted
+# `.lychee.toml` was never auto-discovered and had gone stale).
+#
+# Guarded by scanner/tests/test_ci_lychee_config.py.
+# Reference: https://lychee.cli.rs/configuration/
+
+# URLs excluded from link checking. Each entry is matched as a substring of the
+# URL, so a host (or a path prefix) suppresses every link under it.
+exclude = [
+  # --- Korean government / public-sector sites: SSL or bot-block issues in CI
+  "isms.kisa.or.kr",
+  "isms-p.or.kr",
+  "privacy.go.kr",
+  "law.go.kr",
+  "pipc.go.kr",
+  "krcert.or.kr",
+  "privacy.kisa.or.kr",
+  "ecrm.cyber.go.kr",
+  # --- Sites that block bots / time out / reset the connection in CI
+  #     (return 403 / hang / RST rather than a clean status)
+  "kimchang.com",
+  "media.defense.gov",
+  "jamf.com",
+  "byline.network",
+  "kyverno.io",
+  "falco.org",
+  "contributor-covenant.org",
+  "conventionalcommits.org",
+  "scorecard.dev",
+  "securityscorecards.dev",
+  "in-toto.io",
+  "sigstore.dev",
+  "public.cyber.mil",
+  # --- Upstream URL structure changed / varies (false-positive 404s)
+  "atlas.mitre.org",
+  "airc.nist.gov",
+  # --- GitHub features not enabled on this repo
+  "github.com/Twodragon0/claudesec/discussions",
+  # --- CHANGELOG version-compare links point at release-time tags that only
+  #     exist once that version publishes, so they 404 at PR time BY DESIGN
+  #     (not link rot). This is the entry the stale dotted config carried and
+  #     the active inline list was missing — the CHANGELOG compare-URL 404.
+  "github.com/Twodragon0/claudesec/compare/",
+  # --- Local / loopback references
+  "localhost",
+  "file://",
+]
+
+# Directories never walked for links.
+exclude_path = ["node_modules"]
