@@ -73,12 +73,12 @@ jobs:
           # itself so changes to the gating logic re-run the heavy jobs and
           # cannot accidentally turn off validation via a workflow-only PR.
           {
-            echo "scanner=$(match '^(scanner/|scripts/|hooks/|Dockerfile|docker-compose|requirements.*\.txt|\.github/workflows/lint\.yml)')"
+            echo "scanner=$(match '^(scanner/|scripts/|hooks/|Dockerfile|docker-compose|requirements.*\.txt|lychee\.toml$|\.github/workflows/lint\.yml)')"
             echo "docker=$(match '^(Dockerfile|docker-compose|scripts/run-dashboard-docker|scanner/lib/dashboard-|\.github/workflows/lint\.yml)')"
             echo "python_deps=$(match '^(requirements.*\.txt|pyproject\.toml|setup\.py)')"
             echo "npm_deps=$(match '^(package(-lock)?\.json|\.nvmrc)')"
             echo "shell=$(match '\.(sh|bash)$')"
-            echo "markdown=$(match '\.md$')"
+            echo "markdown=$(match '(\.md$|^lychee\.toml$)')"
           } >> "$GITHUB_OUTPUT"
 
   dependency-review:
@@ -723,34 +723,12 @@ jobs:
       - name: Check links
         uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411
         with:
+          # Exclude allowlist lives in lychee.toml (single source of truth,
+          # guarded by scanner/tests/test_ci_lychee_config.py) so it cannot
+          # drift from a second inline copy. Only operational flags stay here.
           args: >-
+            --config lychee.toml
             --no-progress
-            --exclude-path node_modules
-            --exclude 'isms.kisa.or.kr'
-            --exclude 'isms-p.or.kr'
-            --exclude 'privacy.go.kr'
-            --exclude 'law.go.kr'
-            --exclude 'pipc.go.kr'
-            --exclude 'krcert.or.kr'
-            --exclude 'privacy.kisa.or.kr'
-            --exclude 'ecrm.cyber.go.kr'
-            --exclude 'kimchang.com'
-            --exclude 'atlas.mitre.org'
-            --exclude 'airc.nist.gov'
-            --exclude 'media.defense.gov'
-            --exclude 'jamf.com'
-            --exclude 'byline.network'
-            --exclude 'kyverno.io'
-            --exclude 'falco.org'
-            --exclude 'contributor-covenant.org'
-            --exclude 'conventionalcommits.org'
-            --exclude 'github.com/Twodragon0/claudesec/discussions'
-            --exclude 'scorecard.dev'
-            --exclude 'securityscorecards.dev'
-            --exclude 'in-toto.io'
-            --exclude 'sigstore.dev'
-            --exclude 'public.cyber.mil'
-            --exclude 'localhost'
             --accept '100..=599'
             --timeout 20
             '**/*.md'
