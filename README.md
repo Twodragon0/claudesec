@@ -56,6 +56,8 @@ npm run dashboard                 # Safe mode (port fallback, no Docker requirem
 
 ```
 /scan                             # Run security scan
+/prowler                          # Prowler multi-cloud scan (AWS/Azure/GCP/K8s)
+/compliance                       # Compliance gap scan (NIST/ISO 27001/ISMS-P)
 /dashboard                        # Build + serve dashboard
 /audit                            # Full security audit
 /team-scan                        # Parallel multi-agent scan
@@ -68,6 +70,8 @@ Dashboard serves at **`http://localhost:11777/`**
 
 ```bash
 npx claudesec scan                      # Scan only
+npx claudesec prowler                   # Prowler multi-cloud scan (alias: scan -c prowler)
+npx claudesec compliance iso27001       # Compliance gap scan (default: isms-p)
 npx claudesec dashboard                 # Full scan + dashboard
 ./scripts/quick-start.sh --scan-only    # Scan + dashboard build only (no serve)
 ./scripts/quick-start.sh --serve        # Serve existing dashboard

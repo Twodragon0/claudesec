@@ -16,6 +16,23 @@ case "${1:-help}" in
     shift
     exec "$SCRIPT_DIR/scanner/claudesec" scan "$@"
     ;;
+  prowler)
+    # Thin alias for the Prowler multi-cloud scan category.
+    shift
+    exec "$SCRIPT_DIR/scanner/claudesec" scan -c prowler "$@"
+    ;;
+  compliance)
+    # Compliance gap scan: map findings to a framework (default isms-p).
+    # `claudesec compliance [framework] [scan-options...]`
+    shift
+    if [[ $# -gt 0 && "$1" != -* ]]; then
+      framework="$1"
+      shift
+    else
+      framework="isms-p"
+    fi
+    exec "$SCRIPT_DIR/scanner/claudesec" scan --compliance "$framework" "$@"
+    ;;
   dashboard)
     shift
     exec "$SCRIPT_DIR/scripts/run-dashboard-safe.sh" "$@"
@@ -43,6 +60,8 @@ case "${1:-help}" in
     echo ""
     echo "Usage:"
     echo "  claudesec scan [options]      Run security scan"
+    echo "  claudesec prowler [options]   Prowler multi-cloud scan (alias: scan -c prowler)"
+    echo "  claudesec compliance [fw]     Compliance gap scan (scan --compliance, default isms-p)"
     echo "  claudesec dashboard           Build + serve dashboard (Docker-first, local fallback)"
     echo "  claudesec setup [target]      Install hooks/workflows to a project"
     echo "  claudesec init                Initialize .claudesec.yml config"

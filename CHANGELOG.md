@@ -9,6 +9,18 @@ Releases are published to npm via the `npm-publish.yml` workflow (Trusted
 Publisher + SLSA provenance), triggered by pushing a `v*` tag. For the complete
 per-commit history, see the git log and `MEMORY.md` (delta log).
 
+## [Unreleased]
+
+### Added
+
+- **Two new marketplace plugin slash commands** (issue #20). `npx claudesec
+  prowler` runs a Prowler multi-cloud scan (thin alias for `scan -c prowler`),
+  and `npx claudesec compliance [framework]` runs a compliance gap scan that
+  maps findings to a framework (`scan --compliance`, default `isms-p`). Both are
+  registered in `.claude-plugin/marketplace.json` so they surface as `/prowler`
+  and `/compliance` once the plugin is installed. Marketplace↔CLI parity is
+  guarded by `scanner/tests/test_ci_plugin_skills_cli_parity.py`.
+
 ## [0.7.2]
 
 ### Added
