@@ -51,6 +51,21 @@ DOTTED_LYCHEE_TOML = REPO_ROOT / ".lychee.toml"
 # config file is the concrete regression this guard targets.
 COMPARE_EXCLUDE = "github.com/Twodragon0/claudesec/compare/"
 
+# Links that redirect BY DESIGN to an auth gate or a file, so the written URL is
+# correct as-is and must NOT be "resolved" to its redirect target. They are
+# excluded to silence lychee's redirect WARN; dropping an entry re-surfaces the
+# WARN and invites a well-meaning "fix" that rewrites the URL into its broken
+# target (auth-login page) or a fragile deep file path. Added with PR #291.
+INTENTIONAL_REDIRECT_EXCLUDES = (
+    # GitHub "report a vulnerability" form -> 302 to login when unauthenticated.
+    "github.com/Twodragon0/claudesec/security/advisories/new",
+    # Kakao OG-tag debugger tool -> 302/303 to accounts.kakao.com login.
+    "developers.kakao.com/tool/debugger/sharing",
+    # NIST position paper -> 302 to a versioned PDF; the /document/ landing page
+    # is the stable citation (the deep PDF path rots faster, not slower).
+    "nist.gov/document/cybersecurity-labeling-position-paper-owasp-samm",
+)
+
 
 def _extract_job_block(text, job_name):
     """Return the lines of a single 2-space-indented job block from a workflow,
@@ -148,6 +163,23 @@ class TestCiLycheeConfig(unittest.TestCase):
             f"({COMPARE_EXCLUDE!r}) — they 404 by design at PR time. Dropping "
             "this re-introduces the CHANGELOG compare-URL 404 noise.",
         )
+
+    def test_toml_keeps_intentional_redirect_excludes(self):
+        # These URLs redirect by design (auth gate / file). They are excluded so
+        # lychee's redirect WARN stays quiet AND so the next link-rot sweep does
+        # not "resolve" them into their broken targets. Dropping any one is a
+        # silent weakening of that intent — keep all of them present.
+        toml_no_comments = strip_comment_lines(self.toml_text)
+        for entry in INTENTIONAL_REDIRECT_EXCLUDES:
+            self.assertIn(
+                entry,
+                toml_no_comments,
+                f"lychee.toml must keep the intentional-redirect exclude "
+                f"{entry!r}. It redirects by design (auth gate or file); without "
+                "the exclude, lychee re-flags it as a redirect and a future "
+                "link-rot sweep may rewrite it into its broken target. See PR "
+                "#291.",
+            )
 
     def test_toml_excludes_node_modules_path(self):
         self.assertRegex(
