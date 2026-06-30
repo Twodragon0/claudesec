@@ -266,7 +266,7 @@ tfsec terraform/ --minimum-severity HIGH
 
 ## References
 
-- [Prowler Documentation — docs.prowler.com](https://docs.prowler.com)
+- [Prowler Documentation — docs.prowler.com](https://docs.prowler.com/introduction)
 - [Prowler GitHub — prowler-cloud/prowler](https://github.com/prowler-cloud/prowler)
 - [CIS Benchmarks — cisecurity.org](https://www.cisecurity.org/cis-benchmarks)
 - [AWS Security Best Practices](https://docs.aws.amazon.com/wellarchitected/latest/security-pillar/)

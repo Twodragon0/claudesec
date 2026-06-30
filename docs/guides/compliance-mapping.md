@@ -153,7 +153,7 @@ Phase 3 (Month 5-6): Operations
 
 - [SOC 2 Trust Services Criteria](https://www.aicpa-cima.com/resources/landing/system-and-organization-controls-soc-suite-of-services)
 - [ISO 27001:2022 Controls](https://www.iso.org/standard/27001)
-- [NIST SP 800-53 Rev. 5](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final)
+- [NIST SP 800-53 Rev. 5](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final)
 - [PCI-DSS v4.0](https://www.pcisecuritystandards.org/document_library/)
 - [KISA ISMS-P](https://isms.kisa.or.kr/)
 - [NIST AI RMF](https://www.nist.gov/artificial-intelligence)

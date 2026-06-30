@@ -143,5 +143,5 @@ Dynamic testing against running applications:
 ## References
 
 - [OWASP DevSecOps Guideline](https://owasp.org/www-project-devsecops-guideline/)
-- [NIST SP 800-218 — Secure Software Development Framework](https://csrc.nist.gov/publications/detail/sp/800-218/final)
+- [NIST SP 800-218 — Secure Software Development Framework](https://csrc.nist.gov/pubs/sp/800/218/final)
 - [CISA Secure by Design](https://www.cisa.gov/securebydesign)

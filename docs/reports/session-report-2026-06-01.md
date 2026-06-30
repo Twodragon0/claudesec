@@ -154,4 +154,4 @@ gh run view <run-id> --json jobs --jq '.jobs[] | select(.conclusion=="success") 
 
 - OWASP Top 10 — A06: Vulnerable and Outdated Components (<https://owasp.org/Top10/A06_2021-Vulnerable_and_Outdated_Components/>)
 - SLSA Levels v1.0 — Build & Source integrity tracks (<https://slsa.dev/spec/v1.0/levels>)
-- GitHub Actions docs — `paths-ignore` semantics under branch protection (<https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#using-filters-to-target-specific-paths-for-pull-request-or-push-events>)
+- GitHub Actions docs — `paths-ignore` semantics under branch protection (<https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow>)

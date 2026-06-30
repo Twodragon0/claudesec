@@ -17,7 +17,7 @@ ClaudeSec is an open-source DevSecOps toolkit that runs entirely on your local m
 
 When installed via `npx claudesec` or `npm install claudesec`:
 
-- The npm registry logs standard download metadata (IP, user-agent) per [npm's privacy policy](https://docs.npmjs.com/policies/privacy).
+- The npm registry logs standard download metadata (IP, user-agent) per [npm's privacy policy](https://docs.npmjs.com/policies/privacy/).
 - ClaudeSec itself does not send any data after installation.
 - SLSA provenance attestation is attached to published packages for supply chain verification.
 

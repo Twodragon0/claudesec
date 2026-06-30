@@ -46,6 +46,21 @@ exclude = [
   #     (not link rot). This is the entry the stale dotted config carried and
   #     the active inline list was missing — the CHANGELOG compare-URL 404.
   "github.com/Twodragon0/claudesec/compare/",
+  # --- Intentional redirects (resolve to auth gate or a file by design, so the
+  #     written URL is correct as-is and must NOT be "resolved" to its target;
+  #     excluded to silence lychee's redirect WARN). Path-specific so sibling
+  #     links on the same host are still checked.
+  #   * GitHub "report a vulnerability" form → 302 to the login page when
+  #     unauthenticated; the /security/advisories/new URL is the canonical entry.
+  "github.com/Twodragon0/claudesec/security/advisories/new",
+  #   * Kakao OG-tag debugger tool → 302/303 to accounts.kakao.com login; the
+  #     tool URL is correct (the docs guide link uses a separate, non-redirecting
+  #     developers.kakao.com/docs/... URL that stays checked).
+  "developers.kakao.com/tool/debugger/sharing",
+  #   * NIST position paper → 302 to a versioned PDF under /system/files/...; the
+  #     /document/ landing page is the stable citation, so keep it (hardcoding
+  #     the deep PDF path is more fragile to link rot, not less).
+  "nist.gov/document/cybersecurity-labeling-position-paper-owasp-samm",
   # --- Local / loopback references
   "localhost",
   "file://",

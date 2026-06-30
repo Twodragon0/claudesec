@@ -313,6 +313,6 @@ On release:
 - [SPDX Specification](https://spdx.dev/)
 - [Anchore Syft](https://github.com/anchore/syft)
 - [Anchore Grype](https://github.com/anchore/grype)
-- [CISA SBOM Resources](https://www.cisa.gov/sbom)
+- [CISA SBOM Resources](https://www.cisa.gov/topics/information-communications-technology-supply-chain-security/sbom)
 - [in-toto Framework](https://in-toto.io/)
 - [GUAC — Graph for Understanding Artifact Composition](https://guac.sh/)

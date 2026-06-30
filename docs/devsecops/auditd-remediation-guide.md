@@ -148,6 +148,6 @@ claudesec scan --category macos | grep 'CIS-002'
 ## References
 
 - [CIS Apple macOS Benchmark](https://www.cisecurity.org/benchmark/apple_os) — Center for Internet Security
-- [NIST SP 800-53 Rev 5: AU Controls](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final) — Audit and Accountability
+- [NIST SP 800-53 Rev 5: AU Controls](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final) — Audit and Accountability
 - [Apple Platform Security Guide](https://support.apple.com/guide/security/welcome/web) — audit subsystem documentation
 - `man audit`, `man auditd`, `man audit_control` — local macOS manpages

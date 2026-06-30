@@ -600,7 +600,7 @@ Intune manages macOS via its own MDM channel and supports many of the same profi
 
 Both Jamf and Intune support importing the CIS macOS Benchmark as a compliance baseline:
 
-- **Jamf**: Use the [CIS-CAT Pro](https://www.cisecurity.org/cybersecurity-tools/cis-cat-pro/) integration or community Jamf scripts
+- **Jamf**: Use the [CIS-CAT Pro](https://www.cisecurity.org/cybersecurity-tools/cis-cat-pro) integration or community Jamf scripts
 - **Intune**: Import CIS benchmark settings via the Settings Catalog (search for "CIS")
 - **Third-party**: [Tenable.io](https://www.tenable.com/) and [Qualys](https://www.qualys.com/) offer agent-based CIS compliance scanning for macOS fleets
 
@@ -685,7 +685,7 @@ fi
 ## References
 
 - [CIS Apple macOS Benchmarks](https://www.cisecurity.org/benchmark/apple_os) — official benchmark documents (free registration required)
-- [NIST SP 800-179 Guide to Enterprise Patch Management Planning](https://csrc.nist.gov/publications/detail/sp/800-179/final)
+- [NIST SP 800-179 Guide to Enterprise Patch Management Planning](https://csrc.nist.gov/pubs/sp/800/179/final)
 - [Apple Platform Security Guide](https://support.apple.com/guide/security/welcome/web)
 - [macOS Security Compliance Project (mSCP)](https://github.com/usnistgov/macos_security) — NIST/DISA automation scripts
 - [Jamf CIS Benchmark resources](https://www.jamf.com/resources/white-papers/cis-benchmark/)

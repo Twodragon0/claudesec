@@ -192,6 +192,6 @@ OVERALL AVERAGE                     [ /3]
 
 - [OWASP SAMM — owaspsamm.org](https://owaspsamm.org/)
 - [OWASP SAMM Model](https://owaspsamm.org/model/)
-- [NIST SSDF — SP 800-218](https://csrc.nist.gov/publications/detail/sp/800-218/final)
+- [NIST SSDF — SP 800-218](https://csrc.nist.gov/pubs/sp/800/218/final)
 - [OWASP SAMM Assessment Tool](https://owaspsamm.org/assessment/)
 - [NIST Paper on OWASP SAMM](https://www.nist.gov/document/cybersecurity-labeling-position-paper-owasp-samm)

@@ -51,7 +51,7 @@ if: >-
 
 로컬 회귀 테스트: 가드 일시 제거 → `::error file=...::job 'auto-merge' is missing the fork-guard ...` + exit 1; 원복 → exit 0.
 
-> 참고: [GitHub Docs — Security hardening for GitHub Actions / `pull_request_target`](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-pull_request_target-or-workflow_run-from-untrusted-forks)
+> 참고: [GitHub Docs — Security hardening for GitHub Actions / `pull_request_target`](https://docs.github.com/en/actions/reference/security/secure-use#mitigating-the-risks-of-untrusted-code-checkout)
 
 ### #171 — scanner/lib 커버리지 보강 (target ≥95%)
 
