@@ -202,8 +202,8 @@ After merge, complete the following items in order.
 
 ## 참고 자료 / References
 
-- [NIST SP 800-218 — Secure Software Development Framework (SSDF)](https://csrc.nist.gov/publications/detail/sp/800-218/final)
+- [NIST SP 800-218 — Secure Software Development Framework (SSDF)](https://csrc.nist.gov/pubs/sp/800/218/final)
 - [OWASP SAMM — Incident Management](https://owaspsamm.org/model/operations/incident-management/)
 - [CIS Control 16 — Application Software Security](https://www.cisecurity.org/controls/application-software-security)
-- [GitHub — Managing security vulnerabilities](https://docs.github.com/en/code-security/security-advisories)
+- [GitHub — Managing security vulnerabilities](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/fix-reported-vulnerabilities)
 - [OWASP — Vulnerability Disclosure Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Vulnerability_Disclosure_Cheat_Sheet.html)

@@ -163,7 +163,7 @@ MERGE_METHOD=squash ADMIN_MERGE=0 ./scripts/gh-merge-ready-pr.sh <PR_NUMBER>
 
 ## References
 
-- GitHub Actions security hardening: [https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions)
+- GitHub Actions security hardening: [https://docs.github.com/en/actions/reference/security/secure-use](https://docs.github.com/en/actions/reference/security/secure-use)
 - GitHub Status: [https://www.githubstatus.com/](https://www.githubstatus.com/)
 - Contribution policy mirror: [../../CONTRIBUTING.md](../../CONTRIBUTING.md)
 - PR checks snapshot template: [../../.github/comment-templates/pr-checks-snapshot.md](../../.github/comment-templates/pr-checks-snapshot.md)

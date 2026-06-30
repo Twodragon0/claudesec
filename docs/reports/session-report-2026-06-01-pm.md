@@ -145,5 +145,5 @@ AM 리포트의 후속 작업 #3은 "scanner-shell-coverage 자체 분할"이었
 ## 참고
 
 - kcov v42 — `--include-pattern` 및 ptrace 기반 instrumentation (<https://github.com/SimonKagstrom/kcov>)
-- GitHub Actions docs — job-level `env` 컨텍스트 (<https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables>)
+- GitHub Actions docs — job-level `env` 컨텍스트 (<https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-variables>)
 - OWASP DevSecOps — 테스트 격리(hermetic tests)와 외부 의존성 제거 원칙 (<https://owasp.org/www-project-devsecops-guideline/>)

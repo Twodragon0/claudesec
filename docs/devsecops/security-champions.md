@@ -91,4 +91,4 @@ claude "Create a 15-minute security awareness module about
 ## References
 
 - [OWASP Security Champions Guide](https://owasp.org/www-project-security-champions-guidebook/)
-- [SAFECode — Security Champions](https://safecode.org/resource-secure-development-practices/security-champions/)
+- [SAFECode — Security Champions](https://safecode.org/resource-training-and-culture/security-champions/)

@@ -100,4 +100,4 @@ single author pass misses.
 - NIST SP 800-218 (SSDF) — PO.3 / PW.4:
   <https://csrc.nist.gov/pubs/sp/800/218/final>
 - GitHub Actions — Security hardening (script injection):
-  <https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions>
+  <https://docs.github.com/en/actions/reference/security/secure-use>

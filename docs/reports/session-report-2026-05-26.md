@@ -39,7 +39,7 @@ tags:
 
 각 SHA는 PR 시점의 태그 tip — 즉 동작 변화 0. 보안 베이스라인(Grade A · score 100) 동일.
 
-> **참고**: GitHub Actions SHA 핀 권고는 [GitHub Docs — Security hardening for GitHub Actions](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-third-party-actions) 및 [OWASP Top 10:2021 A08](https://owasp.org/Top10/A08_2021-Software_and_Data_Integrity_Failures/) 기반.
+> **참고**: GitHub Actions SHA 핀 권고는 [GitHub Docs — Security hardening for GitHub Actions](https://docs.github.com/en/actions/reference/security/secure-use#using-third-party-actions) 및 [OWASP Top 10:2021 A08](https://owasp.org/Top10/A08_2021-Software_and_Data_Integrity_Failures/) 기반.
 
 ## 검증 스냅샷
 

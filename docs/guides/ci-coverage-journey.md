@@ -203,8 +203,8 @@ Run 24700540488 is the first CI-visible bash coverage baseline in the repository
 
 ## References
 
-- [pytest documentation](https://docs.pytest.org)
-- [pytest-cov coverage plugin](https://pytest-cov.readthedocs.io)
+- [pytest documentation](https://docs.pytest.org/en/stable/)
+- [pytest-cov coverage plugin](https://pytest-cov.readthedocs.io/en/latest/)
 - [Codecov coverage analysis](https://about.codecov.io)
 - [kcov bash coverage instrumentation](https://github.com/SimonKagstrom/kcov)
 - [NIST SP 800-53 SA-11: Developer Testing and Evaluation](https://csrc.nist.gov/projects/cprt/catalog#/cprt/framework/version/SP_800_53_5_1_0/home?element=SA-11)

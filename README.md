@@ -9,14 +9,14 @@
 > AI Security Best Practices toolkit for secure development with Claude Code
 
 [![npm version](https://img.shields.io/npm/v/claudesec?color=cb3837&logo=npm)](https://www.npmjs.com/package/claudesec)
-[![codecov](https://codecov.io/gh/Twodragon0/claudesec/branch/main/graph/badge.svg?flag=scanner-lib)](https://codecov.io/gh/Twodragon0/claudesec)
+[![codecov](https://codecov.io/gh/Twodragon0/claudesec/branch/main/graph/badge.svg?flag=scanner-lib)](https://app.codecov.io/gh/Twodragon0/claudesec)
 [![GitHub stars](https://img.shields.io/github/stars/Twodragon0/claudesec?style=flat&color=yellow)](https://github.com/Twodragon0/claudesec/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![OpenSSF Scorecard](https://img.shields.io/badge/OpenSSF-Scorecard-green.svg)](https://scorecard.dev/)
 [![OWASP](https://img.shields.io/badge/OWASP-Top%2010%202025-orange.svg)](https://owasp.org/Top10/)
 
-ClaudeSec integrates security best practices directly into your AI-powered development workflow. It provides security-focused prompts, hooks, templates, and guides designed for use with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and CI/CD pipelines.
+ClaudeSec integrates security best practices directly into your AI-powered development workflow. It provides security-focused prompts, hooks, templates, and guides designed for use with [Claude Code](https://code.claude.com/docs) and CI/CD pipelines.
 
 ## Quick Start
 
@@ -29,7 +29,7 @@ npx claudesec dashboard           # Full scan + dashboard (safe local runner)
 
 **Verify supply-chain integrity (recommended)**
 
-ClaudeSec is published to npm with [SLSA build provenance](https://docs.npmjs.com/generating-provenance-statements)
+ClaudeSec is published to npm with [SLSA build provenance](https://docs.npmjs.com/generating-provenance-statements/)
 (attested via GitHub Actions OIDC trusted publishing). Verify the registry
 signature and provenance attestation before trusting an install:
 
@@ -685,7 +685,7 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 - Audit framework informed by [querypie/audit-points](https://github.com/querypie/audit-points)
 - Web security based on [OWASP Top 10 2025](https://github.com/OWASP/Top10/tree/master/2025)
 - AI security guidance from [MITRE ATLAS](https://atlas.mitre.org/) and [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
-- Built for the [Claude Code](https://docs.anthropic.com/en/docs/claude-code) ecosystem
+- Built for the [Claude Code](https://code.claude.com/docs) ecosystem
 
 ## Support this project
 
@@ -695,7 +695,7 @@ If ClaudeSec helps your DevSecOps or AI-assisted security workflow, consider giv
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Twodragon0/claudesec&type=date&legend=top-left)](https://www.star-history.com/#Twodragon0/claudesec&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=twodragon0/claudesec&type=date&legend=top-left)](https://www.star-history.com/#Twodragon0/claudesec&type=date&legend=top-left)
 
 ## License
 

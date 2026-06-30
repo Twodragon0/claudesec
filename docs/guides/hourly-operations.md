@@ -68,5 +68,5 @@ that calls `generate_html_dashboard`.
 - `kcov-debug` skill: `.claude/skills/kcov-debug/SKILL.md` (coverage-gate debugging playbook)
 - CI coverage history: [`docs/guides/ci-coverage-journey.md`](./ci-coverage-journey.md)
 - OWASP SAMM: [https://owaspsamm.org/](https://owaspsamm.org/)
-- NIST SP 800-92 (Guide to Computer Security Log Management): [https://csrc.nist.gov/publications/detail/sp/800-92/final](https://csrc.nist.gov/publications/detail/sp/800-92/final)
+- NIST SP 800-92 (Guide to Computer Security Log Management): [https://csrc.nist.gov/pubs/sp/800/92/final](https://csrc.nist.gov/pubs/sp/800/92/final)
 - CIS Controls v8: [https://www.cisecurity.org/controls/v8](https://www.cisecurity.org/controls/v8)

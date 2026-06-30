@@ -144,7 +144,7 @@ IMAGE_URL=https://twodragon0.github.io/claudesec/assets/claudesec-og-card.png \
 
 - Open Graph Protocol — <https://ogp.me/>
 - Jekyll SEO Tag — <https://github.com/jekyll/jekyll-seo-tag/blob/master/docs/usage.md>
-- KakaoTalk 공유 메시지 가이드 — <https://developers.kakao.com/docs/latest/ko/message/og-tag>
+- KakaoTalk 공유 메시지 가이드 — <https://developers.kakao.com/docs/ko/kakaotalk-share/common>
 
 ### 라이트 모드 OG 카드 (`claudesec-og-card-light`)
 

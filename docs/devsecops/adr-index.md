@@ -41,5 +41,5 @@ The periodic-audit cadence in ADR-001 is reminded automatically by the
 
 ## References
 
-- ADR concept (Michael Nygard): <https://github.com/joelparkerhenderson/architecture-decision-record>
+- ADR concept (Michael Nygard): <https://github.com/architecture-decision-record/architecture-decision-record>
 - In-repo: [CI Config Regression Guards](./ci-config-regression-guards.md)
