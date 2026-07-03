@@ -1,0 +1,239 @@
+# Monthly Lychee Redirect / Link-Rot Sweep
+#
+# NOTIFICATION-ONLY scheduled workflow that catches link rot the PR-time
+# `link-check` job (in lint.yml) deliberately hides.
+#
+# WHY THIS EXISTS
+#   The PR `link-check` runs lychee with `--accept '100..=599'`, so ANY HTTP
+#   response (including 3xx redirects and 4xx/5xx dead links) passes CI. That
+#   broad range is intentional — it stops flaky external sites from blocking
+#   docs merges — but it means redirects and rot accumulate silently. This
+#   sweep runs monthly with a STRICT accept range so that anything that is not
+#   a clean 2xx is surfaced for triage.
+#
+# HOW IT SURFACES REDIRECTS
+#   `--max-redirects 0` stops lychee from following redirects, so a 3xx is
+#   reported as-is instead of resolving to its final 200. Combined with
+#   `--accept '200..=299'`, every non-2xx link (redirect OR dead) lands in the
+#   report. The SAME `lychee.toml` exclude allowlist used by the PR job is
+#   reused via `--config lychee.toml`, so intentional redirects (auth gates,
+#   file downloads) and known bot-blocked hosts stay quiet — only NEW drift is
+#   reported. (Guarded by scanner/tests/test_ci_lychee_config.py +
+#   scanner/tests/test_ci_lychee_redirect_sweep.py.)
+#
+# ALERTING (self-healing, single issue)
+#   On findings the workflow opens — or updates — one GitHub issue labelled
+#   'lychee-redirect-sweep' containing the report. When a later run finds
+#   nothing, it closes any open issue automatically. No duplicate issues.
+#
+# FAIL-SAFE
+#   lychee runs with `fail: false`; a non-zero lychee exit means "links to
+#   triage", NOT a workflow failure, so the schedule never goes red on link rot.
+#
+# This workflow MUST NOT run on pull_request events — it is a scheduled notifier
+# only and must never become a required PR status check (a broad external-URL
+# fetch would flake and block merges).
+
+name: Lychee Redirect Sweep
+
+on:
+  schedule:
+    # 07:00 UTC on the 1st of every month (offset 1h from prowler-python-watch
+    # at 06:00 to avoid contending for scheduled-runner capacity).
+    - cron: '0 7 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sweep:
+    name: Sweep for redirects and link rot
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Run strict lychee sweep
+        id: lychee
+        uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411
+        with:
+          # Reuse the single-source exclude allowlist from lychee.toml (so
+          # intentional redirects / bot-blocked hosts stay quiet), but override
+          # the accept range: only a clean 2xx passes. `--max-redirects 0`
+          # keeps redirects unfollowed so a 3xx is reported instead of masked
+          # by its 200 destination. NOTE: `--output`/`--format` must NOT go in
+          # args — the action owns those via its `output`/`format` inputs and
+          # errors out (exit 1) if `--output` also appears in args.
+          args: >-
+            --config lychee.toml
+            --no-progress
+            --max-redirects 0
+            --accept '200..=299'
+            '**/*.md'
+          # Report written to the workspace via the action's own input (the
+          # classify/issue steps read it back). Markdown so the issue body and
+          # the job summary are human-readable.
+          output: lychee-report.md
+          format: markdown
+          # fail: false -> a non-zero lychee exit is "links to triage", not a
+          # workflow failure. We inspect exit_code ourselves below.
+          fail: false
+          # PIN TO v0.23.0 — same load-bearing pin as lint.yml's link-check.
+          # v0.24.x nests the binary in a `lychee-<triple>/` subdir the pinned
+          # lychee-action installer can't find (`install: cannot stat`). Do not
+          # bump without verifying the install path end-to-end. See lint.yml.
+          lycheeVersion: v0.23.0
+
+      - name: Classify sweep result
+        id: result
+        env:
+          # `env:` indirection (not direct `${{ }}` interpolation into the
+          # script body) per OWASP CICD-SEC-4 — matches protection-drift-watch.
+          LYCHEE_EXIT_CODE: ${{ steps.lychee.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          exit_code="${LYCHEE_EXIT_CODE}"
+          echo "lychee exit_code: '${exit_code}'"
+          if [ -f lychee-report.md ]; then
+            echo "--- lychee report ---"
+            cat lychee-report.md
+          else
+            echo "::warning::lychee produced no report file."
+          fi
+          # An empty exit_code means the action never reported one (a tooling
+          # blip), which is NOT a link-rot finding — treat it as an error no-op
+          # rather than opening a false-positive issue. exit_code 0 = every link
+          # is a clean 2xx. Non-zero = at least one redirect or dead link.
+          if [ -z "${exit_code}" ]; then
+            echo "::warning::No lychee exit code reported — treating as a tooling error, not findings."
+            echo "state=error" >> "${GITHUB_OUTPUT}"
+          elif [ "${exit_code}" = "0" ]; then
+            echo "state=clean" >> "${GITHUB_OUTPUT}"
+          else
+            echo "state=findings" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Ensure lychee-redirect-sweep label exists
+        if: steps.result.outputs.state == 'findings'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh label list --repo "${GITHUB_REPOSITORY}" --json name \
+               | python3 -c "
+          import sys, json
+          labels = [l['name'] for l in json.load(sys.stdin)]
+          sys.exit(0 if 'lychee-redirect-sweep' in labels else 1)
+          " 2>/dev/null; then
+            echo "Creating label lychee-redirect-sweep"
+            gh label create lychee-redirect-sweep \
+              --repo "${GITHUB_REPOSITORY}" \
+              --description "Monthly lychee redirect / link-rot sweep alert" \
+              --color "fbca04"
+          else
+            echo "Label lychee-redirect-sweep already exists"
+          fi
+
+      - name: Find existing open sweep issue
+        id: existing
+        if: steps.result.outputs.state == 'findings' || steps.result.outputs.state == 'clean'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          existing="$(gh issue list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --label "lychee-redirect-sweep" \
+            --state open \
+            --json number \
+            --limit 5)"
+          number="$(echo "${existing}" | python3 -c 'import sys, json; d=json.load(sys.stdin); print(d[0]["number"] if d else "")')"
+          if [ -n "${number}" ]; then
+            echo "issue_number=${number}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "issue_number=" >> "${GITHUB_OUTPUT}"
+          fi
+          echo "Existing open lychee-redirect-sweep issue: '${number:-none}'"
+
+      - name: Build issue body from sweep report
+        if: steps.result.outputs.state == 'findings'
+        run: |
+          set -euo pipefail
+          {
+            echo "## Redirects / link rot detected in Markdown docs"
+            echo
+            echo "The monthly \`Lychee Redirect Sweep\` ran lychee over \`**/*.md\` with a"
+            echo "strict \`--accept '200..=299'\` and \`--max-redirects 0\`, so every link that"
+            echo "is **not** a clean 2xx is listed below. The PR-time \`link-check\` job accepts"
+            echo "\`100..=599\`, so these slip past it by design — this sweep is the backstop."
+            echo
+            echo "### Sweep report"
+            echo
+            if [ -f lychee-report.md ]; then
+              cat lychee-report.md
+            else
+              echo '_No report file was produced — check the workflow log._'
+            fi
+            echo
+            echo "### How to triage each entry"
+            echo
+            echo "- **3xx redirect** → update the Markdown link to the final canonical URL"
+            echo "  (do NOT just add an exclude), UNLESS it redirects by design (auth gate /"
+            echo "  file download): then add a path-specific entry to the \`# --- Intentional"
+            echo "  redirects\` section of \`lychee.toml\` **and** register it in"
+            echo "  \`INTENTIONAL_REDIRECT_EXCLUDES\` in \`scanner/tests/test_ci_lychee_config.py\`."
+            echo "- **4xx / 5xx dead link** → fix or replace the URL. Only exclude it in"
+            echo "  \`lychee.toml\` if the host merely bot-blocks CI but is fine in a browser."
+            echo "- After editing docs, verify locally with:"
+            echo
+            echo '```bash'
+            echo "lychee --config lychee.toml --max-redirects 0 --accept '200..=299' '**/*.md'"
+            echo '```'
+            echo
+            echo "_Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}_"
+          } > /tmp/issue-body.md
+          echo "Issue body written."
+
+      - name: Open or update sweep issue
+        if: steps.result.outputs.state == 'findings'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXISTING_ISSUE: ${{ steps.existing.outputs.issue_number }}
+        run: |
+          set -euo pipefail
+          title="ci: lychee monthly sweep found redirects / link rot"
+          if [ -n "${EXISTING_ISSUE}" ]; then
+            echo "Updating existing sweep issue #${EXISTING_ISSUE}"
+            gh issue edit "${EXISTING_ISSUE}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --body-file /tmp/issue-body.md
+            gh issue comment "${EXISTING_ISSUE}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --body "Findings still present as of run ${GITHUB_RUN_ID} (report refreshed above)."
+          else
+            echo "Opening new sweep issue"
+            gh issue create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --label "lychee-redirect-sweep" \
+              --body-file /tmp/issue-body.md
+          fi
+
+      - name: Close sweep issue when everything is clean
+        if: steps.result.outputs.state == 'clean' && steps.existing.outputs.issue_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXISTING_ISSUE: ${{ steps.existing.outputs.issue_number }}
+        run: |
+          set -euo pipefail
+          echo "No redirects / rot detected — closing stale sweep issue #${EXISTING_ISSUE}"
+          gh issue comment "${EXISTING_ISSUE}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --body "All Markdown links resolve to a clean 2xx as of run ${GITHUB_RUN_ID}. Closing automatically."
+          gh issue close "${EXISTING_ISSUE}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --reason completed
