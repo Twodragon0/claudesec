@@ -287,6 +287,19 @@ class TestCiLycheeConfig(unittest.TestCase):
             "the inline `--exclude-path node_modules`).",
         )
 
+    def test_toml_excludes_claudesec_sources_path(self):
+        # `.claudesec-sources` is a gitignored local cache of fetched upstream
+        # docs. It is absent in CI (never committed) but present on dev machines,
+        # where a local sweep would otherwise walk it and report rot in
+        # third-party docs we do not own. Keep it in `exclude_path` so the local
+        # verify command matches CI's committed-file-only view.
+        self.assertRegex(
+            strip_comment_lines(self.toml_text),
+            r"exclude_path\s*=\s*\[[^\]]*\.claudesec-sources",
+            "lychee.toml must keep `.claudesec-sources` in `exclude_path` so a "
+            "local sweep does not scan the gitignored upstream-source cache.",
+        )
+
     def test_lychee_toml_is_change_detected(self):
         # The `changes` job path-gates link-check on the `markdown` bucket and
         # scanner-unit-tests (this guard) on the `scanner` bucket. If lychee.toml
