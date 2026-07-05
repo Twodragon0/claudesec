@@ -36,6 +36,16 @@ exclude = [
   "in-toto.io",
   "sigstore.dev",
   "public.cyber.mil",
+  #   * ISO standard pages 403 to crawlers (Akamai) but load in a browser;
+  #     path-specific so non-/standard iso.org links stay checked.
+  "www.iso.org/standard/",
+  #   * npm package page 403s to bots but is the canonical package URL.
+  "www.npmjs.com/package/claudesec",
+  #   * SK Shieldus security blog 403s to CI crawlers, fine in a browser.
+  "www.skshieldus.com/blog-security/",
+  # --- Template placeholders: intentionally non-real URLs in templates/ that
+  #     404 by design (users substitute their own org/repo).
+  "github.com/YOUR_ORG/YOUR_REPO",
   # --- Upstream URL structure changed / varies (false-positive 404s)
   "atlas.mitre.org",
   "airc.nist.gov",
