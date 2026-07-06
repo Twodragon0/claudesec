@@ -71,7 +71,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "경영진의 참여 (Management commitment)",
             "desc": "최고경영자의 정보보호 및 개인정보보호 관리체계 수립·운영 참여",
             "action": "정보보호 정책 승인; 연간 보안 계획 수립; 경영진 검토 보고 체계 마련.",
-            "checks": ["security_policy", "policy", "governance"],
+            "checks": ["security_policy", "governance"],
             "status": "",
         },
         {
@@ -96,7 +96,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "정책의 유지관리 (Policy management)",
             "desc": "정보보호 및 개인정보보호 정책·지침 수립, 승인, 이행",
             "action": "정책 문서화; 연 1회 이상 검토; 전 직원 숙지 교육.",
-            "checks": ["security_policy", "policy", "governance"],
+            "checks": ["security_policy", "governance"],
             "status": "",
         },
         {
@@ -168,7 +168,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "응용프로그램 접근 (Application access, 2023.10 신설)",
             "desc": "응용프로그램 및 데이터에 대한 접근통제",
             "action": "애플리케이션 레벨 인증; API 접근 토큰 관리; 세션 관리.",
-            "checks": ["api", "token", "session", "application", "oauth"],
+            "checks": ["token", "session", "application", "oauth"],
             "status": "",
         },
         {
@@ -192,7 +192,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "암호키 관리 (Key management)",
             "desc": "암호키의 안전한 생성·저장·분배·파기 관리",
             "action": "HSM/KMS 활용; 키 순환 주기 설정; 키 분리 보관; 키 파기 절차.",
-            "checks": ["kms", "key_rotation", "hsm", "secret_manager"],
+            "checks": ["kms", "key_rotation", "secret_manager"],
             "status": "",
         },
         {
@@ -248,7 +248,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "보안시스템 운영 (Security system operations)",
             "desc": "방화벽, IDS/IPS, 백신 등 보안시스템 운영·관리",
             "action": "방화벽 정책 주기적 검토; EDR/AV 업데이트; IDS/IPS 모니터링.",
-            "checks": ["firewall", "security_group", "waf", "endpoint", "antivirus"],
+            "checks": ["firewall", "security_group", "antivirus"],
             "status": "",
         },
         {
@@ -280,7 +280,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "악성코드 통제 (Malware control)",
             "desc": "악성코드 감염 예방·탐지·대응",
             "action": "EDR/SentinelOne 운영; 실시간 탐지; 격리 및 복구 절차.",
-            "checks": ["malware", "antivirus", "endpoint", "edr", "sentinelone"],
+            "checks": ["malware", "antivirus", "sentinelone"],
             "status": "",
         },
         {
@@ -369,7 +369,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "국외이전 (Cross-border transfer, 2023.10 개정)",
             "desc": "개인정보 국외이전 시 정보주체 동의 및 보호조치",
             "action": "국외이전 동의; 수탁자 보호조치 계약; 이전 현황 공개.",
-            "checks": ["cross_border", "transfer", "international", "gdpr"],
+            "checks": ["cross_border", "international", "gdpr"],
             "status": "",
         },
         {
@@ -408,9 +408,9 @@ COMPLIANCE_CONTROL_MAP = {
     # ISMS 간편인증 (2024 신설) — 소규모 기업 대상, 40개 항목으로 경량화
     # 기존 ISMS-P 102개에서 핵심 통제항목만 선별 (정보통신망법 제47조의7)
     "KISA ISMS Simple": [
-        {"control": "S-1.1", "name": "관리체계 기반 마련", "desc": "정보보호 정책 수립 및 경영진 참여", "action": "정보보호 정책 승인; 담당자 지정; 예산 확보.", "checks": ["security_policy", "policy", "governance"], "status": ""},
+        {"control": "S-1.1", "name": "관리체계 기반 마련", "desc": "정보보호 정책 수립 및 경영진 참여", "action": "정보보호 정책 승인; 담당자 지정; 예산 확보.", "checks": ["security_policy", "governance"], "status": ""},
         {"control": "S-1.2", "name": "위험 관리", "desc": "자산 식별 및 위험 평가·관리", "action": "자산 목록 관리; 위험 평가; 위험 처리 계획.", "checks": ["inventory", "asset", "vulnerability", "risk"], "status": ""},
-        {"control": "S-2.1", "name": "정보보호 정책", "desc": "정보보호 정책 수립·시행·검토", "action": "정책 문서화; 전 직원 숙지; 연 1회 이상 검토.", "checks": ["security_policy", "policy"], "status": ""},
+        {"control": "S-2.1", "name": "정보보호 정책", "desc": "정보보호 정책 수립·시행·검토", "action": "정책 문서화; 전 직원 숙지; 연 1회 이상 검토.", "checks": ["security_policy", "governance"], "status": ""},
         {"control": "S-2.2", "name": "인적 보안", "desc": "직무 분리, 보안 서약, 교육", "action": "직무 분리(SoD); 입사/퇴사 절차; 연 1회 보안 교육.", "checks": ["admin", "permission", "training", "account"], "status": ""},
         {"control": "S-2.3", "name": "외부자 보안", "desc": "외부자(위탁, 협력사) 보안 관리", "action": "위탁 계약 시 보안 요구사항; 접근 통제; 주기적 점검.", "checks": ["third_party", "vendor", "external"], "status": ""},
         {"control": "S-2.4", "name": "사용자 인증 관리", "desc": "계정·비밀번호·인증 관리", "action": "MFA 적용; 비밀번호 복잡도; 미사용 계정 비활성화.", "checks": ["mfa", "authentication", "password", "account", "sso"], "status": ""},
@@ -583,7 +583,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Secure configuration for network infrastructure",
             "desc": "Establish and maintain secure network device configurations",
             "action": "Apply firewall rules; enforce network segmentation; disable unused ports and services.",
-            "checks": ["firewall", "network", "segmentation", "port"],
+            "checks": ["firewall", "network", "segmentation"],
             "status": "",
         },
         {
@@ -631,7 +631,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Worker node security",
             "desc": "Ensure worker node components are configured securely",
             "action": "Restrict kubelet permissions; enable read-only port protection; enforce TLS certificates.",
-            "checks": ["kubelet", "worker", "node", "tls_cert", "readonly"],
+            "checks": ["kubelet", "worker", "tls_cert", "readonly"],
             "status": "",
         },
         {
