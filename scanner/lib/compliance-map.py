@@ -322,6 +322,7 @@ COMPLIANCE_CONTROL_MAP = {
             "desc": "개인정보 수집 시 목적 명시, 동의 획득, 최소 수집 원칙",
             "action": "수집 목적 명시; 필수/선택 동의 분리; 최소 수집 원칙 이행; 법적 근거 확인.",
             "checks": ["personal_data", "pii", "consent", "privacy", "collection"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -330,6 +331,7 @@ COMPLIANCE_CONTROL_MAP = {
             "desc": "주민등록번호 수집 원칙적 금지, 법령 근거 시에만 처리",
             "action": "주민번호 수집 최소화; 대체 수단(CI/DI) 활용; 암호화 저장 필수.",
             "checks": ["pii", "ssn", "identification", "encrypt", "masking"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -338,6 +340,7 @@ COMPLIANCE_CONTROL_MAP = {
             "desc": "민감정보 및 고유식별정보 처리 시 별도 동의·보호조치",
             "action": "별도 동의 획득; 암호화 필수; 접근 제한; 처리 현황 관리.",
             "checks": ["sensitive", "biometric", "health", "encrypt", "pii"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -346,6 +349,7 @@ COMPLIANCE_CONTROL_MAP = {
             "desc": "보유 개인정보 현황 관리 및 처리 목적별 분류",
             "action": "개인정보 처리대장; 보유량·목적·보유기간 관리; 주기적 현행화.",
             "checks": ["pii", "inventory", "data_classification", "personal_data"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -354,6 +358,7 @@ COMPLIANCE_CONTROL_MAP = {
             "desc": "가명정보 처리 시 안전조치 및 재식별 금지",
             "action": "가명처리 기준 수립; 결합 전문기관 활용; 재식별 금지 조치.",
             "checks": ["pseudonymization", "anonymization", "masking", "de_identification"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -362,6 +367,7 @@ COMPLIANCE_CONTROL_MAP = {
             "desc": "개인정보 제3자 제공 시 동의 및 계약 관리",
             "action": "제공 동의 획득; 제공 항목·목적 명시; 제공 이력 관리.",
             "checks": ["third_party", "sharing", "consent", "data_transfer"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -370,6 +376,7 @@ COMPLIANCE_CONTROL_MAP = {
             "desc": "개인정보 국외이전 시 정보주체 동의 및 보호조치",
             "action": "국외이전 동의; 수탁자 보호조치 계약; 이전 현황 공개.",
             "checks": ["cross_border", "international", "gdpr"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -378,6 +385,7 @@ COMPLIANCE_CONTROL_MAP = {
             "desc": "보유기간 경과·목적 달성 시 지체 없이 파기",
             "action": "파기 절차; 복구 불가능한 방법(물리적 파괴, 데이터 삭제); 파기 기록 관리.",
             "checks": ["deletion", "retention", "destroy", "purge", "lifecycle"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -386,6 +394,7 @@ COMPLIANCE_CONTROL_MAP = {
             "desc": "개인정보 처리방침 수립 및 공개",
             "action": "처리방침 웹사이트 게시; 필수 기재항목 확인; 변경 시 공지.",
             "checks": ["privacy_policy", "disclosure", "notice", "transparency"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -394,6 +403,7 @@ COMPLIANCE_CONTROL_MAP = {
             "desc": "열람·정정·삭제·처리정지·전송요구·자동화결정 거부 권리 보장",
             "action": "권리 행사 절차; 전송요구권(데이터이동권) 대응; 자동화 결정 거부·설명 요구권 대응; 10일 내 처리.",
             "checks": ["data_subject", "right_to_access", "right_to_delete", "portability", "automated_decision"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -402,6 +412,7 @@ COMPLIANCE_CONTROL_MAP = {
             "desc": "개인정보 이용내역을 정보주체에게 주기적 통지",
             "action": "연 1회 이상 이용내역 통지; 통지 내용(항목, 이용목적, 보유기간); 전자적 통지.",
             "checks": ["notification", "notice", "transparency", "reporting"],
+            "assessable": False,
             "status": "",
         },
     ],
@@ -676,7 +687,10 @@ def map_compliance(all_findings):
                 native_match = _match_prowler_compliance(f, framework)
                 if keyword_match or native_match:
                     matching.append(f)
-            status = "PASS" if len(matching) == 0 else "FAIL"
+            if not ctrl.get("assessable", True):
+                status = "N/A"
+            else:
+                status = "PASS" if len(matching) == 0 else "FAIL"
             mapped.append(
                 {
                     **ctrl,
@@ -690,10 +704,14 @@ def map_compliance(all_findings):
 
 
 def compliance_summary(compliance_map):
-    """Return {framework: {pass, fail, total}} from map_compliance output."""
+    """Return {framework: {pass, fail, na, total}} from map_compliance output.
+
+    N/A controls are excluded from total (total = pass + fail).
+    """
     summary = {}
     for fw, controls in compliance_map.items():
         p = sum(1 for c in controls if c["status"] == "PASS")
         f = sum(1 for c in controls if c["status"] == "FAIL")
-        summary[fw] = {"pass": p, "fail": f, "total": p + f}
+        na = sum(1 for c in controls if c["status"] == "N/A")
+        summary[fw] = {"pass": p, "fail": f, "na": na, "total": p + f}
     return summary
