@@ -50,7 +50,7 @@ from dashboard_mapping import (  # noqa: F401
     CHECK_EN_MAP, DEFAULT_SUMMARY, DEFAULT_ACTION, get_check_en,
     OWASP_2025, OWASP_CHECK_MAP, OWASP_LLM_2025, map_findings_to_owasp,
     COMPLIANCE_FRAMEWORKS, COMPLIANCE_CONTROL_MAP,
-    map_compliance, _match_prowler_compliance,
+    map_compliance, _match_prowler_compliance, compliance_summary as _compliance_summary,
     ARCH_DOMAINS, ARCH_DOMAIN_LINKS, OWASP_TO_ARCH, map_architecture,
     CATEGORY_META,
 )
@@ -177,12 +177,8 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     total_prowler_fail = sum(v["total_fail"] for v in prov_summary.values())
     total_prowler_pass = sum(v["total_pass"] for v in prov_summary.values())
 
-    # Compliance summary for history tracking
-    compliance_summary = {}
-    for fw, controls in compliance_map.items():
-        fw_pass = sum(1 for c in controls if c["status"] == "PASS")
-        fw_fail = sum(1 for c in controls if c["status"] == "FAIL")
-        compliance_summary[fw] = {"pass": fw_pass, "fail": fw_fail, "total": fw_pass + fw_fail}
+    # Compliance summary for history tracking (canonical source: compliance-map.py)
+    compliance_summary = _compliance_summary(compliance_map)
 
     history_json = json.dumps(
         history

@@ -6,7 +6,7 @@ cap (coding-style rule). Re-exported by dashboard_mapping for backward
 compatibility; importers may use either path.
 
 Public names: COMPLIANCE_FRAMEWORKS, COMPLIANCE_CONTROL_MAP,
-_match_prowler_compliance, map_compliance.
+_match_prowler_compliance, map_compliance, compliance_summary.
 
 The compliance control map itself is defined once, in compliance-map.py (the
 single source of truth, also loaded directly by output.sh). This module imports
@@ -102,3 +102,4 @@ except Exception as e:
 COMPLIANCE_CONTROL_MAP = _cm_mod.COMPLIANCE_CONTROL_MAP
 _match_prowler_compliance = _cm_mod._match_prowler_compliance
 map_compliance = _cm_mod.map_compliance
+compliance_summary = _cm_mod.compliance_summary

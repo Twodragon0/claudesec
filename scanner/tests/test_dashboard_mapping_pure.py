@@ -312,11 +312,14 @@ class TestMapCompliance(unittest.TestCase):
         return d
 
     def test_empty_findings_every_control_passes(self):
+        """Assessable controls PASS with no findings; non-assessable controls
+        (the 11 ISMS-P 3.x PII controls) are always N/A."""
         result = dm.map_compliance([])
         for framework, controls in result.items():
             assert framework in dm.COMPLIANCE_CONTROL_MAP
             for ctrl in controls:
-                assert ctrl["status"] == "PASS"
+                expected_status = "N/A" if not ctrl.get("assessable", True) else "PASS"
+                assert ctrl["status"] == expected_status
                 assert ctrl["count"] == 0
                 assert ctrl["findings"] == []
 

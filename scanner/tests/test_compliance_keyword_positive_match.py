@@ -90,8 +90,11 @@ class TestShortKeywordsHaveControls(unittest.TestCase):
 
 
 class TestShortKeywordsPositivelyMatch(unittest.TestCase):
-    """Each short acronym keyword must still trigger FAIL on every control
-    that lists it, when a finding's text contains that keyword."""
+    """Each short acronym keyword must still trigger FAIL on every
+    assessable control that lists it, when a finding's text contains that
+    keyword. Non-assessable controls (e.g. the 11 ISMS-P 3.x PII/privacy
+    controls) always report "N/A" regardless of matches — see
+    `map_compliance()` — but the match must still be tracked (count>=1)."""
 
     def test_short_keywords_trigger_fail_on_all_their_controls(self):
         for keyword in SHORT_KEYWORDS:
@@ -109,10 +112,11 @@ class TestShortKeywordsPositivelyMatch(unittest.TestCase):
                     controls_by_id = {c["control"]: c for c in result[framework]}
                     ctrl = controls_by_id[control_id]
                     with self.subTest(framework=framework, control=control_id):
+                        expected_status = "N/A" if not ctrl.get("assessable", True) else "FAIL"
                         self.assertEqual(
                             ctrl["status"],
-                            "FAIL",
-                            f"keyword {keyword!r} did NOT trigger FAIL on "
+                            expected_status,
+                            f"keyword {keyword!r} did NOT trigger {expected_status} on "
                             f"{framework}/{control_id} (checks={ctrl['checks']!r}) "
                             "— this is a false negative: the keyword no longer "
                             "matches its own finding text.",
