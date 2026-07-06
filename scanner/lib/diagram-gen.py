@@ -12,6 +12,15 @@ from pathlib import Path
 from collections import defaultdict
 import hashlib
 
+# Sibling-module imports: ensure this file's dir (scanner/lib) is importable
+# whether run directly (python3 scanner/lib/diagram-gen.py) or loaded via
+# importlib.spec_from_file_location (the test harness, since the filename has a
+# hyphen). Mirrors the _LIB_DIR pattern used by the dashboard_* modules.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from dashboard_arch import ARCH_DOMAINS  # noqa: E402  (canonical security domains)
+from dashboard_compliance import COMPLIANCE_FRAMEWORKS  # noqa: E402
+
 VERSION = "0.1.0"
 
 # Scanner categories (from claudesec)
@@ -20,15 +29,10 @@ CATEGORIES = [
     "cicd", "code", "macos", "saas", "windows", "prowler",
 ]
 
-# Security architecture domains (aligned with dashboard-gen)
-ARCH_DOMAINS = [
-    {"name": "Network & TLS", "icon": "🌐"},
-    {"name": "Identity & Access", "icon": "🔑"},
-    {"name": "Data protection", "icon": "🔒"},
-    {"name": "CI/CD pipeline", "icon": "⚡"},
-    {"name": "Monitoring & logging", "icon": "📊"},
-    {"name": "Supply chain", "icon": "📦"},
-]
+# Security architecture domains and compliance frameworks are single-sourced
+# from dashboard_arch.ARCH_DOMAINS and dashboard_compliance.COMPLIANCE_FRAMEWORKS
+# (imported above) — no inline copies here, so the diagram never drifts from the
+# dashboard. Kept honest by scanner/tests/test_ci_diagram_gen_canonical_sync.py.
 
 
 def load_scan_results(path):
@@ -887,7 +891,7 @@ def generate_security_domains_diagram(agg, out_path):
         emit_mx_geometry(c, 40, 40 + i * 70, 200, 50)
         sid += 1
 
-    frameworks = ["OWASP Top 10:2025", "OWASP LLM Top 10", "NIST CSF 2.0", "ISO 27001", "KISA ISMS-P", "PCI-DSS"]
+    frameworks = [f["name"] for f in COMPLIANCE_FRAMEWORKS]
     for i, fw in enumerate(frameworks):
         c = ET.SubElement(gr, "mxCell", id=str(sid), value=mx_escape(fw), style=style_ref, vertex="1", parent="1")
         emit_mx_geometry(c, 320, 40 + i * 50, 160, 36)
