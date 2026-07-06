@@ -20,6 +20,7 @@ if _LIB_DIR not in sys.path:
 
 from dashboard_utils import h, sev_badge
 from dashboard_mapping import CATEGORY_META, get_check_en
+from dashboard_providers import PROVIDER_LABELS
 from dashboard_html_helpers import (
     _infer_category,
     _compute_severity_counts,
@@ -159,18 +160,7 @@ def build_priority_queue_html(
     datadog_data = datadog_data or {}
     net_data = net_data or {}
 
-    provider_labels = {
-        "aws": "AWS",
-        "github": "GitHub",
-        "iac": "IaC",
-        "kubernetes": "Kubernetes",
-        "azure": "Azure",
-        "gcp": "GCP",
-        "googleworkspace": "Google Workspace",
-        "m365": "Microsoft 365",
-        "cloudflare": "Cloudflare",
-        "nhn": "NHN Cloud",
-    }
+    provider_labels = PROVIDER_LABELS
 
     scanner_urgent = [
         f for f in findings_list if str(f.get("severity") or "").lower() in ("critical", "high")
