@@ -55,6 +55,8 @@ from dashboard_mapping import (  # noqa: F401
     CATEGORY_META,
 )
 
+from dashboard_providers import PROVIDER_LABELS, PROVIDER_SUBTAB_MAP, PROWLER_SELECTABLE_ORDER
+
 from dashboard_api_client import (  # noqa: F401
     MS_BEST_PRACTICES_REPO_SOURCES, SAAS_BEST_PRACTICES_SOURCES,
     SAAS_BEST_PRACTICES_CACHE_TTL_HOURS,
@@ -435,23 +437,9 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     )
 
     prowler_provider_options = [
-        ("aws", "AWS"),
-        ("gcp", "GCP"),
-        ("googleworkspace", "Google Workspace"),
-        ("kubernetes", "Kubernetes"),
-        ("azure", "Azure"),
-        ("m365", "Microsoft 365"),
-        ("iac", "IaC"),
+        (k, PROVIDER_LABELS[k]) for k in PROWLER_SELECTABLE_ORDER
     ]
-    prowler_subtab_map = {
-        "aws": "aws",
-        "gcp": "gcp",
-        "googleworkspace": "gws",
-        "kubernetes": "k8s",
-        "azure": "azure",
-        "m365": "m365",
-        "iac": "iac",
-    }
+    prowler_subtab_map = PROVIDER_SUBTAB_MAP
     prowler_selector_options_html = '<option value="">Prowler summary</option>'
     for key, label in prowler_provider_options:
         pdata = prov_summary.get(key)
