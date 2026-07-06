@@ -15,7 +15,11 @@ if _LIB_DIR not in sys.path:
 
 from dashboard_utils import h, sev_badge
 from dashboard_mapping import CATEGORY_META, get_check_en
-from dashboard_providers import PROVIDER_LABELS_SHORT, PROVIDER_SUBTAB_MAP
+from dashboard_providers import (
+    PROVIDER_LABELS_SHORT,
+    PROVIDER_SUBTAB_MAP,
+    PROWLER_SELECTABLE_ORDER,
+)
 
 # Re-export builders extracted into dedicated modules in the Option B split
 # (see .omc/plans/dashboard-standards-split.md). Keeping the names here means
@@ -85,16 +89,9 @@ def _build_prov_table(prov_summary) -> str:
     """Build the Prowler provider summary table rows (fixed display order + extras)."""
     _prov_labels = PROVIDER_LABELS_SHORT
     _subtab_map = PROVIDER_SUBTAB_MAP
-    _display_order = [
-        "aws",
-        "gcp",
-        "googleworkspace",
-        "kubernetes",
-        "azure",
-        "m365",
-        "iac",
-        "github",
-    ]
+    # "github" is an intentional extra: not a selectable Prowler provider,
+    # but it appears in this summary table alongside the Prowler providers.
+    _display_order = [*PROWLER_SELECTABLE_ORDER, "github"]
     prov_table = ""
     seen = set()
     for pname in _display_order:
