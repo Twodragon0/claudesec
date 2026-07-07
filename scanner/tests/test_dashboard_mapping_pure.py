@@ -22,29 +22,26 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 import dashboard_mapping as dm  # noqa: E402
 
 
-def _reload_with_fallback():
-    """Reload dashboard_compliance with compliance-map.py import forced to fail.
+def _restore_canonical_compliance_modules():
+    """Reimport dashboard_compliance / dashboard_mapping from a clean state.
 
-    Returns a freshly-loaded module object whose inline fallback definitions
-    (_match_prowler_compliance, map_compliance, COMPLIANCE_CONTROL_MAP) are
-    the ones used instead of the external compliance_map module. The
-    compliance lazy-load + inline fallback live in dashboard_compliance.py
-    (extracted from dashboard_mapping.py); dashboard_mapping re-exports them.
+    Tests that force the compliance-map.py import to fail leave those modules
+    missing from sys.modules (import raised). This restores the canonical,
+    successfully-loaded modules so later tests in the same run are unaffected.
     """
-    # Force the spec_from_file_location call to raise so the except branch
-    # runs and _COMPLIANCE_IMPORTED stays False. The inline definitions at
-    # module scope then become the active ones.
-    with patch(
-        "importlib.util.spec_from_file_location",
-        side_effect=RuntimeError("forced fallback"),
-    ):
-        for _mod in ("dashboard_compliance", "dashboard_mapping"):
-            if _mod in sys.modules:
-                del sys.modules[_mod]
-        fallback_mod = importlib.import_module("dashboard_compliance")
-        # Keep dashboard_mapping consistent with the fallback compliance module.
-        importlib.import_module("dashboard_mapping")
-    return fallback_mod
+    for _mod in ("dashboard_compliance", "dashboard_mapping"):
+        if _mod in sys.modules:
+            del sys.modules[_mod]
+    importlib.import_module("dashboard_compliance")
+    importlib.import_module("dashboard_mapping")
+
+
+def _import_dashboard_compliance_fresh():
+    """Force a fresh import of dashboard_compliance (dropping any cached copy)."""
+    for _mod in ("dashboard_compliance", "dashboard_mapping"):
+        if _mod in sys.modules:
+            del sys.modules[_mod]
+    return importlib.import_module("dashboard_compliance")
 
 
 # ===========================================================================
@@ -315,11 +312,14 @@ class TestMapCompliance(unittest.TestCase):
         return d
 
     def test_empty_findings_every_control_passes(self):
+        """Assessable controls PASS with no findings; non-assessable controls
+        (the 11 ISMS-P 3.x PII controls) are always N/A."""
         result = dm.map_compliance([])
         for framework, controls in result.items():
             assert framework in dm.COMPLIANCE_CONTROL_MAP
             for ctrl in controls:
-                assert ctrl["status"] == "PASS"
+                expected_status = "N/A" if not ctrl.get("assessable", True) else "PASS"
+                assert ctrl["status"] == expected_status
                 assert ctrl["count"] == 0
                 assert ctrl["findings"] == []
 
@@ -514,103 +514,70 @@ class TestAllExports(unittest.TestCase):
 
 
 # ===========================================================================
-# 17. Fallback branch (inline definitions when compliance-map.py import fails)
+# 17. Hard-fail branch (RuntimeError when compliance-map.py import fails)
 # ===========================================================================
 
 
-class TestFallbackBranch(unittest.TestCase):
-    """Exercise the inline fallback definitions in dashboard_compliance.py.
+class TestHardFailOnLoadError(unittest.TestCase):
+    """dashboard_compliance hard-fails when compliance-map.py cannot load.
 
-    When compliance-map.py cannot be imported, dashboard_compliance defines
-    COMPLIANCE_CONTROL_MAP, _match_prowler_compliance, and map_compliance
-    inline. These tests reload the module with the external import forced to
-    fail so the fallback code runs.
+    compliance-map.py is the single source of truth for COMPLIANCE_CONTROL_MAP.
+    There is intentionally no inline fallback copy — a prior fallback drifted
+    badly out of sync. If the module cannot be imported, dashboard_compliance
+    raises RuntimeError at import time rather than serving stale data.
     """
 
-    @classmethod
-    def setUpClass(cls):
-        cls.fb = _reload_with_fallback()
-
-    @classmethod
-    def tearDownClass(cls):
+    def tearDown(self):
         # Restore the canonical modules for any later tests in the same run.
-        for _mod in ("dashboard_compliance", "dashboard_mapping"):
-            if _mod in sys.modules:
-                del sys.modules[_mod]
-        importlib.import_module("dashboard_compliance")
-        importlib.import_module("dashboard_mapping")
+        _restore_canonical_compliance_modules()
 
-    def test_fallback_compliance_control_map_populated(self):
-        assert isinstance(self.fb.COMPLIANCE_CONTROL_MAP, dict)
-        # Inline fallback covers ISO, ISMS-P, PCI-DSS, NIST, CIS.
-        for fw in (
-            "ISO 27001:2022",
-            "KISA ISMS-P",
-            "PCI-DSS v4.0.1",
-            "NIST 800-53 Rev5",
-            "CIS Benchmarks",
+    def test_import_raises_runtime_error_when_map_unavailable(self):
+        with patch(
+            "importlib.util.spec_from_file_location",
+            side_effect=RuntimeError("forced load failure"),
         ):
-            assert fw in self.fb.COMPLIANCE_CONTROL_MAP
+            with self.assertRaises(RuntimeError) as ctx:
+                _import_dashboard_compliance_fresh()
+        self.assertIn("compliance-map.py load failed", str(ctx.exception))
 
-    def test_fallback_match_prowler_compliance_key_hit(self):
-        finding = {"compliance": {"ISO 27001": ["A.8.2"]}}
-        assert self.fb._match_prowler_compliance(finding, "iso 27001") is True
+    def test_runtime_error_chains_original_cause(self):
+        cause = RuntimeError("forced load failure")
+        with patch(
+            "importlib.util.spec_from_file_location",
+            side_effect=cause,
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                _import_dashboard_compliance_fresh()
+        # RuntimeError is chained from the original exception (raise ... from e).
+        self.assertIs(ctx.exception.__cause__, cause)
 
-    def test_fallback_match_prowler_compliance_value_list_hit(self):
-        finding = {"compliance": {"framework": ["PCI-DSS v4.0.1"]}}
-        assert self.fb._match_prowler_compliance(finding, "pci-dss") is True
+    def test_import_raises_when_spec_has_no_loader(self):
+        class _SpecNoLoader:
+            loader = None
 
-    def test_fallback_match_prowler_compliance_value_string_hit(self):
-        finding = {"compliance": {"framework": "NIST"}}
-        assert self.fb._match_prowler_compliance(finding, "nist") is True
+        with patch(
+            "importlib.util.spec_from_file_location",
+            return_value=_SpecNoLoader(),
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                _import_dashboard_compliance_fresh()
+        self.assertIn("compliance-map.py load failed", str(ctx.exception))
 
-    def test_fallback_match_prowler_compliance_empty(self):
-        assert self.fb._match_prowler_compliance({}, "ISO") is False
-        assert (
-            self.fb._match_prowler_compliance({"compliance": {}}, "ISO") is False
+    def test_canonical_import_exposes_single_source_of_truth(self):
+        """Under normal import, the map IS the canonical compliance-map.py map."""
+        import importlib.util as _ilu
+
+        _spec = _ilu.spec_from_file_location(
+            "compliance_map_canonical",
+            os.path.join(os.path.dirname(__file__), "..", "lib", "compliance-map.py"),
         )
+        canonical = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(canonical)
 
-    def test_fallback_match_prowler_compliance_miss(self):
-        finding = {"compliance": {"other": ["SOC2"]}}
-        assert self.fb._match_prowler_compliance(finding, "HIPAA") is False
-
-    def test_fallback_map_compliance_empty_all_pass(self):
-        result = self.fb.map_compliance([])
-        for controls in result.values():
-            for ctrl in controls:
-                assert ctrl["status"] == "PASS"
-                assert ctrl["count"] == 0
-                assert ctrl["findings"] == []
-
-    def test_fallback_map_compliance_keyword_fail(self):
-        f = {"check": "mfa", "title": "missing", "message": ""}
-        result = self.fb.map_compliance([f])
-        iso = result["ISO 27001:2022"]
-        a85 = next(c for c in iso if c["control"] == "A.8.5")
-        assert a85["status"] == "FAIL"
-        assert a85["count"] == 1
-
-    def test_fallback_map_compliance_findings_capped_at_five(self):
-        findings = [
-            {"check": "encrypt", "title": f"t{i}", "message": ""} for i in range(7)
-        ]
-        result = self.fb.map_compliance(findings)
-        iso = result["ISO 27001:2022"]
-        a824 = next(c for c in iso if c["control"] == "A.8.24")
-        assert a824["count"] == 7
-        assert len(a824["findings"]) == 5
-
-    def test_fallback_map_compliance_native_fallback(self):
-        f = {
-            "check": "unrelated",
-            "title": "unrelated",
-            "message": "unrelated",
-            "compliance": {"ISO 27001:2022": ["A.8.5"]},
-        }
-        result = self.fb.map_compliance([f])
-        # Native compliance reference fires on every ISO control.
-        for ctrl in result["ISO 27001:2022"]:
-            assert ctrl["status"] == "FAIL"
+        fresh = _import_dashboard_compliance_fresh()
+        self.assertEqual(
+            fresh.COMPLIANCE_CONTROL_MAP, canonical.COMPLIANCE_CONTROL_MAP
+        )
 
 
 if __name__ == "__main__":

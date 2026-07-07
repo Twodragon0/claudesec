@@ -30,7 +30,7 @@ ISMS-P, ISO 27001, SOC2, PCI-DSS 등 컴플라이언스에 준수하는 보안 �
 | **Prowler** | [prowler-cloud/prowler](https://github.com/prowler-cloud/prowler) | CIS, NIST 800-53/CSF, FedRAMP, **PCI-DSS**, **ISO 27001**, **SOC2**, **KISA ISMS-P**, GDPR, HIPAA 등 25+ | **이미 ClaudeSec 통합**. 멀티클라우드·GitHub. |
 | **Lynis** | [CISOfy/lynis](https://github.com/CISOfy/lynis) | HIPAA, ISO 27001, PCI-DSS (호스트 하드닝) | 호스트/OS 감사. 에이전트리스. |
 | **CloudAudit** | [xtawb/cloudaudit](https://github.com/xtawb/cloudaudit) | CIS, NIST, SOC2, ISO 27001, PCI-DSS | AWS/GCP/Azure, AI 기반. |
-| **Gestalt Security Framework** | [GestaltSecurity/Gestalt-Security-Framework](https://github.com/GestaltSecurity/Gestalt-Security-Framework) | NIST 800-53, ISO 27000, PCI-DSS, COBIT, CIS, SOC2 등 | 컨트롤 매핑·네비게이션용. 스캐너 아님. |
+| **Security Controls Mapping** | [center-for-threat-informed-defense/mappings-explorer](https://github.com/center-for-threat-informed-defense/mappings-explorer) · [usnistgov/oscal-content](https://github.com/usnistgov/oscal-content) | NIST 800-53 Rev4/5 ↔ MITRE ATT&CK, CSF 2.0, NIST 800-171 Rev3 (머신리더블 JSON/YAML/CSV) | 프레임워크 간 컨트롤 매핑 데이터셋. 스캐너 아님. counteractive/security-controls는 2020년 이후 미유지(NIST CSF 1.1 기준)라 MITRE CTID + NIST OSCAL로 교체. |
 | **AuditKit** | (Community Edition) | SOC2, PCI-DSS, CMMC 등 | 오픈소스 컴플라이언스 스캐너. |
 
 **Best practice**: 단일 스캐너(Prowler)로 최대한 커버하고, 호스트/OS 레벨이 필요할 때만 Lynis 등 보조 도구를 검토.
@@ -126,7 +126,7 @@ ISMS-P, ISO 27001, SOC2, PCI-DSS 등 컴플라이언스에 준수하는 보안 �
 ## 7. 참고 자료
 
 - [QueryPie Audit Points](https://github.com/querypie/audit-points) — SaaS/DevSecOps 감사 포인트 공유 저장소
-- [Prowler Compliance (공식 문서)](https://docs.prowler.com/introduction/user-guide/compliance/tutorials/compliance)
+- [Prowler Compliance (공식 문서)](https://docs.prowler.com/user-guide/compliance/tutorials/compliance)
 - [Prowler Hub — Compliance](https://hub.prowler.com/compliance)
 - [KISA ISMS-P 소개](https://isms.kisa.or.kr/main/ispims/intro/)
 - [PCI-DSS 문서](https://www.pcisecuritystandards.org/document_library/?category=pcidss)

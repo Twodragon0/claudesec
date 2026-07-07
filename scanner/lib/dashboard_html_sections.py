@@ -15,6 +15,11 @@ if _LIB_DIR not in sys.path:
 
 from dashboard_utils import h, sev_badge
 from dashboard_mapping import CATEGORY_META, get_check_en
+from dashboard_providers import (
+    PROVIDER_LABELS_SHORT,
+    PROVIDER_SUBTAB_MAP,
+    PROWLER_SELECTABLE_ORDER,
+)
 
 # Re-export builders extracted into dedicated modules in the Option B split
 # (see .omc/plans/dashboard-standards-split.md). Keeping the names here means
@@ -82,43 +87,11 @@ def _build_overview_blocks(*args, **kwargs):
 
 def _build_prov_table(prov_summary) -> str:
     """Build the Prowler provider summary table rows (fixed display order + extras)."""
-    _prov_labels = {
-        "aws": "AWS",
-        "github": "GitHub",
-        "iac": "IaC",
-        "kubernetes": "K8s",
-        "azure": "Azure",
-        "gcp": "GCP",
-        "googleworkspace": "Google Workspace",
-        "m365": "Microsoft 365",
-        "cloudflare": "Cloudflare",
-        "nhn": "NHN Cloud",
-        "llm": "LLM",
-        "image": "Container Image",
-        "oraclecloud": "Oracle Cloud",
-        "alibabacloud": "Alibaba Cloud",
-        "openstack": "OpenStack",
-        "mongodbatlas": "MongoDB Atlas",
-    }
-    _subtab_map = {
-        "aws": "aws",
-        "gcp": "gcp",
-        "googleworkspace": "gws",
-        "kubernetes": "k8s",
-        "azure": "azure",
-        "m365": "m365",
-        "iac": "iac",
-    }
-    _display_order = [
-        "aws",
-        "gcp",
-        "googleworkspace",
-        "kubernetes",
-        "azure",
-        "m365",
-        "iac",
-        "github",
-    ]
+    _prov_labels = PROVIDER_LABELS_SHORT
+    _subtab_map = PROVIDER_SUBTAB_MAP
+    # "github" is an intentional extra: not a selectable Prowler provider,
+    # but it appears in this summary table alongside the Prowler providers.
+    _display_order = [*PROWLER_SELECTABLE_ORDER, "github"]
     prov_table = ""
     seen = set()
     for pname in _display_order:

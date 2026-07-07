@@ -109,5 +109,5 @@ After configuration, run the ClaudeSec scanner:
 ## References
 
 - [Zscaler NSS Deployment Guide](https://help.zscaler.com/zia/about-nanolog-streaming-service)
-- [Datadog Zscaler Integration](https://docs.datadoghq.com/integrations/zscaler_internet_access/)
+- [Datadog Zscaler Integration](https://docs.datadoghq.com/integrations/z-scaler/)
 - [ZIA API Documentation](https://help.zscaler.com/zia/api)

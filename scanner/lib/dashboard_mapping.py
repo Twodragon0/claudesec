@@ -531,6 +531,7 @@ from dashboard_compliance import (  # noqa: F401  (re-exported for back-compat)
     COMPLIANCE_CONTROL_MAP,
     _match_prowler_compliance,
     map_compliance,
+    compliance_summary,
 )
 
 
@@ -617,6 +618,7 @@ __all__ = [
     "COMPLIANCE_CONTROL_MAP",
     "_match_prowler_compliance",
     "map_compliance",
+    "compliance_summary",
     "ARCH_DOMAINS",
     "ARCH_DOMAIN_LINKS",
     "OWASP_TO_ARCH",
