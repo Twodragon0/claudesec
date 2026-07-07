@@ -602,7 +602,9 @@ Claude Code security hooks for real-time protection:
     "PreToolUse": [
       {
         "matcher": "Write|Edit",
-        "command": "bash hooks/security-lint.sh"
+        "hooks": [
+          { "type": "command", "command": "bash hooks/security-lint.sh" }
+        ]
       }
     ]
   }

@@ -24,7 +24,9 @@ Add to your project's `.claude/settings.json`:
     "PreToolUse": [
       {
         "matcher": "Write|Edit",
-        "command": "bash .claude/hooks/security-lint.sh"
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/security-lint.sh" }
+        ]
       }
     ]
   }
@@ -40,22 +42,31 @@ chmod +x .git/hooks/pre-commit
 
 ## Creating Custom Hooks
 
-Hooks are bash scripts that:
+PreToolUse hooks are commands that:
 
-1. Receive file path and content as arguments
-2. Exit `0` to allow the operation
-3. Exit `1` to block the operation (with error message)
+1. Receive the tool event as **JSON on stdin** — not positional args
+   (fields: `tool_name`, `tool_input`, …; the written text is in
+   `tool_input.content` for Write and `tool_input.new_string` for Edit).
+2. Exit `0` to allow the operation.
+3. Exit `2` to block it — stderr is shown back to Claude as the reason.
+
+See the [Claude Code hooks reference](https://code.claude.com/docs/en/hooks) for
+the full event schema.
 
 ```bash
 #!/bin/bash
 # custom-hook.sh
-FILE="$1"
-CONTENT="$2"
+set -euo pipefail
+
+INPUT="$(cat)"                                   # PreToolUse event JSON on stdin
+CONTENT="$(printf '%s' "$INPUT" | jq -r '
+  [ .tool_input.content?, .tool_input.new_string? ]
+  | map(select(. != null)) | join("\n")')"
 
 # Your security check here
-if echo "$CONTENT" | grep -q "DANGEROUS_PATTERN"; then
-  echo "Blocked: dangerous pattern detected"
-  exit 1
+if printf '%s' "$CONTENT" | grep -q "DANGEROUS_PATTERN"; then
+  echo "Blocked: dangerous pattern detected" >&2
+  exit 2
 fi
 
 exit 0
