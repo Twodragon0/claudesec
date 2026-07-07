@@ -48,8 +48,16 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            git fetch origin "$BASE_SHA" --depth=1 >/dev/null 2>&1 || true
-            FILES=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA")
+            # Fetch the PR base WITH ancestry (not --depth=1): a shallow single
+            # commit has no parents locally, so the three-dot merge-base diff dies
+            # with "fatal: no merge base" whenever the branch is behind its base
+            # (a moving main). Fall back to a two-endpoint diff (needs no merge
+            # base; over-inclusive is fail-safe for a path gate) then HEAD~1.
+            git fetch origin "$BASE_SHA" >/dev/null 2>&1 \
+              || git fetch origin "$BASE_SHA" --depth=1 >/dev/null 2>&1 || true
+            FILES=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA" 2>/dev/null \
+                    || git diff --name-only "$BASE_SHA" "$HEAD_SHA" 2>/dev/null \
+                    || git diff --name-only HEAD~1..HEAD)
           elif [ -n "${BEFORE_SHA:-}" ] && [ "$BEFORE_SHA" != "$NULL_SHA" ]; then
             git fetch origin "$BEFORE_SHA" --depth=1 >/dev/null 2>&1 || true
             FILES=$(git diff --name-only "$BEFORE_SHA"..HEAD 2>/dev/null \
