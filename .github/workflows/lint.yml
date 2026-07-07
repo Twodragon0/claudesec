@@ -209,6 +209,8 @@ jobs:
         run: bash scanner/tests/test_check_saas_zscaler.sh
       - name: Run bash unit tests (prowler provider build parity)
         run: bash scanner/tests/test_prowler_provider_build_parity.sh
+      - name: Run bash unit tests (security-lint PreToolUse hook)
+        run: bash scanner/tests/test_hook_security_lint.sh
       - name: Run scanner pytest + coverage gate (>=99%)
         id: scanner_tests
         env:
