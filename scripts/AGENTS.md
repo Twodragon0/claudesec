@@ -1,7 +1,7 @@
 # AGENTS.md — scripts/
 
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-08 -->
+<!-- Generated: 2026-07-07 -->
 
 ## Purpose
 
@@ -34,7 +34,22 @@ Automation scripts for scan execution, dashboard building, asset collection, and
 | `quick-start.sh` | bash | Docker-first onboarding |
 | `lint-shell.sh` | bash | ShellCheck wrapper (local + CI) |
 | `gsheet-auth.py` | Python | Google Sheets OAuth helper |
+| `gsheet-auth-setup.py` | Python | gspread OAuth2 auth setup guide/helper |
 | `update-pc-sheet.py` | Python | PC inventory sheet updater |
+| `pre-push.sh` | bash | Git pre-push hook source (blocks direct push to `main`) |
+| `sync-repo-protection.sh` | bash | Sync GitHub branch-protection / ruleset to the codified config (backs `protection-drift-watch.yml`) |
+| `check-pull-request-target-guard.py` | Python | Audit workflows' `pull_request_target` triggers for the fork guard (backs `lint.yml`'s `workflow-fork-guard`) |
+| `check-prowler-python-ceiling.sh` | bash | Watch prowler's PyPI metadata for the Python <3.13 ceiling (backs `prowler-python-watch.yml`) |
+| `dev-machine-hardening.sh` | bash | macOS dev-machine hardening helper |
+| `github-setup-labels.sh` | bash | Create the recommended GitHub labels for this repo |
+| `og-meta-verify.sh` | bash | Fetch the deployed page's OG/Twitter meta + image and verify |
+| `run-prowler-k8s.sh` | bash | Run a Prowler K8s scan as an in-cluster Pod (EKS) |
+| `run-asset-sync.sh` | bash | Run the Google Sheets asset-management sync |
+| `sync-notion-licenses.py` | Python | Sync the Notion software-license DB → `dashboard-data.json` |
+| `update-license-active-accounts.py` | Python | Update the license sheet's `active_accounts` column from real usage |
+| `generate_ai_devsecops_ppt.py` | Python | Generate the AI-DevSecOps PPTX deck |
+| `generate_ai_devsecops_from_template.py` | Python | Build the AI-DevSecOps deck from a template |
+| `generate_security_seminar_template_ppt.py` | Python | Generate the 30-min security-seminar PPTX template |
 
 ## For AI Agents
 

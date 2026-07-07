@@ -95,6 +95,12 @@ Multi-agent workflows:
 - **Scanner feature**: architect → implementer → test-engineer → ci-pipeline
 - **Hotfix**: researcher → implementer → reviewer
 
+The `sec-*` and `ci-pipeline` roles are project agents in `.claude/agents/`. The
+`architect`, `writer`, and `test-engineer` steps above are generic roles sourced
+from the global oh-my-claudecode agent catalog (there is no project-scoped
+`.claude/agents/` file for them) — substitute your own equivalents if you are not
+running OMC.
+
 ### Testing
 
 ```bash
