@@ -20,6 +20,8 @@ All documentation is in Markdown. No build system required.
 - docs/guides/ — Step-by-step tutorials
 - docs/compliance/ — NIST, ISO, ISMS-P compliance guides
 - docs/architecture/ — Architecture and flow diagrams
+- docs/reports/ — Session reports, retrospectives, and generated scan/seminar collateral
+- docs/plans/ — Strategy and planning documents
 - assets/ — Logo and branding assets
 - templates/ — Reusable config templates
 - scanner/ — Security scanner CLI

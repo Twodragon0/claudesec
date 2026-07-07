@@ -281,7 +281,7 @@ claudesec/
 
 ## Scanner CLI
 
-ClaudeSec includes a zero-dependency bash scanner that checks your project for security best practices across 10 categories (~120+ checks). Optionally integrates with [Prowler](https://github.com/prowler-cloud/prowler) for deep multi-cloud scanning.
+ClaudeSec includes a zero-dependency bash scanner that checks your project for security best practices across 11 categories (~120+ checks). The `prowler` category integrates with [Prowler](https://github.com/prowler-cloud/prowler) for deep multi-cloud scanning.
 
 **Scanner anchors**
 

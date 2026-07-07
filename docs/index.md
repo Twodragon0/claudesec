@@ -34,7 +34,7 @@ npx claudesec dashboard       # Full scan + dashboard
 
 ## Features
 
-- 40+ security checks across code, CI/CD, IAM, infrastructure, cloud, AI/LLM, SaaS
+- 120+ security checks across code, CI/CD, IAM, infrastructure, cloud, network, AI/LLM, SaaS, macOS & Windows
 - Prowler CSPM: AWS, Kubernetes, GitHub, IaC
 - ISMS asset management dashboard (9 tabs)
 - Claude Code slash commands: `/scan`, `/dashboard`, `/audit`
