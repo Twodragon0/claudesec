@@ -219,6 +219,12 @@ jobs:
         run: bash scanner/tests/test_prowler_provider_build_parity.sh
       - name: Run bash unit tests (security-lint PreToolUse hook)
         run: bash scanner/tests/test_hook_security_lint.sh
+      - name: Run bash unit tests (cloud/aws checks)
+        run: bash scanner/tests/test_check_cloud_aws.sh
+      - name: Run bash unit tests (infra/kubernetes checks)
+        run: bash scanner/tests/test_check_infra_kubernetes.sh
+      - name: Run bash unit tests (network/scan-tools checks)
+        run: bash scanner/tests/test_check_network_scan_tools.sh
       - name: Run scanner pytest + coverage gate (>=99%)
         id: scanner_tests
         env:
