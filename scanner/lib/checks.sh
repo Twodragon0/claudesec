@@ -558,14 +558,14 @@ collect_environment_info() {
     export CLAUDESEC_ENV_LLM_CONNECTED="false"
   fi
 
-  # Datadog: API key (DD_API_KEY or DATADOG_API_KEY); validate when possible
+  # Datadog: a configured API key (DD_API_KEY or DATADOG_API_KEY) marks Datadog
+  # "connected". We intentionally do NOT gate this on datadog_validate_api_key()
+  # here: both branches used to set "true" anyway (so the ~8s validation round-trip
+  # per scan had no effect), and gating would let a transient API error / rate-limit
+  # hide a correctly-configured key. The validation helper is still exercised
+  # directly by the cloud-credential-probe tests.
   if has_datadog_api_key 2>/dev/null; then
-    if datadog_validate_api_key 2>/dev/null; then
-      export CLAUDESEC_ENV_DATADOG_CONNECTED="true"
-    else
-      # Key present but validation failed (e.g. network or invalid key)
-      export CLAUDESEC_ENV_DATADOG_CONNECTED="true"
-    fi
+    export CLAUDESEC_ENV_DATADOG_CONNECTED="true"
   else
     export CLAUDESEC_ENV_DATADOG_CONNECTED="false"
   fi

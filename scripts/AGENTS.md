@@ -25,7 +25,6 @@ Automation scripts for scan execution, dashboard building, asset collection, and
 | `sync-cost-xlsx.py` | Python | Sync SaaS cost data from Excel |
 | `token-expiry-gate.py` | Python | Enforce token expiry before scans |
 | `isms-p-report.py` | Python | Generate ISMS-P compliance report |
-| `hourly-automation.sh` | bash | Hourly cron: pull + scan + sync |
 | `setup.sh` | bash | Install hooks, templates, virtualenv |
 | `setup-legal-intel.sh` | bash | Clone/update legalize-kr and GitHub Repo MCP, then write `.mcp.json` |
 | `legalize-search.sh` | bash | Search Korean law Markdown and inspect law history from local mirror |
