@@ -20,26 +20,25 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dashboard_arch import ARCH_DOMAINS  # noqa: E402  (canonical security domains)
 from dashboard_compliance import COMPLIANCE_FRAMEWORKS  # noqa: E402
+# load_scan_results is single-sourced in dashboard_data_loader (with try/except
+# hardening) so the two implementations can't drift.
+from dashboard_data_loader import load_scan_results  # noqa: E402,F401
 
 VERSION = "0.1.0"
 
-# Scanner categories (from claudesec)
+# Scanner categories — order must mirror the `CLAUDESEC_ALL_CATEGORIES` array in
+# scanner/claudesec (the authoritative scan order). CATEGORIES[:8]/[:7] slices
+# feed diagram labels, so order matters. Kept honest by
+# scanner/tests/test_ci_diagram_gen_canonical_sync.py.
 CATEGORIES = [
     "infra", "ai", "network", "cloud", "access-control",
-    "cicd", "code", "macos", "saas", "windows", "prowler",
+    "cicd", "code", "macos", "windows", "saas", "prowler",
 ]
 
 # Security architecture domains and compliance frameworks are single-sourced
 # from dashboard_arch.ARCH_DOMAINS and dashboard_compliance.COMPLIANCE_FRAMEWORKS
 # (imported above) — no inline copies here, so the diagram never drifts from the
 # dashboard. Kept honest by scanner/tests/test_ci_diagram_gen_canonical_sync.py.
-
-
-def load_scan_results(path):
-    if not path or not os.path.isfile(path):
-        return {"passed": 0, "failed": 0, "warnings": 0, "skipped": 0, "total": 0, "score": 0, "grade": "F", "duration": 0, "findings": []}
-    with open(path) as f:
-        return json.load(f)
 
 
 def _parse_ocsf_json(content):
