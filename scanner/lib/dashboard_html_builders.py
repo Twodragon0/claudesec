@@ -28,6 +28,8 @@ from dashboard_html_helpers import (
     _has_cmd, _cmd_pill,
 )
 
+from dashboard_providers import PROVIDER_LABELS_SHORT
+
 
 def _build_scanner_section(findings_list):
     SCANNER_TO_ARCH = {
@@ -218,18 +220,7 @@ def _build_provider_cards(prov_summary):
         "cloudflare": "🌐",
         "nhn": "☁",
     }
-    prov_labels = {
-        "aws": "AWS",
-        "github": "GitHub",
-        "iac": "IaC",
-        "kubernetes": "K8s",
-        "azure": "Azure",
-        "gcp": "GCP",
-        "googleworkspace": "Google Workspace",
-        "m365": "Microsoft 365",
-        "cloudflare": "Cloudflare",
-        "nhn": "NHN Cloud",
-    }
+    prov_labels = PROVIDER_LABELS_SHORT
     for pname, pdata in sorted(prov_summary.items()):
         icon = prov_icons.get(pname, "☁")
         label = prov_labels.get(pname, pname)

@@ -103,11 +103,15 @@ class TestMapCompliance(unittest.TestCase):
     """Test map_compliance with various finding sets."""
 
     def test_empty_findings_all_pass(self):
+        """With no findings, every assessable control is PASS; every
+        non-assessable control (e.g. the 11 ISMS-P 3.x PII controls) is
+        always N/A regardless of findings."""
         result = map_compliance([])
         for fw, controls in result.items():
             for ctrl in controls:
                 with self.subTest(framework=fw, control=ctrl["control"]):
-                    self.assertEqual(ctrl["status"], "PASS")
+                    expected_status = "N/A" if not ctrl.get("assessable", True) else "PASS"
+                    self.assertEqual(ctrl["status"], expected_status)
                     self.assertEqual(ctrl["count"], 0)
                     self.assertEqual(ctrl["findings"], [])
 
@@ -214,12 +218,15 @@ class TestComplianceSummary(unittest.TestCase):
         self.assertTrue(any_fail)
 
     def test_summary_totals_match_controls(self):
+        """total = pass + fail, excluding non-assessable (N/A) controls."""
         cmap = map_compliance([])
         summary = compliance_summary(cmap)
-        for fw in COMPLIANCE_CONTROL_MAP:
-            expected_total = len(COMPLIANCE_CONTROL_MAP[fw])
-            self.assertEqual(summary[fw]["total"], expected_total)
-            self.assertEqual(summary[fw]["pass"] + summary[fw]["fail"], expected_total)
+        for fw, controls in COMPLIANCE_CONTROL_MAP.items():
+            assessable_count = sum(1 for c in controls if c.get("assessable", True))
+            na_count = len(controls) - assessable_count
+            self.assertEqual(summary[fw]["total"], assessable_count)
+            self.assertEqual(summary[fw]["na"], na_count)
+            self.assertEqual(summary[fw]["pass"] + summary[fw]["fail"], assessable_count)
 
     def test_summary_keys_match_frameworks(self):
         cmap = map_compliance([])

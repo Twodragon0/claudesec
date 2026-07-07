@@ -70,8 +70,14 @@ def test_categories_contains_macos():
     assert "macos" in MOD.CATEGORIES
 
 
-def test_arch_domains_length_is_six():
-    assert len(MOD.ARCH_DOMAINS) == 6
+def test_arch_domains_is_canonical():
+    # ARCH_DOMAINS is single-sourced from dashboard_arch (no inline copy), so
+    # its length tracks the canonical list rather than a hardcoded count.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+    import dashboard_arch
+
+    assert MOD.ARCH_DOMAINS is dashboard_arch.ARCH_DOMAINS
+    assert len(MOD.ARCH_DOMAINS) == len(dashboard_arch.ARCH_DOMAINS)
 
 
 def test_arch_domains_each_has_name_and_icon():

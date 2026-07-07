@@ -32,9 +32,9 @@ def _build_compliance_html(compliance_map) -> str:
         "PCI-DSS v4.0.1": [0, 1, 2, 3, 4, 5],
     }
     for framework, controls in compliance_map.items():
-        total_c = len(controls)
         pass_c = sum(1 for c in controls if c["status"] == "PASS")
-        fail_c = total_c - pass_c
+        fail_c = sum(1 for c in controls if c["status"] == "FAIL")
+        na_c = sum(1 for c in controls if c["status"] == "N/A")
         comp_id = comp_slug(framework)
         comp_arch_html = ""
         for aidx in COMP_FW_TO_ARCH.get(framework, []):
@@ -46,14 +46,18 @@ def _build_compliance_html(compliance_map) -> str:
             if comp_arch_html
             else ""
         )
-        comp_html += f'<div class="comp-section" id="{comp_id}"><div class="comp-title" onclick="toggleComp(this)">{h(framework)} <span class="comp-stat"><span class="cs-pass">{pass_c} pass</span> / <span class="cs-fail">{fail_c} fail</span></span><span class="comp-arrow">▸</span></div>'
+        na_stat_html = f' / <span class="cs-na">{na_c} n/a</span>' if na_c > 0 else ""
+        comp_html += f'<div class="comp-section" id="{comp_id}"><div class="comp-title" onclick="toggleComp(this)">{h(framework)} <span class="comp-stat"><span class="cs-pass">{pass_c} pass</span> / <span class="cs-fail">{fail_c} fail</span>{na_stat_html}</span><span class="comp-arrow">▸</span></div>'
         if comp_arch_row:
             comp_html += comp_arch_row
         comp_html += '<div class="comp-body"><table><thead><tr><th>Control</th><th>Name</th><th>Status</th><th>Related</th><th>Summary · Remediation</th></tr></thead><tbody>'
         for ctrl in controls:
-            st_cls = "pass" if ctrl["status"] == "PASS" else "fail"
-            st_icon = "✓" if ctrl["status"] == "PASS" else "✗"
-            st_text = "Pass" if ctrl["status"] == "PASS" else "Fail"
+            if ctrl["status"] == "PASS":
+                st_cls, st_icon, st_text = "pass", "✓", "Pass"
+            elif ctrl["status"] == "N/A":
+                st_cls, st_icon, st_text = "na", "—", "N/A"
+            else:
+                st_cls, st_icon, st_text = "fail", "✗", "Fail"
             desc = (ctrl.get("desc") or ctrl.get("name") or "").strip()
             action = (
                 ctrl.get("action")

@@ -90,6 +90,34 @@ def _extract_job_block(text, job_name):
     return "\n".join(out)
 
 
+def _extract_redirect_section_entries(toml_text):
+    """Return the quoted URL entries inside the `# --- Intentional redirects`
+    section of a lychee.toml body.
+
+    The section runs from its `# --- Intentional redirect...` header up to (not
+    including) the next `# ---` section header. Only lines whose first
+    non-space char is a double-quote count as entries, so an example URL quoted
+    inside a `#  * ...` comment line (e.g. "report a vulnerability") is never
+    miscounted. Pure function over text — no file I/O — so a self-test can feed
+    it a mutated copy without touching the real lychee.toml."""
+    section, in_section = [], False
+    header_re = re.compile(r"^\s*#\s*---")
+    # First non-space char is a quote → an exclude entry, not a `#` comment.
+    # Backref \1 accepts either quote style (TOML allows both) without matching
+    # a mismatched-quote pair.
+    entry_re = re.compile(r"""^\s*(["'])(.+?)\1""")
+    for line in toml_text.splitlines():
+        if in_section:
+            if header_re.match(line):
+                break
+            m = entry_re.match(line)
+            if m:
+                section.append(m.group(2))
+        elif header_re.match(line) and "Intentional redirect" in line:
+            in_section = True
+    return section
+
+
 class TestCiLycheeConfig(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -181,12 +209,95 @@ class TestCiLycheeConfig(unittest.TestCase):
                 "#291.",
             )
 
+    def test_toml_intentional_redirect_excludes_are_exactly_registered(self):
+        # Exact-count pin (#292 hardening). The all-present check above catches
+        # a REMOVED entry; this catches an ADDED one — a 4th redirect-shaped
+        # exclude smuggled into lychee.toml's "Intentional redirects" section
+        # without registering it in INTENTIONAL_REDIRECT_EXCLUDES here. Such a
+        # smuggle would let genuine link rot masquerade as an "intentional
+        # redirect" and slip past review. Require the section to match the
+        # registered set EXACTLY (both membership and count).
+        entries = _extract_redirect_section_entries(self.toml_text)
+        self.assertEqual(
+            len(entries),
+            len(INTENTIONAL_REDIRECT_EXCLUDES),
+            "lychee.toml's `# --- Intentional redirects` section has "
+            f"{len(entries)} entries but {len(INTENTIONAL_REDIRECT_EXCLUDES)} "
+            "are registered in INTENTIONAL_REDIRECT_EXCLUDES. A redirect "
+            "exclude was added or removed without updating this guard — if it "
+            "is a genuine intentional redirect, register it here; otherwise it "
+            "may be link rot disguised as a redirect. Entries found: "
+            f"{entries!r}",
+        )
+        self.assertEqual(
+            set(entries),
+            set(INTENTIONAL_REDIRECT_EXCLUDES),
+            "lychee.toml's `# --- Intentional redirects` section does not match "
+            "the registered INTENTIONAL_REDIRECT_EXCLUDES set. Unregistered: "
+            f"{sorted(set(entries) - set(INTENTIONAL_REDIRECT_EXCLUDES))!r}; "
+            f"missing from file: "
+            f"{sorted(set(INTENTIONAL_REDIRECT_EXCLUDES) - set(entries))!r}",
+        )
+
+    def test_exact_count_guard_catches_a_smuggled_fourth_exclude(self):
+        # Mutate-then-verify self-test: prove the exact-count guard is NOT a
+        # false-negative (project memory warns substring guards repeatedly
+        # shipped CRITICAL false-negatives). Inject a 4th redirect-shaped
+        # exclude into a COPY of the lychee.toml body — never the real file —
+        # and assert the section parser now surfaces it, i.e. the exact-count
+        # test above WOULD fail. Also confirm the parser ignores the example
+        # URL quoted inside the section's `#  * ...` comment lines.
+        last = INTENTIONAL_REDIRECT_EXCLUDES[-1]
+        marker = f'"{last}",'
+        smuggled = "example.com/link-rot-disguised-as-redirect"
+        mutated = self.toml_text.replace(
+            marker, f'{marker}\n  "{smuggled}",', 1
+        )
+        self.assertNotEqual(
+            mutated,
+            self.toml_text,
+            "self-test setup failed: could not locate the last registered "
+            f"redirect exclude ({marker!r}) in lychee.toml to inject after.",
+        )
+        entries = _extract_redirect_section_entries(mutated)
+        self.assertIn(
+            smuggled,
+            entries,
+            "false-negative: the section parser did not surface a smuggled 4th "
+            "redirect exclude, so the exact-count guard would not catch it.",
+        )
+        self.assertEqual(
+            len(entries),
+            len(INTENTIONAL_REDIRECT_EXCLUDES) + 1,
+            "false-negative: a smuggled 4th redirect exclude did not raise the "
+            f"section entry count. Parsed {entries!r}.",
+        )
+        # Sanity: the unmutated body still parses to exactly the registered set,
+        # confirming the comment-line example URLs are not miscounted.
+        self.assertEqual(
+            set(_extract_redirect_section_entries(self.toml_text)),
+            set(INTENTIONAL_REDIRECT_EXCLUDES),
+        )
+
     def test_toml_excludes_node_modules_path(self):
         self.assertRegex(
             strip_comment_lines(self.toml_text),
             r"exclude_path\s*=\s*\[[^\]]*node_modules",
             "lychee.toml must keep `node_modules` in `exclude_path` (moved from "
             "the inline `--exclude-path node_modules`).",
+        )
+
+    def test_toml_excludes_claudesec_sources_path(self):
+        # `.claudesec-sources` is a gitignored local cache of fetched upstream
+        # docs. It is absent in CI (never committed) but present on dev machines,
+        # where a local sweep would otherwise walk it and report rot in
+        # third-party docs we do not own. Keep it in `exclude_path` so the local
+        # verify command matches CI's committed-file-only view.
+        self.assertRegex(
+            strip_comment_lines(self.toml_text),
+            r"exclude_path\s*=\s*\[[^\]]*\.claudesec-sources",
+            "lychee.toml must keep `.claudesec-sources` in `exclude_path` so a "
+            "local sweep does not scan the gitignored upstream-source cache.",
         )
 
     def test_lychee_toml_is_change_detected(self):

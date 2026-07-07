@@ -36,6 +36,16 @@ exclude = [
   "in-toto.io",
   "sigstore.dev",
   "public.cyber.mil",
+  #   * ISO standard pages 403 to crawlers (Akamai) but load in a browser;
+  #     path-specific so non-/standard iso.org links stay checked.
+  "www.iso.org/standard/",
+  #   * npm package page 403s to bots but is the canonical package URL.
+  "www.npmjs.com/package/claudesec",
+  #   * SK Shieldus security blog 403s to CI crawlers, fine in a browser.
+  "www.skshieldus.com/blog-security/",
+  # --- Template placeholders: intentionally non-real URLs in templates/ that
+  #     404 by design (users substitute their own org/repo).
+  "github.com/YOUR_ORG/YOUR_REPO",
   # --- Upstream URL structure changed / varies (false-positive 404s)
   "atlas.mitre.org",
   "airc.nist.gov",
@@ -67,4 +77,10 @@ exclude = [
 ]
 
 # Directories never walked for links.
-exclude_path = ["node_modules"]
+#   * node_modules: vendored deps, never our docs.
+#   * .claudesec-sources: gitignored local cache of fetched upstream sources.
+#     Absent in CI (not committed), but present on developer machines, where a
+#     local sweep (`lychee --config lychee.toml ... '**/*.md'`) would otherwise
+#     walk it and report rot in third-party docs we do not own. Excluded so the
+#     local verify command matches CI's committed-file-only view.
+exclude_path = ["node_modules", ".claudesec-sources"]
