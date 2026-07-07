@@ -15,6 +15,8 @@ ClaudeSec is a **DevSecOps toolkit** for AI-assisted secure development. Documen
 - `docs/guides/` — Step-by-step tutorials
 - `docs/compliance/` — NIST, ISO, ISMS-P compliance guides
 - `docs/architecture/` — Draw.io architecture/flow/security-domains diagrams (generated from scan data)
+- `docs/reports/` — Session reports, retrospectives, and generated scan/seminar collateral
+- `docs/plans/` — Strategy and planning documents
 - `assets/` — Logo and branding assets
 - `templates/` — Reusable config templates
 - `scanner/` — Security scanner CLI

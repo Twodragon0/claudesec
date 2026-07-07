@@ -13,13 +13,48 @@ per-commit history, see the git log and `MEMORY.md` (delta log).
 
 ### Added
 
-- **Two new marketplace plugin slash commands** (issue #20). `npx claudesec
+- **Two new marketplace plugin slash commands** (issue #20, #289). `npx claudesec
   prowler` runs a Prowler multi-cloud scan (thin alias for `scan -c prowler`),
   and `npx claudesec compliance [framework]` runs a compliance gap scan that
   maps findings to a framework (`scan --compliance`, default `isms-p`). Both are
   registered in `.claude-plugin/marketplace.json` so they surface as `/prowler`
   and `/compliance` once the plugin is installed. Marketplace↔CLI parity is
   guarded by `scanner/tests/test_ci_plugin_skills_cli_parity.py`.
+- **Monthly lychee redirect / link-rot sweep** (#298) — a notifier-only workflow
+  that opens a self-healing issue when links redirect or rot, plus a
+  `lychee-redirect-triage` playbook skill (#299).
+- **CI quality gates**: Lighthouse Performance/SEO/Accessibility ≥ 90 on the live
+  Pages site (#288); a Docker scanner-image size gate pinned at ~513 MB (#286);
+  a script-injection regression guard (#270).
+- **CI-guard discipline**: ADR-001 (CI guard hardening + periodic adversarial
+  audit) with an ADR index and operationalized audit cadence (#278, #279).
+- **Docs**: NIST OLIR mapping of the OWASP LLM Top 10 to CSF 2.0 (#303).
+
+### Changed
+
+- **ISMS-P non-assessable controls** now render as N/A (미평가): the 3.x PII
+  controls (#309) and, framework-wide, the governance controls that lack a native
+  Prowler evidence path (#311), with the policy documented (#310).
+- **Single-sourced scanner constants** to kill drift: Prowler provider labels +
+  parity guard (#305), diagram-gen security domains & compliance frameworks from
+  the canonical modules (#306), and Prowler display order (#308).
+- **Dashboard modularization**: split `dashboard_mapping` into compliance + arch
+  modules (#284) and extracted `dashboard_data_loader` (#285).
+- `dashboard_compliance` now hard-fails on a load error instead of silently using
+  a stale inline fallback map (#304).
+- Externalized the lychee exclude allowlist to `lychee.toml` with a guard (#290);
+  added a post-publish provenance-verify cadence and explicit OIDC npm floor (#264).
+
+### Fixed
+
+- Removed substring-false-positive keywords from the compliance keyword map (#307).
+- Deduplicated DAST alerts and gated the nightly scan to a real target (#283).
+- Resolved lychee-detected redirects/link-rot to canonical URLs and excluded
+  flaky bot-blocked / gov-CERT domains (#291, #301, #302, #287, #268).
+- Closed comment-evasion false-negatives across several CI guards (#271, #275,
+  #277) and gated the npm-publish dry-run so it does not run on an already
+  published version (#276).
+- Routine dependency bumps (GitHub Actions, nginx image, pytest).
 
 ## [0.7.2]
 
