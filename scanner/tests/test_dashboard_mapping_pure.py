@@ -351,8 +351,11 @@ class TestMapCompliance(unittest.TestCase):
         )
         result = dm.map_compliance([f])
         iso_controls = result["ISO 27001:2022"]
-        # All ISO controls should pick this up via native fallback.
-        assert all(c["status"] == "FAIL" for c in iso_controls)
+        # All assessable ISO controls should pick this up via native fallback.
+        assert all(c["status"] == "FAIL" for c in iso_controls if c.get("assessable", True))
+        # A.5.1 is non-assessable and short-circuits to N/A regardless of native match.
+        a51 = next(c for c in iso_controls if c["control"] == "A.5.1")
+        assert a51["status"] == "N/A"
 
 
 # ===========================================================================

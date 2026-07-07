@@ -127,8 +127,8 @@ class TestMapCompliance(unittest.TestCase):
         findings = [_make_finding(check="random_check", title="Unrelated", message="Nothing special")]
         result = map_compliance(findings)
         iso_controls = {c["control"]: c for c in result["ISO 27001:2022"]}
-        # A.5.1 checks for "security_policy" — no match
-        self.assertEqual(iso_controls["A.5.1"]["status"], "PASS")
+        # A.8.9 checks configuration/misconfigur/default — no match (A.5.1 is now N/A)
+        self.assertEqual(iso_controls["A.8.9"]["status"], "PASS")
 
     def test_native_compliance_match(self):
         findings = [

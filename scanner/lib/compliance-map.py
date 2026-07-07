@@ -10,9 +10,11 @@ COMPLIANCE_CONTROL_MAP = {
         {
             "control": "A.5.1",
             "name": "Information security policy",
+            # governance/legal — no automated NIST 800-53A Test method
             "desc": "Policies documented, shared, and reviewed",
             "action": "Document policy, periodic review, staff training and approval.",
             "checks": ["security_policy"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -69,9 +71,11 @@ COMPLIANCE_CONTROL_MAP = {
         {
             "control": "1.1.1",
             "name": "경영진의 참여 (Management commitment)",
+            # governance — no automated NIST 800-53A Test method
             "desc": "최고경영자의 정보보호 및 개인정보보호 관리체계 수립·운영 참여",
             "action": "정보보호 정책 승인; 연간 보안 계획 수립; 경영진 검토 보고 체계 마련.",
             "checks": ["security_policy", "governance"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -94,9 +98,11 @@ COMPLIANCE_CONTROL_MAP = {
         {
             "control": "2.1.1",
             "name": "정책의 유지관리 (Policy management)",
+            # governance — no automated NIST 800-53A Test method
             "desc": "정보보호 및 개인정보보호 정책·지침 수립, 승인, 이행",
             "action": "정책 문서화; 연 1회 이상 검토; 전 직원 숙지 교육.",
             "checks": ["security_policy", "governance"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -110,9 +116,11 @@ COMPLIANCE_CONTROL_MAP = {
         {
             "control": "2.2.4",
             "name": "보안 인식 교육 (Security awareness)",
+            # human/training — no automated NIST 800-53A Test method
             "desc": "정보보호 및 개인정보보호 교육 실시",
             "action": "연 1회 이상 교육; 교육 이수 기록 관리; 직무별 맞춤 교육.",
             "checks": ["training", "awareness", "education"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -419,9 +427,11 @@ COMPLIANCE_CONTROL_MAP = {
     # ISMS 간편인증 (2024 신설) — 소규모 기업 대상, 40개 항목으로 경량화
     # 기존 ISMS-P 102개에서 핵심 통제항목만 선별 (정보통신망법 제47조의7)
     "KISA ISMS Simple": [
-        {"control": "S-1.1", "name": "관리체계 기반 마련", "desc": "정보보호 정책 수립 및 경영진 참여", "action": "정보보호 정책 승인; 담당자 지정; 예산 확보.", "checks": ["security_policy", "governance"], "status": ""},
+        # governance — no automated NIST 800-53A Test method
+        {"control": "S-1.1", "name": "관리체계 기반 마련", "desc": "정보보호 정책 수립 및 경영진 참여", "action": "정보보호 정책 승인; 담당자 지정; 예산 확보.", "checks": ["security_policy", "governance"], "assessable": False, "status": ""},
         {"control": "S-1.2", "name": "위험 관리", "desc": "자산 식별 및 위험 평가·관리", "action": "자산 목록 관리; 위험 평가; 위험 처리 계획.", "checks": ["inventory", "asset", "vulnerability", "risk"], "status": ""},
-        {"control": "S-2.1", "name": "정보보호 정책", "desc": "정보보호 정책 수립·시행·검토", "action": "정책 문서화; 전 직원 숙지; 연 1회 이상 검토.", "checks": ["security_policy", "governance"], "status": ""},
+        # governance — no automated NIST 800-53A Test method
+        {"control": "S-2.1", "name": "정보보호 정책", "desc": "정보보호 정책 수립·시행·검토", "action": "정책 문서화; 전 직원 숙지; 연 1회 이상 검토.", "checks": ["security_policy", "governance"], "assessable": False, "status": ""},
         {"control": "S-2.2", "name": "인적 보안", "desc": "직무 분리, 보안 서약, 교육", "action": "직무 분리(SoD); 입사/퇴사 절차; 연 1회 보안 교육.", "checks": ["admin", "permission", "training", "account"], "status": ""},
         {"control": "S-2.3", "name": "외부자 보안", "desc": "외부자(위탁, 협력사) 보안 관리", "action": "위탁 계약 시 보안 요구사항; 접근 통제; 주기적 점검.", "checks": ["third_party", "vendor", "external"], "status": ""},
         {"control": "S-2.4", "name": "사용자 인증 관리", "desc": "계정·비밀번호·인증 관리", "action": "MFA 적용; 비밀번호 복잡도; 미사용 계정 비활성화.", "checks": ["mfa", "authentication", "password", "account", "sso"], "status": ""},
@@ -435,10 +445,14 @@ COMPLIANCE_CONTROL_MAP = {
         {"control": "S-2.12", "name": "침해사고 대응", "desc": "사고 탐지·대응·신고·복구", "action": "SIEM 모니터링; 24시간 내 신고(정보통신망법); 대응 플레이북.", "checks": ["monitoring", "alert", "incident", "logging"], "status": ""},
         {"control": "S-2.13", "name": "악성코드 대응", "desc": "악성코드 예방·탐지", "action": "EDR/AV 운영; 실시간 탐지; 격리 및 복구.", "checks": ["malware", "antivirus", "endpoint", "edr"], "status": ""},
         {"control": "S-2.14", "name": "백업 및 복구", "desc": "주요 정보 백업 및 복구 절차", "action": "정기 백업; 복구 테스트; 백업 암호화.", "checks": ["backup", "recovery", "snapshot", "restore"], "status": ""},
-        {"control": "S-3.1", "name": "개인정보 수집·이용", "desc": "목적 명시, 동의 획득, 최소 수집", "action": "필수/선택 동의 분리; 최소 수집; 법적 근거 확인.", "checks": ["personal_data", "pii", "consent", "privacy"], "status": ""},
-        {"control": "S-3.2", "name": "개인정보 보관·파기", "desc": "보유기간 준수 및 안전한 파기", "action": "보유기간 경과 시 파기; 복구 불가 방법; 파기 기록.", "checks": ["deletion", "retention", "destroy", "lifecycle"], "status": ""},
-        {"control": "S-3.3", "name": "개인정보 제3자 제공", "desc": "동의 기반 제공 및 관리", "action": "제공 동의; 항목·목적 명시; 제공 이력 관리.", "checks": ["third_party", "sharing", "consent", "data_transfer"], "status": ""},
-        {"control": "S-3.4", "name": "정보주체 권리 보장", "desc": "열람·정정·삭제·처리정지·전송요구·자동화결정 거부", "action": "권리 행사 절차; 전송요구권 대응; 10일 내 처리.", "checks": ["data_subject", "right_to_access", "right_to_delete", "portability"], "status": ""},
+        # PII/legal — no automated NIST 800-53A Test method
+        {"control": "S-3.1", "name": "개인정보 수집·이용", "desc": "목적 명시, 동의 획득, 최소 수집", "action": "필수/선택 동의 분리; 최소 수집; 법적 근거 확인.", "checks": ["personal_data", "pii", "consent", "privacy"], "assessable": False, "status": ""},
+        # PII/legal — no automated NIST 800-53A Test method
+        {"control": "S-3.2", "name": "개인정보 보관·파기", "desc": "보유기간 준수 및 안전한 파기", "action": "보유기간 경과 시 파기; 복구 불가 방법; 파기 기록.", "checks": ["deletion", "retention", "destroy", "lifecycle"], "assessable": False, "status": ""},
+        # PII/legal — no automated NIST 800-53A Test method
+        {"control": "S-3.3", "name": "개인정보 제3자 제공", "desc": "동의 기반 제공 및 관리", "action": "제공 동의; 항목·목적 명시; 제공 이력 관리.", "checks": ["third_party", "sharing", "consent", "data_transfer"], "assessable": False, "status": ""},
+        # PII/legal — no automated NIST 800-53A Test method
+        {"control": "S-3.4", "name": "정보주체 권리 보장", "desc": "열람·정정·삭제·처리정지·전송요구·자동화결정 거부", "action": "권리 행사 절차; 전송요구권 대응; 10일 내 처리.", "checks": ["data_subject", "right_to_access", "right_to_delete", "portability"], "assessable": False, "status": ""},
     ],
     "PCI-DSS v4.0.1": [
         {
@@ -526,6 +540,7 @@ COMPLIANCE_CONTROL_MAP = {
         {
             "control": "CA-7",
             "name": "Continuous monitoring",
+            # stays assessable: monitoring/scan/vulnerability keywords carry real technical signal; only the strategy-doc half is unverifiable (accepted documented residual)
             "desc": "Develop a continuous monitoring strategy and implement a continuous monitoring program",
             "action": "Deploy SIEM/monitoring tools; continuous vulnerability scanning; automated alerts.",
             "checks": ["monitoring", "alert", "scan", "vulnerability", "continuous"],
