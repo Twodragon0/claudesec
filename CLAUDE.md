@@ -31,7 +31,9 @@ All documentation is in Markdown. No build system required.
 
 ## Agents & Model Routing
 
-Project agents in `.claude/agents/`. Model selection:
+Project agents live in `.claude/agents/` (the `sec-*` and `ci-pipeline` roles).
+`architect`, `test-engineer`, and `explore` below are generic roles from the
+global oh-my-claudecode catalog, not project-scoped files. Model selection:
 
 - **opus**: sec-orchestrator, architect — coordination, architecture, security audit
 - **sonnet**: sec-implementer, sec-researcher, sec-reviewer, ci-pipeline, test-engineer — standard work
