@@ -376,13 +376,13 @@ jobs:
             if [[ "$name" == *_tty ]]; then
               timeout 30 \
                 python3 scanner/tests/pty_run.py \
-                  kcov --include-pattern=checks.sh,output.sh,output_prowler.sh \
+                  kcov --include-pattern=checks.sh,checks_credentials.sh,output.sh,output_prowler.sh \
                     --exclude-pattern=api-checks.sh,api_checks.sh \
                     "kcov-out/$name" "$sh" \
                 || rc=$?
             else
               timeout 30 \
-                kcov --include-pattern=checks.sh,output.sh,output_prowler.sh \
+                kcov --include-pattern=checks.sh,checks_credentials.sh,output.sh,output_prowler.sh \
                   --exclude-pattern=api-checks.sh,api_checks.sh \
                   "kcov-out/$name" "$sh" \
                 || rc=$?
