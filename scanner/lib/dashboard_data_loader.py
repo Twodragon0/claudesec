@@ -46,19 +46,27 @@ from dashboard_api_client import (
 
 
 def load_scan_results(path: str) -> dict[str, Any]:
+    default: dict[str, Any] = {
+        "passed": 0,
+        "failed": 0,
+        "warnings": 0,
+        "skipped": 0,
+        "total": 0,
+        "score": 0,
+        "grade": "F",
+        "duration": 0,
+        "findings": [],
+    }
     if not path or not os.path.isfile(path):
-        return {
-            "passed": 0,
-            "failed": 0,
-            "warnings": 0,
-            "skipped": 0,
-            "total": 0,
-            "score": 0,
-            "grade": "F",
-            "findings": [],
-        }
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        return default
+    # Degrade gracefully on a truncated/corrupt scan-report.json (e.g. from a
+    # killed scan) instead of crashing dashboard/diagram generation — matches
+    # load_scan_history / load_audit_points_detected below.
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return default
 
 
 def _parse_ocsf_json(content: str) -> list[dict[str, Any]]:

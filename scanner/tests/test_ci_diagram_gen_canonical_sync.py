@@ -52,6 +52,16 @@ from _ci_guard_util import strip_comment_lines  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LIB_DIR = REPO_ROOT / "scanner" / "lib"
 DIAGRAM_GEN = LIB_DIR / "diagram-gen.py"
+CLAUDESEC = REPO_ROOT / "scanner" / "claudesec"
+
+# The canonical bash scan-category array (single source of truth).
+_BASH_ALL_CATEGORIES_RE = re.compile(
+    r"readonly\s+-a\s+CLAUDESEC_ALL_CATEGORIES=\((.*?)\)", re.DOTALL
+)
+# The old inline form we forbid re-introducing: a literal category list on a
+# lowercase `categories=(` assignment instead of expanding the canonical array.
+# Case-sensitive, so it does NOT match the uppercase CLAUDESEC_ALL_CATEGORIES decl.
+_BASH_INLINE_CATEGORIES_RE = re.compile(r"categories=\(\s*infra\s+ai\s+network")
 
 # An inline reassignment of the canonical list (the drift we forbid).
 _INLINE_ARCH_RE = re.compile(r"^\s*ARCH_DOMAINS\s*=\s*\[", re.MULTILINE)
@@ -78,6 +88,12 @@ def _load_diagram_gen():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def _bash_all_categories():
+    """Parse CLAUDESEC_ALL_CATEGORIES=( ... ) from scanner/claudesec -> list."""
+    m = _BASH_ALL_CATEGORIES_RE.search(CLAUDESEC.read_text(encoding="utf-8"))
+    return m.group(1).split() if m else None
 
 
 class TestDiagramGenCanonicalSync(unittest.TestCase):
@@ -137,6 +153,36 @@ class TestDiagramGenCanonicalSync(unittest.TestCase):
             _INLINE_ARCH_RE.search(strip_comment_lines(bad)),
             "detector should flag an inline ARCH_DOMAINS reassignment",
         )
+
+    # -- CATEGORIES single-source parity (bash <-> diagram-gen) ---------------
+
+    def test_categories_mirror_bash_canonical_order(self):
+        bash_cats = _bash_all_categories()
+        self.assertIsNotNone(
+            bash_cats,
+            "CLAUDESEC_ALL_CATEGORIES array not found in scanner/claudesec",
+        )
+        mod = _load_diagram_gen()
+        self.assertEqual(
+            mod.CATEGORIES,
+            bash_cats,
+            "diagram-gen CATEGORIES must exactly mirror scanner/claudesec "
+            "CLAUDESEC_ALL_CATEGORIES — same members AND order, since the "
+            "CATEGORIES[:8]/[:7] diagram-label slices depend on order",
+        )
+
+    def test_bash_category_list_is_single_sourced(self):
+        stripped = strip_comment_lines(CLAUDESEC.read_text(encoding="utf-8"))
+        self.assertIsNone(
+            _BASH_INLINE_CATEGORIES_RE.search(stripped),
+            "scanner/claudesec must expand CLAUDESEC_ALL_CATEGORIES, not inline "
+            "the category list on a lowercase categories=(...) assignment",
+        )
+
+    def test_categories_parity_self_test_detects_reorder(self):
+        """Sanity: a reordered copy must not compare equal to the bash source."""
+        bash_cats = _bash_all_categories()
+        self.assertNotEqual(bash_cats, list(reversed(bash_cats)))
 
 
 if __name__ == "__main__":
