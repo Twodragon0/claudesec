@@ -1,0 +1,14 @@
+# Git LFS routing for large binary collateral.
+#
+# PowerPoint decks under docs/reports/ (seminar / work-improvement templates) are
+# ~37 MB — 96% of everything tracked under docs/reports/. Routing *.pptx through
+# Git LFS keeps future updates out of the packed git history.
+#
+# SCOPE / LIMITATION (see docs/plans/refactoring-backlog.md, Priority 3):
+#   - This declaration only routes NEW or subsequently-modified *.pptx through
+#     LFS. Contributors committing a .pptx need `git lfs` installed.
+#   - The EXISTING committed .pptx blobs are NOT converted by this file. Actually
+#     reclaiming their ~37 MB from history requires `git lfs migrate import
+#     --include='*.pptx'` (a history rewrite / force-push) run in a coordinated
+#     maintenance window (phase b) — it invalidates open PRs, so it is deferred.
+*.pptx filter=lfs diff=lfs merge=lfs -text
