@@ -40,7 +40,9 @@ from pathlib import Path
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OUTPUT_SH = REPO_ROOT / "scanner" / "lib" / "output.sh"
+# The bash provider-label `case` was split out of output.sh into output_prowler.sh
+# (still sourced by output.sh); the parity guard follows it there.
+OUTPUT_SH = REPO_ROOT / "scanner" / "lib" / "output_prowler.sh"
 
 # Load the canonical Python source (dashboard_providers.py lives in scanner/lib).
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
