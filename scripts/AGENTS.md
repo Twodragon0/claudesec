@@ -50,6 +50,7 @@ Automation scripts for scan execution, dashboard building, asset collection, and
 | `generate_ai_devsecops_ppt.py` | Python | Generate the AI-DevSecOps PPTX deck |
 | `generate_ai_devsecops_from_template.py` | Python | Build the AI-DevSecOps deck from a template |
 | `generate_security_seminar_template_ppt.py` | Python | Generate the 30-min security-seminar PPTX template |
+| `verify-shell-coverage-docker.sh` | bash | Run the CI `scanner-shell-coverage` kcov flow locally in an ubuntu+kcov container (kcov does not work on macOS); pre-verify the 90% bash floor |
 
 ## For AI Agents
 
