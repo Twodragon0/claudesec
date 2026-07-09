@@ -56,5 +56,20 @@ services:
       retries: 3
       start_period: 5s
     restart: unless-stopped
+    # Container hardening (CIS Docker Benchmark). Serves static content only, so
+    # a read-only root filesystem is safe — nginx's writable paths are backed by
+    # tmpfs. Runs unprivileged (USER nginx, port 8080) with all Linux
+    # capabilities dropped and privilege escalation disabled.
+    read_only: true
+    # mode=1777 so the unprivileged nginx user can create its runtime dirs
+    # (e.g. /var/cache/nginx/client_temp, /run/nginx.pid) on the empty tmpfs.
+    tmpfs:
+      - /var/cache/nginx:mode=1777
+      - /run:mode=1777
+      - /tmp:mode=1777
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 100
     depends_on:
       scanner: { condition: service_completed_successfully, required: false }

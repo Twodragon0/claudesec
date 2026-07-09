@@ -55,5 +55,17 @@ services:
       retries: 3
       start_period: 5s
     restart: unless-stopped
+    # Container hardening (CIS Docker Benchmark) — matches docker-compose.yml.
+    # Static-content server: read-only root FS with tmpfs-backed writable paths,
+    # all capabilities dropped, no privilege escalation, resource caps.
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:mode=1777
+      - /run:mode=1777
+      - /tmp:mode=1777
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 100
     depends_on:
       dashboard-gen: { condition: service_completed_successfully }
