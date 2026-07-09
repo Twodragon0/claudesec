@@ -27,6 +27,12 @@ services:
     volumes: [".:/workspace"]
     working_dir: /workspace
     profiles: [scan]
+    # Hardening: a local file scanner needs no Linux capabilities and must not
+    # gain privileges. (Root FS stays writable — the scan writes scan-report.json
+    # and .claudesec-* under the mounted workspace; opt-in network raw scans are
+    # off by default.)
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
 
   dashboard:
     build: { context: ., dockerfile: Dockerfile.nginx }
