@@ -444,7 +444,8 @@ dd_ok=$(
 )
 assert_contains "collect_env: Datadog connected=true" "$dd_ok" "DD_CONNECTED=true"
 
-# Datadog: key present but validation fails — still true (L890-891)
+# Datadog: key present marks connected regardless of the validation result
+# (collect_env no longer gates on datadog_validate_api_key; the stub is a no-op).
 dd_invalid=$(
   source "$LIB_DIR/checks.sh"
   has_command() { case "$1" in az|kubectl|aws|gcloud|promptfoo) return 1;; *) command -v "$1" &>/dev/null;; esac; }
