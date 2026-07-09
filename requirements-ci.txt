@@ -2,4 +2,4 @@ defusedxml>=0.7.1
 pytest>=9.1.1
 pytest-cov>=7.1.0
 requests>=2.34.2
-Pillow>=12.2.0
+Pillow>=12.3.0
