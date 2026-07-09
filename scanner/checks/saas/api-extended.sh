@@ -7,13 +7,23 @@
 #          Datadog deep scan, Okta deep scan
 # ============================================================================
 
+# ── Helper: timed SaaS API request ──────────────────────────────────────────
+# Centralizes the `run_with_timeout 15 curl -sSf` invocation duplicated across
+# every integration below. Callers pass their own auth headers / flags
+# (`-H "Authorization: …"`, `-k`, `--digest`, extra `-H`, …) and the URL as
+# args, and keep their own `2>/dev/null || echo ""` fallback — so behavior is
+# byte-for-byte unchanged; only the shared timeout + `-sSf` prefix is single-sourced.
+_saas_curl() {
+  run_with_timeout 15 curl -sSf "$@"
+}
+
 # ── SAAS-API-009: Slack Live Check ────────────────────────────────────────
 
 if [[ -n "${SLACK_API_TOKEN:-}" || -n "${SLACK_BOT_TOKEN:-}" ]]; then
   _slack_token="${SLACK_API_TOKEN:-${SLACK_BOT_TOKEN}}"
   info "Slack: Scanning via API"
 
-  _slack_auth=$(run_with_timeout 15 curl -sSf \
+  _slack_auth=$(_saas_curl \
     -H "Authorization: Bearer ${_slack_token}" \
     "https://slack.com/api/auth.test" 2>/dev/null || echo "")
 
@@ -23,7 +33,7 @@ if [[ -n "${SLACK_API_TOKEN:-}" || -n "${SLACK_BOT_TOKEN:-}" ]]; then
     _sl_team=$(echo "$_slack_auth" | grep -o '"team":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
 
     # Check workspace settings
-    _slack_info=$(run_with_timeout 15 curl -sSf \
+    _slack_info=$(_saas_curl \
       -H "Authorization: Bearer ${_slack_token}" \
       "https://slack.com/api/team.info" 2>/dev/null || echo "")
 
@@ -43,7 +53,7 @@ if [[ -n "${SLACK_API_TOKEN:-}" || -n "${SLACK_BOT_TOKEN:-}" ]]; then
     fi
 
     # Check for public channels with sensitive names
-    _slack_channels=$(run_with_timeout 15 curl -sSf \
+    _slack_channels=$(_saas_curl \
       -H "Authorization: Bearer ${_slack_token}" \
       "https://slack.com/api/conversations.list?types=public_channel&limit=200" 2>/dev/null || echo "")
 
@@ -57,7 +67,7 @@ if [[ -n "${SLACK_API_TOKEN:-}" || -n "${SLACK_BOT_TOKEN:-}" ]]; then
     fi
 
     # Check for installed apps
-    _slack_apps=$(run_with_timeout 15 curl -sSf \
+    _slack_apps=$(_saas_curl \
       -H "Authorization: Bearer ${_slack_token}" \
       "https://slack.com/api/apps.connections.list" 2>/dev/null || echo "")
 
@@ -84,7 +94,7 @@ if [[ -n "${PAGERDUTY_API_KEY:-}" || -n "${PD_API_KEY:-}" ]]; then
   _pd_key="${PAGERDUTY_API_KEY:-${PD_API_KEY}}"
   info "PagerDuty: Scanning via API"
 
-  _pd_abilities=$(run_with_timeout 15 curl -sSf \
+  _pd_abilities=$(_saas_curl \
     -H "Authorization: Token token=${_pd_key}" \
     -H "Content-Type: application/json" \
     "https://api.pagerduty.com/abilities" 2>/dev/null || echo "")
@@ -94,7 +104,7 @@ if [[ -n "${PAGERDUTY_API_KEY:-}" || -n "${PD_API_KEY:-}" ]]; then
     _pd_details=""
 
     # Check for services without escalation policies
-    _pd_services=$(run_with_timeout 15 curl -sSf \
+    _pd_services=$(_saas_curl \
       -H "Authorization: Token token=${_pd_key}" \
       -H "Content-Type: application/json" \
       "https://api.pagerduty.com/services?limit=100" 2>/dev/null || echo "")
@@ -107,7 +117,7 @@ if [[ -n "${PAGERDUTY_API_KEY:-}" || -n "${PD_API_KEY:-}" ]]; then
     fi
 
     # Check on-call schedules exist
-    _pd_oncalls=$(run_with_timeout 15 curl -sSf \
+    _pd_oncalls=$(_saas_curl \
       -H "Authorization: Token token=${_pd_key}" \
       -H "Content-Type: application/json" \
       "https://api.pagerduty.com/oncalls?limit=1" 2>/dev/null || echo "")
@@ -118,7 +128,7 @@ if [[ -n "${PAGERDUTY_API_KEY:-}" || -n "${PD_API_KEY:-}" ]]; then
     fi
 
     # Check for unacknowledged incidents
-    _pd_incidents=$(run_with_timeout 15 curl -sSf \
+    _pd_incidents=$(_saas_curl \
       -H "Authorization: Token token=${_pd_key}" \
       -H "Content-Type: application/json" \
       "https://api.pagerduty.com/incidents?statuses[]=triggered&limit=100" 2>/dev/null || echo "")
@@ -148,7 +158,7 @@ if [[ -n "${ATLASSIAN_API_TOKEN:-}" && -n "${ATLASSIAN_EMAIL:-}" && -n "${ATLASS
   info "Atlassian: Scanning Jira via API"
 
   _jira_auth=$(echo -n "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" | base64)
-  _jira_myself=$(run_with_timeout 15 curl -sSf \
+  _jira_myself=$(_saas_curl \
     -H "Authorization: Basic ${_jira_auth}" \
     -H "Content-Type: application/json" \
     "https://${ATLASSIAN_DOMAIN}.atlassian.net/rest/api/3/myself" 2>/dev/null || echo "")
@@ -159,7 +169,7 @@ if [[ -n "${ATLASSIAN_API_TOKEN:-}" && -n "${ATLASSIAN_EMAIL:-}" && -n "${ATLASS
     _j_user=$(echo "$_jira_myself" | grep -o '"displayName":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
 
     # Check for security-type issues (unresolved)
-    _jira_sec_issues=$(run_with_timeout 15 curl -sSf \
+    _jira_sec_issues=$(_saas_curl \
       -H "Authorization: Basic ${_jira_auth}" \
       -H "Content-Type: application/json" \
       "https://${ATLASSIAN_DOMAIN}.atlassian.net/rest/api/3/search?jql=type=Bug+AND+labels+in+(security,vulnerability)+AND+resolution=Unresolved&maxResults=0" 2>/dev/null || echo "")
@@ -170,7 +180,7 @@ if [[ -n "${ATLASSIAN_API_TOKEN:-}" && -n "${ATLASSIAN_EMAIL:-}" && -n "${ATLASS
     fi
 
     # Check project permissions (look for public access)
-    _jira_projects=$(run_with_timeout 15 curl -sSf \
+    _jira_projects=$(_saas_curl \
       -H "Authorization: Basic ${_jira_auth}" \
       -H "Content-Type: application/json" \
       "https://${ATLASSIAN_DOMAIN}.atlassian.net/rest/api/3/project?maxResults=50" 2>/dev/null || echo "")
@@ -196,7 +206,7 @@ if [[ -n "${GRAFANA_API_KEY:-}" || -n "${GRAFANA_TOKEN:-}" ]] && [[ -n "${GRAFAN
   _graf_token="${GRAFANA_API_KEY:-${GRAFANA_TOKEN}}"
   info "Grafana: Scanning via API"
 
-  _graf_health=$(run_with_timeout 15 curl -sSf \
+  _graf_health=$(_saas_curl \
     -H "Authorization: Bearer ${_graf_token}" \
     "${GRAFANA_URL}/api/health" 2>/dev/null || echo "")
 
@@ -205,12 +215,12 @@ if [[ -n "${GRAFANA_API_KEY:-}" || -n "${GRAFANA_TOKEN:-}" ]] && [[ -n "${GRAFAN
     _g_details=""
 
     # Check organization settings
-    _graf_org=$(run_with_timeout 15 curl -sSf \
+    _graf_org=$(_saas_curl \
       -H "Authorization: Bearer ${_graf_token}" \
       "${GRAFANA_URL}/api/org" 2>/dev/null || echo "")
 
     # Check for anonymous access
-    _graf_settings=$(run_with_timeout 15 curl -sSf \
+    _graf_settings=$(_saas_curl \
       -H "Authorization: Bearer ${_graf_token}" \
       "${GRAFANA_URL}/api/admin/settings" 2>/dev/null || echo "")
 
@@ -220,7 +230,7 @@ if [[ -n "${GRAFANA_API_KEY:-}" || -n "${GRAFANA_TOKEN:-}" ]] && [[ -n "${GRAFAN
     fi
 
     # Check for public dashboards
-    _graf_dashboards=$(run_with_timeout 15 curl -sSf \
+    _graf_dashboards=$(_saas_curl \
       -H "Authorization: Bearer ${_graf_token}" \
       "${GRAFANA_URL}/api/search?type=dash-db&limit=100" 2>/dev/null || echo "")
 
@@ -230,7 +240,7 @@ if [[ -n "${GRAFANA_API_KEY:-}" || -n "${GRAFANA_TOKEN:-}" ]] && [[ -n "${GRAFAN
     fi
 
     # Check alert rules
-    _graf_alerts=$(run_with_timeout 15 curl -sSf \
+    _graf_alerts=$(_saas_curl \
       -H "Authorization: Bearer ${_graf_token}" \
       "${GRAFANA_URL}/api/v1/provisioning/alert-rules" 2>/dev/null || echo "")
 
@@ -258,7 +268,7 @@ if [[ -n "${NEW_RELIC_API_KEY:-}" || -n "${NEWRELIC_API_KEY:-}" ]]; then
   _nr_key="${NEW_RELIC_API_KEY:-${NEWRELIC_API_KEY}}"
   info "New Relic: Scanning via API"
 
-  _nr_user=$(run_with_timeout 15 curl -sSf \
+  _nr_user=$(_saas_curl \
     -H "Api-Key: ${_nr_key}" \
     "https://api.newrelic.com/v2/users.json" 2>/dev/null || echo "")
 
@@ -267,7 +277,7 @@ if [[ -n "${NEW_RELIC_API_KEY:-}" || -n "${NEWRELIC_API_KEY:-}" ]]; then
     _nr_details=""
 
     # Check alert policies
-    _nr_policies=$(run_with_timeout 15 curl -sSf \
+    _nr_policies=$(_saas_curl \
       -H "Api-Key: ${_nr_key}" \
       "https://api.newrelic.com/v2/alerts_policies.json" 2>/dev/null || echo "")
 
@@ -278,7 +288,7 @@ if [[ -n "${NEW_RELIC_API_KEY:-}" || -n "${NEWRELIC_API_KEY:-}" ]]; then
     fi
 
     # Check for open violations
-    _nr_violations=$(run_with_timeout 15 curl -sSf \
+    _nr_violations=$(_saas_curl \
       -H "Api-Key: ${_nr_key}" \
       "https://api.newrelic.com/v2/alerts_violations.json?only_open=true" 2>/dev/null || echo "")
 
@@ -305,7 +315,7 @@ fi
 if [[ -n "${SPLUNK_TOKEN:-}" && -n "${SPLUNK_URL:-}" ]]; then
   info "Splunk: Scanning via API"
 
-  _splunk_info=$(run_with_timeout 15 curl -sSf -k \
+  _splunk_info=$(_saas_curl -k \
     -H "Authorization: Bearer ${SPLUNK_TOKEN}" \
     "${SPLUNK_URL}/services/server/info?output_mode=json" 2>/dev/null || echo "")
 
@@ -315,7 +325,7 @@ if [[ -n "${SPLUNK_TOKEN:-}" && -n "${SPLUNK_URL:-}" ]]; then
     _sp_version=$(echo "$_splunk_info" | grep -o '"version":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
 
     # Check saved searches (security rules)
-    _splunk_searches=$(run_with_timeout 15 curl -sSf -k \
+    _splunk_searches=$(_saas_curl -k \
       -H "Authorization: Bearer ${SPLUNK_TOKEN}" \
       "${SPLUNK_URL}/services/saved/searches?output_mode=json&count=0" 2>/dev/null || echo "")
 
@@ -325,7 +335,7 @@ if [[ -n "${SPLUNK_TOKEN:-}" && -n "${SPLUNK_URL:-}" ]]; then
     fi
 
     # Check for TLS enforcement
-    _splunk_web=$(run_with_timeout 15 curl -sSf -k \
+    _splunk_web=$(_saas_curl -k \
       -H "Authorization: Bearer ${SPLUNK_TOKEN}" \
       "${SPLUNK_URL}/services/properties/web/settings/enableSplunkWebSSL?output_mode=json" 2>/dev/null || echo "")
 
@@ -352,7 +362,7 @@ fi
 if [[ -n "${TWILIO_ACCOUNT_SID:-}" && -n "${TWILIO_AUTH_TOKEN:-}" ]]; then
   info "Twilio: Scanning via API"
 
-  _twilio_account=$(run_with_timeout 15 curl -sSf \
+  _twilio_account=$(_saas_curl \
     -u "${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}" \
     "https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}.json" 2>/dev/null || echo "")
 
@@ -362,12 +372,12 @@ if [[ -n "${TWILIO_ACCOUNT_SID:-}" && -n "${TWILIO_AUTH_TOKEN:-}" ]]; then
     _tw_name=$(echo "$_twilio_account" | grep -o '"friendly_name":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
 
     # Check for sub-accounts (isolation)
-    _twilio_subs=$(run_with_timeout 15 curl -sSf \
+    _twilio_subs=$(_saas_curl \
       -u "${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}" \
       "https://api.twilio.com/2010-04-01/Accounts.json?PageSize=1" 2>/dev/null || echo "")
 
     # Check API key usage (should use API keys instead of master auth)
-    _twilio_keys=$(run_with_timeout 15 curl -sSf \
+    _twilio_keys=$(_saas_curl \
       -u "${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}" \
       "https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Keys.json" 2>/dev/null || echo "")
 
@@ -394,7 +404,7 @@ fi
 if [[ -n "${MONGODB_ATLAS_PUBLIC_KEY:-}" && -n "${MONGODB_ATLAS_PRIVATE_KEY:-}" ]]; then
   info "MongoDB Atlas: Scanning via API"
 
-  _atlas_orgs=$(run_with_timeout 15 curl -sSf --digest \
+  _atlas_orgs=$(_saas_curl --digest \
     -u "${MONGODB_ATLAS_PUBLIC_KEY}:${MONGODB_ATLAS_PRIVATE_KEY}" \
     "https://cloud.mongodb.com/api/atlas/v2/orgs" 2>/dev/null || echo "")
 
@@ -406,14 +416,14 @@ if [[ -n "${MONGODB_ATLAS_PUBLIC_KEY:-}" && -n "${MONGODB_ATLAS_PRIVATE_KEY:-}" 
 
     if [[ -n "$_atlas_org_id" ]]; then
       # Check for projects/clusters
-      _atlas_projects=$(run_with_timeout 15 curl -sSf --digest \
+      _atlas_projects=$(_saas_curl --digest \
         -u "${MONGODB_ATLAS_PUBLIC_KEY}:${MONGODB_ATLAS_PRIVATE_KEY}" \
         "https://cloud.mongodb.com/api/atlas/v2/orgs/${_atlas_org_id}/groups" 2>/dev/null || echo "")
 
       _proj_count=$(echo "$_atlas_projects" | grep -c '"id"' || true)
 
       # Check for 2FA enforcement
-      _atlas_settings=$(run_with_timeout 15 curl -sSf --digest \
+      _atlas_settings=$(_saas_curl --digest \
         -u "${MONGODB_ATLAS_PUBLIC_KEY}:${MONGODB_ATLAS_PRIVATE_KEY}" \
         "https://cloud.mongodb.com/api/atlas/v2/orgs/${_atlas_org_id}" 2>/dev/null || echo "")
 
@@ -426,7 +436,7 @@ if [[ -n "${MONGODB_ATLAS_PUBLIC_KEY:-}" && -n "${MONGODB_ATLAS_PRIVATE_KEY:-}" 
       # Check IP access lists on first project
       _first_proj=$(echo "$_atlas_projects" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
       if [[ -n "$_first_proj" ]]; then
-        _atlas_access=$(run_with_timeout 15 curl -sSf --digest \
+        _atlas_access=$(_saas_curl --digest \
           -u "${MONGODB_ATLAS_PUBLIC_KEY}:${MONGODB_ATLAS_PRIVATE_KEY}" \
           "https://cloud.mongodb.com/api/atlas/v2/groups/${_first_proj}/accessList" 2>/dev/null || echo "")
 
@@ -458,7 +468,7 @@ if [[ -n "${ELASTIC_API_KEY:-}" || ( -n "${ELASTIC_CLOUD_ID:-}" && -n "${ELASTIC
   info "Elastic Cloud: Scanning via API"
 
   if [[ -n "${ELASTIC_API_KEY:-}" ]]; then
-    _elastic_info=$(run_with_timeout 15 curl -sSf \
+    _elastic_info=$(_saas_curl \
       -H "Authorization: ApiKey ${ELASTIC_API_KEY}" \
       "https://api.elastic-cloud.com/api/v1/user" 2>/dev/null || echo "")
   else
@@ -470,7 +480,7 @@ if [[ -n "${ELASTIC_API_KEY:-}" || ( -n "${ELASTIC_CLOUD_ID:-}" && -n "${ELASTIC
     _el_details=""
 
     # Check deployments
-    _elastic_deployments=$(run_with_timeout 15 curl -sSf \
+    _elastic_deployments=$(_saas_curl \
       -H "Authorization: ApiKey ${ELASTIC_API_KEY}" \
       "https://api.elastic-cloud.com/api/v1/deployments?size=10" 2>/dev/null || echo "")
 
@@ -496,7 +506,7 @@ if [[ -n "${DD_API_KEY:-}" && -n "${DD_APP_KEY:-}" ]]; then
   _dd_base="https://api.${_dd_site}"
 
   # Cloud Security Posture Management (CSPM)
-  _dd_cspm=$(run_with_timeout 15 curl -sSf \
+  _dd_cspm=$(_saas_curl \
     -H "DD-API-KEY: ${DD_API_KEY}" \
     -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
     "${_dd_base}/api/v2/security_monitoring/signals?filter[query]=type:posture_management&page[limit]=1" 2>/dev/null || echo "")
@@ -507,7 +517,7 @@ if [[ -n "${DD_API_KEY:-}" && -n "${DD_APP_KEY:-}" ]]; then
   _dd_deep_details=""
 
   # Check log-based security
-  _dd_log_rules=$(run_with_timeout 15 curl -sSf \
+  _dd_log_rules=$(_saas_curl \
     -H "DD-API-KEY: ${DD_API_KEY}" \
     -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
     "${_dd_base}/api/v2/security_monitoring/rules?page[size]=5" 2>/dev/null || echo "")
@@ -515,13 +525,13 @@ if [[ -n "${DD_API_KEY:-}" && -n "${DD_APP_KEY:-}" ]]; then
   _dd_rule_count=$(echo "$_dd_log_rules" | grep -c '"id"' || true)
 
   # Check for Cloud Workload Security
-  _dd_cws=$(run_with_timeout 15 curl -sSf \
+  _dd_cws=$(_saas_curl \
     -H "DD-API-KEY: ${DD_API_KEY}" \
     -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
     "${_dd_base}/api/v2/security_monitoring/signals?filter[query]=type:workload_security&page[limit]=1" 2>/dev/null || echo "")
 
   # Check SLOs (security-related)
-  _dd_slos=$(run_with_timeout 15 curl -sSf \
+  _dd_slos=$(_saas_curl \
     -H "DD-API-KEY: ${DD_API_KEY}" \
     -H "DD-APPLICATION-KEY: ${DD_APP_KEY}" \
     "${_dd_base}/api/v1/slo?limit=100" 2>/dev/null || echo "")
@@ -563,7 +573,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
   fi
 
   # Check sign-on policies
-  _okta_signon=$(run_with_timeout 15 curl -sSf \
+  _okta_signon=$(_saas_curl \
     -H "${_okta_auth_header}" \
     -H "Accept: application/json" \
     "${OKTA_ORG_URL}/api/v1/policies?type=OKTA_SIGN_ON" 2>/dev/null || echo "")
@@ -574,7 +584,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
   fi
 
   # Check MFA enrollment policy
-  _okta_mfa=$(run_with_timeout 15 curl -sSf \
+  _okta_mfa=$(_saas_curl \
     -H "${_okta_auth_header}" \
     -H "Accept: application/json" \
     "${OKTA_ORG_URL}/api/v1/policies?type=MFA_ENROLL" 2>/dev/null || echo "")
@@ -586,7 +596,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
   fi
 
   # Check applications (OAuth redirect URIs)
-  _okta_apps=$(run_with_timeout 15 curl -sSf \
+  _okta_apps=$(_saas_curl \
     -H "${_okta_auth_header}" \
     -H "Accept: application/json" \
     "${OKTA_ORG_URL}/api/v1/apps?limit=50&filter=status+eq+%22ACTIVE%22" 2>/dev/null || echo "")
@@ -601,7 +611,7 @@ if [[ -n "${OKTA_ORG_URL:-}" && ( -n "${OKTA_OAUTH_TOKEN:-}" || -n "${OKTA_API_T
   # Check system log for suspicious events (last 24h)
   _yesterday=$(date -u -v-1d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '1 day ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
   if [[ -n "$_yesterday" ]]; then
-    _okta_threats=$(run_with_timeout 15 curl -sSf \
+    _okta_threats=$(_saas_curl \
       -H "${_okta_auth_header}" \
       -H "Accept: application/json" \
       "${OKTA_ORG_URL}/api/v1/logs?since=${_yesterday}&filter=outcome.result+eq+%22FAILURE%22+and+severity+eq+%22WARN%22&limit=5" 2>/dev/null || echo "")

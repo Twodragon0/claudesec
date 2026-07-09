@@ -27,6 +27,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly CHECKS_DIR="$SCRIPT_DIR/checks"
 readonly LIB_DIR="$SCRIPT_DIR/lib"
 
+# Canonical scan-category order — the single source of truth. Both the full-scan
+# and dashboard-scan paths expand this array, and scanner/lib/diagram-gen.py's
+# CATEGORIES must mirror it (guarded by test_ci_diagram_gen_canonical_sync.py).
+readonly -a CLAUDESEC_ALL_CATEGORIES=(
+  infra ai network cloud access-control cicd code macos windows saas prowler
+)
+
 # Source library
 source "$LIB_DIR/output.sh"
 source "$LIB_DIR/checks.sh"
@@ -562,7 +569,7 @@ run_scan() {
   # Determine which categories to scan (dedupe and filter)
   local categories=()
   if [[ "$CATEGORY" == "all" ]]; then
-    categories=(infra ai network cloud access-control cicd code macos windows saas prowler)
+    categories=("${CLAUDESEC_ALL_CATEGORIES[@]}")
   else
     IFS=',' read -ra _raw <<< "$CATEGORY"
     for c in "${_raw[@]}"; do
@@ -1165,7 +1172,7 @@ run_scan_for_dashboard() {
 
   local categories=()
   if [[ "$CATEGORY" == "all" ]]; then
-    categories=(infra ai network cloud access-control cicd code macos windows saas prowler)
+    categories=("${CLAUDESEC_ALL_CATEGORIES[@]}")
   else
     IFS=',' read -ra categories <<< "$CATEGORY"
   fi

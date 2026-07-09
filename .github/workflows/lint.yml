@@ -48,8 +48,16 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            git fetch origin "$BASE_SHA" --depth=1 >/dev/null 2>&1 || true
-            FILES=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA")
+            # Fetch the PR base WITH ancestry (not --depth=1): a shallow single
+            # commit has no parents locally, so the three-dot merge-base diff dies
+            # with "fatal: no merge base" whenever the branch is behind its base
+            # (a moving main). Fall back to a two-endpoint diff (needs no merge
+            # base; over-inclusive is fail-safe for a path gate) then HEAD~1.
+            git fetch origin "$BASE_SHA" >/dev/null 2>&1 \
+              || git fetch origin "$BASE_SHA" --depth=1 >/dev/null 2>&1 || true
+            FILES=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA" 2>/dev/null \
+                    || git diff --name-only "$BASE_SHA" "$HEAD_SHA" 2>/dev/null \
+                    || git diff --name-only HEAD~1..HEAD)
           elif [ -n "${BEFORE_SHA:-}" ] && [ "$BEFORE_SHA" != "$NULL_SHA" ]; then
             git fetch origin "$BEFORE_SHA" --depth=1 >/dev/null 2>&1 || true
             FILES=$(git diff --name-only "$BEFORE_SHA"..HEAD 2>/dev/null \
@@ -376,13 +384,13 @@ jobs:
             if [[ "$name" == *_tty ]]; then
               timeout 30 \
                 python3 scanner/tests/pty_run.py \
-                  kcov --include-pattern=checks.sh,output.sh \
+                  kcov --include-pattern=checks.sh,checks_credentials.sh,output.sh,output_prowler.sh \
                     --exclude-pattern=api-checks.sh,api_checks.sh \
                     "kcov-out/$name" "$sh" \
                 || rc=$?
             else
               timeout 30 \
-                kcov --include-pattern=checks.sh,output.sh \
+                kcov --include-pattern=checks.sh,checks_credentials.sh,output.sh,output_prowler.sh \
                   --exclude-pattern=api-checks.sh,api_checks.sh \
                   "kcov-out/$name" "$sh" \
                 || rc=$?
@@ -462,9 +470,9 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
       - name: Build claudesec runtime image (cache enabled)
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
         with:
           context: .
           file: Dockerfile
@@ -706,7 +714,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - name: Lint Markdown
-        uses: DavidAnson/markdownlint-cli2-action@ded1f9488f68a970bc66ea5619e13e9b52e601cd  # v23
+        uses: DavidAnson/markdownlint-cli2-action@8de2aa07cae85fd17c0b35642db70cf5495f1d25  # v24.0.0
         with:
           globs: |
             **/*.md

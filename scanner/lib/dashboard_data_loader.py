@@ -46,19 +46,27 @@ from dashboard_api_client import (
 
 
 def load_scan_results(path: str) -> dict[str, Any]:
+    default: dict[str, Any] = {
+        "passed": 0,
+        "failed": 0,
+        "warnings": 0,
+        "skipped": 0,
+        "total": 0,
+        "score": 0,
+        "grade": "F",
+        "duration": 0,
+        "findings": [],
+    }
     if not path or not os.path.isfile(path):
-        return {
-            "passed": 0,
-            "failed": 0,
-            "warnings": 0,
-            "skipped": 0,
-            "total": 0,
-            "score": 0,
-            "grade": "F",
-            "findings": [],
-        }
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        return default
+    # Degrade gracefully on a truncated/corrupt scan-report.json (e.g. from a
+    # killed scan) instead of crashing dashboard/diagram generation — matches
+    # load_scan_history / load_audit_points_detected below.
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return default
 
 
 def _parse_ocsf_json(content: str) -> list[dict[str, Any]]:
@@ -384,6 +392,96 @@ def load_network_tool_results(network_dir: str) -> NetworkToolResult:
     return out
 
 
+def _dd_normalize_log_severity(raw: Any) -> str:
+    """Map a raw log status/level to the log-summary bucket (error/warning/info)."""
+    val = (raw or "").strip().lower()
+    if val in ("critical", "crit", "error", "err", "fatal"):
+        return "error"
+    if val in ("warn", "warning"):
+        return "warning"
+    if val in ("info", "notice", "ok", "pass"):
+        return "info"
+    return "unknown"
+
+
+def _dd_normalize_log(item: dict[str, Any]) -> DatadogLogEntry:
+    """Normalize one raw Datadog log record into a DatadogLogEntry."""
+    attrs = item.get("attributes", {}) if isinstance(item, dict) else {}
+    nested = attrs.get("attributes", {}) if isinstance(attrs, dict) else {}
+    status = (
+        attrs.get("status")
+        or nested.get("status")
+        or attrs.get("level")
+        or nested.get("level")
+    )
+    severity = _dd_normalize_log_severity(status)
+    message = (
+        attrs.get("message")
+        or nested.get("message")
+        or item.get("message", "")
+        or ""
+    )
+    source = (
+        attrs.get("service")
+        or nested.get("service")
+        or attrs.get("source")
+        or nested.get("source")
+        or "-"
+    )
+    timestamp = (
+        attrs.get("timestamp")
+        or nested.get("timestamp")
+        or item.get("timestamp", "")
+    )
+    return {
+        "severity": severity,
+        "message": str(message),
+        "source": str(source),
+        "timestamp": str(timestamp),
+    }
+
+
+def _dd_normalize_signal_severity(raw: Any) -> str:
+    """Map a raw signal/case severity/priority to the standard severity bucket."""
+    val = str(raw or "").strip().lower()
+    if val in ("critical", "sev-1", "p1"):
+        return "critical"
+    if val in ("high", "sev-2", "p2"):
+        return "high"
+    if val in ("medium", "med", "sev-3", "p3"):
+        return "medium"
+    if val in ("low", "sev-4", "p4"):
+        return "low"
+    if val in ("info", "informational"):
+        return "info"
+    return "unknown"
+
+
+def _dd_inc_severity(counter: DatadogSeveritySummary, sev: str) -> None:
+    """Increment the matching severity bucket in a DatadogSeveritySummary counter."""
+    if sev == "critical":
+        counter["critical"] += 1
+    elif sev == "high":
+        counter["high"] += 1
+    elif sev == "medium":
+        counter["medium"] += 1
+    elif sev == "low":
+        counter["low"] += 1
+    elif sev == "info":
+        counter["info"] += 1
+    else:
+        counter["unknown"] += 1
+
+
+def _dd_extract_items(data: Any) -> list[dict[str, Any]]:
+    """Pull the list of dict records from a Datadog `{data: [...]}` or bare-list payload."""
+    if isinstance(data, dict) and isinstance(data.get("data"), list):
+        return [x for x in data["data"] if isinstance(x, dict)]
+    if isinstance(data, list):
+        return [x for x in data if isinstance(x, dict)]
+    return []
+
+
 def load_datadog_logs(datadog_dir: str) -> DatadogLogsData:
     logs: list[DatadogLogEntry] = []
     summary: DatadogSummary = {
@@ -422,86 +520,6 @@ def load_datadog_logs(datadog_dir: str) -> DatadogLogsData:
     if not datadog_dir or not os.path.isdir(datadog_dir):
         return out
 
-    def _normalize_severity(raw):
-        val = (raw or "").strip().lower()
-        if val in ("critical", "crit", "error", "err", "fatal"):
-            return "error"
-        if val in ("warn", "warning"):
-            return "warning"
-        if val in ("info", "notice", "ok", "pass"):
-            return "info"
-        return "unknown"
-
-    def _normalize_log(item: dict[str, Any]) -> DatadogLogEntry:
-        attrs = item.get("attributes", {}) if isinstance(item, dict) else {}
-        nested = attrs.get("attributes", {}) if isinstance(attrs, dict) else {}
-        status = (
-            attrs.get("status")
-            or nested.get("status")
-            or attrs.get("level")
-            or nested.get("level")
-        )
-        severity = _normalize_severity(status)
-        message = (
-            attrs.get("message")
-            or nested.get("message")
-            or item.get("message", "")
-            or ""
-        )
-        source = (
-            attrs.get("service")
-            or nested.get("service")
-            or attrs.get("source")
-            or nested.get("source")
-            or "-"
-        )
-        timestamp = (
-            attrs.get("timestamp")
-            or nested.get("timestamp")
-            or item.get("timestamp", "")
-        )
-        return {
-            "severity": severity,
-            "message": str(message),
-            "source": str(source),
-            "timestamp": str(timestamp),
-        }
-
-    def _normalize_dd_severity(raw: Any) -> str:
-        val = str(raw or "").strip().lower()
-        if val in ("critical", "sev-1", "p1"):
-            return "critical"
-        if val in ("high", "sev-2", "p2"):
-            return "high"
-        if val in ("medium", "med", "sev-3", "p3"):
-            return "medium"
-        if val in ("low", "sev-4", "p4"):
-            return "low"
-        if val in ("info", "informational"):
-            return "info"
-        return "unknown"
-
-    def _inc_sev(counter: DatadogSeveritySummary, sev: str) -> None:
-        if sev == "critical":
-            counter["critical"] += 1
-        elif sev == "high":
-            counter["high"] += 1
-        elif sev == "medium":
-            counter["medium"] += 1
-        elif sev == "low":
-            counter["low"] += 1
-        elif sev == "info":
-            counter["info"] += 1
-        else:
-            counter["unknown"] += 1
-
-    def _extract_items(data: Any) -> list[dict[str, Any]]:
-        if isinstance(data, dict) and isinstance(data.get("data"), list):
-            return [x for x in data["data"] if isinstance(x, dict)]
-        if isinstance(data, list):
-            return [x for x in data if isinstance(x, dict)]
-        return []
-
     candidates = [
         "datadog-logs.json",
         "logs.json",
@@ -523,7 +541,7 @@ def load_datadog_logs(datadog_dir: str) -> DatadogLogsData:
                             obj = json.loads(line)
                         except json.JSONDecodeError:
                             continue
-                        normalized = _normalize_log(obj)
+                        normalized = _dd_normalize_log(obj)
                         logs.append(normalized)
             else:
                 with open(fpath, encoding="utf-8") as f:
@@ -531,11 +549,11 @@ def load_datadog_logs(datadog_dir: str) -> DatadogLogsData:
                 if isinstance(data, dict) and isinstance(data.get("data"), list):
                     for item in data["data"]:
                         if isinstance(item, dict):
-                            logs.append(_normalize_log(item))
+                            logs.append(_dd_normalize_log(item))
                 elif isinstance(data, list):
                     for item in data:
                         if isinstance(item, dict):
-                            logs.append(_normalize_log(item))
+                            logs.append(_dd_normalize_log(item))
         except (OSError, json.JSONDecodeError):
             continue
 
@@ -570,14 +588,14 @@ def load_datadog_logs(datadog_dir: str) -> DatadogLogsData:
         except (OSError, json.JSONDecodeError):
             continue
         parsed_signals: list[dict[str, str]] = []
-        for item in _extract_items(data):
+        for item in _dd_extract_items(data):
             attrs = (
                 item.get("attributes", {})
                 if isinstance(item.get("attributes"), dict)
                 else {}
             )
-            sev = _normalize_dd_severity(attrs.get("severity"))
-            _inc_sev(signal_summary, sev)
+            sev = _dd_normalize_signal_severity(attrs.get("severity"))
+            _dd_inc_severity(signal_summary, sev)
             parsed_signals.append(
                 {
                     "severity": sev,
@@ -636,18 +654,18 @@ def load_datadog_logs(datadog_dir: str) -> DatadogLogsData:
         except (OSError, json.JSONDecodeError):
             continue
         parsed_cases: list[dict[str, str]] = []
-        for item in _extract_items(data):
+        for item in _dd_extract_items(data):
             attrs = (
                 item.get("attributes", {})
                 if isinstance(item.get("attributes"), dict)
                 else {}
             )
-            sev = _normalize_dd_severity(
+            sev = _dd_normalize_signal_severity(
                 attrs.get("severity")
                 or attrs.get("priority")
                 or attrs.get("case_priority")
             )
-            _inc_sev(case_summary, sev)
+            _dd_inc_severity(case_summary, sev)
             parsed_cases.append(
                 {
                     "severity": sev,

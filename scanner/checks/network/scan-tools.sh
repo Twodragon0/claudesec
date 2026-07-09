@@ -41,8 +41,12 @@ _trivy_run() {
 
   # Parse Trivy JSON and push critical/high into findings for Overview
   if [[ -f "$out_fs" ]] && has_command python3; then
-    local crit=0 high=0 med=0
-    read -r crit high med <<< "$(python3 - "$out_fs" <<'PYTRIVY' 2>/dev/null)" || true
+    local crit=0 high=0 med=0 _trivy_counts
+    # Feed the heredoc into a plain command substitution (assigned to a var),
+    # then read from that var — do NOT nest the heredoc inside the `read <<<`
+    # here-string. The nested `read <<< "$(python3 <<'EOF' ...)"` form makes bash
+    # warn "command substitution: 1 unterminated here-document" at source time.
+    _trivy_counts="$(python3 - "$out_fs" 2>/dev/null <<'PYTRIVY' || true
 import json, sys
 try:
     with open(sys.argv[1]) as f:
@@ -63,6 +67,8 @@ try:
 except Exception:
     print(0, 0, 0)
 PYTRIVY
+)"
+    read -r crit high med <<< "$_trivy_counts"
     [[ "$crit" -gt 0 ]] && fail "TRIVY-CRIT" "Trivy: $crit CRITICAL vulnerability(ies)" "critical" \
       "Review .claudesec-network/trivy-fs.json and fix or suppress" "Run 'trivy fs $scan_path' for details"
     [[ "$high" -gt 0 ]] && fail "TRIVY-HIGH" "Trivy: $high HIGH vulnerability(ies)" "high" \

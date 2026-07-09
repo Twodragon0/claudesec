@@ -58,6 +58,19 @@ class TestLoadScanResults(unittest.TestCase):
         self.assertEqual(result["passed"], 5)
         self.assertEqual(result["grade"], "A")
 
+    def test_corrupt_json_returns_default_shape(self):
+        # A truncated / corrupt scan-report.json (e.g. from a killed scan) must
+        # degrade to the default shape, not crash dashboard/diagram generation.
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "scan.json")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write('{"passed": 5, "failed":')  # truncated JSON
+            result = loader.load_scan_results(p)
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(result["grade"], "F")
+        self.assertEqual(result["duration"], 0)
+        self.assertEqual(result["findings"], [])
+
 
 # ===========================================================================
 # 2. _parse_ocsf_json

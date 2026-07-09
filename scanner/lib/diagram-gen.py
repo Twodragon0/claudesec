@@ -20,26 +20,37 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dashboard_arch import ARCH_DOMAINS  # noqa: E402  (canonical security domains)
 from dashboard_compliance import COMPLIANCE_FRAMEWORKS  # noqa: E402
+# load_scan_results is single-sourced in dashboard_data_loader (with try/except
+# hardening) so the two implementations can't drift.
+from dashboard_data_loader import load_scan_results  # noqa: E402,F401
+# Low-level draw.io (mxGraph) XML primitives live in diagram_drawio (leaf module,
+# no back-dependency on this file) — imported so the page/diagram builders below
+# and the tests (MOD.mx_escape / MOD.drawio_cell …) resolve them as before.
+from diagram_drawio import (  # noqa: E402,F401
+    mx_escape,
+    drawio_cell,
+    emit_mx_geometry,
+    create_drawio_root,
+    create_multipage_drawio_root,
+    add_drawio_page,
+    _draw_edge,
+)
 
 VERSION = "0.1.0"
 
-# Scanner categories (from claudesec)
+# Scanner categories — order must mirror the `CLAUDESEC_ALL_CATEGORIES` array in
+# scanner/claudesec (the authoritative scan order). CATEGORIES[:8]/[:7] slices
+# feed diagram labels, so order matters. Kept honest by
+# scanner/tests/test_ci_diagram_gen_canonical_sync.py.
 CATEGORIES = [
     "infra", "ai", "network", "cloud", "access-control",
-    "cicd", "code", "macos", "saas", "windows", "prowler",
+    "cicd", "code", "macos", "windows", "saas", "prowler",
 ]
 
 # Security architecture domains and compliance frameworks are single-sourced
 # from dashboard_arch.ARCH_DOMAINS and dashboard_compliance.COMPLIANCE_FRAMEWORKS
 # (imported above) — no inline copies here, so the diagram never drifts from the
 # dashboard. Kept honest by scanner/tests/test_ci_diagram_gen_canonical_sync.py.
-
-
-def load_scan_results(path):
-    if not path or not os.path.isfile(path):
-        return {"passed": 0, "failed": 0, "warnings": 0, "skipped": 0, "total": 0, "score": 0, "grade": "F", "duration": 0, "findings": []}
-    with open(path) as f:
-        return json.load(f)
 
 
 def _parse_ocsf_json(content):
@@ -149,110 +160,6 @@ def aggregate_scan_data(scan_dir):
         "prowler_summary": prov_summary,
         "history_count": len(history),
     }
-
-
-def mx_escape(s):
-    if s is None:
-        return ""
-    s = str(s)
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-
-
-def drawio_cell(parent, cell_id, value=None, style=None, vertex=True, parent_id="1", x=0, y=0, width=120, height=40, source=None, target=None):
-    """Append one mxCell to parent (root). Returns cell id."""
-    cell = ET.SubElement(parent, "mxCell")
-    cell.set("id", str(cell_id))
-    if value is not None:
-        cell.set("value", mx_escape(value))
-    if style:
-        cell.set("style", style)
-    cell.set("vertex" if vertex else "edge", "1")
-    cell.set("parent", str(parent_id))
-    if vertex:
-        geom = ET.SubElement(cell, "mxGeometry")
-        geom.set("x", str(x))
-        geom.set("y", str(y))
-        geom.set("width", str(width))
-        geom.set("height", str(height))
-        geom.set("as", "geometry")
-    else:
-        geom = ET.SubElement(cell, "mxGeometry")
-        geom.set("relative", "1")
-        geom.set("as", "geometry")
-        if source is not None:
-            geom.set("sourcePoint", source)
-        if target is not None:
-            geom.set("targetPoint", target)
-    return cell_id
-
-
-def emit_mx_geometry(parent_cell, x, y, width, height):
-    geom = ET.SubElement(parent_cell, "mxGeometry")
-    geom.set("x", str(x))
-    geom.set("y", str(y))
-    geom.set("width", str(width))
-    geom.set("height", str(height))
-    geom.set("as", "geometry")
-
-
-def create_drawio_root():
-    root = ET.Element("mxfile", host="app.diagrams.net", modified="", agent="", version="24.0", etag="", type="device")
-    diagram = ET.SubElement(root, "diagram", id="diagram-1", name="Page-1")
-    model = ET.SubElement(diagram, "mxGraphModel", dx="1422", dy="794", grid="1", gridSize="10", guides="1", tooltips="1", connect="1", arrows="1", fold="1", page="1", pageScale="1", pageWidth="1169", pageHeight="827", math="0", shadow="0")
-    graph_root = ET.SubElement(model, "root")
-    ET.SubElement(graph_root, "mxCell", id="0")
-    ET.SubElement(graph_root, "mxCell", id="1", parent="0")
-    return root, graph_root
-
-
-def create_multipage_drawio_root():
-    """Create an mxfile that can hold multiple <diagram> pages."""
-    return ET.Element(
-        "mxfile",
-        host="app.diagrams.net",
-        modified="",
-        agent="",
-        version="24.0",
-        etag="",
-        type="device",
-    )
-
-
-def add_drawio_page(mxfile_root, page_name, page_id):
-    """Add a new page to an mxfile and return its graph_root."""
-    diagram = ET.SubElement(mxfile_root, "diagram", id=str(page_id), name=str(page_name))
-    model = ET.SubElement(
-        diagram,
-        "mxGraphModel",
-        dx="1422",
-        dy="794",
-        grid="1",
-        gridSize="10",
-        guides="1",
-        tooltips="1",
-        connect="1",
-        arrows="1",
-        fold="1",
-        page="1",
-        pageScale="1",
-        pageWidth="1169",
-        pageHeight="827",
-        math="0",
-        shadow="0",
-    )
-    graph_root = ET.SubElement(model, "root")
-    ET.SubElement(graph_root, "mxCell", id="0")
-    ET.SubElement(graph_root, "mxCell", id="1", parent="0")
-    return graph_root
-
-
-def _draw_edge(gr, sid, src, tgt, style="endArrow=classic;html=1;rounded=0;"):
-    e = ET.SubElement(gr, "mxCell", id=str(sid), value="", style=style, edge="1", parent="1")
-    e.set("source", str(src))
-    e.set("target", str(tgt))
-    g = ET.SubElement(e, "mxGeometry", relative="1")
-    g.set("as", "geometry")
-    return sid + 1
 
 
 def _overview_architecture_page(gr, agg):
