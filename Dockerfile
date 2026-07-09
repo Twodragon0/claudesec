@@ -94,7 +94,7 @@ RUN apk add --no-cache \
     py3-pip \
     kubectl
 
-ARG TRIVY_VERSION=0.69.3
+ARG TRIVY_VERSION=0.72.0
 # Trivy vulnerability scanner (used by ClaudeSec network checks)
 # Install by downloading the prebuilt Linux binary asset with checksum verification.
 RUN set -eux; \
