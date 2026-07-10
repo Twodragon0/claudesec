@@ -179,6 +179,8 @@ jobs:
         run: bash scanner/tests/test_kube_discovery.sh
       - name: Run bash unit tests (output.sh functions)
         run: bash scanner/tests/test_output_functions.sh
+      - name: Run bash unit tests (checks.sh run_category_checks)
+        run: bash scanner/tests/test_run_category_checks.sh
       - name: Run bash unit tests (infra/docker checks)
         run: bash scanner/tests/test_check_infra_docker.sh
       - name: Run bash unit tests (code/injection checks)
@@ -385,19 +387,21 @@ jobs:
             # check `scanner/checks/saas/api-checks.sh` and its test
             # `test_check_saas_api_checks.sh` both contain "checks.sh", so without
             # this exclude kcov would add their (mostly-SKIP) lines to the lib-only
-            # denominator and crater the percentage (observed 92%->68.88%). All
-            # other check files are already excluded simply by not matching.
+            # denominator and crater the percentage (observed 92%->68.88%).
+            # `test_run_category_checks.sh` likewise ends in "...checks.sh" and
+            # must be excluded so the test's own lines don't pollute the lib-only
+            # denominator. All other check files are excluded simply by not matching.
             if [[ "$name" == *_tty ]]; then
               timeout 30 \
                 python3 scanner/tests/pty_run.py \
                   kcov --include-pattern=checks.sh,checks_credentials.sh,output.sh,output_prowler.sh \
-                    --exclude-pattern=api-checks.sh,api_checks.sh \
+                    --exclude-pattern=api-checks.sh,api_checks.sh,test_run_category_checks.sh \
                     "kcov-out/$name" "$sh" \
                 || rc=$?
             else
               timeout 30 \
                 kcov --include-pattern=checks.sh,checks_credentials.sh,output.sh,output_prowler.sh \
-                  --exclude-pattern=api-checks.sh,api_checks.sh \
+                  --exclude-pattern=api-checks.sh,api_checks.sh,test_run_category_checks.sh \
                   "kcov-out/$name" "$sh" \
                 || rc=$?
             fi
