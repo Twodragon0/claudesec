@@ -11,8 +11,8 @@
 #   ./scripts/verify-shell-coverage-docker.sh            # build image if needed, run
 #   ./scripts/verify-shell-coverage-docker.sh --rebuild  # force image rebuild
 #
-# Mirrors lint.yml: --include-pattern=checks.sh,output.sh,output_prowler.sh
-# --exclude-pattern=api-checks.sh,api_checks.sh, direct-script invocation (never
+# Mirrors lint.yml: --include-pattern=checks.sh,checks_credentials.sh,output.sh,output_prowler.sh
+# --exclude-pattern=api-checks.sh,api_checks.sh,test_run_category_checks.sh, direct-script invocation (never
 # `bash script.sh`, which would instrument the bash binary and report 0 lines),
 # CLAUDESEC_DASHBOARD_OFFLINE=1, and a 90.0% floor.
 set -euo pipefail
@@ -21,8 +21,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="claudesec-kcov"
 DOCKERFILE="scripts/docker/shell-coverage.Dockerfile"
 FLOOR="90.0"
-INCLUDE="checks.sh,output.sh,output_prowler.sh"
-EXCLUDE="api-checks.sh,api_checks.sh"
+INCLUDE="checks.sh,checks_credentials.sh,output.sh,output_prowler.sh"
+EXCLUDE="api-checks.sh,api_checks.sh,test_run_category_checks.sh"
 
 cd "$REPO_ROOT"
 
