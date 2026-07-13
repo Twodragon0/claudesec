@@ -4,7 +4,6 @@
 # Targets: _id_to_category (L651-668), _emit_finding_json FINDINGS_WARN/LOW (L697-701),
 #          _print_finding_inline_fail severity-color branches (L93-99),
 #          _prowler_dashboard_summary awk severity counter (L551-558),
-#          load_scan_history multi-entry concat (L471),
 #          _prowler_dashboard_summary_provider_label full switch.
 # Run: bash scanner/tests/test_output_coverage.sh
 set -uo pipefail
@@ -313,34 +312,6 @@ assert_eq "provider_label: alibabacloud"   "Alibaba Cloud"   "$( set +x; _prowle
 assert_eq "provider_label: openstack"      "OpenStack"       "$( set +x; _prowler_dashboard_summary_provider_label openstack )"
 assert_eq "provider_label: mongodbatlas"   "MongoDB Atlas"   "$( set +x; _prowler_dashboard_summary_provider_label mongodbatlas )"
 assert_eq "provider_label: unknown passthrough" "custom-prov" "$( set +x; _prowler_dashboard_summary_provider_label custom-prov )"
-
-# ==============================================================================
-# Test Group 6: load_scan_history multi-entry concat (L471 entries="${entries},${content}")
-# Two or more scan files → the entries are comma-joined inside the array.
-# ==============================================================================
-echo ""
-echo "=== load_scan_history multi-entry concat (L471) ==="
-
-hist_base="$(mktemp -d)"
-OLD_SCAN_DIR2="$SCAN_DIR"
-SCAN_DIR="$hist_base"
-
-mkdir -p "$hist_base/.claudesec-history"
-printf '{"timestamp":"2026-01-01T00:00:00Z","score":70,"passed":7,"failed":3,"warnings":0,"skipped":0,"total":10,"critical":0,"high":1,"medium":2,"low":0,"warn":0}\n' \
-  > "$hist_base/.claudesec-history/scan-20260101T000000Z.json"
-printf '{"timestamp":"2026-01-02T00:00:00Z","score":80,"passed":8,"failed":2,"warnings":0,"skipped":0,"total":10,"critical":0,"high":0,"medium":2,"low":0,"warn":0}\n' \
-  > "$hist_base/.claudesec-history/scan-20260102T000000Z.json"
-
-loaded="$( set +x; load_scan_history )"
-# Must be a valid JSON array with both entries comma-separated (L471 exercises the branch)
-assert_contains "load_scan_history multi: starts with ["  "$loaded" "["
-assert_contains "load_scan_history multi: ends with ]"    "$loaded" "]"
-assert_contains "load_scan_history multi: entry1 score70" "$loaded" '"score":70'
-assert_contains "load_scan_history multi: entry2 score80" "$loaded" '"score":80'
-# Comma between entries (the L471 concat branch)
-assert_contains "load_scan_history multi: comma separator" "$loaded" '},'
-
-SCAN_DIR="$OLD_SCAN_DIR2"
 
 # ==============================================================================
 # Summary

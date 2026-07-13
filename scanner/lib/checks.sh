@@ -583,28 +583,6 @@ collect_environment_info() {
   fi
 }
 
-# Map check ID to compliance frameworks
-compliance_map() {
-  local id="$1"
-  # Returns compliance mappings for a check ID
-  # Format: "NIST:AC-2|ISO:A.9.2|ISMS-P:2.5.1|SOC2:CC6.1"
-  case "$id" in
-    IAM-*) echo "NIST:AC-2,IA-2|ISO:A.9|ISMS-P:2.5|SOC2:CC6.1" ;;
-    NET-*) echo "NIST:SC-7,SC-8|ISO:A.13|ISMS-P:2.6|SOC2:CC6.6" ;;
-    CLOUD-*) echo "NIST:CM-6,AC-3|ISO:A.12,A.14|ISMS-P:2.10|SOC2:CC6.1" ;;
-    CICD-*) echo "NIST:SA-11,CM-2|ISO:A.14|ISMS-P:2.9|SOC2:CC8.1" ;;
-    AI-*) echo "NIST-AI:MAP,MEASURE|ISO42001:6,7|ISMS-P:2.9" ;;
-    INFRA-*) echo "NIST:CM-6,CM-7|ISO:A.12,A.14|ISMS-P:2.10|SOC2:CC6.6" ;;
-    MAC-*|CIS-*) echo "CIS:macOS-Benchmark|NIST:CM-6,CM-7|ISO:A.8.9|KISA-PC:PC-01~PC-19" ;;
-    SECRETS-*) echo "NIST:IA-5,SC-28|ISO:A.8.4,A.8.24|ISMS-P:2.5,2.7|SOC2:CC6.1,CC6.7" ;;
-    SAAS-API-*) echo "NIST:AC-2,CM-6|ISO:A.9,A.12|ISMS-P:2.5,2.10|SOC2:CC6.1,CC6.6" ;;
-    SAAS-*) echo "NIST:AC-2,CM-6|ISO:A.9,A.12|ISMS-P:2.5,2.10|SOC2:CC6.1,CC6.6" ;;
-    WIN-*) echo "KISA-W:W-01~W-84|NIST:CM-6,AC-2,IA-5|ISO:A.8,A.9|ISMS-P:2.5,2.10" ;;
-    PROWLER-*) echo "NIST:AC,CM,IA,SC|ISO:A.8,A.9,A.12,A.14|CIS:Benchmark|SOC2:CC6,CC7,CC8" ;;
-    *) echo "" ;;
-  esac
-}
-
 # ── Category check runner (shared by run_scan / run_scan_for_dashboard) ─────
 
 # Runs each category's check files, aggregating global TOTAL_CHECKS/PASSED/FAILED/

@@ -143,13 +143,6 @@ has_aws_credentials() {
   has_command aws && run_with_timeout 10 aws sts get-caller-identity &>/dev/null
 }
 
-# Check if an API key env var is set (non-empty); does not print the value
-api_key_found() {
-  local var_name="$1"
-  local val="${!var_name:-}"
-  [[ -n "$val" ]]
-}
-
 # Attempt AWS SSO login if configured but session expired
 aws_sso_ensure_login() {
   has_command aws || return 1
