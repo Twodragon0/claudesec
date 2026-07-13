@@ -231,17 +231,29 @@ _print_findings() {
   done
 }
 
+# Map a numeric score (0-100) to a single grade letter (A/B/C/D/F). Single source
+# of the grade cutoffs, shared by the summary, JSON, and HTML-dashboard paths.
+_score_to_grade() {
+  local score="$1"
+  if [[ $score -ge 90 ]]; then echo "A"
+  elif [[ $score -ge 80 ]]; then echo "B"
+  elif [[ $score -ge 70 ]]; then echo "C"
+  elif [[ $score -ge 60 ]]; then echo "D"
+  else echo "F"
+  fi
+}
+
 # Map a numeric score (0-100) to a grade letter + color code pair ("grade color").
 # Pure: reads only the args and the color globals (which are constants after source).
 # Consumers parse the single-line "grade color" result with `read`.
 _print_summary_score_to_grade() {
-  local score="$1"
-  local grade_color="$RED" grade="F"
-  if [[ $score -ge 90 ]]; then grade="A"; grade_color="$GREEN"
-  elif [[ $score -ge 80 ]]; then grade="B"; grade_color="$GREEN"
-  elif [[ $score -ge 70 ]]; then grade="C"; grade_color="$YELLOW"
-  elif [[ $score -ge 60 ]]; then grade="D"; grade_color="$YELLOW"
-  fi
+  local grade grade_color
+  grade="$(_score_to_grade "$1")"
+  case "$grade" in
+    A|B) grade_color="$GREEN" ;;
+    C|D) grade_color="$YELLOW" ;;
+    *)   grade_color="$RED" ;;
+  esac
   echo "$grade $grade_color"
 }
 
@@ -370,7 +382,7 @@ print_json_summary() {
     "warnings": $WARNINGS,
     "skipped": $SKIPPED,
     "score": $score,
-    "grade": "$(if [[ $score -ge 90 ]]; then echo A; elif [[ $score -ge 80 ]]; then echo B; elif [[ $score -ge 70 ]]; then echo C; elif [[ $score -ge 60 ]]; then echo D; else echo F; fi)"
+    "grade": "$(_score_to_grade "$score")"
   },
   "results": $JSON_RESULTS
 }
@@ -466,37 +478,14 @@ generate_html_dashboard() {
   local score=0
   [[ $active -gt 0 ]] && score=$(( (PASSED * 100) / active ))
 
-  local grade="F"
-  if [[ $score -ge 90 ]]; then grade="A"
-  elif [[ $score -ge 80 ]]; then grade="B"
-  elif [[ $score -ge 70 ]]; then grade="C"
-  elif [[ $score -ge 60 ]]; then grade="D"
-  fi
+  local grade
+  grade="$(_score_to_grade "$score")"
 
   local n_crit=${#FINDINGS_CRITICAL[@]}
   local n_high=${#FINDINGS_HIGH[@]}
   local n_med=${#FINDINGS_MEDIUM[@]}
   local n_low=${#FINDINGS_LOW[@]}
   local n_warn=${#FINDINGS_WARN[@]}
-
-  _id_to_category() {
-    local prefix="${1%%-*}"
-    case "$prefix" in
-      IAM)      echo "access-control" ;;
-      INFRA)    echo "infra" ;;
-      NET|TLS)  echo "network" ;;
-      CICD)     echo "cicd" ;;
-      CODE|SAST|SECRETS|TRIVY) echo "code" ;;
-      AI|LLM)   echo "ai" ;;
-      CLOUD|AWS|GCP|AZURE) echo "cloud" ;;
-      MAC|CIS)  echo "macos" ;;
-      SAAS)     echo "saas" ;;
-      WIN|KISA) echo "windows" ;;
-      PROWLER)  echo "prowler" ;;
-      DOCKER)   echo "infra" ;;
-      *)        echo "other" ;;
-    esac
-  }
 
   # Build findings JSON for Python generator
   local findings_json="["
@@ -509,7 +498,7 @@ generate_html_dashboard() {
     f_title="${f_title//\"/\\\"}"
     f_fix="${f_fix//\"/\\\"}"
     f_loc="${f_loc//\"/\\\"}"
-    local f_cat; f_cat=$(_id_to_category "$f_id")
+    local f_cat; f_cat=$(_finding_id_to_category "$f_id")
     [[ "$first" == "true" ]] && first=false || findings_json+=","
     local loc_field=""
     [[ -n "$f_loc" ]] && loc_field=",\"location\":\"$f_loc\""
