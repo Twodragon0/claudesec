@@ -50,8 +50,14 @@ Pure moves; the coverage gate is the safety net.
    closures out of the 308-line `load_datadog_logs` to module level
    (`_dd_normalize_log`, `_dd_normalize_signal_severity`, `_dd_inc_severity`,
    `_dd_extract_items`, `_dd_normalize_log_severity`).
-2. `diagram-gen.py` — TODO: split the section/diagram builders (mirror the
-   `dashboard_html_*` module split). Strong pytest coverage → low risk.
+2. `diagram-gen.py` — ✅ DONE: extracted the scan-data layer to `diagram_data.py`
+   (`CATEGORIES` + `_parse_ocsf_json` / `load_prowler_files` / `load_scan_history`
+   / `aggregate_scan_data`) and the SVG builders to `diagram_svg.py` (`_svg_escape`
+   / `generate_architecture_svg` / `generate_overview_svg`), re-exported into
+   `diagram-gen.py` (838→545 lines). `generate_security_domains_diagram` stays put
+   so the `test_ci_diagram_gen_canonical_sync` frameworks-derive guard still fires.
+   Verified: pytest 99.12% floor holds, 129 diagram tests pass, and all six
+   generated `.drawio`/`.svg` files are **byte-identical** (SHA-256) before/after.
 3. `output.sh` — TODO: extract the prowler-summary block into a focused unit
    (bash; kcov floor is the net).
 4. `checks.sh` — TODO: group the AWS / GCP / Azure / datadog credential helpers
