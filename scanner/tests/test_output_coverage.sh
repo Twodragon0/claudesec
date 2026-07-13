@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
 # Unit tests for output.sh: coverage for previously-uncovered branches.
-# Targets: _id_to_category (L651-668), _emit_finding_json FINDINGS_WARN/LOW (L697-701),
+# Targets: _finding_id_to_category via generate_html_dashboard, _emit_finding_json FINDINGS_WARN/LOW,
 #          _print_finding_inline_fail severity-color branches (L93-99),
 #          _prowler_dashboard_summary awk severity counter (L551-558),
 #          _prowler_dashboard_summary_provider_label full switch.
@@ -139,14 +139,15 @@ QUIET=1
 FORMAT="text"
 
 # ==============================================================================
-# Test Group 2: _id_to_category() inside generate_html_dashboard (L651-668)
-# This inner function is defined inside generate_html_dashboard(); to exercise
-# it we call generate_html_dashboard() with scan data and verify the resulting
-# scan-report.json categories, then check the FINDINGS_WARN/LOW emit loops
-# (L697-701) are triggered.
+# Test Group 2: category mapping inside generate_html_dashboard
+# generate_html_dashboard's _emit_finding_json maps each finding's ID prefix to a
+# category via _finding_id_to_category; to exercise it we call
+# generate_html_dashboard() with scan data and verify the resulting
+# scan-report.json categories, then check the FINDINGS_WARN/LOW emit loops are
+# triggered.
 # ==============================================================================
 echo ""
-echo "=== generate_html_dashboard: _id_to_category + FINDINGS_WARN/LOW emit (L651-701) ==="
+echo "=== generate_html_dashboard: category mapping + FINDINGS_WARN/LOW emit ==="
 
 _reset_state
 TOTAL_CHECKS=6
@@ -193,14 +194,14 @@ assert_contains "scan-report: WARN entry severity=warning"  "$report_content" '"
 assert_contains "scan-report: LOW entry severity=low"       "$report_content" '"severity":"low"'
 
 # ==============================================================================
-# Test Group 3: _id_to_category full branch matrix (L652-667)
+# Test Group 3: category mapping full branch matrix
 # We use a helper that calls generate_html_dashboard with a single entry per
 # prefix, then inspect scan-report.json for the expected category string.
 # This covers all case arms: INFRA, NET/TLS, CICD, CODE/SAST/SECRETS/TRIVY,
 # AI/LLM, CLOUD/AWS/GCP/AZURE, MAC/CIS, SAAS, WIN/KISA, PROWLER, DOCKER, other.
 # ==============================================================================
 echo ""
-echo "=== _id_to_category (via generate_html_dashboard) — full switch L652-667 ==="
+echo "=== category mapping (via generate_html_dashboard) — full switch ==="
 
 _exercise_category() {
   local id="$1" expected_cat="$2"
@@ -211,7 +212,7 @@ _exercise_category() {
   generate_html_dashboard "$tmpdir/cat_test.html" 2>/dev/null || true
   local content
   content="$(cat "$tmpdir/scan-report.json" 2>/dev/null)"
-  assert_contains "_id_to_category ${id}: has ${expected_cat}" "$content" "\"category\":\"${expected_cat}\""
+  assert_contains "category ${id}: has ${expected_cat}" "$content" "\"category\":\"${expected_cat}\""
 }
 
 _exercise_category "IAM-001"     "access-control"
