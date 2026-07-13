@@ -153,16 +153,6 @@ should_report() {
   esac
 }
 
-html_escape() {
-  local s="$1"
-  s="${s//&/\&amp;}"
-  s="${s//</\&lt;}"
-  s="${s//>/\&gt;}"
-  s="${s//\"/\&quot;}"
-  s="${s//\'/\&#x27;}"
-  echo "$s"
-}
-
 _finding_ref_url() {
   case "$1" in
     CODE-INJ-*) echo "https://owasp.org/Top10/A03_2021-Injection/" ;;
@@ -457,119 +447,12 @@ HIST_EOF
   fi
 }
 
-# Load history entries (newest last), output as JSON array
-load_scan_history() {
-  local HISTORY_DIR="${SCAN_DIR:-.}/.claudesec-history"
-  [[ -d "$HISTORY_DIR" ]] || { echo "[]"; return; }
-  local entries=""
-  while IFS= read -r f; do
-    [[ -f "$f" ]] || continue
-    local content
-    content=$(cat "$f" 2>/dev/null) || continue
-    [[ -z "$content" ]] && continue
-    if [[ -n "$entries" ]]; then
-      entries="${entries},${content}"
-    else
-      entries="$content"
-    fi
-  done < <(find "$HISTORY_DIR" -name 'scan-*.json' 2>/dev/null | sort)
-  echo "[${entries}]"
-}
-
-# Compute trend delta vs previous scan
-compute_trend() {
-  local HISTORY_DIR="${SCAN_DIR:-.}/.claudesec-history"
-  [[ -d "$HISTORY_DIR" ]] || return
-  local prev_file
-  prev_file=$(find "$HISTORY_DIR" -name 'scan-*.json' 2>/dev/null | sort | tail -1)
-  [[ -z "$prev_file" || ! -f "$prev_file" ]] && return
-
-  local prev_score prev_failed prev_crit prev_high
-  prev_score=$(grep -o '"score":[0-9]*' "$prev_file" | cut -d: -f2)
-  prev_failed=$(grep -o '"failed":[0-9]*' "$prev_file" | cut -d: -f2)
-  prev_crit=$(grep -o '"critical":[0-9]*' "$prev_file" | cut -d: -f2)
-  prev_high=$(grep -o '"high":[0-9]*' "$prev_file" | cut -d: -f2)
-
-  local active=$((TOTAL_CHECKS - SKIPPED))
-  local score=0
-  [[ $active -gt 0 ]] && score=$(( (PASSED * 100) / active ))
-  local n_crit=${#FINDINGS_CRITICAL[@]}
-  local n_high=${#FINDINGS_HIGH[@]}
-
-  export TREND_SCORE_DELTA=$(( score - ${prev_score:-0} ))
-  export TREND_FAILED_DELTA=$(( FAILED - ${prev_failed:-0} ))
-  export TREND_CRIT_DELTA=$(( n_crit - ${prev_crit:-0} ))
-  export TREND_HIGH_DELTA=$(( n_high - ${prev_high:-0} ))
-  export TREND_PREV_SCORE="${prev_score:-0}"
-  export TREND_HAS_PREV="true"
-}
-
-
 # Prowler dashboard summary (provider-label map + per-provider HTML table) lives
 # in the sibling output_prowler.sh so this file stays focused; sourced by path
 # relative to this script so it resolves however output.sh itself is sourced.
 # shellcheck source=scanner/lib/output_prowler.sh
 source "$(dirname "${BASH_SOURCE[0]}")/output_prowler.sh"
 
-
-_html_findings_rows() {
-  local -n arr=$1
-  local sev_class="$2" badge_class="$3" badge_text="$4"
-  for entry in "${arr[@]+"${arr[@]}"}"; do
-    IFS='|' read -r f_id f_title _ f_fix f_details <<< "$entry"
-    f_title="$(html_escape "$f_title")"
-    f_fix="$(html_escape "$f_fix")"
-    f_details="$(html_escape "$f_details")"
-    # Convert literal \n to <br> for HTML display
-    f_title="${f_title//\\n/<br>}"
-    f_fix="${f_fix//\\n/<br>}"
-    f_details="${f_details//\\n/<br>}"
-
-    local detail_html=""
-    if [[ -n "$f_details" ]]; then
-      detail_html="<tr class=\"detail-row ${sev_class}\" style=\"display:none\"><td colspan=\"4\"><div class=\"detail-content\">${f_details}</div></td></tr>"
-      findings_html+="<tr class=\"${sev_class} clickable\" onclick=\"toggleDetail(this)\"><td><span class=\"badge ${badge_class}\">${badge_text}</span></td><td class=\"mono\">$f_id</td><td>$f_title <span class=\"expand-icon\">▸</span></td><td class=\"fix\">$f_fix</td></tr>${detail_html}"
-    else
-      findings_html+="<tr class=\"${sev_class}\"><td><span class=\"badge ${badge_class}\">${badge_text}</span></td><td class=\"mono\">$f_id</td><td>$f_title</td><td class=\"fix\">$f_fix</td></tr>"
-    fi
-  done
-}
-
-_html_findings_rows_limited() {
-  local outvar="$1"
-  local -n arr=$2
-  local sev_class="$3" badge_class="$4" badge_text="$5"
-  local max="${6:-0}"
-
-  local count=0
-  local current="${!outvar}"
-
-  for entry in "${arr[@]+"${arr[@]}"}"; do
-    if [[ "$max" -gt 0 && "$count" -ge "$max" ]]; then
-      break
-    fi
-    IFS='|' read -r f_id f_title _ f_fix f_details <<< "$entry"
-    f_title="$(html_escape "$f_title")"
-    f_fix="$(html_escape "$f_fix")"
-    f_details="$(html_escape "$f_details")"
-    # Convert literal \n to <br> for HTML display
-    f_title="${f_title//\\n/<br>}"
-    f_fix="${f_fix//\\n/<br>}"
-    f_details="${f_details//\\n/<br>}"
-
-    local detail_html=""
-    if [[ -n "$f_details" ]]; then
-      detail_html="<tr class=\"detail-row ${sev_class}\" style=\"display:none\"><td colspan=\"4\"><div class=\"detail-content\">${f_details}</div></td></tr>"
-      current+="<tr class=\"${sev_class} clickable\" onclick=\"toggleDetail(this)\"><td><span class=\"badge ${badge_class}\">${badge_text}</span></td><td class=\"mono\">$f_id</td><td>$f_title <span class=\"expand-icon\">▸</span></td><td class=\"fix\">$f_fix</td></tr>${detail_html}"
-    else
-      current+="<tr class=\"${sev_class}\"><td><span class=\"badge ${badge_class}\">${badge_text}</span></td><td class=\"mono\">$f_id</td><td>$f_title</td><td class=\"fix\">$f_fix</td></tr>"
-    fi
-
-    count=$((count + 1))
-  done
-
-  printf -v "$outvar" '%s' "$current"
-}
 
 generate_html_dashboard_legacy() {
   # Legacy bash-only generator kept as fallback (v0.2.0)

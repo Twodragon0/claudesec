@@ -243,22 +243,6 @@ sso_empty=$(aws_list_sso_profiles)
 assert_eq "aws_list_sso_profiles: missing file empty" "" "$sso_empty"
 
 # ============================================================================
-# api_key_found()
-# ============================================================================
-echo ""
-echo "=== api_key_found() ==="
-
-unset MY_API_KEY
-api_key_found "MY_API_KEY"; assert_false "api_key_found: unset is false" "$?"
-
-export MY_API_KEY=""
-api_key_found "MY_API_KEY"; assert_false "api_key_found: empty is false" "$?"
-
-export MY_API_KEY="abc"
-api_key_found "MY_API_KEY"; assert_true "api_key_found: set returns true" "$?"
-unset MY_API_KEY
-
-# ============================================================================
 # has_gcp_credentials / gcp_ensure_credentials_found
 # ============================================================================
 echo ""
@@ -397,27 +381,6 @@ mkdir -p "$tmpdir/kbase4/configs/custom"
 : > "$tmpdir/kbase4/configs/custom/kubeconfig"
 found=$(kubectl_auto_find_kubeconfig "$tmpdir/kbase4")
 assert_contains "kubectl_auto_find_kubeconfig: custom found" "$found" "kubeconfig"
-
-# ============================================================================
-# compliance_map()
-# ============================================================================
-echo ""
-echo "=== compliance_map() ==="
-
-assert_contains "compliance_map: IAM-*"      "$(compliance_map "IAM-001")"     "NIST:AC-2"
-assert_contains "compliance_map: NET-*"      "$(compliance_map "NET-042")"     "NIST:SC-7"
-assert_contains "compliance_map: CLOUD-*"    "$(compliance_map "CLOUD-013")"   "NIST:CM-6"
-assert_contains "compliance_map: CICD-*"     "$(compliance_map "CICD-007")"    "NIST:SA-11"
-assert_contains "compliance_map: AI-*"       "$(compliance_map "AI-002")"      "NIST-AI:MAP"
-assert_contains "compliance_map: INFRA-*"    "$(compliance_map "INFRA-001")"   "NIST:CM-6"
-assert_contains "compliance_map: MAC-*"      "$(compliance_map "MAC-001")"     "CIS:macOS-Benchmark"
-assert_contains "compliance_map: CIS-*"      "$(compliance_map "CIS-002")"     "CIS:macOS-Benchmark"
-assert_contains "compliance_map: SECRETS-*"  "$(compliance_map "SECRETS-001")" "NIST:IA-5"
-assert_contains "compliance_map: SAAS-API-*" "$(compliance_map "SAAS-API-01")" "NIST:AC-2"
-assert_contains "compliance_map: SAAS-*"     "$(compliance_map "SAAS-ZIA-01")" "NIST:AC-2"
-assert_contains "compliance_map: WIN-*"      "$(compliance_map "WIN-011")"     "KISA-W:W-01"
-assert_contains "compliance_map: PROWLER-*"  "$(compliance_map "PROWLER-1")"   "CIS:Benchmark"
-assert_eq       "compliance_map: unknown empty" "" "$(compliance_map "UNKNOWN-1")"
 
 # ============================================================================
 # kubectl_discover_kubeconfigs() — no HOME/.kube (uses real $HOME but tolerates)

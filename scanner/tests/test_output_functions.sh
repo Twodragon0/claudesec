@@ -352,22 +352,6 @@ SEVERITY="$OLD_SEV"
 should_report() { return 0; }
 
 # ==============================================================================
-# Test Group 7: html_escape()
-# ==============================================================================
-echo ""
-echo "=== html_escape() ==="
-
-assert_eq "html_escape: amp"      "&amp;"             "$(html_escape '&')"
-assert_eq "html_escape: lt"       "&lt;"              "$(html_escape '<')"
-assert_eq "html_escape: gt"       "&gt;"              "$(html_escape '>')"
-assert_eq "html_escape: dquote"   "&quot;"            "$(html_escape '"')"
-assert_eq "html_escape: squote"   "&#x27;"            "$(html_escape "'")"
-assert_eq "html_escape: plain"    "Hello World"       "$(html_escape "Hello World")"
-assert_eq "html_escape: mixed"    "a&amp;b&lt;c&gt;d" "$(html_escape 'a&b<c>d')"
-assert_eq "html_escape: empty"    ""                  "$(html_escape '')"
-assert_contains "html_escape: script tag" "$(html_escape '<script>alert(1)</script>')" "&lt;script&gt;"
-
-# ==============================================================================
 # Test Group 8: _finding_ref_url() - ID prefix mapping
 # ==============================================================================
 echo ""
@@ -579,17 +563,14 @@ js_skip="$(print_json_summary 1 2>&1)"
 assert_contains "print_json_summary: skipped=total score 0" "$js_skip" '"score": 0'
 
 # ==============================================================================
-# Test Group 13: save_scan_history / load_scan_history / compute_trend
+# Test Group 13: save_scan_history
 # ==============================================================================
 echo ""
-echo "=== save_scan_history / load_scan_history / compute_trend ==="
+echo "=== save_scan_history ==="
 
 hist_base="$(mktemp -d)"
 OLD_SCAN_DIR="$SCAN_DIR"
 SCAN_DIR="$hist_base"
-
-# Empty history dir → load_scan_history returns "[]"
-assert_eq "load_scan_history: missing dir returns []" "[]" "$(load_scan_history)"
 
 # Save one scan
 _reset_state
@@ -597,22 +578,6 @@ TOTAL_CHECKS=10; PASSED=8; FAILED=2; WARNINGS=0; SKIPPED=0
 save_scan_history
 hist_count=$(find "$hist_base/.claudesec-history" -name 'scan-*.json' | wc -l | tr -d ' ')
 assert_eq "save_scan_history: file created" "1" "$hist_count"
-
-# load_scan_history populates
-loaded="$(load_scan_history)"
-assert_contains "load_scan_history: starts with [" "$loaded" "["
-assert_contains "load_scan_history: ends with ]"   "$loaded" "]"
-assert_contains "load_scan_history: score field"   "$loaded" '"score":80'
-assert_contains "load_scan_history: passed field"  "$loaded" '"passed":8'
-
-# Save second scan (improved) → compute_trend produces deltas
-_reset_state
-TOTAL_CHECKS=10; PASSED=9; FAILED=1; WARNINGS=0; SKIPPED=0
-compute_trend
-assert_eq "compute_trend: TREND_HAS_PREV"      "true" "${TREND_HAS_PREV:-}"
-assert_eq "compute_trend: score delta +10"     "10"   "${TREND_SCORE_DELTA:-}"
-assert_eq "compute_trend: failed delta -1"     "-1"   "${TREND_FAILED_DELTA:-}"
-assert_eq "compute_trend: prev score=80"       "80"   "${TREND_PREV_SCORE:-}"
 
 # History pruning: force HISTORY_MAX=2 and create 5 files so 3 are pruned
 rm -rf "$hist_base/.claudesec-history"
@@ -648,84 +613,6 @@ assert_contains "legacy: body tag"           "$legacy_content" "<body>"
 assert_contains "legacy: title heading"      "$legacy_content" "ClaudeSec Dashboard"
 assert_contains "legacy: fallback mention"   "$legacy_content" "fallback"
 assert_contains "legacy: install python hint" "$legacy_content" "Python 3"
-
-# ==============================================================================
-# Test Group 15: _html_findings_rows / _html_findings_rows_limited
-# ==============================================================================
-echo ""
-echo "=== _html_findings_rows / _html_findings_rows_limited ==="
-
-# Basic rows with details → row + detail-row
-_reset_state
-FINDINGS_HIGH+=("CHK-HR1|High <danger> &title|high|Fix it|extra details")
-findings_html=""
-_html_findings_rows FINDINGS_HIGH "high" "badge-high" "HIGH"
-assert_contains "html_rows: id in output"           "$findings_html" "CHK-HR1"
-assert_contains "html_rows: title escaped"          "$findings_html" "&lt;danger&gt;"
-assert_contains "html_rows: amp escaped"            "$findings_html" "&amp;title"
-assert_contains "html_rows: fix shown"              "$findings_html" "Fix it"
-assert_contains "html_rows: badge class"            "$findings_html" "badge-high"
-assert_contains "html_rows: sev class row"          "$findings_html" '"high clickable"'
-assert_contains "html_rows: detail-row present"     "$findings_html" "detail-row"
-assert_contains "html_rows: clickable handler"      "$findings_html" "toggleDetail"
-assert_contains "html_rows: expand icon"            "$findings_html" "expand-icon"
-
-# Row without details → no detail-row, non-clickable
-_reset_state
-FINDINGS_MEDIUM+=("CHK-HR2|Med title|medium|Fix med|")
-findings_html=""
-_html_findings_rows FINDINGS_MEDIUM "medium" "badge-med" "MED"
-assert_contains     "html_rows(no details): id shown"            "$findings_html" "CHK-HR2"
-assert_not_contains "html_rows(no details): no detail-row"       "$findings_html" "detail-row"
-assert_not_contains "html_rows(no details): no toggle"           "$findings_html" "toggleDetail"
-
-# Empty findings array → no html produced
-_reset_state
-findings_html=""
-_html_findings_rows FINDINGS_LOW "low" "badge-low" "LOW"
-assert_eq "html_rows: empty array produces nothing" "" "$findings_html"
-
-# _html_findings_rows_limited with max=0 (unlimited) emits every entry
-_reset_state
-FINDINGS_HIGH+=("CHK-L1|First|high|fix1|")
-FINDINGS_HIGH+=("CHK-L2|Second|high|fix2|")
-FINDINGS_HIGH+=("CHK-L3|Third|high|fix3|")
-out_unlim=""
-_html_findings_rows_limited out_unlim FINDINGS_HIGH "high" "badge-high" "HIGH" 0
-assert_contains "html_rows_limited(max=0): first"  "$out_unlim" "CHK-L1"
-assert_contains "html_rows_limited(max=0): second" "$out_unlim" "CHK-L2"
-assert_contains "html_rows_limited(max=0): third"  "$out_unlim" "CHK-L3"
-
-# max=1 caps at a single row
-out_capped=""
-_html_findings_rows_limited out_capped FINDINGS_HIGH "high" "badge-high" "HIGH" 1
-assert_contains     "html_rows_limited(max=1): first included"  "$out_capped" "CHK-L1"
-assert_not_contains "html_rows_limited(max=1): second excluded" "$out_capped" "CHK-L2"
-assert_not_contains "html_rows_limited(max=1): third excluded"  "$out_capped" "CHK-L3"
-
-# max=2 caps at two rows
-out_two=""
-_html_findings_rows_limited out_two FINDINGS_HIGH "high" "badge-high" "HIGH" 2
-assert_contains     "html_rows_limited(max=2): first"         "$out_two" "CHK-L1"
-assert_contains     "html_rows_limited(max=2): second"        "$out_two" "CHK-L2"
-assert_not_contains "html_rows_limited(max=2): third missing" "$out_two" "CHK-L3"
-
-# Preserves existing content in outvar (append semantics)
-_reset_state
-FINDINGS_MEDIUM+=("CHK-APP1|Append test|medium|fix|")
-out_existing="PRIOR-CONTENT"
-_html_findings_rows_limited out_existing FINDINGS_MEDIUM "medium" "badge-med" "MED" 0
-assert_contains "html_rows_limited: preserves prior content" "$out_existing" "PRIOR-CONTENT"
-assert_contains "html_rows_limited: appends new row"         "$out_existing" "CHK-APP1"
-
-# Row with details in limited variant → clickable + detail-row
-_reset_state
-FINDINGS_HIGH+=("CHK-LD1|Limited detail|high|fix|lots of details here")
-out_det=""
-_html_findings_rows_limited out_det FINDINGS_HIGH "high" "badge-high" "HIGH" 5
-assert_contains "html_rows_limited: detail-row present" "$out_det" "detail-row"
-assert_contains "html_rows_limited: toggleDetail"       "$out_det" "toggleDetail"
-assert_contains "html_rows_limited: details in output"  "$out_det" "lots of details here"
 
 # ==============================================================================
 # Summary
