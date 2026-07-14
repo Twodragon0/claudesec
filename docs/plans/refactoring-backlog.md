@@ -70,8 +70,10 @@ Pure moves; the coverage gate is the safety net.
    ~329 lines in the new file). The generic helpers (`has_command`,
    `run_with_timeout`, `has_file`, `has_dir`, `file_contains`, `files_contain`,
    `count_files`, `is_git_repo`, `git_remote_url`) plus `collect_environment_info`
-   and `run_category_checks` stay in `checks.sh`. AWS / GCP / Azure / datadog
-   credential grouping remains a follow-up.
+   and `run_category_checks` stay in `checks.sh`. The AWS / GCP / Azure / Datadog /
+   GitHub / Okta credential helpers were already split out to
+   `scanner/lib/checks_credentials.sh` in #332 — no further credential grouping is
+   pending.
 5. `scanner/claudesec` — TODO, **last** (highest risk, integration-tested):
    extract Datadog artifact collection and the dashboard-serve logic into `lib/`.
 
