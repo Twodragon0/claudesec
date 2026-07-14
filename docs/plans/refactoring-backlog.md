@@ -41,8 +41,9 @@ shared prefix into `_saas_curl() { run_with_timeout 15 curl -sSf "$@"; }`; each
 call keeps its exact headers/flags. Proven byte-identical via an arg-capture
 equivalence harness.
 
-## Priority 2 — Large-file decomposition — 🔄 IN PROGRESS
+## Priority 2 — Large-file decomposition — ✅ DONE
 
+All five items shipped as their own PRs (#325, #339/#340, #343, #341, #342).
 Incremental, **one file per PR**, safest-first (thickest test coverage first).
 Pure moves; the coverage gate is the safety net.
 
