@@ -21,7 +21,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="claudesec-kcov"
 DOCKERFILE="scripts/docker/shell-coverage.Dockerfile"
 FLOOR="90.0"
-INCLUDE="checks.sh,checks_credentials.sh,output.sh,output_prowler.sh"
+INCLUDE="checks.sh,checks_credentials.sh,kubectl.sh,output.sh,output_prowler.sh"
 EXCLUDE="api-checks.sh,api_checks.sh,test_run_category_checks.sh"
 
 cd "$REPO_ROOT"
