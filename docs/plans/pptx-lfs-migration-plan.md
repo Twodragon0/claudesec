@@ -63,7 +63,7 @@ Run from a **fresh, dedicated mirror clone**, never your working checkout.
 
 ```bash
 # Mirror backup — complete refs + objects. Keep until migration is verified good.
-git clone --mirror git@github.com:Twodragon0/claudesec.git claudesec-backup.git
+git clone --mirror https://github.com/Twodragon0/claudesec.git claudesec-backup.git
 tar czf claudesec-backup-$(date -u +%Y%m%dT%H%M%SZ).tar.gz claudesec-backup.git
 # Record the tarball path/checksum somewhere durable (not in the repo).
 ```
@@ -71,7 +71,7 @@ tar czf claudesec-backup-$(date -u +%Y%m%dT%H%M%SZ).tar.gz claudesec-backup.git
 ### 2. Measure the "before"
 
 ```bash
-git clone git@github.com:Twodragon0/claudesec.git claudesec-premigrate
+git clone https://github.com/Twodragon0/claudesec.git claudesec-premigrate
 du -sh claudesec-premigrate/.git          # baseline pack size
 ```
 
@@ -127,7 +127,7 @@ pre-window state exactly.
 ### 8. Verify the "after"
 
 ```bash
-git clone git@github.com:Twodragon0/claudesec.git claudesec-postmigrate
+git clone https://github.com/Twodragon0/claudesec.git claudesec-postmigrate
 du -sh claudesec-postmigrate/.git     # expect ~37 MB smaller than step 2
 cd claudesec-postmigrate && git lfs ls-files | grep pptx
 ```
