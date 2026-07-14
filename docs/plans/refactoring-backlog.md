@@ -74,8 +74,15 @@ Pure moves; the coverage gate is the safety net.
    GitHub / Okta credential helpers were already split out to
    `scanner/lib/checks_credentials.sh` in #332 — no further credential grouping is
    pending.
-5. `scanner/claudesec` — TODO, **last** (highest risk, integration-tested):
-   extract Datadog artifact collection and the dashboard-serve logic into `lib/`.
+5. `scanner/claudesec` — ✅ DONE (dashboard-serve extraction): moved the
+   dashboard HTTP-serve logic (`open_url_best_effort`, `serve_dashboard`)
+   verbatim into a new `scanner/lib/dashboard_serve.sh` (839→723 lines in the
+   entrypoint; ~140 lines in the new file). It is sourced after `output.sh`
+   (whose `error`/`warning`/color helpers it uses). Like `datadog.sh` it is
+   network-I/O code, so it is intentionally NOT added to the kcov
+   `--include-pattern` SUT set. The Datadog artifact collection half of this item
+   was already covered by `collect_datadog_dashboard_artifacts` in
+   `scanner/lib/datadog.sh` (#334); only the entrypoint calls it.
 
 **Guardrails for each step**: pure move, no logic change; assert `pytest 99%` /
 `kcov 90%` hold before and after; for sourced bash, keep every function at the
