@@ -408,39 +408,11 @@ save_scan_history() {
   local n_low=${#FINDINGS_LOW[@]}
   local n_warn=${#FINDINGS_WARN[@]}
 
-  # Build compliance summary from prowler OCSF results if available
-  local compliance_json=""
-  local prowler_dir="${SCAN_DIR:-.}/.claudesec-prowler"
-  local _has_ocsf=0
-  if [[ -d "$prowler_dir" ]]; then
-    for _f in "$prowler_dir"/prowler-*.ocsf.json; do
-      [[ -f "$_f" ]] && _has_ocsf=1 && break
-    done
-  fi
-  if [[ "$_has_ocsf" == "1" ]] && command -v python3 &>/dev/null; then
-    compliance_json=$(timeout 10 python3 -c "
-import json, glob, os, importlib.util
-pdir = '$prowler_dir'
-findings = []
-for fp in glob.glob(os.path.join(pdir, 'prowler-*.ocsf.json')):
-    try:
-        with open(fp, encoding='utf-8') as f:
-            raw = f.read().strip()
-        data = json.loads(raw) if raw.startswith('[') else [json.loads(l) for l in raw.splitlines() if l.strip()]
-        for item in data:
-            if item.get('status_code') != 'FAIL': continue
-            findings.append({'check': item.get('metadata',{}).get('event_code',''),
-                'title': item.get('finding_info',{}).get('title',''),
-                'message': item.get('message',''),
-                'compliance': item.get('unmapped',{}).get('compliance',{})})
-    except Exception: pass
-if not findings: exit(0)
-spec = importlib.util.spec_from_file_location('cm', '$(dirname "${BASH_SOURCE[0]}")/compliance-map.py')
-cm = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(cm)
-print(json.dumps(cm.compliance_summary(cm.map_compliance(findings)), separators=(',', ':')))
-" 2>/dev/null) || compliance_json=""
-  fi
+  # Build compliance summary from prowler OCSF results if available.
+  # Extracted into _prowler_compliance_summary_json (output_prowler.sh, sourced
+  # below); called at runtime so the later source order is fine.
+  local compliance_json
+  compliance_json=$(_prowler_compliance_summary_json)
 
   local comp_field=""
   if [[ -n "$compliance_json" && "$compliance_json" != "{}" ]]; then

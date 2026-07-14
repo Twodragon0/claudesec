@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
 # Unit tests for scanner/lib/output.sh: save_scan_history prowler OCSF
-# compliance python block (L414-445). Exercises:
-#   L414-416  prowler-*.ocsf.json detection loop
-#   L418-440  embedded python3 OCSF parser + compliance-map invocation
-#   L443-445  comp_field assignment when compliance_json is non-empty
+# compliance summary. The OCSF detection loop + embedded python3 parser +
+# compliance-map invocation now live in _prowler_compliance_summary_json
+# (scanner/lib/output_prowler.sh); save_scan_history calls it and assigns
+# comp_field when the returned compliance_json is non-empty. Exercised here
+# end-to-end through save_scan_history.
 #
 # Run: bash scanner/tests/test_save_scan_history_ocsf.sh
 set -uo pipefail

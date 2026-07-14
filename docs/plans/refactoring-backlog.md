@@ -58,8 +58,14 @@ Pure moves; the coverage gate is the safety net.
    so the `test_ci_diagram_gen_canonical_sync` frameworks-derive guard still fires.
    Verified: pytest 99.12% floor holds, 129 diagram tests pass, and all six
    generated `.drawio`/`.svg` files are **byte-identical** (SHA-256) before/after.
-3. `output.sh` — TODO: extract the prowler-summary block into a focused unit
-   (bash; kcov floor is the net).
+3. `output.sh` — ✅ DONE (prowler compliance-summary extraction): moved the
+   OCSF detection loop + embedded `python3` compliance parser out of
+   `save_scan_history` into `_prowler_compliance_summary_json` in the sibling
+   `scanner/lib/output_prowler.sh` (the existing home for prowler output logic).
+   `save_scan_history` now just calls it and keeps the `comp_field` assignment.
+   The python body is **byte-identical** (md5 verified); `${BASH_SOURCE[0]}` still
+   resolves `compliance-map.py` from `scanner/lib/`. The prowler dashboard-summary
+   HTML table (`_prowler_dashboard_summary`) was already split out earlier.
 4. `checks.sh` — ✅ DONE (kubectl extraction): moved the 11 kubectl/kubeconfig
    discovery and cluster-access helpers (`_kubectl_cmd`, `has_kubectl_access`,
    `kubectl_list_contexts`, `kubectl_current_context`,
