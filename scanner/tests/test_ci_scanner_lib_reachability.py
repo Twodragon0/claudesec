@@ -14,7 +14,7 @@ api_key_found, compliance_map) — nothing prevented the next one from creeping 
 
 What it checks
 --------------
-For every TOP-LEVEL function defined in the four kcov SUT files, the guard looks
+For every TOP-LEVEL function defined in the five kcov SUT files, the guard looks
 for at least one reference in the PRODUCTION corpus — the scanner entrypoint
 (`scanner/claudesec`), the check scripts (`scanner/checks/**`, sourced and run at
 scan time), and the library itself (`scanner/lib/**`, so a helper called only by
@@ -57,12 +57,13 @@ from pathlib import Path
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# The four kcov-measured SUT libs (mirrors the scanner-shell-coverage
+# The five kcov-measured SUT libs (mirrors the scanner-shell-coverage
 # --include-pattern). Network-I/O libs (datadog.sh) and the claudesec entrypoint
 # are intentionally NOT measured and NOT scanned as definition sources here.
 SUT_FILES = [
     "scanner/lib/checks.sh",
     "scanner/lib/checks_credentials.sh",
+    "scanner/lib/kubectl.sh",
     "scanner/lib/output.sh",
     "scanner/lib/output_prowler.sh",
 ]

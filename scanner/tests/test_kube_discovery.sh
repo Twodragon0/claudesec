@@ -12,6 +12,7 @@ LIB_DIR="$SCRIPT_DIR/../lib"
 NC="" GREEN="" RED="" YELLOW="" BLUE="" DIM="" BOLD=""
 source "$LIB_DIR/output.sh" 2>/dev/null || true
 source "$LIB_DIR/checks.sh"
+source "$LIB_DIR/kubectl.sh"
 
 PASSED=0
 FAILED=0

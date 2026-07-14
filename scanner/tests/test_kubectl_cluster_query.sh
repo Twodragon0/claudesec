@@ -59,6 +59,7 @@ assert_not_contains() {
 NC="" GREEN="" RED="" YELLOW="" BLUE="" DIM="" BOLD="" MAGENTA="" CYAN=""
 
 source "$LIB_DIR/checks.sh"
+source "$LIB_DIR/kubectl.sh"
 
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT

@@ -60,8 +60,20 @@ Pure moves; the coverage gate is the safety net.
    generated `.drawio`/`.svg` files are **byte-identical** (SHA-256) before/after.
 3. `output.sh` — TODO: extract the prowler-summary block into a focused unit
    (bash; kcov floor is the net).
-4. `checks.sh` — TODO: group the AWS / GCP / Azure / datadog credential helpers
-   into cohesive sections (bash; preserve global scope + `source` order).
+4. `checks.sh` — ✅ DONE (kubectl extraction): moved the 11 kubectl/kubeconfig
+   discovery and cluster-access helpers (`_kubectl_cmd`, `has_kubectl_access`,
+   `kubectl_list_contexts`, `kubectl_current_context`,
+   `kubectl_auto_find_kubeconfig`, `kubectl_discover_kubeconfigs`,
+   `kubectl_detect_cluster_type`, `kubectl_current_context_uses_oidc_exec`,
+   `kubectl_ensure_access`, `kubectl_cluster_info`, `kubectl_server_version`)
+   verbatim into a new `scanner/lib/kubectl.sh` (703→387 lines in `checks.sh`;
+   ~329 lines in the new file). The generic helpers (`has_command`,
+   `run_with_timeout`, `has_file`, `has_dir`, `file_contains`, `files_contain`,
+   `count_files`, `is_git_repo`, `git_remote_url`) plus `collect_environment_info`
+   and `run_category_checks` stay in `checks.sh`. The AWS / GCP / Azure / Datadog /
+   GitHub / Okta credential helpers were already split out to
+   `scanner/lib/checks_credentials.sh` in #332 — no further credential grouping is
+   pending.
 5. `scanner/claudesec` — ✅ DONE (dashboard-serve extraction): moved the
    dashboard HTTP-serve logic (`open_url_best_effort`, `serve_dashboard`)
    verbatim into a new `scanner/lib/dashboard_serve.sh` (839→723 lines in the
