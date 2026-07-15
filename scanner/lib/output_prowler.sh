@@ -70,8 +70,10 @@ _prowler_dashboard_summary() {
 # Build a compact compliance-summary JSON from .claudesec-prowler/*.ocsf.json
 # (embedded into the scan-history entry by save_scan_history in output.sh).
 # Echoes the JSON object on success, or nothing when there are no OCSF artifacts,
-# no FAIL findings, or python3 is unavailable. compliance-map.py resolves relative
-# to this file's directory (same scanner/lib/ dir as when this lived in output.sh).
+# no FAIL findings, or python3 is unavailable. The parsing + compliance-mapping
+# logic lives in prowler_compliance_summary.py, a sibling module resolved
+# relative to this file's directory (same scanner/lib/ dir as when this lived
+# inline in output.sh); it in turn loads compliance-map.py the same way.
 _prowler_compliance_summary_json() {
   local prowler_dir="${SCAN_DIR:-.}/.claudesec-prowler"
   local _has_ocsf=0 _f
@@ -82,26 +84,5 @@ _prowler_compliance_summary_json() {
   fi
   [[ "$_has_ocsf" == "1" ]] || return 0
   command -v python3 &>/dev/null || return 0
-  timeout 10 python3 -c "
-import json, glob, os, importlib.util
-pdir = '$prowler_dir'
-findings = []
-for fp in glob.glob(os.path.join(pdir, 'prowler-*.ocsf.json')):
-    try:
-        with open(fp, encoding='utf-8') as f:
-            raw = f.read().strip()
-        data = json.loads(raw) if raw.startswith('[') else [json.loads(l) for l in raw.splitlines() if l.strip()]
-        for item in data:
-            if item.get('status_code') != 'FAIL': continue
-            findings.append({'check': item.get('metadata',{}).get('event_code',''),
-                'title': item.get('finding_info',{}).get('title',''),
-                'message': item.get('message',''),
-                'compliance': item.get('unmapped',{}).get('compliance',{})})
-    except Exception: pass
-if not findings: exit(0)
-spec = importlib.util.spec_from_file_location('cm', '$(dirname "${BASH_SOURCE[0]}")/compliance-map.py')
-cm = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(cm)
-print(json.dumps(cm.compliance_summary(cm.map_compliance(findings)), separators=(',', ':')))
-" 2>/dev/null || true
+  timeout 10 python3 "$(dirname "${BASH_SOURCE[0]}")/prowler_compliance_summary.py" "$prowler_dir" 2>/dev/null || true
 }
