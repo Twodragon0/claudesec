@@ -51,14 +51,7 @@ _prowler_dashboard_summary() {
     provider=$(basename "$f" .ocsf.json | sed 's/^prowler-//')
     label="$(_prowler_dashboard_summary_provider_label "$provider")"
     total=$(grep -c '"status_code": *"FAIL"' "$f" 2>/dev/null || echo 0)
-    read -r c h m l <<< "$(awk '
-      BEGIN { c=0; h=0; m=0; l=0 }
-      /"severity":/ { gsub(/.*"severity": *"/,""); gsub(/".*/, ""); sev=$0 }
-      /"status_code": *"FAIL"/ {
-        if (sev=="Critical") c++; else if (sev=="High") h++; else if (sev=="Medium") m++; else if (sev=="Low") l++
-      }
-      END { print c+0, h+0, m+0, l+0 }
-    ' "$f" 2>/dev/null)"
+    read -r c h m l <<< "$(awk -f "$(dirname "${BASH_SOURCE[0]}")/prowler_severity_count.awk" "$f" 2>/dev/null)"
     c=${c:-0}; h=${h:-0}; m=${m:-0}; l=${l:-0}
     echo "  <tr><td style=\"padding:0.5rem 0.75rem;border-bottom:1px solid var(--border)\">$label</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border)\">$total</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border);color:#dc2626\">$c</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border);color:#ef4444\">$h</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border);color:#eab308\">$m</td><td style=\"text-align:right;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border);color:var(--muted)\">$l</td></tr>"
   done <<< "$files"

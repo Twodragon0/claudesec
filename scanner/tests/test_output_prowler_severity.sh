@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
-# Cover scanner/lib/output.sh L545-561: _prowler_dashboard_summary main
-# rendering loop including the awk severity counter at L551-558.
+# Cover scanner/lib/output_prowler.sh: _prowler_dashboard_summary main
+# rendering loop including the severity counter.
 #
 # Direct-call pattern (no $() wrapping the SUT) so kcov DEBUG-trap fires
-# on every in-shell command. The awk script body (L552-557) is text data
-# inside a multi-line single-quoted string argument — kcov's per-line
-# accounting may or may not credit those lines (a known kcov-v42 limit
-# for multi-line string literals). The surrounding bash lines (provider
-# loop, basename, total grep, read pipeline, td emission) are
-# unambiguous bash and should all light up.
+# on every in-shell command. The severity counter now runs from an external
+# program file (scanner/lib/prowler_severity_count.awk, invoked via awk -f)
+# rather than an inline multi-line single-quoted awk string — the former
+# inline body was text data that kcov's per-line accounting counted as
+# uncoverable, so it was extracted (kcov measures bash, not the .awk file).
+# This test still validates the counter behaviourally via the emitted HTML
+# cells. The surrounding bash lines (provider loop, basename, total grep,
+# read pipeline, td emission) are unambiguous bash and all light up.
 #
 # Run: bash scanner/tests/test_output_prowler_severity.sh
 set -uo pipefail
