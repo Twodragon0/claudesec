@@ -59,10 +59,41 @@ Adding an entry back to `KNOWN_INJECTION_SITES` must be accompanied by a
 one-line justification comment — this guard exists specifically so that does
 not happen silently.
 
+WHAT THIS GUARD ALSO CHECKS (unquoted heredoc into an interpreter)
+--------------------------------------------------------------------
+Beyond the `-c "..."` form above, this guard ALSO covers the structurally
+identical CWE-94 risk of an UNQUOTED heredoc whose body is fed as the stdin
+PROGRAM of a code-executing interpreter: `python3 <<EOF` / `bash <<EOF` /
+`sh <<EOF` / `awk <<EOF` / `perl <<EOF` / `node <<EOF` / `ruby <<EOF`
+(interpreter allowlist: `python`, `python3`, `sh`, `bash`, `awk`, `perl`,
+`node`, `ruby`, matched on the BASENAME of the command word — a
+`/usr/bin/python3`-style full path also matches). A bare (unquoted) heredoc
+delimiter (`<<EOF`, `<<-EOF`) does NOT disable expansion, so any unescaped
+`$` in the body is interpolated by bash into the interpreter's source before
+it runs — same risk as the `-c "..."` form. A QUOTED delimiter (`<<'EOF'` /
+`<<"EOF"`) is SAFE and not flagged: quoting the delimiter word (either quote
+char) disables ALL expansion in the heredoc body, per POSIX shell heredoc
+semantics. `<<-EOF` (leading-tab-stripping form) is handled the same way,
+including stripping leading tabs only (not spaces) when matching the
+terminator line, per POSIX.
+
+Scope is intentionally narrow: only the COMMAND OWNING THE HEREDOC is
+checked, via its leading word (continuation-lines joined via a trailing
+backslash so a command split across several physical lines, e.g. `gh api`
+then `  --method PUT` then `  --input - <<EOF`, is still seen as one logical
+command). A heredoc feeding a NON-interpreter command — `cat
+<<EOF`, `cat <<EOF > file`, `tee <<EOF`, `kubectl apply -f - <<EOF`, `gh api
+--input - <<EOF` — is NEVER flagged even if its body contains `$`, because
+that body is DATA (a file, a Kubernetes manifest, a JSON payload), not code
+the shell hands to an interpreter to execute. This mirrors every heredoc
+actually present in the repo today: all of them either feed `cat`/`gh api`
+(data, unquoted delimiter, correctly out of scope) or feed `python3` with a
+QUOTED delimiter (already safe) — see `find_unquoted_heredoc_sites`.
+
 Detection is conservative / what's OUT OF SCOPE
 ------------------------------------------------
-This guard intentionally only covers ONE construct family and is NOT a full
-injection scanner:
+This guard covers two construct families and is NOT a full injection
+scanner:
   * `python3 -c '...'` (SINGLE-quoted `-c` argument) is SAFE and NOT flagged —
     bash does not expand `$` inside single quotes, so nothing is interpolated.
   * Values passed as `argv` (`python3 -c "..." "$value"`, read via
@@ -70,23 +101,25 @@ injection scanner:
     `sys.stdin`), or via the environment (`VAR="$x" python3 -c "..."`, read
     via `os.environ`) are the SAFE patterns this guard's fix moves callers
     toward, and are never flagged — the `-c` body itself contains no `$`.
-  * `awk -v var=... '...'`, quoted heredocs (`<<'EOF'`), and any other
-    interpreter invocation are OUT OF SCOPE — this guard looks only at
-    `python3 -c "` / `python -c "` sites.
-  * An UNquoted heredoc that feeds a script into `python3` (`python3 <<EOF`
-    without quoting `EOF`) is a structurally identical CWE-94 risk (bash
-    expands `$` inside it too) but is NOT detected here — this guard's regex
-    is anchored on the `-c "..."` invocation form only. Treat that as a known
-    gap, not a covered case, when auditing new code.
+  * `awk -v var=... '...'` and any interpreter invocation not covered by the
+    `-c "..."` form above or the unquoted-heredoc form documented above are
+    OUT OF SCOPE.
   * A `-c` argument built from adjacent CONCATENATED bash segments — quoted
     and unquoted back to back with no space, e.g. `"..."unquoted"$VAR..."`
     (bash treats adjacent quoted/unquoted/quoted runs with no separating
-    whitespace as ONE argument) — is only scanned up to the FIRST unescaped
-    closing `"` of the opening segment. Interpolation living in a later
-    concatenated segment is not detected: this guard's capture is a single
-    quoted-string match, not a full shell-word tokenizer. This construct is
-    non-idiomatic and not present anywhere in the current repo, but it is a
-    real blind spot — do not treat this guard as full coverage against it.
+    whitespace as ONE argument) — is now PARTIALLY covered on a best-effort
+    basis by `find_concatenated_c_bodies`: if the closing `"` of the first
+    quoted segment is immediately followed by a character that is not a safe
+    shell terminator (whitespace, `|`, `&`, `;`, `)`, `<`, `>`, backtick), the
+    function keeps consuming directly-adjacent double-quoted segments and
+    concatenates their bodies before checking for an unescaped `$`. This
+    covers the `"..."x"$VAR..."` / `"a""$b"` shapes deterministically. It does
+    NOT content-check the UNQUOTED portions of a concatenated run (those are
+    skipped over structurally, not scanned for `$`) — a concatenation whose
+    injected variable lives in an unquoted segment rather than a later quoted
+    segment is still a blind spot. This construct is non-idiomatic and not
+    present anywhere in the current repo; treat the heuristic as best-effort,
+    not full shell-word tokenization.
 
 stdlib-only (no PyYAML). No `scanner/lib` import (does not touch the 99%
 coverage gate). No network, no subprocess. Runs under pytest (the CI runner)
@@ -168,6 +201,179 @@ def violating_constructs(body: str) -> list:
     return _DOLLAR_TOKEN_RE.findall(body)
 
 
+# Safe shell-terminator characters: if a `-c` argument's closing `"` (or a
+# heredoc opener's `<<DELIM`) is immediately followed by one of these, the
+# shell word/command genuinely ends there. Anything else glued on with no
+# separating whitespace is bash CONCATENATING more text onto the same word.
+_SAFE_TERMINATOR_CHARS = set(" \t\n|&;)<>`")
+
+
+def _scan_quoted_segment(text: str, pos: int):
+    """`text[pos]` must be an opening `"`. Returns `(body, end_pos)` where
+    `body` is the escaped-aware content up to the matching unescaped closing
+    `"`, and `end_pos` is the index just past that closing quote (or `len(text)`
+    if the quote is unterminated)."""
+    i = pos + 1
+    n = len(text)
+    buf = []
+    while i < n:
+        c = text[i]
+        if c == "\\" and i + 1 < n:
+            buf.append(text[i : i + 2])
+            i += 2
+            continue
+        if c == '"':
+            return "".join(buf), i + 1
+        buf.append(c)
+        i += 1
+    return "".join(buf), i
+
+
+def find_concatenated_c_bodies(text: str) -> list:
+    """Concatenation-aware capture of `python3 -c "..."` argument bodies
+    (blind spot #2, best-effort — see module docstring). Identical to
+    `find_double_quoted_c_bodies` when the `-c` argument is a single
+    double-quoted segment; when the segment's closing `"` is immediately
+    followed by a non-terminator character, keeps consuming directly-adjacent
+    double-quoted segments and concatenates their bodies (skipping over, but
+    not content-checking, any unquoted runs in between) before returning."""
+    results = []
+    n = len(text)
+    for m in _PYC_RE.finditer(text):
+        bodies = [m.group(1)]
+        pos = m.end()
+        while pos < n and text[pos] not in _SAFE_TERMINATOR_CHARS:
+            if text[pos] == '"':
+                seg_body, pos = _scan_quoted_segment(text, pos)
+                bodies.append(seg_body)
+            else:
+                start = pos
+                while (
+                    pos < n
+                    and text[pos] not in _SAFE_TERMINATOR_CHARS
+                    and text[pos] != '"'
+                ):
+                    pos += 1
+                if pos == start:  # defensive: never spin without progress
+                    break
+        results.append("".join(bodies))
+    return results
+
+
+# Matches an heredoc OPENER: `<<DELIM`, `<<-DELIM`, `<<'DELIM'`, `<<"DELIM"`.
+# Group 1 = the optional `-` (leading-tab-stripping form). Groups 2/3 = the
+# delimiter when single-/double-quoted (SAFE — expansion disabled). Group 4 =
+# the delimiter when UNQUOTED (expansion active — the risk this guard checks).
+_HEREDOC_OPEN_RE = re.compile(
+    r"<<(-?)\s*(?:'([A-Za-z_][A-Za-z0-9_]*)'|\"([A-Za-z_][A-Za-z0-9_]*)\"|([A-Za-z_][A-Za-z0-9_]*))"
+)
+
+# Interpreter allowlist for the heredoc check: commands that EXECUTE their
+# stdin as code. Matched on the basename of the leading command word (a
+# `/usr/bin/python3`-style full path still matches). Deliberately narrow —
+# `cat`, `tee`, `kubectl`, `gh`, etc. are NOT here because a heredoc feeding
+# them is DATA (a file, a manifest, a JSON payload), not executed code.
+_HEREDOC_INTERPRETER_RE = re.compile(r"^(?:.*/)?(python3?|sh|bash|awk|perl|node|ruby)$")
+
+
+# Assignment prefix (`VAR=`) on a command word, e.g. `pyout="$(python3 ...`
+# where the value starts flush against the `=` with no separating whitespace
+# — a plain whitespace split would swallow the assignment AND the real
+# command into one bogus "word", so this is stripped explicitly and
+# repeatedly alongside quote/subshell-opener chars in `_strip_leading_noise`.
+_LEADING_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _strip_leading_noise(s: str) -> str:
+    """Strip leading whitespace, `VAR=` assignment prefixes, quote chars
+    (`"`/`'`), subshell/group openers (`$(`, `(`, `{`), and a standalone `!`
+    (negation) — repeatedly, in that priority order — so that a command word
+    glued directly onto one of these with no whitespace (`pyout="$(python3`)
+    still resolves to the real leading command (`python3`), not the
+    assignment/opener noise in front of it."""
+    while True:
+        stripped = s.lstrip()
+        if stripped != s:
+            s = stripped
+            continue
+        m = _LEADING_ASSIGN_RE.match(s)
+        if m:
+            s = s[m.end() :]
+            continue
+        if s[:2] == "$(":
+            s = s[2:]
+            continue
+        if s[:1] in ("(", "{", '"', "'"):
+            s = s[1:]
+            continue
+        if s[:1] == "!" and (len(s) == 1 or s[1].isspace()):
+            s = s[1:]
+            continue
+        break
+    return s
+
+
+def _heredoc_owner_word(lines: list, idx: int, match) -> str:
+    """The leading command word of the logical (backslash-continuation-joined)
+    command line that owns the heredoc opener `match` found on `lines[idx]`.
+    Walks backward while the PRECEDING line ends in `\\` (continuation) so a
+    command split across several physical lines (`gh api \\` + `  ... \\` +
+    `  --input - <<EOF`) is still resolved to its true leading word (`gh`, not
+    a mid-argument token). Leading assignment/quote/subshell noise
+    (`pyout="$(python3 ...`) is stripped first via `_strip_leading_noise` so
+    the real command word is found even when it is glued directly onto an
+    opener with no whitespace."""
+    start = idx
+    while start > 0 and lines[start - 1].endswith("\\"):
+        start -= 1
+    parts = [
+        lines[k][:-1] if lines[k].endswith("\\") else lines[k]
+        for k in range(start, idx)
+    ]
+    parts.append(lines[idx][: match.start()])
+    joined = _strip_leading_noise(" ".join(parts).strip())
+    return joined.split()[0] if joined else ""
+
+
+def find_interpreter_heredoc_sites(text: str) -> list:
+    """Every heredoc in `text` whose owning command is a code-executing
+    INTERPRETER (see `_HEREDOC_INTERPRETER_RE`), quoted or unquoted. Returns a
+    list of `(interpreter, quoted, body)` tuples in document order. `quoted`
+    heredocs (`<<'EOF'` / `<<"EOF"`) are SAFE — bash disables all expansion in
+    their body — but are still included (with `quoted=True`) so a canary test
+    can prove the interpreter-matching/heredoc-body-extraction machinery is
+    actually running against the real corpus (the repo currently has no
+    UNQUOTED interpreter heredoc, only quoted ones, e.g. `python3 - <<'PY'`).
+    Every heredoc (interpreter-owned or not) has its body consumed up to its
+    terminator line so later lines are not misread as further heredoc
+    openers/bodies."""
+    lines = text.splitlines()
+    n = len(lines)
+    sites = []
+    i = 0
+    while i < n:
+        m = _HEREDOC_OPEN_RE.search(lines[i])
+        if not m:
+            i += 1
+            continue
+        dash = m.group(1) == "-"
+        quoted = m.group(2) is not None or m.group(3) is not None
+        delim = m.group(2) or m.group(3) or m.group(4)
+        j = i + 1
+        body_lines = []
+        while j < n:
+            candidate = lines[j].lstrip("\t") if dash else lines[j]
+            if candidate == delim:
+                break
+            body_lines.append(lines[j])
+            j += 1
+        word = _heredoc_owner_word(lines, i, m)
+        if _HEREDOC_INTERPRETER_RE.match(word):
+            sites.append((word, quoted, "\n".join(body_lines)))
+        i = j + 1
+    return sites
+
+
 def _production_files() -> list:
     """Every production shell file this guard scans (whichever dirs exist)."""
     files = []
@@ -182,21 +388,42 @@ def _production_files() -> list:
 
 
 def compute_violations(files) -> tuple:
-    """Returns (violations, total_sites) — `violations` is the
-    `"relpath:construct"` set, `total_sites` is the count of ALL double-quoted
-    `python3 -c` sites scanned (violating or not), for the non-vacuity check."""
+    """Returns (violations, total_sites) — `violations` is the union of the
+    `"relpath:construct"` (`python3 -c` sites, concatenation-aware) and
+    `"relpath:heredoc:<interpreter>:construct"` (unquoted interpreter heredoc
+    sites) violation sets; `total_sites` is the count of ALL double-quoted
+    `python3 -c` sites scanned (violating or not), for the non-vacuity check —
+    unchanged in meaning from before the heredoc extension."""
     violations = set()
     total_sites = 0
     for f in files:
         text = strip_comment_lines(Path(f).read_text(encoding="utf-8"))
-        for body in find_double_quoted_c_bodies(text):
+        for body in find_concatenated_c_bodies(text):
             total_sites += 1
             if has_unescaped_dollar(body):
                 rel = str(Path(f).resolve().relative_to(REPO_ROOT))
                 tokens = violating_constructs(body)
                 construct = ",".join(sorted(set(tokens))) if tokens else "$<unrecognized-shape>"
                 violations.add(f"{rel}:{construct}")
+        for interpreter, quoted, body in find_interpreter_heredoc_sites(text):
+            if quoted:
+                continue  # quoted delimiter disables expansion — SAFE
+            if has_unescaped_dollar(body):
+                rel = str(Path(f).resolve().relative_to(REPO_ROOT))
+                tokens = violating_constructs(body)
+                construct = ",".join(sorted(set(tokens))) if tokens else "$<unrecognized-shape>"
+                violations.add(f"{rel}:heredoc:{interpreter}:{construct}")
     return violations, total_sites
+
+
+def _count_interpreter_heredoc_sites(files) -> int:
+    """Count of ALL interpreter-owned heredoc sites (quoted + unquoted) across
+    `files`, for the heredoc-scan non-vacuity canary."""
+    total = 0
+    for f in files:
+        text = strip_comment_lines(Path(f).read_text(encoding="utf-8"))
+        total += len(find_interpreter_heredoc_sites(text))
+    return total
 
 
 class TestNoCodeInjectionRegression(unittest.TestCase):
@@ -222,6 +449,20 @@ class TestNoCodeInjectionRegression(unittest.TestCase):
             total_sites, 10,
             "Parsed suspiciously few `python3 -c \"...\"` sites across the "
             "repo — the detection regex or file paths likely broke.",
+        )
+
+    def test_parsed_non_trivial_number_of_heredoc_sites(self):
+        # Canary for the heredoc-extension machinery: if the heredoc-opener
+        # regex or the interpreter allowlist broke, this would silently find
+        # zero interpreter-owned heredocs (the repo has several QUOTED
+        # `python3 - <<'PY'` sites already) and the assertion below would
+        # vacuously pass.
+        count = _count_interpreter_heredoc_sites(self.files)
+        self.assertGreater(
+            count, 0,
+            "Parsed zero interpreter-owned heredoc sites across the repo — "
+            "the heredoc opener regex or interpreter allowlist likely broke "
+            "(expected to find the existing quoted `python3 - <<'PY'` sites).",
         )
 
     def test_no_new_injection_site(self):
@@ -349,6 +590,134 @@ class TestInjectionDetectorMutation(unittest.TestCase):
         bodies = find_double_quoted_c_bodies(stripped)
         self.assertEqual(len(bodies), 1)
         self.assertFalse(has_unescaped_dollar(bodies[0]))
+
+    # -- Blind spot #1: unquoted heredoc feeding an interpreter -----------
+
+    def test_heredoc_fires_on_unquoted_python(self):
+        text = 'python3 <<EOF\nprint("$HOME")\nEOF\n'
+        sites = find_interpreter_heredoc_sites(text)
+        self.assertEqual(len(sites), 1)
+        interpreter, quoted, body = sites[0]
+        self.assertEqual(interpreter, "python3")
+        self.assertFalse(quoted)
+        self.assertTrue(
+            has_unescaped_dollar(body),
+            "Mutation FAILED: an unquoted `python3 <<EOF` heredoc "
+            "interpolating `$HOME` was not detected.",
+        )
+
+    def test_heredoc_fires_on_unquoted_bash(self):
+        text = "bash <<EOF\nrm $TARGET\nEOF\n"
+        sites = find_interpreter_heredoc_sites(text)
+        self.assertEqual(len(sites), 1)
+        interpreter, quoted, body = sites[0]
+        self.assertEqual(interpreter, "bash")
+        self.assertFalse(quoted)
+        self.assertTrue(
+            has_unescaped_dollar(body),
+            "Mutation FAILED: an unquoted `bash <<EOF` heredoc interpolating "
+            "`$TARGET` was not detected.",
+        )
+
+    def test_heredoc_fires_dash_form_with_tab_stripping(self):
+        # `<<-EOF` strips LEADING TABS from both body and terminator lines —
+        # the terminator here is indented with a tab and must still match.
+        text = "python3 <<-EOF\n\tprint('$X')\n\tEOF\n"
+        sites = find_interpreter_heredoc_sites(text)
+        self.assertEqual(len(sites), 1)
+        _, quoted, body = sites[0]
+        self.assertFalse(quoted)
+        self.assertTrue(
+            has_unescaped_dollar(body),
+            "Mutation FAILED: `<<-EOF` (leading-tab-stripping form) did not "
+            "detect the interpolated body.",
+        )
+        self.assertNotIn(
+            "EOF", body,
+            "The tab-indented terminator line was not correctly excluded "
+            "from the captured heredoc body.",
+        )
+
+    def test_heredoc_quiet_on_quoted_delimiter(self):
+        # `<<'EOF'` disables ALL expansion in the body — SAFE.
+        text = "python3 <<'EOF'\nprint(\"$HOME\")\nEOF\n"
+        sites = find_interpreter_heredoc_sites(text)
+        self.assertEqual(len(sites), 1)
+        _, quoted, _ = sites[0]
+        self.assertTrue(
+            quoted,
+            "False positive risk: `<<'EOF'` (quoted delimiter) was not "
+            "recognized as quoted.",
+        )
+        # compute_violations skips any site where quoted=True (see the
+        # `if quoted: continue` guard) — a quoted heredoc can never surface
+        # as a violation regardless of its body content.
+        self.assertTrue(has_unescaped_dollar(sites[0][2]))
+
+    def test_heredoc_quiet_on_data_into_file(self):
+        # `cat <<EOF > out.txt` — `cat` is not an interpreter; the heredoc is
+        # DATA written to a file, not code the shell executes.
+        text = "cat <<EOF > out.txt\n$HOME\nEOF\n"
+        sites = find_interpreter_heredoc_sites(text)
+        self.assertEqual(
+            sites, [],
+            "False positive: a `cat <<EOF > file` (data, non-interpreter) "
+            "heredoc was flagged as interpreter-owned.",
+        )
+
+    def test_heredoc_quiet_on_non_interpreter_command(self):
+        # `kubectl apply -f - <<EOF` — a Kubernetes manifest, not code.
+        text = "kubectl apply -f - <<EOF\n  name: $x\nEOF\n"
+        sites = find_interpreter_heredoc_sites(text)
+        self.assertEqual(
+            sites, [],
+            "False positive: a `kubectl apply -f - <<EOF` (non-interpreter) "
+            "heredoc was flagged as interpreter-owned.",
+        )
+
+    def test_heredoc_owner_resolved_across_continuation_lines(self):
+        # The heredoc opener line's own content is just `  --input - <<EOF` —
+        # the owning command (`gh`) only appears on an earlier physical line
+        # joined by backslash-continuation, mirroring
+        # scripts/sync-repo-protection.sh's real `gh api ... <<JSON` shape.
+        text = "\n".join(
+            [
+                "gh api \\",
+                "  --method PUT \\",
+                "  --input - <<EOF",
+                '  {"x": $VAR}',
+                "EOF",
+                "",
+            ]
+        )
+        sites = find_interpreter_heredoc_sites(text)
+        self.assertEqual(
+            sites, [],
+            "False positive: a multi-line `gh api ... <<EOF` (non-interpreter, "
+            "continuation-joined) heredoc was flagged as interpreter-owned.",
+        )
+
+    # -- Blind spot #2: quote-concatenation in a `-c` argument (best-effort) -
+
+    def test_concatenation_fires_when_split_across_quoted_segments(self):
+        text = 'python3 -c "a""$b"'
+        bodies = find_concatenated_c_bodies(text)
+        self.assertEqual(len(bodies), 1)
+        self.assertTrue(
+            has_unescaped_dollar(bodies[0]),
+            "Mutation FAILED: a concatenated `-c \"a\"\"$b\"` argument did "
+            "not have its second quoted segment's `$b` detected.",
+        )
+
+    def test_concatenation_quiet_on_normal_single_span(self):
+        # Baseline: an ordinary single-quoted-span `-c` argument must produce
+        # the SAME (safe) result as before — no false positive introduced by
+        # the concatenation-aware capture.
+        text = 'python3 -c "import os; print(os.environ[\'X\'])" 2>/dev/null'
+        bodies = find_concatenated_c_bodies(text)
+        self.assertEqual(len(bodies), 1)
+        self.assertFalse(has_unescaped_dollar(bodies[0]))
+        self.assertEqual(bodies, find_double_quoted_c_bodies(text))
 
     def test_real_repo_baseline_matches(self):
         # Full end-to-end check against the real production corpus, isolated
