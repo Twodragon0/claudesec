@@ -31,8 +31,8 @@ if [[ "${1:-}" != "--skip-scan" ]]; then
   echo ""
   # Generate JSON report (scanner may include ANSI codes; clean and normalize)
   bash "$SCANNER" scan -d "$ROOT" -f json 2>/dev/null | sed -n '/^{$/,/^}$/p' | \
-    python3 -c "
-import json,sys,re
+    SCAN_REPORT_PATH="$SCAN_REPORT" python3 -c "
+import json,sys,re,os
 raw = sys.stdin.read()
 clean = re.sub(r'\x1b\[[0-9;]*m', '', raw)
 d = json.loads(clean, strict=False)
@@ -42,7 +42,7 @@ for k in ('passed','failed','warnings','skipped','total'):
     d[k] = d['summary'][k]
 d['duration'] = d.get('duration_seconds', 0)
 d['findings'] = d.pop('results', [])
-json.dump(d, open('$SCAN_REPORT', 'w'), indent=2, ensure_ascii=False)
+json.dump(d, open(os.environ['SCAN_REPORT_PATH'], 'w'), indent=2, ensure_ascii=False)
 print('  ✓ scan-report.json updated — score:', d['score'], 'grade:', d['grade'])
 " || echo "  ⚠ JSON parse failed, keeping existing scan-report.json"
 else

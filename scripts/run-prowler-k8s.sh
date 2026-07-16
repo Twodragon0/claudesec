@@ -58,9 +58,9 @@ if [[ -n "$POD_NAME" ]]; then
     grep -v "RESULT_BASE64" | \
     base64 -D > "$OUTPUT_DIR/prowler-k8s-${CONTEXT}-latest.ocsf.json" && {
     echo "  저장: $OUTPUT_DIR/prowler-k8s-${CONTEXT}-latest.ocsf.json"
-    python3 -c "
-import json
-data=json.load(open('$OUTPUT_DIR/prowler-k8s-${CONTEXT}-latest.ocsf.json'))
+    OCSF_FILE="$OUTPUT_DIR/prowler-k8s-${CONTEXT}-latest.ocsf.json" python3 -c "
+import json, os
+data=json.load(open(os.environ['OCSF_FILE']))
 if isinstance(data,list):
     total=len(data)
     fail=sum(1 for d in data if d.get('status_code')=='FAIL')

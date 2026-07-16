@@ -72,10 +72,10 @@ REQUIRES_PYTHON="$(echo "${PARSE_RESULT}" | tail -n1)"
 #   - strict upper bound <3.13               => frozen
 #   - inclusive upper bound <=3.13           => lifted (3.13 IS allowed)
 #   - upper bound <3.14 or higher            => lifted (3.13 IS allowed)
-CEILING_LIFTED="$(python3 -c "
-import re, sys
+CEILING_LIFTED="$(REQUIRES_PYTHON="${REQUIRES_PYTHON}" python3 -c "
+import re, os
 
-rp = '''${REQUIRES_PYTHON}'''
+rp = os.environ.get('REQUIRES_PYTHON', '')
 
 def ceiling_lifted(requires_python):
     if not requires_python or not requires_python.strip():
