@@ -190,6 +190,45 @@ IFS='|' read -r _ _ _ _ _ f_loc2 <<< "$entry"
 assert_eq "pipe format: location field preserved" "/k8s/deployment.yaml" "$f_loc2"
 
 # ==============================================================================
+# Test Group 3b: _emit_finding_json() emits BOTH details and remediation
+# ==============================================================================
+echo ""
+echo "=== _emit_finding_json(): details + remediation JSON fields ==="
+
+# 1. Details and remediation both populated -> both keys present with correct
+#    (non-swapped) values in the generated scan-report.json
+_reset_state
+fail "CHK-020" "Details vs remediation" "high" "actual detail text" "apply this fix" "/tmp/example.yaml"
+generate_html_dashboard "$tmpdir/dashboard-details-remediation.html" >/dev/null 2>&1
+report_json="$(cat "$tmpdir/scan-report.json" 2>/dev/null)"
+assert_contains "emit: details field carries author details" "$report_json" '"details":"actual detail text"'
+assert_contains "emit: remediation field carries fix text"   "$report_json" '"remediation":"apply this fix"'
+
+# 2. Empty details and remediation -> neither key present (conditional emit)
+_reset_state
+fail "CHK-021" "Empty detail and fix" "high" "" "" "/tmp/empty.yaml"
+generate_html_dashboard "$tmpdir/dashboard-empty-detail-fix.html" >/dev/null 2>&1
+report_json_empty="$(cat "$tmpdir/scan-report.json" 2>/dev/null)"
+assert_not_contains "emit: no details key when empty"     "$report_json_empty" '"details":'
+assert_not_contains "emit: no remediation key when empty" "$report_json_empty" '"remediation":'
+
+# 3. details-only (no remediation) -> only details key present
+_reset_state
+fail "CHK-022" "Detail only" "high" "only detail" "" "/tmp/d.yaml"
+generate_html_dashboard "$tmpdir/dashboard-detail-only.html" >/dev/null 2>&1
+report_json_donly="$(cat "$tmpdir/scan-report.json" 2>/dev/null)"
+assert_contains     "emit: details-only carries details"      "$report_json_donly" '"details":"only detail"'
+assert_not_contains "emit: details-only omits remediation"    "$report_json_donly" '"remediation":'
+
+# 4. remediation-only (no details) -> only remediation key present
+_reset_state
+fail "CHK-023" "Remediation only" "high" "" "only fix" "/tmp/r.yaml"
+generate_html_dashboard "$tmpdir/dashboard-remediation-only.html" >/dev/null 2>&1
+report_json_ronly="$(cat "$tmpdir/scan-report.json" 2>/dev/null)"
+assert_contains     "emit: remediation-only carries remediation" "$report_json_ronly" '"remediation":"only fix"'
+assert_not_contains "emit: remediation-only omits details"       "$report_json_ronly" '"details":'
+
+# ==============================================================================
 # Test Group 4: print_banner / section / category_label
 # ==============================================================================
 echo ""

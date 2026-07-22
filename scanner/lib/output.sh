@@ -469,12 +469,17 @@ generate_html_dashboard() {
     IFS='|' read -r f_id f_title _f_sev f_fix f_details f_loc <<< "$2"
     f_title="${f_title//\"/\\\"}"
     f_fix="${f_fix//\"/\\\"}"
+    f_details="${f_details//\"/\\\"}"
     f_loc="${f_loc//\"/\\\"}"
     local f_cat; f_cat=$(_finding_id_to_category "$f_id")
     [[ "$first" == "true" ]] && first=false || findings_json+=","
     local loc_field=""
     [[ -n "$f_loc" ]] && loc_field=",\"location\":\"$f_loc\""
-    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"$f_sev_label\",\"details\":\"$f_fix\",\"category\":\"$f_cat\"${loc_field}}"
+    local details_field=""
+    [[ -n "$f_details" ]] && details_field=",\"details\":\"$f_details\""
+    local remediation_field=""
+    [[ -n "$f_fix" ]] && remediation_field=",\"remediation\":\"$f_fix\""
+    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"$f_sev_label\",\"category\":\"$f_cat\"${details_field}${remediation_field}${loc_field}}"
   }
 
   for entry in "${FINDINGS_CRITICAL[@]+"${FINDINGS_CRITICAL[@]}"}"; do
