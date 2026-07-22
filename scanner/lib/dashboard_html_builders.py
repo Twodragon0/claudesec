@@ -90,21 +90,30 @@ def _build_scanner_section(findings_list):
             badge = sev_badge(sev)
             fid = h(f.get("id", ""))
             title = h(f.get("title", ""))
-            details = h(f.get("details", ""))
+            raw_details = f.get("details") or ""
+            raw_remediation = f.get("remediation") or ""
+            # Backward compat: reports generated before the details/remediation
+            # split stored fix text in "details"; fall back so old reports
+            # (and the row/action rendering below) still show a remediation.
+            remediation_text = raw_remediation or raw_details
+            remediation = h(remediation_text)
+            details = h(raw_details) if raw_details and raw_details != remediation_text else ""
             status_icon = "✗" if sev in ("critical", "high", "medium") else "⚠"
             status_label = (
                 "Fail" if sev in ("critical", "high", "medium") else "Warning"
             )
             location = h(f.get("location", ""))
             loc_html = f' <span class="scan-loc">📍 <code>{location}</code></span>' if location else ""
-            has_expandable = location or details
+            has_expandable = location or details or remediation
             row_cls = f'{sev_cls} expandable' if has_expandable else sev_cls
             toggle = ' data-action="toggleRow"' if has_expandable else ""
-            scanner_rows += f'<tr class="{row_cls}"{toggle}><td>{badge}</td><td><span class="scan-status-{sev}">{status_icon} {status_label}</span></td><td class="mono">{fid}</td><td>{title}</td><td class="fix">{details if details else "<em>-</em>"}</td></tr>'
+            scanner_rows += f'<tr class="{row_cls}"{toggle}><td>{badge}</td><td><span class="scan-status-{sev}">{status_icon} {status_label}</span></td><td class="mono">{fid}</td><td>{title}</td><td class="fix">{remediation if remediation else "<em>-</em>"}</td></tr>'
             if has_expandable:
                 detail_parts = []
+                if remediation:
+                    detail_parts.append(f'<p style="margin-bottom:.4rem"><strong>Remediation:</strong> {remediation}</p>')
                 if details:
-                    detail_parts.append(f'<p style="margin-bottom:.4rem"><strong>Remediation:</strong> {details}</p>')
+                    detail_parts.append(f'<p style="margin-top:.3rem"><strong>Details:</strong> {details}</p>')
                 if location:
                     detail_parts.append(f'<p style="margin-top:.3rem"><strong>Location:</strong> <code style="font-size:.75rem;word-break:break-all">{location}</code></p>')
                 scanner_rows += f'<tr class="row-detail"><td colspan="5"><div class="detail-panel">{"".join(detail_parts)}</div></td></tr>'
@@ -169,7 +178,7 @@ def _build_scanner_section(findings_list):
     seen_actions = set()
     for f in top_findings:
         cat = f.get("category") or _infer_category(f.get("id", ""))
-        raw_action = (f.get("details") or "").strip()
+        raw_action = (f.get("remediation") or f.get("details") or "").strip()
         action = raw_action if raw_action else _scanner_default_action(cat)
         action_norm = action.lower()
         if action_norm in seen_actions:

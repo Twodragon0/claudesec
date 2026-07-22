@@ -169,6 +169,57 @@ def test_scanner_section_location_adds_expandable_row():
     assert "row-detail" in rows
 
 
+def test_scanner_section_remediation_and_details_render_separately():
+    """When both 'remediation' and 'details' are set (new schema), the row's
+    fix column and the 'Remediation:' label use remediation, while a
+    distinct 'Details:' line renders the actual author-provided details."""
+    findings = [{
+        "id": "CODE-005",
+        "title": "Hardcoded secret",
+        "details": "Found a hardcoded API key in config.py line 12",
+        "remediation": "Move the secret to an environment variable",
+        "severity": "high",
+        "category": "code",
+    }]
+    rows, _, _ = builders._build_scanner_section(findings)
+    assert '<td class="fix">Move the secret to an environment variable</td>' in rows
+    assert "<strong>Remediation:</strong> Move the secret to an environment variable" in rows
+    assert "<strong>Details:</strong> Found a hardcoded API key in config.py line 12" in rows
+
+
+def test_scanner_section_remediation_missing_falls_back_to_details_no_duplicate():
+    """Backward compat: reports without 'remediation' (old schema) show
+    details as the Remediation label, and do NOT also render a duplicate
+    Details: line for the same text."""
+    findings = [{
+        "id": "CODE-006",
+        "title": "Old-format finding",
+        "details": "This is old fix text stored in details",
+        "severity": "medium",
+        "category": "code",
+    }]
+    rows, _, _ = builders._build_scanner_section(findings)
+    assert "<strong>Remediation:</strong> This is old fix text stored in details" in rows
+    assert "<strong>Details:</strong>" not in rows
+
+
+def test_scanner_section_remediation_only_renders_no_details_line():
+    """New schema, remediation set but details empty: the Remediation label
+    and fix column use remediation, and no Details: line is rendered."""
+    findings = [{
+        "id": "CODE-007",
+        "title": "Remediation-only finding",
+        "details": "",
+        "remediation": "Rotate the exposed credential",
+        "severity": "high",
+        "category": "code",
+    }]
+    rows, _, _ = builders._build_scanner_section(findings)
+    assert '<td class="fix">Rotate the exposed credential</td>' in rows
+    assert "<strong>Remediation:</strong> Rotate the exposed credential" in rows
+    assert "<strong>Details:</strong>" not in rows
+
+
 def test_scanner_section_no_details_no_location_no_expandable():
     """A finding without details/location does NOT render row-detail."""
     findings = [{
