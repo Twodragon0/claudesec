@@ -515,6 +515,16 @@ _reset_state
 pf_empty="$(_print_findings FINDINGS_LOW "LOW" true 2>&1)"
 assert_eq "_print_findings: empty array no output" "" "$pf_empty"
 
+# 6-field entry (real fail() shape): the "→ fix" hint must show ONLY the
+# remediation, NOT details/location glued on. Regression pin for the 4-var
+# read that concatenated remediation+details+location into f_fix.
+_reset_state
+FINDINGS_HIGH+=("CHK-300"$'\x1f'"Six field"$'\x1f'"high"$'\x1f'"ROTATE_KEY"$'\x1f'"DETAIL_TEXT"$'\x1f'"/path/LOC_FILE")
+pf6="$(_print_findings FINDINGS_HIGH "HIGH" true 2>&1)"
+assert_contains     "_print_findings: 6-field remediation shown"      "$pf6" "ROTATE_KEY"
+assert_not_contains "_print_findings: 6-field details NOT glued"      "$pf6" "DETAIL_TEXT"
+assert_not_contains "_print_findings: 6-field location NOT glued"     "$pf6" "LOC_FILE"
+
 # ==============================================================================
 # Test Group 11: print_summary()
 # ==============================================================================
