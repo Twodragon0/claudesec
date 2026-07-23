@@ -291,6 +291,32 @@ collect_environment_info() {
 # SC2030/SC2031: subshell counter resets are intentional — each category subshell
 # writes counters to a temp file that the parent re-reads and aggregates.
 # (These were suppressed file-wide in scanner/claudesec before the extraction.)
+# Serialize a FINDINGS_* array to a NUL-separated file so a category subshell
+# can hand its findings back to the parent. Entries are \x1f-packed and may
+# contain real newlines (multi-line _format_hits details), but never a NUL, so
+# \0 is a safe record separator. An empty array yields a truncated (empty) file
+# — NOT a single empty record — which matters so the parent merge adds nothing.
+_write_findings_file() {
+  local file="$1"; shift
+  : > "$file"
+  local entry
+  for entry in "$@"; do
+    printf '%s\0' "$entry" >> "$file"
+  done
+}
+
+# Merge a NUL-separated findings file (written by _write_findings_file in a
+# subshell) into the named parent array. No-op if the file is missing or empty.
+_merge_findings_file() {
+  local file="$1"
+  local -n _target="$2"
+  [[ -f "$file" ]] || return 0
+  local entry
+  while IFS= read -r -d '' entry; do
+    _target+=("$entry")
+  done < "$file"
+}
+
 run_category_checks() {
   local parallel="$1" verbose="$2"; shift 2
   local categories=("$@")
@@ -331,6 +357,14 @@ run_category_checks() {
           > "$tmpdir/${cat}.counters"
         # Write JSON results for merging
         echo "$JSON_RESULTS" > "$tmpdir/${cat}.json"
+        # Hand the FINDINGS_* arrays back to the parent (counters + JSON alone
+        # left the parent's arrays empty, blanking the summary/dashboard
+        # findings in parallel mode).
+        _write_findings_file "$tmpdir/${cat}.crit" "${FINDINGS_CRITICAL[@]+"${FINDINGS_CRITICAL[@]}"}"
+        _write_findings_file "$tmpdir/${cat}.high" "${FINDINGS_HIGH[@]+"${FINDINGS_HIGH[@]}"}"
+        _write_findings_file "$tmpdir/${cat}.med"  "${FINDINGS_MEDIUM[@]+"${FINDINGS_MEDIUM[@]}"}"
+        _write_findings_file "$tmpdir/${cat}.low"  "${FINDINGS_LOW[@]+"${FINDINGS_LOW[@]}"}"
+        _write_findings_file "$tmpdir/${cat}.warn" "${FINDINGS_WARN[@]+"${FINDINGS_WARN[@]}"}"
       ) > "$tmpdir/${cat}.out" 2>&1 &
       pids+=($!)
     done
@@ -368,6 +402,13 @@ run_category_checks() {
           fi
         fi
       fi
+      # Merge the subshell's FINDINGS_* arrays back into the parent, in
+      # category order, so the summary + dashboard findings are populated.
+      _merge_findings_file "$tmpdir/${cat}.crit" FINDINGS_CRITICAL
+      _merge_findings_file "$tmpdir/${cat}.high" FINDINGS_HIGH
+      _merge_findings_file "$tmpdir/${cat}.med"  FINDINGS_MEDIUM
+      _merge_findings_file "$tmpdir/${cat}.low"  FINDINGS_LOW
+      _merge_findings_file "$tmpdir/${cat}.warn" FINDINGS_WARN
     done
     rm -rf "$tmpdir"
   else

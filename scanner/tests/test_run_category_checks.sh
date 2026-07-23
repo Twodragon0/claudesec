@@ -257,6 +257,49 @@ else
 fi
 
 # ==============================================================================
+# Group 10: parallel mode merges FINDINGS_* arrays back to the parent.
+# Regression for the writeback gap where each category subshell populated its
+# own FINDINGS_CRITICAL/HIGH/MEDIUM/LOW/WARN but only counters + JSON_RESULTS
+# crossed the subshell boundary — leaving the parent arrays empty, so the
+# summary "Severity Breakdown"/"Recommended Fixes" and the dashboard findings
+# table (both driven by FINDINGS_* lengths) rendered blank in parallel mode
+# even with a correct non-zero FAILED count.
+# ==============================================================================
+echo ""
+echo "=== parallel mode: FINDINGS_* arrays merged back to parent ==="
+
+mkdir -p "$CHECKS_DIR/cat_sev"
+cat > "$CHECKS_DIR/cat_sev/check.sh" <<'EOF'
+fail "SEV-CRIT" "crit finding" "critical" "fix-crit" "detail-crit" "/f/crit"
+fail "SEV-HIGH" "high finding" "high" "fix-high" "detail-high" "/f/high"
+fail "SEV-MED"  "med finding"  "medium"   "fix-med"  "detail-med"  "/f/med"
+fail "SEV-LOW"  "low finding"  "low"      "fix-low"  "detail-low"  "/f/low"
+warn "SEV-WARN" "warn finding" "warn detail"
+EOF
+
+# Baseline: sequential mode already populates the arrays
+_reset_state
+run_category_checks 0 0 cat_sev >/dev/null 2>&1
+assert_eq "seq: FINDINGS_CRITICAL=1" "1" "${#FINDINGS_CRITICAL[@]}"
+assert_eq "seq: FINDINGS_HIGH=1"     "1" "${#FINDINGS_HIGH[@]}"
+assert_eq "seq: FINDINGS_MEDIUM=1"   "1" "${#FINDINGS_MEDIUM[@]}"
+assert_eq "seq: FINDINGS_LOW=1"      "1" "${#FINDINGS_LOW[@]}"
+assert_eq "seq: FINDINGS_WARN=1"     "1" "${#FINDINGS_WARN[@]}"
+
+# Parallel mode MUST merge the same findings back (2 categories force the
+# parallel branch, which requires >1 category)
+_reset_state
+run_category_checks 1 0 cat_sev cat1 >/dev/null 2>&1
+assert_eq "parallel: FINDINGS_CRITICAL merged=1" "1" "${#FINDINGS_CRITICAL[@]}"
+assert_eq "parallel: FINDINGS_HIGH merged=1"     "1" "${#FINDINGS_HIGH[@]}"
+assert_eq "parallel: FINDINGS_MEDIUM merged=1"   "1" "${#FINDINGS_MEDIUM[@]}"
+assert_eq "parallel: FINDINGS_LOW merged=1"      "1" "${#FINDINGS_LOW[@]}"
+assert_eq "parallel: FINDINGS_WARN merged=1"     "1" "${#FINDINGS_WARN[@]}"
+# Content integrity: the packed \x1f entry survives the file round-trip
+assert_contains "parallel: crit entry id preserved"   "${FINDINGS_CRITICAL[0]:-}" "SEV-CRIT"
+assert_contains "parallel: high entry remediation"    "${FINDINGS_HIGH[0]:-}"     "fix-high"
+
+# ==============================================================================
 echo ""
 echo "=== Results: $TEST_PASSED passed, $TEST_FAILED failed ==="
 [[ "$TEST_FAILED" -eq 0 ]] || exit 1
