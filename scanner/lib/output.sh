@@ -18,6 +18,15 @@ NC='\033[0m'
 # JSON results array
 JSON_RESULTS="[]"
 
+# Field separator used to pack FINDINGS_* entries (id/title/severity/
+# remediation/details/location — see fail()/warn()). Unit Separator (0x1F)
+# instead of "|": a finding's title/details/remediation text can legitimately
+# contain a literal "|" or a real newline (e.g. multi-line _format_hits
+# output), and both would corrupt a "|"-delimited pack/unpack. \x1f is a
+# non-printing control character no finding text is expected to contain.
+# (Not `readonly`: output.sh may be re-sourced in the same shell by tests.)
+_FINDING_SEP=$'\x1f'
+
 # Findings tracking for dashboard
 declare -a FINDINGS_CRITICAL=()
 declare -a FINDINGS_HIGH=()
@@ -80,7 +89,7 @@ fail() {
   TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
   FAILED=$((FAILED + 1))
 
-  local entry="$id|$title|$severity|$remediation|$details|$location"
+  local entry="${id}${_FINDING_SEP}${title}${_FINDING_SEP}${severity}${_FINDING_SEP}${remediation}${_FINDING_SEP}${details}${_FINDING_SEP}${location}"
   case "$severity" in
     critical) FINDINGS_CRITICAL+=("$entry") ;;
     high)     FINDINGS_HIGH+=("$entry") ;;
@@ -107,7 +116,7 @@ warn() {
   TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
   WARNINGS=$((WARNINGS + 1))
 
-  FINDINGS_WARN+=("$id|$title|medium||$details")
+  FINDINGS_WARN+=("${id}${_FINDING_SEP}${title}${_FINDING_SEP}medium${_FINDING_SEP}${_FINDING_SEP}${details}")
 
   if [[ "$FORMAT" == "text" && -z "${QUIET:-}" ]]; then
     echo -e "  ${YELLOW}⚠ WARN${NC}  ${DIM}[$id]${NC} $title"
@@ -224,7 +233,7 @@ _print_findings() {
   local -n arr=$1
   local label="$2" show_fix="${3:-true}"
   for entry in "${arr[@]+"${arr[@]}"}"; do
-    IFS='|' read -r f_id f_title _ f_fix <<< "$entry"
+    IFS="$_FINDING_SEP" read -r f_id f_title _ f_fix <<< "$entry"
     local f_cat; f_cat=$(_finding_id_to_category "$f_id")
     echo -e "  ${label}${NC}  ${DIM}[$f_id]${NC} ${DIM}(${f_cat})${NC} $f_title"
     [[ "$show_fix" == "true" && -n "$f_fix" ]] && echo -e "          ${CYAN}→ $f_fix${NC}"
@@ -459,45 +468,74 @@ generate_html_dashboard() {
   local n_low=${#FINDINGS_LOW[@]}
   local n_warn=${#FINDINGS_WARN[@]}
 
-  # Build findings JSON for Python generator
-  local findings_json="["
-  local first=true
-
-  _emit_finding_json() {
-    local f_sev_label="$1"
+  # Build findings JSON via a single python3 invocation (findings_json.py),
+  # instead of hand-built string concatenation. The old bash concat only
+  # escaped double-quotes (not backslashes or control chars), so a details/
+  # remediation/location value containing a literal backslash (e.g. a
+  # Windows path like C:\temp) produced invalid JSON. json.dumps handles
+  # backslashes, quotes, control characters, and real embedded newlines
+  # (e.g. multi-line _format_hits output) correctly.
+  #
+  # Each FINDINGS_* array entry is unpacked into a 7-field Unit-Separator
+  # (\x1f)-joined, NUL (\0)-terminated record — severity_label, id, title,
+  # remediation, details, category, location — and the whole batch is
+  # streamed to ONE python3 process (not one fork per finding); category is
+  # still computed in bash via _finding_id_to_category, the single source of
+  # truth for id-prefix -> category mapping.
+  _emit_finding_record() {
+    local f_sev_label="$1" f_entry="$2"
     local f_id f_title _f_sev f_fix f_details f_loc
-    IFS='|' read -r f_id f_title _f_sev f_fix f_details f_loc <<< "$2"
-    f_title="${f_title//\"/\\\"}"
-    f_fix="${f_fix//\"/\\\"}"
-    f_details="${f_details//\"/\\\"}"
-    f_loc="${f_loc//\"/\\\"}"
-    local f_cat; f_cat=$(_finding_id_to_category "$f_id")
-    [[ "$first" == "true" ]] && first=false || findings_json+=","
-    local loc_field=""
-    [[ -n "$f_loc" ]] && loc_field=",\"location\":\"$f_loc\""
-    local details_field=""
-    [[ -n "$f_details" ]] && details_field=",\"details\":\"$f_details\""
-    local remediation_field=""
-    [[ -n "$f_fix" ]] && remediation_field=",\"remediation\":\"$f_fix\""
-    findings_json+="{\"id\":\"$f_id\",\"title\":\"$f_title\",\"severity\":\"$f_sev_label\",\"category\":\"$f_cat\"${details_field}${remediation_field}${loc_field}}"
+    # NUL-delimited read (`-d ''`) via process substitution — NOT a `<<<`
+    # herestring — so a REAL newline embedded in $f_entry (e.g. multi-line
+    # details from _format_hits) does not truncate the record: `read`'s
+    # default line-based mode stops at the first newline in the input
+    # regardless of $IFS, which `-d ''` avoids by reading to EOF instead.
+    # Process substitution (unlike `<<<`) appends no extra trailing
+    # newline, so the last field (location) is not corrupted. `read -d ''`
+    # returns non-zero when it hits EOF without finding its delimiter (the
+    # normal case here, since $f_entry has no NUL byte) — that failure is
+    # expected and intentionally swallowed.
+    IFS="$_FINDING_SEP" read -rd '' f_id f_title _f_sev f_fix f_details f_loc \
+      < <(printf '%s' "$f_entry") || true
+    local f_cat
+    f_cat=$(_finding_id_to_category "$f_id")
+    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\0' \
+      "$f_sev_label" "$f_id" "$f_title" "$f_fix" "$f_details" "$f_cat" "$f_loc"
   }
 
-  for entry in "${FINDINGS_CRITICAL[@]+"${FINDINGS_CRITICAL[@]}"}"; do
-    _emit_finding_json "critical" "$entry"
-  done
-  for entry in "${FINDINGS_HIGH[@]+"${FINDINGS_HIGH[@]}"}"; do
-    _emit_finding_json "high" "$entry"
-  done
-  for entry in "${FINDINGS_MEDIUM[@]+"${FINDINGS_MEDIUM[@]}"}"; do
-    _emit_finding_json "medium" "$entry"
-  done
-  for entry in "${FINDINGS_WARN[@]+"${FINDINGS_WARN[@]}"}"; do
-    _emit_finding_json "warning" "$entry"
-  done
-  for entry in "${FINDINGS_LOW[@]+"${FINDINGS_LOW[@]}"}"; do
-    _emit_finding_json "low" "$entry"
-  done
-  findings_json+="]"
+  local findings_json="[]"
+  if command -v python3 >/dev/null 2>&1 && [[ -f "$LIB_DIR/findings_json.py" ]]; then
+    # Write the \0-terminated record stream to a temp file with a BRACE-GROUP
+    # redirection (`{ ...; } > file`) rather than piping into python via a
+    # subshell. A brace group with redirection runs in the CURRENT shell, so
+    # these for-loops / _emit_finding_record calls stay visible to kcov; the
+    # previous `findings_json=$( { ...; } | python3 )` ran the loop on the
+    # left side of a pipe (a subshell) AND inside command substitution, both
+    # of which kcov cannot trace — silently dropping ~12 covered lines and
+    # risking the 90% bash floor.
+    local _records_file
+    _records_file=$(mktemp "${TMPDIR:-/tmp}/claudesec-findings.XXXXXX")
+    {
+      for entry in "${FINDINGS_CRITICAL[@]+"${FINDINGS_CRITICAL[@]}"}"; do
+        _emit_finding_record "critical" "$entry"
+      done
+      for entry in "${FINDINGS_HIGH[@]+"${FINDINGS_HIGH[@]}"}"; do
+        _emit_finding_record "high" "$entry"
+      done
+      for entry in "${FINDINGS_MEDIUM[@]+"${FINDINGS_MEDIUM[@]}"}"; do
+        _emit_finding_record "medium" "$entry"
+      done
+      for entry in "${FINDINGS_WARN[@]+"${FINDINGS_WARN[@]}"}"; do
+        _emit_finding_record "warning" "$entry"
+      done
+      for entry in "${FINDINGS_LOW[@]+"${FINDINGS_LOW[@]}"}"; do
+        _emit_finding_record "low" "$entry"
+      done
+    } > "$_records_file"
+    findings_json=$(python3 "$LIB_DIR/findings_json.py" < "$_records_file")
+    rm -f "$_records_file"
+    [[ -z "$findings_json" ]] && findings_json="[]"
+  fi
 
   # Persist scan summary for diagrams/docs (no identifiers by design).
   # Consumers: scanner/lib/diagram-gen.py, docs/architecture assets, local dashboards.
