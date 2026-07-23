@@ -165,35 +165,45 @@ fail "CHK-006" "High with loc" "high" "details" "remediate" "/k8s/pod.yaml"
 assert_contains "location in FINDINGS_HIGH entry" "${FINDINGS_HIGH[0]}" "/k8s/pod.yaml"
 
 # ==============================================================================
-# Test Group 3: pipe-delimited format (indirect _emit_finding_json testing)
+# Test Group 3: \x1f-delimited format (indirect _emit_finding_record testing)
 # ==============================================================================
 echo ""
-echo "=== pipe-delimited entry format (for _emit_finding_json) ==="
+echo "=== \\x1f-delimited entry format (for _emit_finding_record) ==="
 
-# 1. Entry has 6 pipe-delimited fields in order: id|title|severity|remediation|details|location
+# 1. Entry has 6 \x1f-delimited fields in order: id, title, severity,
+#    remediation, details, location (see output.sh's _FINDING_SEP/fail()).
 _reset_state
 fail "CHK-010" "Pipe test" "high" "detail text" "fix text" "/some/file"
 entry="${FINDINGS_HIGH[0]}"
-IFS='|' read -r f_id f_title f_sev f_fix f_details f_loc <<< "$entry"
-assert_eq "pipe format: field 1 = id"          "CHK-010"    "$f_id"
-assert_eq "pipe format: field 2 = title"       "Pipe test"  "$f_title"
-assert_eq "pipe format: field 3 = severity"    "high"       "$f_sev"
-assert_eq "pipe format: field 4 = remediation" "fix text"   "$f_fix"
-assert_eq "pipe format: field 5 = details"     "detail text" "$f_details"
-assert_eq "pipe format: field 6 = location"    "/some/file" "$f_loc"
+IFS="$_FINDING_SEP" read -r f_id f_title f_sev f_fix f_details f_loc <<< "$entry"
+assert_eq "\\x1f format: field 1 = id"          "CHK-010"    "$f_id"
+assert_eq "\\x1f format: field 2 = title"       "Pipe test"  "$f_title"
+assert_eq "\\x1f format: field 3 = severity"    "high"       "$f_sev"
+assert_eq "\\x1f format: field 4 = remediation" "fix text"   "$f_fix"
+assert_eq "\\x1f format: field 5 = details"     "detail text" "$f_details"
+assert_eq "\\x1f format: field 6 = location"    "/some/file" "$f_loc"
 
 # 2. Location (field 6) is preserved correctly
 _reset_state
 fail "CHK-011" "Loc test" "high" "" "" "/k8s/deployment.yaml"
 entry="${FINDINGS_HIGH[0]}"
-IFS='|' read -r _ _ _ _ _ f_loc2 <<< "$entry"
-assert_eq "pipe format: location field preserved" "/k8s/deployment.yaml" "$f_loc2"
+IFS="$_FINDING_SEP" read -r _ _ _ _ _ f_loc2 <<< "$entry"
+assert_eq "\\x1f format: location field preserved" "/k8s/deployment.yaml" "$f_loc2"
+
+# 3. A field containing a literal "|" is NOT split (regression guard for the
+#    old "|"-delimited pack, which would have corrupted this entry)
+_reset_state
+fail "CHK-012" "Pipe-in-text test" "high" "value|with|pipes" "fix" "/x"
+entry="${FINDINGS_HIGH[0]}"
+IFS="$_FINDING_SEP" read -r _ _ _ _ f_details3 _ <<< "$entry"
+assert_eq "\\x1f format: literal | preserved in details" "value|with|pipes" "$f_details3"
 
 # ==============================================================================
-# Test Group 3b: _emit_finding_json() emits BOTH details and remediation
+# Test Group 3b: _emit_finding_record() / findings_json.py: details + remediation
+# JSON fields
 # ==============================================================================
 echo ""
-echo "=== _emit_finding_json(): details + remediation JSON fields ==="
+echo "=== findings JSON emission: details + remediation JSON fields ==="
 
 # 1. Details and remediation both populated -> both keys present with correct
 #    (non-swapped) values in the generated scan-report.json
@@ -227,6 +237,30 @@ generate_html_dashboard "$tmpdir/dashboard-remediation-only.html" >/dev/null 2>&
 report_json_ronly="$(cat "$tmpdir/scan-report.json" 2>/dev/null)"
 assert_contains     "emit: remediation-only carries remediation" "$report_json_ronly" '"remediation":"only fix"'
 assert_not_contains "emit: remediation-only omits details"       "$report_json_ronly" '"details":'
+
+# 5. Special-character round-trip: details containing a REAL newline, a
+# backslash, and a double-quote must survive fail() -> generate_html_dashboard
+# -> scan-report.json as VALID JSON, with all three characters preserved
+# (not truncated at the newline — the bug the old "|" + hand-built-JSON
+# concat had: it escaped only quotes, so a backslash produced invalid JSON,
+# and a real newline in a "|"-packed entry truncated the read).
+_reset_state
+special_details=$'line1\nline2 with "quote" and back\\slash'
+fail "CHK-030" "Special chars" "high" "$special_details" "fix it" "/tmp/special.yaml"
+generate_html_dashboard "$tmpdir/dashboard-special-chars.html" >/dev/null 2>&1
+scan_report_special="$tmpdir/scan-report.json"
+assert_eq "special chars: scan-report.json is valid JSON" "0" \
+  "$(python3 -m json.tool "$scan_report_special" >/dev/null 2>&1; echo $?)"
+special_extracted="$(python3 -c '
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as fh:
+    data = json.load(fh)
+for f in data["findings"]:
+    if f["id"] == "CHK-030":
+        print(f["details"])
+        break
+' "$scan_report_special")"
+assert_eq "special chars: newline preserved"  "$special_details" "$special_extracted"
 
 # ==============================================================================
 # Test Group 4: print_banner / section / category_label
@@ -460,8 +494,8 @@ echo ""
 echo "=== _print_findings() ==="
 
 _reset_state
-FINDINGS_HIGH+=("CHK-100|High finding title|high|fix this now|details")
-FINDINGS_HIGH+=("CHK-101|Second high|high|remediate me|more details")
+FINDINGS_HIGH+=("CHK-100"$'\x1f'"High finding title"$'\x1f'"high"$'\x1f'"fix this now"$'\x1f'"details")
+FINDINGS_HIGH+=("CHK-101"$'\x1f'"Second high"$'\x1f'"high"$'\x1f'"remediate me"$'\x1f'"more details")
 pf_out="$(_print_findings FINDINGS_HIGH "HIGH" true 2>&1)"
 assert_contains "_print_findings: first id"       "$pf_out" "CHK-100"
 assert_contains "_print_findings: second id"      "$pf_out" "CHK-101"
@@ -471,7 +505,7 @@ assert_contains "_print_findings: label present"  "$pf_out" "HIGH"
 
 # show_fix=false suppresses fix text
 _reset_state
-FINDINGS_MEDIUM+=("CHK-200|Medium title|medium|should be hidden|d")
+FINDINGS_MEDIUM+=("CHK-200"$'\x1f'"Medium title"$'\x1f'"medium"$'\x1f'"should be hidden"$'\x1f'"d")
 pf_out2="$(_print_findings FINDINGS_MEDIUM "MED" false 2>&1)"
 assert_contains     "_print_findings(no fix): id shown"    "$pf_out2" "CHK-200"
 assert_not_contains "_print_findings(no fix): fix hidden"  "$pf_out2" "should be hidden"
@@ -537,11 +571,11 @@ assert_contains "print_summary: seconds in duration"  "$ps_min" "5s"
 # Severity breakdown with critical/high/med/low/warn all populated
 _reset_state
 TOTAL_CHECKS=5; PASSED=0; FAILED=4; WARNINGS=1; SKIPPED=0
-FINDINGS_CRITICAL+=("CHK-C1|Critical thing|critical|fix crit|d")
-FINDINGS_HIGH+=("CHK-H1|High thing|high|fix high|d")
-FINDINGS_MEDIUM+=("CHK-M1|Medium thing|medium|fix med|d")
-FINDINGS_LOW+=("CHK-L1|Low thing|low|fix low|d")
-FINDINGS_WARN+=("CHK-W1|Warn thing|medium||d")
+FINDINGS_CRITICAL+=("CHK-C1"$'\x1f'"Critical thing"$'\x1f'"critical"$'\x1f'"fix crit"$'\x1f'"d")
+FINDINGS_HIGH+=("CHK-H1"$'\x1f'"High thing"$'\x1f'"high"$'\x1f'"fix high"$'\x1f'"d")
+FINDINGS_MEDIUM+=("CHK-M1"$'\x1f'"Medium thing"$'\x1f'"medium"$'\x1f'"fix med"$'\x1f'"d")
+FINDINGS_LOW+=("CHK-L1"$'\x1f'"Low thing"$'\x1f'"low"$'\x1f'"fix low"$'\x1f'"d")
+FINDINGS_WARN+=("CHK-W1"$'\x1f'"Warn thing"$'\x1f'"medium"$'\x1f'$'\x1f'"d")
 ps_sev="$(print_summary 3 2>&1)"
 assert_contains "print_summary sev: CRITICAL shown" "$ps_sev" "CRITICAL"
 assert_contains "print_summary sev: HIGH shown"     "$ps_sev" "HIGH"

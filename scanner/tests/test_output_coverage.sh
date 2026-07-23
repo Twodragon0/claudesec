@@ -159,11 +159,11 @@ SCAN_DURATION=0
 
 # Populate all severity arrays including FINDINGS_WARN and FINDINGS_LOW to
 # cover L697 (FINDINGS_WARN loop) and L700 (FINDINGS_LOW loop).
-FINDINGS_CRITICAL+=("INFRA-001|Infra finding|critical|fix infra|d")
-FINDINGS_HIGH+=("CODE-INJ-001|Code injection|high|fix code|d")
-FINDINGS_MEDIUM+=("CLOUD-001|Cloud finding|medium|fix cloud|d")
-FINDINGS_WARN+=("AI-001|AI warning|medium||warn detail")
-FINDINGS_LOW+=("WIN-001|Windows low|low|fix win|d")
+FINDINGS_CRITICAL+=("INFRA-001"$'\x1f'"Infra finding"$'\x1f'"critical"$'\x1f'"fix infra"$'\x1f'"d")
+FINDINGS_HIGH+=("CODE-INJ-001"$'\x1f'"Code injection"$'\x1f'"high"$'\x1f'"fix code"$'\x1f'"d")
+FINDINGS_MEDIUM+=("CLOUD-001"$'\x1f'"Cloud finding"$'\x1f'"medium"$'\x1f'"fix cloud"$'\x1f'"d")
+FINDINGS_WARN+=("AI-001"$'\x1f'"AI warning"$'\x1f'"medium"$'\x1f'$'\x1f'"warn detail")
+FINDINGS_LOW+=("WIN-001"$'\x1f'"Windows low"$'\x1f'"low"$'\x1f'"fix win"$'\x1f'"d")
 
 # Disable diagram-gen (no python script present in test env) to keep test fast
 CLAUDESEC_GENERATE_DIAGRAMS=0
@@ -207,7 +207,7 @@ _exercise_category() {
   local id="$1" expected_cat="$2"
   _reset_state
   TOTAL_CHECKS=1; PASSED=0; FAILED=1; WARNINGS=0; SKIPPED=0; SCAN_DURATION=0
-  FINDINGS_HIGH+=("${id}|Test title|high|fix|detail")
+  FINDINGS_HIGH+=("${id}"$'\x1f'"Test title"$'\x1f'"high"$'\x1f'"fix"$'\x1f'"detail")
   CLAUDESEC_GENERATE_DIAGRAMS=0
   generate_html_dashboard "$tmpdir/cat_test.html" 2>/dev/null || true
   local content

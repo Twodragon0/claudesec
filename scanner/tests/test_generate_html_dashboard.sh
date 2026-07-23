@@ -110,6 +110,12 @@ assert_contains "scan-report: findings key"  "$report_content" '"findings":['
 echo ""
 echo "=== generate_html_dashboard() — findings serialization ==="
 
+# Restore the real LIB_DIR (Group 1 above pointed it at an empty directory
+# to force the legacy-fallback path). generate_html_dashboard now needs
+# $LIB_DIR/findings_json.py to build findings_json from FINDINGS_*, so
+# leaving it stale here would silently degrade every finding below to "[]".
+LIB_DIR="$LIB_DIR_REAL"
+
 rm -f "$scan_report" "$out_html"
 
 TOTAL_CHECKS=4
@@ -117,9 +123,9 @@ PASSED=1
 FAILED=3
 WARNINGS=0
 SKIPPED=0
-FINDINGS_CRITICAL=("IAM-001|Root key exposed|critical|Rotate now|Key present in .env|/app/.env")
-FINDINGS_HIGH=("NET-010|TLS 1.0 enabled|high|Disable TLS 1.0|Legacy protocol|")
-FINDINGS_MEDIUM=("CICD-020|No branch protection|medium|Enable protection||")
+FINDINGS_CRITICAL=("IAM-001"$'\x1f'"Root key exposed"$'\x1f'"critical"$'\x1f'"Rotate now"$'\x1f'"Key present in .env"$'\x1f'"/app/.env")
+FINDINGS_HIGH=("NET-010"$'\x1f'"TLS 1.0 enabled"$'\x1f'"high"$'\x1f'"Disable TLS 1.0"$'\x1f'"Legacy protocol"$'\x1f'"")
+FINDINGS_MEDIUM=("CICD-020"$'\x1f'"No branch protection"$'\x1f'"medium"$'\x1f'"Enable protection"$'\x1f'""$'\x1f'"")
 FINDINGS_LOW=()
 FINDINGS_WARN=()
 

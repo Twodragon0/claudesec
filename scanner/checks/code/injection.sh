@@ -55,7 +55,13 @@ _code_grep() {
   echo "$results" | head -"$max_hits"
 }
 
-# Format findings for details field (uses literal \n for pipe-delimited storage)
+# Format findings for the details field. Uses a REAL newline (not a literal
+# backslash-n) between entries: findings are now packed with the Unit
+# Separator (\x1f, see output.sh's fail()/_FINDING_SEP) instead of "|", and
+# the JSON emitter (scanner/lib/findings_json.py) uses json.dumps, which
+# escapes a real newline to the correct "\n" JSON sequence on its own. A
+# literal two-character "\n" here would instead be double-escaped to a
+# visible "\\n" in the rendered dashboard.
 _format_hits() {
   local hits="$1" max="${2:-10}"
   local output="" count=0
@@ -64,12 +70,12 @@ _format_hits() {
     [[ $count -ge $max ]] && break
     # Shorten path relative to SCAN_DIR
     line="${line#"$SCAN_DIR"/}"
-    output="${output}\\n    ${line}"
+    output="${output}"$'\n'"    ${line}"
     count=$((count + 1))
   done <<< "$hits"
   local total
   total=$(echo "$hits" | grep -c . 2>/dev/null || true)
-  [[ $total -gt $max ]] && output="${output}\\n    ... and $((total - max)) more"
+  [[ $total -gt $max ]] && output="${output}"$'\n'"    ... and $((total - max)) more"
   echo "$output"
 }
 
