@@ -233,7 +233,12 @@ _print_findings() {
   local -n arr=$1
   local label="$2" show_fix="${3:-true}"
   for entry in "${arr[@]+"${arr[@]}"}"; do
-    IFS="$_FINDING_SEP" read -r f_id f_title _ f_fix <<< "$entry"
+    # Read all 6 packed fields (id/title/severity/remediation/details/location)
+    # so f_fix holds ONLY the remediation. Reading into 4 vars glued
+    # remediation+details+location into f_fix (with the \x1f separators still
+    # embedded, invisible since \x1f is non-printing) — a silent corruption of
+    # the summary "→ fix" hint. details/location are consumed but unused here.
+    IFS="$_FINDING_SEP" read -r f_id f_title _ f_fix _ _ <<< "$entry"
     local f_cat; f_cat=$(_finding_id_to_category "$f_id")
     echo -e "  ${label}${NC}  ${DIM}[$f_id]${NC} ${DIM}(${f_cat})${NC} $f_title"
     [[ "$show_fix" == "true" && -n "$f_fix" ]] && echo -e "          ${CYAN}→ $f_fix${NC}"
