@@ -31,20 +31,36 @@ _prowler_dashboard_summary_provider_label() {
   esac
 }
 
-# HTML-escape a string for safe embedding in element text / attribute context.
-# `&` MUST be substituted first so the entity ampersands the later rules add are
-# not themselves re-escaped. The `\&` in each replacement is required: bash 5.2+
-# treats an unescaped `&` in a `${var//pat/repl}` replacement as "the matched
-# text" (so a bare `&lt;` would wrongly expand to `<lt;`). Writes the result to
-# the global _PROWLER_HTML_ESCAPED (no subshell, matching _json_escape_str).
+# HTML-escape a string for safe embedding in element-text context. `&` MUST be
+# substituted first so the entity ampersands the later rules add are not
+# re-escaped. Writes the result to the global _PROWLER_HTML_ESCAPED (no subshell,
+# matching output.sh's _json_escape_str).
+#
+# Portability note: bash 5.2+ expands an unquoted `&` in a `${var//pat/repl}`
+# replacement to the matched text (the `patsub_replacement` shopt, on by
+# default), which would corrupt these entities (e.g. `&lt;` -> `<lt;`). Neither a
+# bare `&` (wrong on 5.2+) nor a `\&`-escaped `&` (wrong on <5.2, where the
+# backslash is kept literally) is correct across versions, so disable the option
+# locally and restore it. The option does not exist before 5.2, where `&` is
+# already literal — the `shopt -q` probe fails there and the toggle is skipped.
+# The scanner already requires bash >= 4.3 (namerefs in checks.sh/output.sh), so
+# 4.3 is the effective floor this must stay correct on.
 _PROWLER_HTML_ESCAPED=""
 _prowler_html_escape() {
   local s="$1"
-  s="${s//&/\&amp;}"
-  s="${s//</\&lt;}"
-  s="${s//>/\&gt;}"
-  s="${s//\"/\&quot;}"
-  s="${s//\'/\&#39;}"
+  local _patsub_on=0
+  if shopt -q patsub_replacement 2>/dev/null; then
+    _patsub_on=1
+    shopt -u patsub_replacement
+  fi
+  s="${s//&/&amp;}"
+  s="${s//</&lt;}"
+  s="${s//>/&gt;}"
+  s="${s//\"/&quot;}"
+  s="${s//\'/&#39;}"
+  if [[ "$_patsub_on" == "1" ]]; then
+    shopt -s patsub_replacement
+  fi
   _PROWLER_HTML_ESCAPED="$s"
 }
 

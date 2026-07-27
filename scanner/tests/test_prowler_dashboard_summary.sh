@@ -186,6 +186,12 @@ XEOF
 out="$(_prowler_dashboard_summary)"
 assert_not_contains "xss: raw <img tag NOT emitted"       "$out" "<img src=x"
 assert_contains     "xss: payload HTML-escaped in cell"   "$out" "&lt;img src=x onerror=alert(1)&gt;"
+# Portability pin: a bare-& replacement corrupts to "<lt;" on bash 5.2+
+# (patsub_replacement), a \&-escaped one leaves a stray backslash ("\&lt;") on
+# bash <5.2. The escaper toggles patsub off so neither occurs on any bash;
+# assert the stray-backslash form is absent (the corrupted "<lt;" form is
+# already excluded by the raw-<img and escaped-entity assertions above).
+assert_not_contains "xss: no stray backslash before entity" "$out" '\&lt;'
 
 # Ampersand + double-quote must also be entity-encoded (and & not double-escaped)
 rm -f "$prowler_dir"/prowler-*.ocsf.json
