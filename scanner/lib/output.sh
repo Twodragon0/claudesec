@@ -185,12 +185,49 @@ _finding_ref_url() {
   esac
 }
 
+# JSON-escape a string for embedding inside a double-quoted JSON value, per
+# RFC 8259 §7. Handles backslash, double-quote, and every C0 control character
+# (U+0000–U+001F): \b \t \n \f \r use their two-char short escapes, any other
+# control char uses \u00XX. The previous append_json escaping handled only \
+# and " — so a finding whose details carried a real embedded newline (the
+# multi-line _format_hits output noted at the top of this file) or a tab
+# produced INVALID JSON in the --format json / scan-report.json output. This is
+# the CLI-path analog of the backslash bug findings_json.py's json.dumps fixed
+# for the dashboard; both paths now emit spec-valid JSON for the same inputs.
+# NUL (U+0000) cannot occur here — bash strips NUL bytes from string values.
+# Writes the escaped string to the global _JSON_ESCAPED (no subshell, so this
+# stays cheap on append_json's hot path — it runs once per check).
+_JSON_ESCAPED=""
+_json_escape_str() {
+  local s="$1"
+  s="${s//\\/\\\\}"   # backslash FIRST, before other rules add backslashes
+  s="${s//\"/\\\"}"
+  s="${s//$'\b'/\\b}"
+  s="${s//$'\f'/\\f}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  # Remaining C0 controls (rare — raw bytes from a scanned file) → \u00XX.
+  # Guarded by one glob test so the common control-free path pays nothing more.
+  if [[ "$s" == *[[:cntrl:]]* ]]; then
+    local i byte esc
+    for i in 1 2 3 4 5 6 7 11 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31; do
+      printf -v byte '%b' "$(printf '\\%03o' "$i")"
+      printf -v esc '\\u%04x' "$i"
+      s="${s//"$byte"/$esc}"
+    done
+  fi
+  _JSON_ESCAPED="$s"
+}
+
 append_json() {
   local id="$1" title="$2" status="$3" details="$4" severity="${5:-}" location="${6:-}"
-  # Escape JSON strings
-  title="${title//\\/\\\\}"; title="${title//\"/\\\"}"
-  details="${details//\\/\\\\}"; details="${details//\"/\\\"}"
-  location="${location//\\/\\\\}"; location="${location//\"/\\\"}"
+  # Escape JSON strings (id/status/severity/category/ref_url are developer-
+  # controlled fixed vocabularies; only title/details/location carry scanned
+  # content and can contain quotes/backslashes/control chars).
+  _json_escape_str "$title";    title="$_JSON_ESCAPED"
+  _json_escape_str "$details";  details="$_JSON_ESCAPED"
+  _json_escape_str "$location"; location="$_JSON_ESCAPED"
   local category ref_url
   category="$(_finding_id_to_category "$id")"
   ref_url="$(_finding_ref_url "$id")"

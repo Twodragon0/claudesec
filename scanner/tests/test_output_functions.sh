@@ -128,6 +128,92 @@ append_json "CHK-001" "No location" "pass" "" ""
 assert_not_contains "empty location: no location key" "$JSON_RESULTS" '"location"'
 
 # ==============================================================================
+# Test Group 1b: append_json() control-character / valid-JSON regression
+# Guards the RFC 8259 §7 escaper (_json_escape_str). Before it, append_json
+# escaped only \ and ", so a detail with a real newline/tab/backslash yielded
+# INVALID JSON in the --format json output. Each case asserts the whole
+# JSON_RESULTS array parses with json.loads AND the field round-trips.
+# ==============================================================================
+echo ""
+echo "=== append_json() control-char / valid-JSON regression ==="
+
+# python3 is required to validate; skip the group (not fail) if unavailable so
+# the suite stays runnable on minimal hosts, matching output.sh's own guard.
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "  SKIP: python3 not available — JSON validity regression group skipped"
+else
+  # Parse JSON_RESULTS and print the value at results[0].<key>, or "__ERR__"
+  # on any parse error. Reads JSON from argv (not stdin) so embedded control
+  # chars survive the shell boundary as-is.
+  _json_field() {
+    python3 - "$1" "$2" <<'PY'
+import json, sys
+raw, key = sys.argv[1], sys.argv[2]
+try:
+    arr = json.loads(raw)
+    sys.stdout.write(str(arr[0].get(key, "__MISSING__")))
+except Exception:
+    sys.stdout.write("__ERR__")
+PY
+  }
+
+  # 1b-1. Embedded real newline in details (the multi-line _format_hits case)
+  _reset_state
+  append_json "CHK-NL" "nl title" "fail" $'line1\nline2' "high"
+  nl_details="$(_json_field "$JSON_RESULTS" details)"
+  assert_eq "newline: details round-trips (real newline preserved)" $'line1\nline2' "$nl_details"
+
+  # 1b-2. Tab + carriage return in details
+  _reset_state
+  append_json "CHK-TAB" "tab title" "fail" $'a\tb\rc' "high"
+  tab_details="$(_json_field "$JSON_RESULTS" details)"
+  assert_eq "tab/cr: details round-trips" $'a\tb\rc' "$tab_details"
+
+  # 1b-3. Backslash (Windows path) — old escaper handled \ but the array must
+  # still parse cleanly alongside the quote handling.
+  _reset_state
+  append_json "CHK-BS" 'C:\temp\file' "fail" 'path C:\Users\x' "high" 'C:\loc'
+  bs_title="$(_json_field "$JSON_RESULTS" title)"
+  bs_loc="$(_json_field "$JSON_RESULTS" location)"
+  assert_eq "backslash: title round-trips"    'C:\temp\file'  "$bs_title"
+  assert_eq "backslash: location round-trips" 'C:\loc'        "$bs_loc"
+
+  # 1b-4. Quote + backslash together must not corrupt the array
+  _reset_state
+  append_json "CHK-Q" 'say "hi" \n not-a-newline' "fail" "d" "high"
+  q_title="$(_json_field "$JSON_RESULTS" title)"
+  assert_eq "quote+backslash: title round-trips" 'say "hi" \n not-a-newline' "$q_title"
+
+  # 1b-5. Exotic C0 control char (0x07 BEL) → , array still valid
+  _reset_state
+  append_json "CHK-BEL" "bel" "fail" $'x\x07y' "high"
+  bel_valid="$(_json_field "$JSON_RESULTS" id)"
+  assert_eq "bel(0x07): array parses and id intact" "CHK-BEL" "$bel_valid"
+  bel_details="$(_json_field "$JSON_RESULTS" details)"
+  assert_eq "bel(0x07): details round-trips" $'x\x07y' "$bel_details"
+
+  # 1b-6. fail() end-to-end (multi-line details via the real code path)
+  _reset_state
+  fail "CODE-INJ-001" "injection" "critical" $'hit1\nhit2' "fix it" "app.js:42"
+  fj_details="$(_json_field "$JSON_RESULTS" details)"
+  assert_eq "fail(): multi-line details round-trips" $'hit1\nhit2' "$fj_details"
+
+  # 1b-7. Backspace (0x08) and form-feed (0x0C) short escapes — the two C0
+  # short-escape rules not otherwise covered by the newline/tab cases above.
+  _reset_state
+  append_json "CHK-BF" "bf" "fail" $'a\bb\fc' "high"
+  bf_details="$(_json_field "$JSON_RESULTS" details)"
+  assert_eq "backspace/formfeed: details round-trips" $'a\bb\fc' "$bf_details"
+
+  # 1b-8. DEL (0x7F) is NOT a C0 control and must pass through unescaped,
+  # matching json.dumps(ensure_ascii=False) — the array must still parse.
+  _reset_state
+  append_json "CHK-DEL" "del" "fail" $'x\x7fy' "high"
+  del_details="$(_json_field "$JSON_RESULTS" details)"
+  assert_eq "DEL(0x7f): details round-trips unescaped" $'x\x7fy' "$del_details"
+fi
+
+# ==============================================================================
 # Test Group 2: fail()
 # ==============================================================================
 echo ""
