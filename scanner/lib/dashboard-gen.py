@@ -584,7 +584,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                 _isms_colors = ["var(--accent)", "#0984e3", "#00b894", "#f39c12", "#e17055", "#6c5ce7", "#fd79a8", "#00cec9"]
                 for _pi, _pol in enumerate(_policies):
                     _color = _isms_colors[_pi % len(_isms_colors)]
-                    _url = h(_pol.get("url", ""))
+                    _url = h(safe_url(_pol.get("url", "")))
                     _name = h(_pol.get("name", ""))
                     _ch = _pol.get("total_chapters", 0)
                     _ar = _pol.get("total_articles", 0)
@@ -611,7 +611,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                             if _ach != _cur_ch:
                                 _cur_ch = _ach
                                 policies_html += f'<div style="font-size:11px;font-weight:700;color:var(--accent);margin:6px 0 3px">{h(_ach)}</div>'
-                            policies_html += f'<div style="font-size:11px;color:var(--muted);padding:1px 0">{_a.get("num", "")}. {h(_a.get("title", ""))}</div>'
+                            policies_html += f'<div style="font-size:11px;color:var(--muted);padding:1px 0">{h(_a.get("num", ""))}. {h(_a.get("title", ""))}</div>'
                         policies_html += '</div>'
                     policies_html += '</div>'
                 policies_html += '</div>'
