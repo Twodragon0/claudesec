@@ -420,10 +420,19 @@ print_json_summary() {
   local active=$((TOTAL_CHECKS - SKIPPED))
   local score=0
   [[ $active -gt 0 ]] && score=$(( (PASSED * 100) / active ))
+  # JSON-escape the two free-form string fields. VERSION is a developer-set
+  # constant but SCAN_DIR is a scan-target path: a directory containing a
+  # literal " or \ (e.g. /tmp/pro"ject or a Windows path) would otherwise
+  # break this --format json output as invalid JSON (same class as the
+  # append_json control-char bug fixed in #359, but this CLI-summary path
+  # never went through _json_escape_str).
+  local version_esc scan_dir_esc
+  _json_escape_str "$VERSION";  version_esc="$_JSON_ESCAPED"
+  _json_escape_str "$SCAN_DIR"; scan_dir_esc="$_JSON_ESCAPED"
   cat <<EOF
 {
-  "version": "$VERSION",
-  "scan_directory": "$SCAN_DIR",
+  "version": "$version_esc",
+  "scan_directory": "$scan_dir_esc",
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "duration_seconds": $duration,
   "summary": {

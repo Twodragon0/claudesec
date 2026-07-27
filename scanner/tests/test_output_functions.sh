@@ -731,6 +731,24 @@ TOTAL_CHECKS=3; PASSED=0; FAILED=0; WARNINGS=0; SKIPPED=3
 js_skip="$(print_json_summary 1 2>&1)"
 assert_contains "print_json_summary: skipped=total score 0" "$js_skip" '"score": 0'
 
+# Hostile scan_directory: a scan-target path containing a double-quote,
+# backslash, or tab must NOT break the --format json output (Risk #1, 2026-07-27
+# JSON-escaping audit — print_json_summary interpolated $SCAN_DIR raw, the same
+# invalid-JSON class the append_json control-char escaper fixed in #359). Assert
+# the whole object parses AND scan_directory round-trips byte-for-byte.
+if command -v python3 >/dev/null 2>&1; then
+  _reset_state
+  TOTAL_CHECKS=1; PASSED=1; FAILED=0; WARNINGS=0; SKIPPED=0
+  OLD_SCAN_DIR="$SCAN_DIR"
+  SCAN_DIR=$'/tmp/pro"ject\\x\ttab'
+  js_hostile="$(print_json_summary 1 2>&1)"
+  assert_eq "print_json_summary: hostile scan_directory -> valid JSON" "0" \
+    "$(printf '%s' "$js_hostile" | python3 -m json.tool >/dev/null 2>&1; echo $?)"
+  hostile_sd="$(printf '%s' "$js_hostile" | python3 -c 'import sys,json; sys.stdout.write(json.load(sys.stdin)["scan_directory"])' 2>/dev/null)"
+  assert_eq "print_json_summary: scan_directory round-trips" $'/tmp/pro"ject\\x\ttab' "$hostile_sd"
+  SCAN_DIR="$OLD_SCAN_DIR"
+fi
+
 # ==============================================================================
 # Test Group 13: save_scan_history
 # ==============================================================================
