@@ -181,6 +181,8 @@ jobs:
         run: bash scanner/tests/test_output_functions.sh
       - name: Run bash unit tests (checks.sh run_category_checks)
         run: bash scanner/tests/test_run_category_checks.sh
+      - name: Run bash unit tests (parallel findings JSON E2E)
+        run: bash scanner/tests/test_parallel_findings_json_e2e.sh
       - name: Run bash unit tests (infra/docker checks)
         run: bash scanner/tests/test_check_infra_docker.sh
       - name: Run bash unit tests (code/injection checks)
