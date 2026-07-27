@@ -1428,7 +1428,7 @@ document.addEventListener('click',function(e){
   var arg=btn.dataset.arg;
 
   if(action==='close-setup-overlay'){if(e.target===btn)closeSetup();return;}
-  if(action==='switchTab'){switchTab(arg,btn.dataset.scroll||undefined);return;}
+  if(action==='switchTab'){switchTab(arg,btn.dataset.scroll||undefined);e.preventDefault();return;}
   if(action==='switchProvTab'){switchProvTab(arg);return;}
   if(action==='scroll-top'){window.scrollTo({top:0,behavior:'smooth'});return;}
   if(action==='scroll-to'){
