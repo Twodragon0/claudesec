@@ -166,6 +166,45 @@ assert_contains "unknown: raw provider name rendered" "$out" ">madeupcloud<"
 assert_contains "unknown: total=1"                    "$out" ">1<"
 
 # ==============================================================================
+# Test Group 6: stored-XSS regression — a crafted OCSF filename must be
+# HTML-escaped before it reaches the <td> cell. The provider slug comes from
+# the filename (raw for unknown providers), and .claudesec-prowler/ lives under
+# the scanned project, so a file named prowler-<img ...>.ocsf.json would inject
+# executable HTML into the dashboard without escaping.
+# ==============================================================================
+echo ""
+echo "=== _prowler_dashboard_summary() — filename XSS is HTML-escaped ==="
+
+rm -f "$prowler_dir"/prowler-*.ocsf.json
+
+# Payload has no '/' (illegal in filenames); exercises < > ( ) and spaces.
+xss_payload='<img src=x onerror=alert(1)>'
+cat > "$prowler_dir/prowler-${xss_payload}.ocsf.json" <<'XEOF'
+{"severity": "High","status_code": "FAIL"}
+XEOF
+
+out="$(_prowler_dashboard_summary)"
+assert_not_contains "xss: raw <img tag NOT emitted"       "$out" "<img src=x"
+assert_contains     "xss: payload HTML-escaped in cell"   "$out" "&lt;img src=x onerror=alert(1)&gt;"
+# Portability pin: a bare-& replacement corrupts to "<lt;" on bash 5.2+
+# (patsub_replacement), a \&-escaped one leaves a stray backslash ("\&lt;") on
+# bash <5.2. The escaper toggles patsub off so neither occurs on any bash;
+# assert the stray-backslash form is absent (the corrupted "<lt;" form is
+# already excluded by the raw-<img and escaped-entity assertions above).
+assert_not_contains "xss: no stray backslash before entity" "$out" '\&lt;'
+
+# Ampersand + double-quote must also be entity-encoded (and & not double-escaped)
+rm -f "$prowler_dir"/prowler-*.ocsf.json
+amp_payload='a&b"c'
+cat > "$prowler_dir/prowler-${amp_payload}.ocsf.json" <<'AEOF'
+{"severity": "Low","status_code": "FAIL"}
+AEOF
+
+out="$(_prowler_dashboard_summary)"
+assert_contains     "xss: ampersand+quote entity-encoded" "$out" "a&amp;b&quot;c"
+assert_not_contains "xss: no double-escaped ampersand"    "$out" "&amp;amp;"
+
+# ==============================================================================
 # Summary
 # ==============================================================================
 echo ""

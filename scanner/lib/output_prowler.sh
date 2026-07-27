@@ -31,6 +31,39 @@ _prowler_dashboard_summary_provider_label() {
   esac
 }
 
+# HTML-escape a string for safe embedding in element-text context. `&` MUST be
+# substituted first so the entity ampersands the later rules add are not
+# re-escaped. Writes the result to the global _PROWLER_HTML_ESCAPED (no subshell,
+# matching output.sh's _json_escape_str).
+#
+# Portability note: bash 5.2+ expands an unquoted `&` in a `${var//pat/repl}`
+# replacement to the matched text (the `patsub_replacement` shopt, on by
+# default), which would corrupt these entities (e.g. `&lt;` -> `<lt;`). Neither a
+# bare `&` (wrong on 5.2+) nor a `\&`-escaped `&` (wrong on <5.2, where the
+# backslash is kept literally) is correct across versions, so disable the option
+# locally and restore it. The option does not exist before 5.2, where `&` is
+# already literal — the `shopt -q` probe fails there and the toggle is skipped.
+# The scanner already requires bash >= 4.3 (namerefs in checks.sh/output.sh), so
+# 4.3 is the effective floor this must stay correct on.
+_PROWLER_HTML_ESCAPED=""
+_prowler_html_escape() {
+  local s="$1"
+  local _patsub_on=0
+  if shopt -q patsub_replacement 2>/dev/null; then
+    _patsub_on=1
+    shopt -u patsub_replacement
+  fi
+  s="${s//&/&amp;}"
+  s="${s//</&lt;}"
+  s="${s//>/&gt;}"
+  s="${s//\"/&quot;}"
+  s="${s//\'/&#39;}"
+  if [[ "$_patsub_on" == "1" ]]; then
+    shopt -s patsub_replacement
+  fi
+  _PROWLER_HTML_ESCAPED="$s"
+}
+
 # Build Prowler report summary HTML from .claudesec-prowler/*.ocsf.json (for dashboard)
 _prowler_dashboard_summary() {
   local prowler_dir="${SCAN_DIR:-.}/.claudesec-prowler"
@@ -50,6 +83,12 @@ _prowler_dashboard_summary() {
     local provider label total c h m l
     provider=$(basename "$f" .ocsf.json | sed 's/^prowler-//')
     label="$(_prowler_dashboard_summary_provider_label "$provider")"
+    # $label derives from the OCSF filename slug (raw, for unknown providers), so
+    # a crafted file like prowler-<img src=x onerror=alert(1)>.ocsf.json under a
+    # scanned project's .claudesec-prowler/ would inject stored XSS into the
+    # dashboard HTML. HTML-escape before embedding. Counters below are integers
+    # (grep -c / awk severity count, defaulted to 0) and need no escaping.
+    _prowler_html_escape "$label"; label="$_PROWLER_HTML_ESCAPED"
     total=$(grep -c '"status_code": *"FAIL"' "$f" 2>/dev/null || echo 0)
     read -r c h m l <<< "$(awk -f "$(dirname "${BASH_SOURCE[0]}")/prowler_severity_count.awk" "$f" 2>/dev/null)"
     c=${c:-0}; h=${h:-0}; m=${m:-0}; l=${l:-0}
