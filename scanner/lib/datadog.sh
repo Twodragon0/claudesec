@@ -169,12 +169,25 @@ collect_datadog_dashboard_artifacts() {
   local dd_tags="service:${dd_service},env:${dd_env},ci_pipeline_id:${run_id}"
   local dd_query="service:${dd_service} env:${dd_env} ci_pipeline_id:${run_id}"
 
+  # JSON-escape the config/env-derived values before embedding them in the
+  # intake/query payload heredocs. DD_SERVICE / DD_ENV come from the
+  # environment, so a value containing a " or \ (e.g. DD_ENV='a" ,"x":"y')
+  # would otherwise emit an invalid — or structurally injected — request body.
+  # _json_escape_str is defined in output.sh, which the claudesec entrypoint
+  # sources before this file (see the header note). The URL-embedded dd_tags is
+  # a separate (URL) surface and intentionally left unchanged here.
+  local dd_service_j dd_env_j run_id_j dd_query_j
+  _json_escape_str "$dd_service"; dd_service_j="$_JSON_ESCAPED"
+  _json_escape_str "$dd_env";     dd_env_j="$_JSON_ESCAPED"
+  _json_escape_str "$run_id";     run_id_j="$_JSON_ESCAPED"
+  _json_escape_str "$dd_query";   dd_query_j="$_JSON_ESCAPED"
+
   cat > "$dd_dir/intake.json" <<JSON
 {
   "message": "ClaudeSec local dashboard run",
-  "service": "${dd_service}",
-  "env": "${dd_env}",
-  "ci_pipeline_id": "${run_id}",
+  "service": "${dd_service_j}",
+  "env": "${dd_env_j}",
+  "ci_pipeline_id": "${run_id_j}",
   "status": "info",
   "source": "claudesec-local"
 }
@@ -189,7 +202,7 @@ JSON
   "filter": {
     "from": "${from_1h_ts}",
     "to": "${to_ts}",
-    "query": "${dd_query}"
+    "query": "${dd_query_j}"
   },
   "sort": "timestamp",
   "page": { "limit": 200 }
