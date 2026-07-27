@@ -16,6 +16,7 @@ if _LIB_DIR not in sys.path:
 
 from dashboard_utils import (
     h,
+    safe_url,
     TRUST_LEVEL_ORDER,
     MS_INCLUDE_SCUBAGEAR_ENV,
     MS_SOURCE_FILTER_ENV,
@@ -109,14 +110,14 @@ def build_ms_sources_html(ms_best_practices_data) -> str:
                 audit_points_html += f'<div class="card ms-source-entry" data-trust-token="{h(trust_token)}" style="margin-bottom:.75rem;padding:0"><div class="card-title" data-action="toggleMsSrc" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:.5rem"><input type="checkbox" class="ap-checkbox ms-src-checkbox" data-ap-id="{h(src_id)}" data-change="apToggleCheckMs" data-action="stop"> ▸ {h(label)} <span class="trust-badge {h(trust_class)}">{h(trust_level)}</span>{archive_tag} <span style="font-size:.75rem;color:var(--muted);font-weight:400">({len(files)} files)</span></div>'
                 audit_points_html += '<div class="ms-src-body" style="padding:.75rem 1rem">'
                 audit_points_html += f'<div style="color:var(--muted);font-size:.82rem;margin-bottom:.45rem">{h(reason)}</div>'
-                audit_points_html += f'<a href="{h(repo_url)}" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem">Open repository</a>'
+                audit_points_html += f'<a href="{h(safe_url(repo_url))}" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem">Open repository</a>'
                 if updated:
                     audit_points_html += f'<span style="font-size:.75rem;color:var(--muted);margin-left:.5rem">Updated: {h(updated[:10])}</span>'
                 for fidx, f in enumerate(files[:25]):
                     url = f.get("url") or f.get("raw_url") or "#"
                     fname = f.get("path") or f.get("name") or "file"
                     file_id = f"{src_id}-f{fidx}"
-                    audit_points_html += f'<div class="bp-audit-item-row" style="margin-top:.35rem"><input type="checkbox" class="ap-checkbox ms-file-checkbox" data-ap-id="{h(file_id)}" data-change="apToggleCheckMs"><a href="{h(url)}" target="_blank" rel="noopener" class="mono bp-audit-link" style="font-size:.8rem;color:var(--text)">{h(fname)}</a></div>'
+                    audit_points_html += f'<div class="bp-audit-item-row" style="margin-top:.35rem"><input type="checkbox" class="ap-checkbox ms-file-checkbox" data-ap-id="{h(file_id)}" data-change="apToggleCheckMs"><a href="{h(safe_url(url))}" target="_blank" rel="noopener" class="mono bp-audit-link" style="font-size:.8rem;color:var(--text)">{h(fname)}</a></div>'
                 if len(files) > 25:
                     audit_points_html += f'<div style="margin-top:.5rem;color:var(--muted);font-size:.78rem">… and {len(files) - 25} more files</div>'
                 audit_points_html += "</div></div>"
@@ -174,14 +175,14 @@ def build_saas_sources_html(saas_bp_data) -> str:
                 audit_points_html += f'<div class="card ms-source-entry" style="margin-bottom:.75rem;padding:0"><div class="card-title" data-action="toggleMsSrc" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:.5rem"><input type="checkbox" class="ap-checkbox saas-src-checkbox" data-ap-id="{h(src_id)}" data-change="apToggleCheckSaas" data-action="stop"> ▸ {h(label)} <span class="trust-badge {h(trust_class)}">{h(trust_level)}</span> <span style="font-size:.75rem;color:var(--muted);font-weight:400">({len(files)} files)</span></div>'
                 audit_points_html += '<div class="ms-src-body" style="padding:.75rem 1rem">'
                 audit_points_html += f'<div style="color:var(--muted);font-size:.82rem;margin-bottom:.45rem">{h(reason)}</div>'
-                audit_points_html += f'<a href="{h(repo_url)}" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem">Open repository ↗</a>'
+                audit_points_html += f'<a href="{h(safe_url(repo_url))}" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem">Open repository ↗</a>'
                 if focus:
                     audit_points_html += f'<div style="color:var(--muted);font-size:.78rem;margin-top:.35rem">Focus paths: <code>{h(focus)}</code></div>'
                 for fidx, fl in enumerate(files[:25]):
                     url = fl.get("url") or fl.get("raw_url") or "#"
                     fname = fl.get("path") or fl.get("name") or "file"
                     file_id = f"{src_id}-f{fidx}"
-                    audit_points_html += f'<div class="bp-audit-item-row" style="margin-top:.35rem"><input type="checkbox" class="ap-checkbox saas-file-checkbox" data-ap-id="{h(file_id)}" data-change="apToggleCheckSaas"><a href="{h(url)}" target="_blank" rel="noopener" class="mono bp-audit-link" style="font-size:.8rem;color:var(--text)">{h(fname)}</a></div>'
+                    audit_points_html += f'<div class="bp-audit-item-row" style="margin-top:.35rem"><input type="checkbox" class="ap-checkbox saas-file-checkbox" data-ap-id="{h(file_id)}" data-change="apToggleCheckSaas"><a href="{h(safe_url(url))}" target="_blank" rel="noopener" class="mono bp-audit-link" style="font-size:.8rem;color:var(--text)">{h(fname)}</a></div>'
                 audit_points_html += "</div></div>"
         audit_points_html += "</div>"
     else:

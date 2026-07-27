@@ -16,6 +16,7 @@ if _LIB_DIR not in sys.path:
 
 from dashboard_utils import (
     h,
+    safe_url,
     AUDIT_POINTS_REPO,
 )
 
@@ -86,7 +87,7 @@ def build_audit_points_querypie_html(audit_points_data, audit_points_detected) -
             audit_points_html += '<span class="ap-product-chevron">▶</span>'
             audit_points_html += '</div>'
             audit_points_html += '<div class="ap-product-body">'
-            audit_points_html += f'<a href="{h(tree_url)}" target="_blank" rel="noopener" class="ap-product-github-link">Open on GitHub ↗</a>'
+            audit_points_html += f'<a href="{h(safe_url(tree_url))}" target="_blank" rel="noopener" class="ap-product-github-link">Open on GitHub ↗</a>'
             for idx, f in enumerate(files, start=1):
                 url = f.get("url") or f.get("raw_url") or "#"
                 fname = f.get("name", "")
@@ -95,7 +96,7 @@ def build_audit_points_querypie_html(audit_points_data, audit_points_detected) -
                 audit_points_html += f'<div class="bp-audit-item-row" data-ap-id="{h(cb_id)}">'
                 audit_points_html += f'<input type="checkbox" class="ap-checkbox" data-ap-id="{h(cb_id)}" data-change="apToggleCheck">'
                 audit_points_html += f'<span class="bp-audit-index">{idx}</span>'
-                audit_points_html += f'<a href="{h(url)}" target="_blank" rel="noopener" class="bp-audit-link">{h(fname)}</a>'
+                audit_points_html += f'<a href="{h(safe_url(url))}" target="_blank" rel="noopener" class="bp-audit-link">{h(fname)}</a>'
                 if ext:
                     audit_points_html += f'<span class="bp-audit-ext">.{h(ext)}</span>'
                 audit_points_html += "</div>"
@@ -108,7 +109,7 @@ def build_audit_points_querypie_html(audit_points_data, audit_points_detected) -
             audit_points_html = audit_points_html or _bp_intro
         title = "All products" if detected_products else "QueryPie Audit Points"
         audit_points_html += f'<div class="card bp-audit-section" style="margin-bottom:1rem"><div class="card-title" style="display:flex;align-items:center;gap:.5rem">{h(title)} <span class="badge" style="font-size:.65rem">{len(all_products)} products · {total_items} items</span></div><div style="padding:.75rem 1rem">'
-        audit_points_html += f'<p style="color:var(--muted);font-size:.82rem;margin-bottom:.75rem">SaaS/DevSecOps audit checklists from <a href="{h(repo_url)}" target="_blank" rel="noopener" style="color:var(--accent)">querypie/audit-points</a>. Click a product to expand.</p>'
+        audit_points_html += f'<p style="color:var(--muted);font-size:.82rem;margin-bottom:.75rem">SaaS/DevSecOps audit checklists from <a href="{h(safe_url(repo_url))}" target="_blank" rel="noopener" style="color:var(--accent)">querypie/audit-points</a>. Click a product to expand.</p>'
         for prod in all_products:
             pname = prod.get("name", "")
             is_detected = pname in detected_products
@@ -127,7 +128,7 @@ def build_audit_points_querypie_html(audit_points_data, audit_points_detected) -
             audit_points_html += '<span class="ap-product-chevron">▶</span>'
             audit_points_html += '</div>'
             audit_points_html += '<div class="ap-product-body">'
-            audit_points_html += f'<a href="{h(tree_url)}" target="_blank" rel="noopener" class="ap-product-github-link">Open on GitHub ↗</a>'
+            audit_points_html += f'<a href="{h(safe_url(tree_url))}" target="_blank" rel="noopener" class="ap-product-github-link">Open on GitHub ↗</a>'
             for idx, f in enumerate(files[:50], start=1):
                 url = f.get("url") or f.get("raw_url") or "#"
                 fname = f.get("name", "")
@@ -136,12 +137,12 @@ def build_audit_points_querypie_html(audit_points_data, audit_points_detected) -
                 audit_points_html += f'<div class="bp-audit-item-row" data-ap-id="{h(cb_id)}">'
                 audit_points_html += f'<input type="checkbox" class="ap-checkbox" data-ap-id="{h(cb_id)}" data-change="apToggleCheck">'
                 audit_points_html += f'<span class="bp-audit-index">{idx}</span>'
-                audit_points_html += f'<a href="{h(url)}" target="_blank" rel="noopener" class="bp-audit-link">{h(fname)}</a>'
+                audit_points_html += f'<a href="{h(safe_url(url))}" target="_blank" rel="noopener" class="bp-audit-link">{h(fname)}</a>'
                 if ext:
                     audit_points_html += f'<span class="bp-audit-ext">.{h(ext)}</span>'
                 audit_points_html += "</div>"
             if len(files) > 50:
-                audit_points_html += f'<div style="padding:.3rem .5rem;font-size:.78rem;color:var(--muted)">… and {len(files) - 50} more in <a href="{h(tree_url)}" target="_blank" rel="noopener" style="color:var(--accent)">GitHub folder</a></div>'
+                audit_points_html += f'<div style="padding:.3rem .5rem;font-size:.78rem;color:var(--muted)">… and {len(files) - 50} more in <a href="{h(safe_url(tree_url))}" target="_blank" rel="noopener" style="color:var(--accent)">GitHub folder</a></div>'
             audit_points_html += "</div></div>"
         if audit_points_data.get("fetched_at"):
             audit_points_html += f'<p style="font-size:.72rem;color:var(--muted);margin-top:.75rem">Cache updated: {h(audit_points_data["fetched_at"][:19])}</p>'

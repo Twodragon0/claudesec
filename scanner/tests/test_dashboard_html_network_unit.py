@@ -85,7 +85,10 @@ def test_config_section_populated_targets_rendered():
     """Populated CLAUDESEC_NETWORK_SCAN_TARGETS is rendered in output."""
     with _env(CLAUDESEC_NETWORK_SCAN_TARGETS="example.com:443"):
         html, _, net_targets, _ = build_network_config_section()
-    assert "example.com:443" in html
+    # Assert the fully-delimited rendered element, not a bare host:port
+    # substring — this is checking rendered HTML output, not validating a
+    # URL/host (avoids the py/incomplete-url-substring-sanitization heuristic).
+    assert ">example.com:443</div>" in html
     assert net_targets == "example.com:443"
 
 
