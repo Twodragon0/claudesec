@@ -183,6 +183,35 @@ def h(s):
     )
 
 
+# Schemes permitted in an href/src the dashboard emits for externally-sourced
+# reference URLs (GitHub findings, Prowler OCSF remediation.references, ...).
+_SAFE_URL_SCHEMES = ("http://", "https://", "mailto:")
+
+
+def safe_url(u):
+    """Return ``u`` only if it is safe to place in an ``href``; else ``"#"``.
+
+    ``h()`` HTML-escapes but does NOT validate the URL scheme, so an
+    externally-sourced reference of ``javascript:alert(1)`` (or ``data:`` /
+    ``vbscript:``) survives ``h()`` and executes on click. This gate allows
+    only http/https/mailto absolute URLs, protocol-relative (``//host``) and
+    same-document/relative links (fragment ``#``, ``/``, ``./``, ``../``, or any
+    value with no scheme, i.e. no ``:`` before the first ``/``); everything else
+    collapses to ``"#"``. Apply BEFORE ``h()``: ``h(safe_url(u))``.
+    """
+    s = str(u).strip()
+    low = s.lower()
+    if low.startswith(_SAFE_URL_SCHEMES):
+        return s
+    # protocol-relative or same-document/relative links carry no scheme.
+    if s.startswith(("#", "/", "./", "../")):
+        return s
+    first_segment = s.split("/", 1)[0]
+    if ":" not in first_segment:
+        return s  # scheme-less relative path (e.g. "docs/x.html")
+    return "#"
+
+
 _ALLOWED_FETCH_HOSTS = {"raw.githubusercontent.com", "github.com", "api.github.com"}
 
 

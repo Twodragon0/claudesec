@@ -41,7 +41,7 @@ from dashboard_utils import (  # noqa: F401
     DatadogLogEntry, DatadogSummary, DatadogSeveritySummary, DatadogLogsData,
     GitHubContentItem, RepoFocusFile, RepoFocusData,
     MicrosoftBestPracticeSource, MicrosoftBestPracticesData,
-    h, _is_env_truthy, _is_best_practice_file,
+    h, safe_url, _is_env_truthy, _is_best_practice_file,
     _resolve_source_filter, _normalized_source_filter, _trust_token_from_level,
     comp_slug, sev_badge,
 )
@@ -261,7 +261,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             if nr and nr not in ref_links:
                 ref_links.append(nr)
         for rl in ref_links:
-            gh_table += f'<a href="{h(rl)}" target="_blank" rel="noopener" class="ref-link">📖 Reference</a> '
+            gh_table += f'<a href="{h(safe_url(rl))}" target="_blank" rel="noopener" class="ref-link">📖 Reference</a> '
         gh_table += "</div></td></tr>"
 
 
@@ -345,7 +345,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                     if _hub_url not in ref_links:
                         ref_links.insert(0, _hub_url)
             for rl in ref_links:
-                detail.append(f'<a href="{h(rl)}" target="_blank" rel="noopener" class="ref-link">Reference</a> ')
+                detail.append(f'<a href="{h(safe_url(rl))}" target="_blank" rel="noopener" class="ref-link">Reference</a> ')
             detail.append("</div></td></tr>")
             parts.append("".join(detail))
         return "".join(parts)
@@ -383,13 +383,20 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         scanner_cat_labels.append(meta["label"] if meta else cat)
     scanner_cat_count = len(scanner_cat_labels)
 
+    # Emit the category value into a data-* attribute (quoted-attribute context,
+    # where h() is sufficient) and let the delegated data-action handler read it
+    # via dataset — NOT an inline onclick JS-string, where an h()-escaped quote
+    # is decoded back to a live delimiter by the HTML attribute tokenizer and
+    # breaks out of the switchTab('overview', '...') call (XSS via the raw
+    # finding `category` field). `switchTab` + `data-scroll` is the same
+    # delegation the template already uses for its tab links.
     scanner_cat_links_html = ""
     for cat in scanner_cats_seen:
         meta = CATEGORY_META.get(cat)
         label = meta["label"] if meta else cat
-        scanner_cat_links_html += f'<a href="#" class="scope-cat-link" onclick="switchTab(\'overview\',\'scanner-cat-{h(cat)}\');return false;">{h(label)}</a>'
+        scanner_cat_links_html += f'<a href="#" class="scope-cat-link" data-action="switchTab" data-arg="overview" data-scroll="scanner-cat-{h(cat)}">{h(label)}</a>'
     cat_count_html = (
-        f'<a href="#" class="scope-cat-count" onclick="switchTab(\'overview\',\'scanner-cat-{h(scanner_cats_seen[0])}\');return false;">{scanner_cat_count} categories</a>'
+        f'<a href="#" class="scope-cat-count" data-action="switchTab" data-arg="overview" data-scroll="scanner-cat-{h(scanner_cats_seen[0])}">{scanner_cat_count} categories</a>'
         if scanner_cats_seen
         else f'<span class="scope-cat-count">{scanner_cat_count} categories</span>'
     )
