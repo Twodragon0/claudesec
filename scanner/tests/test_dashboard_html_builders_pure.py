@@ -389,6 +389,19 @@ def test_provider_cards_aws_entry_rendered():
     assert "☁" in html
 
 
+def test_provider_cards_unknown_provider_name_html_escaped():
+    """An unknown provider name (from an OCSF FILENAME) carrying HTML
+    metacharacters must be HTML-escaped, not rendered raw — stored-XSS
+    regression (Python analog of the output_prowler.sh #362 fix)."""
+    payload = '<img src=x onerror=alert(1)>'
+    html = builders._build_provider_cards({
+        payload: {"total_fail": 1, "total_pass": 0, "critical": 0,
+                  "high": 0, "medium": 0, "low": 0},
+    })
+    assert "<img src=x" not in html
+    assert "&lt;img src=x onerror=alert(1)&gt;" in html
+
+
 def test_provider_cards_critical_badge_rendered():
     """Provider with critical>0 renders the pcs-crit badge."""
     html = builders._build_provider_cards({

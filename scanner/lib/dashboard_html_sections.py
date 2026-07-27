@@ -106,7 +106,7 @@ def _build_prov_table(prov_summary) -> str:
                 "low": 0,
             }
         seen.add(pname)
-        label = _prov_labels.get(pname, pname)
+        label = h(_prov_labels.get(pname, pname))
         subtab = _subtab_map.get(pname)
         onclick = (
             f' onclick="switchProvTab(\'{h(subtab)}\')" style="cursor:pointer"'
@@ -122,7 +122,7 @@ def _build_prov_table(prov_summary) -> str:
     for pname, pdata in sorted(prov_summary.items()):
         if pname in seen:
             continue
-        label = _prov_labels.get(pname, pname)
+        label = h(_prov_labels.get(pname, pname))
         subtab = _subtab_map.get(pname)
         onclick = (
             f' onclick="switchProvTab(\'{h(subtab)}\')" style="cursor:pointer"'

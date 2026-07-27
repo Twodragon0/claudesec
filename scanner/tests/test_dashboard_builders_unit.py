@@ -510,3 +510,15 @@ def test_prov_table_googleworkspace_zero_shows_not_run():
     html = _build_prov_table({"googleworkspace": {"total_fail": 0, "total_pass": 0,
                                                    "critical": 0, "high": 0, "medium": 0, "low": 0}})
     assert "prov-row-no-data" in html
+
+
+def test_prov_table_unknown_provider_name_html_escaped():
+    """An unknown provider name (extras loop, from an OCSF FILENAME) carrying
+    HTML metacharacters must be HTML-escaped in the summary table cell — stored
+    XSS regression (Python analog of the output_prowler.sh #362 fix)."""
+    payload = '<img src=x onerror=alert(1)>'
+    html = _build_prov_table({payload: {"total_fail": 1, "total_pass": 0,
+                                        "critical": 0, "high": 0,
+                                        "medium": 0, "low": 0}})
+    assert "<img src=x" not in html
+    assert "&lt;img src=x onerror=alert(1)&gt;" in html
