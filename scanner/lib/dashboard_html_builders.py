@@ -232,7 +232,12 @@ def _build_provider_cards(prov_summary):
     prov_labels = PROVIDER_LABELS_SHORT
     for pname, pdata in sorted(prov_summary.items()):
         icon = prov_icons.get(pname, "☁")
-        label = prov_labels.get(pname, pname)
+        # HTML-escape: an unknown provider falls back to the raw slug, which is
+        # derived from the OCSF artifact FILENAME (dashboard_data_loader) and can
+        # carry HTML metacharacters (< > " ' &) — stored XSS in this Overview
+        # card without escaping. Known slugs map to static ASCII labels, so h()
+        # is a no-op for them. Python analog of the output_prowler.sh fix (#362).
+        label = h(prov_labels.get(pname, pname))
         ptotal = pdata["total_fail"] + pdata["total_pass"]
         pfail = pdata["total_fail"]
         pcrit = pdata["critical"]
