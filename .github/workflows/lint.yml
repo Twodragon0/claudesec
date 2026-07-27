@@ -179,6 +179,8 @@ jobs:
         run: bash scanner/tests/test_kube_discovery.sh
       - name: Run bash unit tests (output.sh functions)
         run: bash scanner/tests/test_output_functions.sh
+      - name: Run bash unit tests (datadog JSON payload escaping)
+        run: bash scanner/tests/test_datadog_json_payloads.sh
       - name: Run bash unit tests (checks.sh run_category_checks)
         run: bash scanner/tests/test_run_category_checks.sh
       - name: Run bash unit tests (parallel findings JSON E2E)
