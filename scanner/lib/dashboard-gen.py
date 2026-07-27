@@ -209,7 +209,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             env_connected += 1
             env_html += (
                 f'<button class="env-pill env-on" '
-                f'onclick="openSetup(\'{h(e["setup_id"])}\')">'
+                f'data-action="openSetup" data-arg="{h(e["setup_id"])}">'
                 f'<span class="ep-icon">{e["icon"]}</span>'
                 f'<span class="ep-name">{h(e["name"])}</span>'
                 f'<span class="ep-st on">●</span>'
@@ -218,7 +218,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         else:
             env_html += (
                 f'<button class="env-pill env-off" '
-                f'onclick="openSetup(\'{h(e["setup_id"])}\')">'
+                f'data-action="openSetup" data-arg="{h(e["setup_id"])}">'
                 f'<span class="ep-icon">{e["icon"]}</span>'
                 f'<span class="ep-name">{h(e["name"])}</span>'
                 f'<span class="ep-st off">○</span>'
@@ -243,8 +243,8 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         repos_shown = repos[:5]
         repos_html = ", ".join(f"<code>{h(r)}</code>" for r in repos_shown)
         if len(repos) > 5:
-            repos_html += f' <span class="res-toggle" onclick="var s=this.nextElementSibling;s.style.display=s.style.display===\'none\'?\'inline\':\'none\';this.textContent=this.textContent.indexOf(\'+\')>=0?\'hide\':\'... +{len(repos)-5} more\'" style="color:var(--accent);cursor:pointer;font-weight:600">... +{len(repos) - 5} more</span><span style="display:none">, ' + ", ".join(f"<code>{h(r)}</code>" for r in repos[5:]) + "</span>"
-        gh_table += f'<tr class="expandable" onclick="toggleRow(this)"><td>{sev_badge(sev)}</td><td class="mono">{h(check)}</td><td>{h(items[0]["title"])} <span class="cnt">({len(items)})</span></td><td>{repos_html}</td></tr>'
+            repos_html += f' <span class="res-toggle" data-action="toggleRepoOverflow" data-more-label="... +{len(repos) - 5} more" style="color:var(--accent);cursor:pointer;font-weight:600">... +{len(repos) - 5} more</span><span style="display:none">, ' + ", ".join(f"<code>{h(r)}</code>" for r in repos[5:]) + "</span>"
+        gh_table += f'<tr class="expandable" data-action="toggleRow"><td>{sev_badge(sev)}</td><td class="mono">{h(check)}</td><td>{h(items[0]["title"])} <span class="cnt">({len(items)})</span></td><td>{repos_html}</td></tr>'
         en = get_check_en(check)
         desc = items[0].get("desc") or items[0].get("title") or ""
         native_rem = (items[0].get("native_remediation") or "").strip()
@@ -278,7 +278,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
             return -(top_sev * 1000 + len(_items))
         for check, items in sorted(by_check.items(), key=_check_sort_key):
             sev = items[0]["severity"]
-            parts.append(f'<tr class="expandable" onclick="toggleRow(this)"><td>{sev_badge(sev)}</td><td class="mono">{h(check)}</td><td>{h(items[0]["title"])} <span class="cnt">({len(items)})</span></td></tr>')
+            parts.append(f'<tr class="expandable" data-action="toggleRow"><td>{sev_badge(sev)}</td><td class="mono">{h(check)}</td><td>{h(items[0]["title"])} <span class="cnt">({len(items)})</span></td></tr>')
             en = get_check_en(check)
             desc = items[0].get("desc") or items[0].get("title") or ""
             # Use Prowler native remediation as fallback when CHECK_EN_MAP has no match
@@ -320,7 +320,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                     detail.append(f"<li{hidden}><code>{h(r['name'])}</code>{extra_html}</li>")
                 if len(resources) > SHOW_LIMIT:
                     overflow_count = len(resources) - SHOW_LIMIT
-                    detail.append(f'<li class="res-toggle" onclick="var p=this.parentNode;p.querySelectorAll(\'.res-overflow\').forEach(function(e){{e.style.display=e.style.display===\'none\'?\'list-item\':\'none\'}});this.textContent=this.textContent.indexOf(\'+\')>=0?\'Hide {overflow_count} resources\':\'+ {overflow_count} more resources\'" style="color:var(--accent);cursor:pointer;font-weight:600">+ {overflow_count} more resources</li>')
+                    detail.append(f'<li class="res-toggle" data-action="toggleResOverflow" data-more-label="+ {overflow_count} more resources" data-hide-label="Hide {overflow_count} resources" style="color:var(--accent);cursor:pointer;font-weight:600">+ {overflow_count} more resources</li>')
                 detail.append("</ul></div>")
             # Reference links: primary + native refs
             ref_links = []
@@ -467,7 +467,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         + (scanner_cat_links_html if scanner_cat_links_html else h(scanner_cat_text))
         + "</div>"
         + f'<div style="margin-top:.25rem"><strong style="color:var(--text)">Scan root:</strong> <code class="scan-root-path" title="{h(scan_dir)}">{h(scan_root_short)}</code>{scan_root_badge}</div>'
-        + '<div style="margin-top:.4rem;display:flex;flex-wrap:wrap;gap:.75rem;align-items:center"><a href="#scanner-section" onclick="document.getElementById(\'scanner-section\').scrollIntoView({behavior:\'smooth\'});return false;" style="color:var(--accent);text-decoration:underline;font-weight:600">View scanner results ↓</a><label style="display:flex;align-items:center;gap:.35rem"><span style="color:var(--text);font-weight:600">Prowler summary</span><select class="scope-select" onchange="openProwlerFromOverview(this)">'
+        + '<div style="margin-top:.4rem;display:flex;flex-wrap:wrap;gap:.75rem;align-items:center"><a href="#scanner-section" data-action="scroll-to" data-target="scanner-section" style="color:var(--accent);text-decoration:underline;font-weight:600">View scanner results ↓</a><label style="display:flex;align-items:center;gap:.35rem"><span style="color:var(--text);font-weight:600">Prowler summary</span><select class="scope-select" data-change="openProwler">'
         + prowler_selector_options_html
         + "</select></label></div>"
         + "</div>"
@@ -522,7 +522,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         fc = dom["fail_count"]
         status_cls = "arch-ov-fail" if fc > 0 else "arch-ov-pass"
         arch_overview_html += (
-            f'<div class="arch-ov-card {status_cls}" onclick="switchTab(\'arch\',\'arch-dom-{idx}\')">'
+            f'<div class="arch-ov-card {status_cls}" data-action="switchTab" data-arg="arch" data-scroll="arch-dom-{h(idx)}">'
             f'<div class="arch-ov-icon">{dom["icon"]}</div>'
             f'<div class="arch-ov-name">{h(dom["name"])}</div>'
             f'<div class="arch-ov-count">{fc}</div>'
@@ -542,7 +542,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     trivy_total = trivy_crit + trivy_high + trivy_med + trivy_low
     net_summary_html = '<div class="net-ov-row">'
     net_summary_html += (
-        f'<div class="net-ov-card" onclick="switchTab(\'networktools\')">'
+        f'<div class="net-ov-card" data-action="switchTab" data-arg="networktools">'
         f'<div class="net-ov-icon">🔍</div>'
         f'<div class="net-ov-body"><div class="net-ov-title">Trivy CVEs</div>'
         f'<div class="net-ov-nums">'
@@ -556,13 +556,13 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         net_summary_html += '<span class="net-ov-none">—</span>'
     net_summary_html += '</div></div></div>'
     net_summary_html += (
-        f'<div class="net-ov-card" onclick="switchTab(\'networktools\')">'
+        f'<div class="net-ov-card" data-action="switchTab" data-arg="networktools">'
         f'<div class="net-ov-icon">🌐</div>'
         f'<div class="net-ov-body"><div class="net-ov-title">Nmap scans</div>'
         f'<div class="net-ov-nums"><span class="net-ov-big">{nmap_count}</span></div></div></div>'
     )
     net_summary_html += (
-        f'<div class="net-ov-card" onclick="switchTab(\'networktools\')">'
+        f'<div class="net-ov-card" data-action="switchTab" data-arg="networktools">'
         f'<div class="net-ov-icon">🔒</div>'
         f'<div class="net-ov-body"><div class="net-ov-title">TLS/SSL scans</div>'
         f'<div class="net-ov-nums"><span class="net-ov-big">{ssl_count}</span></div></div></div>'
@@ -590,7 +590,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                     _ar = _pol.get("total_articles", 0)
                     _isms = " · ".join(h(c) for c in _pol.get("isms_controls", []))
                     policies_html += f'<div style="border:1px solid var(--border);border-left:3px solid {_color};border-radius:10px;overflow:hidden;cursor:pointer" '
-                    policies_html += "onclick=\"var d=this.querySelector('.pol-det');if(d.style.display==='none'){d.style.display='block'}else{d.style.display='none'}\">"
+                    policies_html += 'data-action="togglePolDet">'
                     policies_html += f'<div style="display:flex;align-items:center;gap:8px;padding:12px 14px;background:var(--card2)">'
                     policies_html += f'<span style="font-size:16px">📄</span>'
                     policies_html += f'<div style="flex:1"><div style="font-size:13px;font-weight:700">{_name}</div>'
@@ -599,7 +599,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
                         policies_html += f' · ISMS: {_isms}'
                     policies_html += '</div></div>'
                     if _url:
-                        policies_html += f'<a href="{_url}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:10px;color:var(--accent);text-decoration:underline">원문↗</a>'
+                        policies_html += f'<a href="{_url}" target="_blank" rel="noopener" data-action="stop" style="font-size:10px;color:var(--accent);text-decoration:underline">원문↗</a>'
                     policies_html += '</div>'
                     # Article list (collapsed)
                     _articles = _pol.get("articles", [])
