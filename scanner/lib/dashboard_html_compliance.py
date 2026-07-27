@@ -40,14 +40,14 @@ def _build_compliance_html(compliance_map) -> str:
         for aidx in COMP_FW_TO_ARCH.get(framework, []):
             if aidx < len(ARCH_DOMAINS):
                 d = ARCH_DOMAINS[aidx]
-                comp_arch_html += f'<button class="arch-link-chip arch-sm" onclick="switchTab(\'arch\',\'arch-dom-{aidx}\')" title="{h(d["name"])}">{d["icon"]} {h(d["name"])}</button>'
+                comp_arch_html += f'<button class="arch-link-chip arch-sm" data-action="switchTab" data-arg="arch" data-scroll="arch-dom-{h(aidx)}" title="{h(d["name"])}">{d["icon"]} {h(d["name"])}</button>'
         comp_arch_row = (
             f'<div class="comp-arch-links"><span class="arch-links-label">Related architecture</span>{comp_arch_html}</div>'
             if comp_arch_html
             else ""
         )
         na_stat_html = f' / <span class="cs-na">{na_c} n/a</span>' if na_c > 0 else ""
-        comp_html += f'<div class="comp-section" id="{comp_id}"><div class="comp-title" onclick="toggleComp(this)">{h(framework)} <span class="comp-stat"><span class="cs-pass">{pass_c} pass</span> / <span class="cs-fail">{fail_c} fail</span>{na_stat_html}</span><span class="comp-arrow">▸</span></div>'
+        comp_html += f'<div class="comp-section" id="{comp_id}"><div class="comp-title" data-action="toggleComp">{h(framework)} <span class="comp-stat"><span class="cs-pass">{pass_c} pass</span> / <span class="cs-fail">{fail_c} fail</span>{na_stat_html}</span><span class="comp-arrow">▸</span></div>'
         if comp_arch_row:
             comp_html += comp_arch_row
         comp_html += '<div class="comp-body"><table><thead><tr><th>Control</th><th>Name</th><th>Status</th><th>Related</th><th>Summary · Remediation</th></tr></thead><tbody>'

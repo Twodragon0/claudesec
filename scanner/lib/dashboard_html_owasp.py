@@ -31,7 +31,7 @@ def _build_owasp_html(owasp_map):
         count = len(findings)
         status_cls = "pass" if count == 0 else "fail"
         out += f'<div class="owasp-item {status_cls}" id="owasp-{oid}">'
-        out += f'<div class="owasp-header" onclick="toggleOwasp(this)"><span class="owasp-id">{oid}</span><span class="owasp-name">{h(ow["name"])}</span><span class="owasp-count">{count}</span><span class="owasp-arrow">▸</span></div>'
+        out += f'<div class="owasp-header" data-action="toggleOwasp"><span class="owasp-id">{oid}</span><span class="owasp-name">{h(ow["name"])}</span><span class="owasp-count">{count}</span><span class="owasp-arrow">▸</span></div>'
         arch_idx_list = OWASP_TO_ARCH.get(
             oid, OWASP_TO_ARCH.get(oid.split(":")[0] if ":" in oid else oid, [])
         )
@@ -49,7 +49,7 @@ def _build_owasp_html(owasp_map):
             for i in arch_idx_list:
                 d = ARCH_DOMAINS[i] if i < len(ARCH_DOMAINS) else None
                 if d:
-                    out += f'<button class="arch-link-chip" onclick="switchTab(\'arch\',\'arch-dom-{i}\')" title="{h(d["name"])}">{d["icon"]} {h(d["name"])}</button>'
+                    out += f'<button class="arch-link-chip" data-action="switchTab" data-arg="arch" data-scroll="arch-dom-{h(i)}" title="{h(d["name"])}">{d["icon"]} {h(d["name"])}</button>'
             out += "</div>"
         if findings:
             out += '<div class="owasp-findings">'
@@ -70,7 +70,7 @@ def _build_owasp_html(owasp_map):
     out += '<p style="font-size:.82rem;color:var(--muted);margin-bottom:1rem">AI/LLM application security risks — <a href="https://genai.owasp.org/resource/owasp-top-10-for-llm-applications-2025/" target="_blank" style="color:var(--accent)">Official docs</a></p>'
     for llm in OWASP_LLM_2025:
         out += f'<div class="owasp-item" style="border-left:3px solid var(--accent)">'
-        out += f'<div class="owasp-header" onclick="toggleOwasp(this)"><span class="owasp-id" style="color:#f59e0b">{llm["id"]}</span><span class="owasp-name">{h(llm["name"])}</span><span class="owasp-arrow">▸</span></div>'
+        out += f'<div class="owasp-header" data-action="toggleOwasp"><span class="owasp-id" style="color:#f59e0b">{llm["id"]}</span><span class="owasp-name">{h(llm["name"])}</span><span class="owasp-arrow">▸</span></div>'
         summary = (llm.get("summary") or llm.get("desc") or "").strip()
         action = (
             llm.get("action")

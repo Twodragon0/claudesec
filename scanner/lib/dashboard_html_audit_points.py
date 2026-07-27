@@ -63,7 +63,7 @@ def build_audit_points_querypie_html(audit_points_data, audit_points_detected) -
             audit_points_html += f'<span style="font-size:.78rem;color:var(--muted)">No products detected in this repo · {all_count} products available · run <code>claudesec scan -c saas</code></span>'
         audit_points_html += "</div>"
         # Search bar
-        audit_points_html += '<input type="text" class="ap-search" placeholder="Search products or checklist items..." onkeyup="apFilterProducts(this.value)">'
+        audit_points_html += '<input type="text" class="ap-search" placeholder="Search products or checklist items..." data-input="apFilterProducts">'
         # Progress bar
         audit_points_html += '<div class="ap-progress-label"><span id="ap-progress-label">0 / 0 reviewed</span><span id="ap-progress-pct">0%</span></div>'
         audit_points_html += '<div class="ap-progress-bar"><div id="ap-progress-fill" class="ap-progress-fill" style="width:0%"></div></div>'
@@ -79,7 +79,7 @@ def build_audit_points_querypie_html(audit_points_data, audit_points_detected) -
             icon = _ap_icons.get(pname, "📋")
             tree_url = prod.get("tree_url") or f"{repo_url}/tree/main/{urllib.parse.quote(pname)}"
             audit_points_html += f'<div class="ap-product-card open" data-product="{h(pname.lower())}">'
-            audit_points_html += f'<div class="ap-product-header" onclick="this.parentElement.classList.toggle(\'open\')">'
+            audit_points_html += '<div class="ap-product-header" data-action="toggleApProduct">'
             audit_points_html += f'<span class="ap-product-icon">{icon}</span>'
             audit_points_html += f'<span class="ap-product-name">{h(pname)}</span>'
             audit_points_html += f'<span class="ap-product-count">{len(files)} items</span>'
@@ -93,7 +93,7 @@ def build_audit_points_querypie_html(audit_points_data, audit_points_detected) -
                 ext = fname.rsplit(".", 1)[-1] if "." in fname else ""
                 cb_id = f"ap-{pname}-{idx}".lower().replace(" ", "-")
                 audit_points_html += f'<div class="bp-audit-item-row" data-ap-id="{h(cb_id)}">'
-                audit_points_html += f'<input type="checkbox" class="ap-checkbox" data-ap-id="{h(cb_id)}" onchange="apToggleCheck(this)">'
+                audit_points_html += f'<input type="checkbox" class="ap-checkbox" data-ap-id="{h(cb_id)}" data-change="apToggleCheck">'
                 audit_points_html += f'<span class="bp-audit-index">{idx}</span>'
                 audit_points_html += f'<a href="{h(url)}" target="_blank" rel="noopener" class="bp-audit-link">{h(fname)}</a>'
                 if ext:
@@ -117,7 +117,7 @@ def build_audit_points_querypie_html(audit_points_data, audit_points_detected) -
             tree_url = prod.get("tree_url") or f"{repo_url}/tree/main/{urllib.parse.quote(pname)}"
             open_cls = ""
             audit_points_html += f'<div class="ap-product-card{open_cls}" data-product="{h(pname.lower())}">'
-            audit_points_html += f'<div class="ap-product-header" onclick="this.parentElement.classList.toggle(\'open\')">'
+            audit_points_html += '<div class="ap-product-header" data-action="toggleApProduct">'
             audit_points_html += f'<span class="ap-product-icon">{icon}</span>'
             audit_points_html += f'<span class="ap-product-name">{h(pname)}'
             if is_detected:
@@ -134,7 +134,7 @@ def build_audit_points_querypie_html(audit_points_data, audit_points_detected) -
                 ext = fname.rsplit(".", 1)[-1] if "." in fname else ""
                 cb_id = f"ap-{pname}-{idx}".lower().replace(" ", "-")
                 audit_points_html += f'<div class="bp-audit-item-row" data-ap-id="{h(cb_id)}">'
-                audit_points_html += f'<input type="checkbox" class="ap-checkbox" data-ap-id="{h(cb_id)}" onchange="apToggleCheck(this)">'
+                audit_points_html += f'<input type="checkbox" class="ap-checkbox" data-ap-id="{h(cb_id)}" data-change="apToggleCheck">'
                 audit_points_html += f'<span class="bp-audit-index">{idx}</span>'
                 audit_points_html += f'<a href="{h(url)}" target="_blank" rel="noopener" class="bp-audit-link">{h(fname)}</a>'
                 if ext:

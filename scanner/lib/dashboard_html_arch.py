@@ -51,7 +51,7 @@ def _build_arch_html(arch_domains) -> str:
                 dot_cls = "cov-on" if has_data else "cov-off"
                 coverage_dots += f'<span class="cov-dot {dot_cls}" title="{h(slab)}">{h(slab[:3])}</span>'
             coverage_dots += '</span>'
-        arch_html += f'<div class="arch-header" onclick="toggleArch(this)"><span class="arch-icon">{dom["icon"]}</span><span class="arch-name">{h(dom["name"])}</span>{coverage_dots}<span class="arch-stat"><span class="arch-fail">{dom["fail_count"]} failed</span></span><span class="arch-arrow">▸</span></div>'
+        arch_html += f'<div class="arch-header" data-action="toggleArch"><span class="arch-icon">{dom["icon"]}</span><span class="arch-name">{h(dom["name"])}</span>{coverage_dots}<span class="arch-stat"><span class="arch-fail">{dom["fail_count"]} failed</span></span><span class="arch-arrow">▸</span></div>'
         arch_html += '<div class="arch-body">'
         summary = dom.get("summary", "")
         action = dom.get("action", "")
@@ -70,13 +70,13 @@ def _build_arch_html(arch_domains) -> str:
             arch_html += '<div class="arch-links"><span class="arch-links-label">Related items</span>'
             for oid in links.get("owasp", []):
                 oname = owasp_names.get(oid, oid)
-                arch_html += f'<button class="arch-link-chip arch-owasp" onclick="switchTab(\'bestpractices\',\'owasp-{oid}\')" title="OWASP {oid}">{oid}</button>'
+                arch_html += f'<button class="arch-link-chip arch-owasp" data-action="switchTab" data-arg="bestpractices" data-scroll="owasp-{h(oid)}" title="OWASP {h(oid)}">{h(oid)}</button>'
             for fw, ctrl in links.get("compliance", []):
                 cid = comp_slug(fw)
-                arch_html += f'<button class="arch-link-chip arch-comp" onclick="switchTab(\'bestpractices\',\'{cid}\')" title="{h(fw)} {h(ctrl)}">{ctrl}</button>'
+                arch_html += f'<button class="arch-link-chip arch-comp" data-action="switchTab" data-arg="bestpractices" data-scroll="{h(cid)}" title="{h(fw)} {h(ctrl)}">{h(ctrl)}</button>'
             for scat in links.get("scanner", []):
                 slab = scanner_labels.get(scat, scat)
-                arch_html += f'<button class="arch-link-chip arch-scanner" onclick="switchTab(\'overview\',\'scanner-cat-{scat}\')" title="Scanner {slab}">{slab}</button>'
+                arch_html += f'<button class="arch-link-chip arch-scanner" data-action="switchTab" data-arg="overview" data-scroll="scanner-cat-{h(scat)}" title="Scanner {h(slab)}">{h(slab)}</button>'
             arch_html += "</div>"
         if dom["findings"]:
             for ff in dom["findings"][:8]:

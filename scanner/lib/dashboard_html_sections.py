@@ -108,28 +108,28 @@ def _build_prov_table(prov_summary) -> str:
         seen.add(pname)
         label = h(_prov_labels.get(pname, pname))
         subtab = _subtab_map.get(pname)
-        onclick = (
-            f' onclick="switchProvTab(\'{h(subtab)}\')" style="cursor:pointer"'
+        row_attr = (
+            f' data-action="switchProvTab" data-arg="{h(subtab)}" style="cursor:pointer"'
             if subtab
             else ""
         )
         total_cells = pdata["total_fail"] + pdata["total_pass"]
         no_data = total_cells == 0 and pname in ("kubernetes", "googleworkspace")
         if no_data:
-            prov_table += f'<tr class="prov-row-no-data"{onclick}><td>{label} <span style="font-size:.7rem;color:var(--muted);font-weight:400" title="Add to prowler_providers in .claudesec.yml and configure credentials (kubeconfig / GOOGLE_WORKSPACE_CUSTOMER_ID)">— not run</span></td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td></tr>'
+            prov_table += f'<tr class="prov-row-no-data"{row_attr}><td>{label} <span style="font-size:.7rem;color:var(--muted);font-weight:400" title="Add to prowler_providers in .claudesec.yml and configure credentials (kubeconfig / GOOGLE_WORKSPACE_CUSTOMER_ID)">— not run</span></td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td></tr>'
         else:
-            prov_table += f'<tr{onclick}><td>{label}</td><td class="r">{total_cells}</td><td class="r" style="color:#f87171">{pdata["critical"]}</td><td class="r" style="color:#fca5a5">{pdata["high"]}</td><td class="r" style="color:#fde68a">{pdata["medium"]}</td><td class="r">{pdata["low"]}</td><td class="r" style="color:#22c55e">{pdata["total_pass"]}</td></tr>'
+            prov_table += f'<tr{row_attr}><td>{label}</td><td class="r">{total_cells}</td><td class="r" style="color:#f87171">{pdata["critical"]}</td><td class="r" style="color:#fca5a5">{pdata["high"]}</td><td class="r" style="color:#fde68a">{pdata["medium"]}</td><td class="r">{pdata["low"]}</td><td class="r" style="color:#22c55e">{pdata["total_pass"]}</td></tr>'
     for pname, pdata in sorted(prov_summary.items()):
         if pname in seen:
             continue
         label = h(_prov_labels.get(pname, pname))
         subtab = _subtab_map.get(pname)
-        onclick = (
-            f' onclick="switchProvTab(\'{h(subtab)}\')" style="cursor:pointer"'
+        row_attr = (
+            f' data-action="switchProvTab" data-arg="{h(subtab)}" style="cursor:pointer"'
             if subtab
             else ""
         )
-        prov_table += f'<tr{onclick}><td>{label}</td><td class="r">{pdata["total_fail"] + pdata["total_pass"]}</td><td class="r" style="color:#f87171">{pdata["critical"]}</td><td class="r" style="color:#fca5a5">{pdata["high"]}</td><td class="r" style="color:#fde68a">{pdata["medium"]}</td><td class="r">{pdata["low"]}</td><td class="r" style="color:#22c55e">{pdata["total_pass"]}</td></tr>'
+        prov_table += f'<tr{row_attr}><td>{label}</td><td class="r">{pdata["total_fail"] + pdata["total_pass"]}</td><td class="r" style="color:#f87171">{pdata["critical"]}</td><td class="r" style="color:#fca5a5">{pdata["high"]}</td><td class="r" style="color:#fde68a">{pdata["medium"]}</td><td class="r">{pdata["low"]}</td><td class="r" style="color:#22c55e">{pdata["total_pass"]}</td></tr>'
     return prov_table
 
 

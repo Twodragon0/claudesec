@@ -44,7 +44,7 @@ def build_ms_sources_html(ms_best_practices_data) -> str:
         preset_default = "official,gov"
     else:
         preset_default = "all"
-    audit_points_html += f'<div style="padding:0 1.25rem"><div class="source-filter-chips" data-active-filter="{h(source_filter)}"><button class="source-filter-chip{(" active" if preset_default == "all" else "")}" data-filter="all" onclick="applyMsSourcePresetFilter(this)">all</button><button class="source-filter-chip{(" active" if preset_default == "official,gov" else "")}" data-filter="official,gov" onclick="applyMsSourcePresetFilter(this)">official,gov</button><button class="source-filter-chip{(" active" if preset_default == "none" else "")}" data-filter="none" onclick="applyMsSourcePresetFilter(this)">none</button><span class="ms-source-filter-status" style="font-size:.75rem;color:var(--muted)">Active env filter: {h(source_filter)}</span></div></div>'
+    audit_points_html += f'<div style="padding:0 1.25rem"><div class="source-filter-chips" data-active-filter="{h(source_filter)}"><button class="source-filter-chip{(" active" if preset_default == "all" else "")}" data-filter="all" data-action="applyMsSourcePresetFilter">all</button><button class="source-filter-chip{(" active" if preset_default == "official,gov" else "")}" data-filter="official,gov" data-action="applyMsSourcePresetFilter">official,gov</button><button class="source-filter-chip{(" active" if preset_default == "none" else "")}" data-filter="none" data-action="applyMsSourcePresetFilter">none</button><span class="ms-source-filter-status" style="font-size:.75rem;color:var(--muted)">Active env filter: {h(source_filter)}</span></div></div>'
     if ms_sources:
         audit_points_html += '<div style="padding:1rem 1.25rem"><p style="color:var(--muted);margin-bottom:.45rem">Curated GitHub sources for Microsoft platform hardening and security baseline guidance.</p>'
         if source_filter != "all":
@@ -106,7 +106,7 @@ def build_ms_sources_html(ms_best_practices_data) -> str:
                     else ""
                 )
                 src_id = f"ms-{product}-{label}".lower().replace(" ", "-").replace("/", "-").replace("(", "").replace(")", "")
-                audit_points_html += f'<div class="card ms-source-entry" data-trust-token="{h(trust_token)}" style="margin-bottom:.75rem;padding:0"><div class="card-title" onclick="this.parentElement.querySelector(\'.ms-src-body\').style.display=this.parentElement.querySelector(\'.ms-src-body\').style.display==\'none\'?\'\':\'none\'" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:.5rem"><input type="checkbox" class="ap-checkbox ms-src-checkbox" data-ap-id="{h(src_id)}" onchange="apToggleCheck(this);msUpdateProgress()" onclick="event.stopPropagation()"> ▸ {h(label)} <span class="trust-badge {h(trust_class)}">{h(trust_level)}</span>{archive_tag} <span style="font-size:.75rem;color:var(--muted);font-weight:400">({len(files)} files)</span></div>'
+                audit_points_html += f'<div class="card ms-source-entry" data-trust-token="{h(trust_token)}" style="margin-bottom:.75rem;padding:0"><div class="card-title" data-action="toggleMsSrc" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:.5rem"><input type="checkbox" class="ap-checkbox ms-src-checkbox" data-ap-id="{h(src_id)}" data-change="apToggleCheckMs" data-action="stop"> ▸ {h(label)} <span class="trust-badge {h(trust_class)}">{h(trust_level)}</span>{archive_tag} <span style="font-size:.75rem;color:var(--muted);font-weight:400">({len(files)} files)</span></div>'
                 audit_points_html += '<div class="ms-src-body" style="padding:.75rem 1rem">'
                 audit_points_html += f'<div style="color:var(--muted);font-size:.82rem;margin-bottom:.45rem">{h(reason)}</div>'
                 audit_points_html += f'<a href="{h(repo_url)}" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem">Open repository</a>'
@@ -116,7 +116,7 @@ def build_ms_sources_html(ms_best_practices_data) -> str:
                     url = f.get("url") or f.get("raw_url") or "#"
                     fname = f.get("path") or f.get("name") or "file"
                     file_id = f"{src_id}-f{fidx}"
-                    audit_points_html += f'<div class="bp-audit-item-row" style="margin-top:.35rem"><input type="checkbox" class="ap-checkbox ms-file-checkbox" data-ap-id="{h(file_id)}" onchange="apToggleCheck(this);msUpdateProgress()"><a href="{h(url)}" target="_blank" rel="noopener" class="mono bp-audit-link" style="font-size:.8rem;color:var(--text)">{h(fname)}</a></div>'
+                    audit_points_html += f'<div class="bp-audit-item-row" style="margin-top:.35rem"><input type="checkbox" class="ap-checkbox ms-file-checkbox" data-ap-id="{h(file_id)}" data-change="apToggleCheckMs"><a href="{h(url)}" target="_blank" rel="noopener" class="mono bp-audit-link" style="font-size:.8rem;color:var(--text)">{h(fname)}</a></div>'
                 if len(files) > 25:
                     audit_points_html += f'<div style="margin-top:.5rem;color:var(--muted);font-size:.78rem">… and {len(files) - 25} more files</div>'
                 audit_points_html += "</div></div>"
@@ -171,7 +171,7 @@ def build_saas_sources_html(saas_bp_data) -> str:
                 trust_class = {"Vendor Official": "trust-ms", "CNCF Official": "trust-ms", "Government": "trust-gov", "Community": "trust-community"}.get(trust_level, "trust-community")
                 src_id = f"saas-{product}-{label}".lower().replace(" ", "-").replace("/", "-").replace("(", "").replace(")", "")
                 focus = ", ".join(src.get("focus_paths", []))
-                audit_points_html += f'<div class="card ms-source-entry" style="margin-bottom:.75rem;padding:0"><div class="card-title" onclick="this.parentElement.querySelector(\'.ms-src-body\').style.display=this.parentElement.querySelector(\'.ms-src-body\').style.display==\'none\'?\'\':\'none\'" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:.5rem"><input type="checkbox" class="ap-checkbox saas-src-checkbox" data-ap-id="{h(src_id)}" onchange="apToggleCheck(this);saasUpdateProgress()" onclick="event.stopPropagation()"> ▸ {h(label)} <span class="trust-badge {h(trust_class)}">{h(trust_level)}</span> <span style="font-size:.75rem;color:var(--muted);font-weight:400">({len(files)} files)</span></div>'
+                audit_points_html += f'<div class="card ms-source-entry" style="margin-bottom:.75rem;padding:0"><div class="card-title" data-action="toggleMsSrc" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:.5rem"><input type="checkbox" class="ap-checkbox saas-src-checkbox" data-ap-id="{h(src_id)}" data-change="apToggleCheckSaas" data-action="stop"> ▸ {h(label)} <span class="trust-badge {h(trust_class)}">{h(trust_level)}</span> <span style="font-size:.75rem;color:var(--muted);font-weight:400">({len(files)} files)</span></div>'
                 audit_points_html += '<div class="ms-src-body" style="padding:.75rem 1rem">'
                 audit_points_html += f'<div style="color:var(--muted);font-size:.82rem;margin-bottom:.45rem">{h(reason)}</div>'
                 audit_points_html += f'<a href="{h(repo_url)}" target="_blank" rel="noopener" style="color:var(--accent);font-size:.85rem">Open repository ↗</a>'
@@ -181,7 +181,7 @@ def build_saas_sources_html(saas_bp_data) -> str:
                     url = fl.get("url") or fl.get("raw_url") or "#"
                     fname = fl.get("path") or fl.get("name") or "file"
                     file_id = f"{src_id}-f{fidx}"
-                    audit_points_html += f'<div class="bp-audit-item-row" style="margin-top:.35rem"><input type="checkbox" class="ap-checkbox saas-file-checkbox" data-ap-id="{h(file_id)}" onchange="apToggleCheck(this);saasUpdateProgress()"><a href="{h(url)}" target="_blank" rel="noopener" class="mono bp-audit-link" style="font-size:.8rem;color:var(--text)">{h(fname)}</a></div>'
+                    audit_points_html += f'<div class="bp-audit-item-row" style="margin-top:.35rem"><input type="checkbox" class="ap-checkbox saas-file-checkbox" data-ap-id="{h(file_id)}" data-change="apToggleCheckSaas"><a href="{h(url)}" target="_blank" rel="noopener" class="mono bp-audit-link" style="font-size:.8rem;color:var(--text)">{h(fname)}</a></div>'
                 audit_points_html += "</div></div>"
         audit_points_html += "</div>"
     else:

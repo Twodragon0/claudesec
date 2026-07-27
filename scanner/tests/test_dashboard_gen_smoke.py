@@ -625,20 +625,22 @@ class DashboardGenSmokeTest(unittest.TestCase):
 
             html = output_file.read_text(encoding="utf-8")
 
-            # Env pills: all pills are <button> with onclick="openSetup(...)"
+            # Env pills: all pills are <button> with data-action="openSetup"
             self.assertIn("env-pill", html)
-            self.assertIn("openSetup(", html)
+            self.assertIn('data-action="openSetup"', html)
             # Both connected (env-on) and disconnected (env-off) use <button>
             self.assertIn("env-on", html) if "env-on" in html else None
             self.assertIn("env-off", html)
-            # onclick values must be HTML-escaped (no raw quotes that break attributes)
-            self.assertNotIn("openSetup('<script>", html)
+            # data-arg values must be HTML-escaped (no raw markup that breaks attributes)
+            self.assertNotIn('data-arg="<script>', html)
+            # CSP-safe delegation: no inline onclick opening the setup modal
+            self.assertNotIn('onclick="openSetup', html)
 
             # Prowler provider table: fixed providers shown even without data
             self.assertIn("K8s", html)
             self.assertIn("Google Workspace", html)
             self.assertIn("not run", html)  # no-data providers show "not run"
-            self.assertIn("switchProvTab(", html)
+            self.assertIn('data-action="switchProvTab"', html)
 
             # Scanner findings section renders
             self.assertIn("INFRA-001", html)

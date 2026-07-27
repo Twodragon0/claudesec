@@ -77,7 +77,7 @@ def _build_scanner_section(findings_list):
         for aidx in SCANNER_TO_ARCH.get(cat, []):
             if aidx < len(ARCH_DOMAINS):
                 d = ARCH_DOMAINS[aidx]
-                arch_links += f'<button class="arch-link-chip arch-sm" onclick="switchTab(\'arch\',\'arch-dom-{aidx}\')" title="{h(d["name"])}">{d["icon"]} {h(d["name"])}</button>'
+                arch_links += f'<button class="arch-link-chip arch-sm" data-action="switchTab" data-arg="arch" data-scroll="arch-dom-{h(aidx)}" title="{h(d["name"])}">{d["icon"]} {h(d["name"])}</button>'
         arch_row = (
             f'<div class="scanner-arch-links"><span class="arch-links-label">Related architecture</span>{arch_links}</div>'
             if arch_links
@@ -242,7 +242,7 @@ def _build_provider_cards(prov_summary):
         pfail = pdata["total_fail"]
         pcrit = pdata["critical"]
         phigh = pdata["high"]
-        prov_cards += '<div class="prov-card" onclick="switchTab(\'prowler\')">'
+        prov_cards += '<div class="prov-card" data-action="switchTab" data-arg="prowler">'
         prov_cards += f'<div class="prov-card-icon">{icon}</div><div class="prov-card-name">{label}</div>'
         prov_cards += f'<div class="prov-card-num">{pfail}<span class="prov-card-total">/{ptotal}</span></div><div class="prov-card-sev">'
         if pcrit > 0:
@@ -346,9 +346,9 @@ def _build_target_posture_table(net_data):
                         detail += f'<div style="margin-top:.35rem">… and {len(issues) - 20} more</div>'
                 detail += "</div>"
 
-            onclick = ' onclick="toggleRow(this)"' if detail else ""
+            row_attr = ' data-action="toggleRow"' if detail else ""
             row_cls = ' class="expandable"' if detail else ""
-            html += f'<tr{row_cls}{onclick}><td class="mono">{h(label)}</td><td>{dns_cnt}</td><td class="mono">{h(tls_grade)}</td><td class="mono">{h(str(http_status))}</td><td class="mono">{h(hsts_txt)}</td><td class="mono">{h(csp_q)}</td><td class="r">{issue_cnt}</td></tr>'
+            html += f'<tr{row_cls}{row_attr}><td class="mono">{h(label)}</td><td>{dns_cnt}</td><td class="mono">{h(tls_grade)}</td><td class="mono">{h(str(http_status))}</td><td class="mono">{h(hsts_txt)}</td><td class="mono">{h(csp_q)}</td><td class="r">{issue_cnt}</td></tr>'
             if detail:
                 html += f'<tr class="row-detail"><td colspan="7"><div class="detail-panel">{detail}</div></td></tr>'
         html += "</tbody></table></div></div>"

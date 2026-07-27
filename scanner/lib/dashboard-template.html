@@ -594,7 +594,7 @@ body{font-family:var(--font-sans);background:
       <span class="meta-pill">Scan {{NOW}}</span>
       <span class="meta-pill">{{DURATION}}s</span>
     </div>
-    <button class="theme-toggle print-btn" onclick="window.print()" title="Print / Export PDF" aria-label="Print dashboard">&#x1F5A8;</button>
+    <button class="theme-toggle print-btn" data-action="print" title="Print / Export PDF" aria-label="Print dashboard">&#x1F5A8;</button>
     <button class="theme-toggle" id="themeToggleBtn" title="Toggle theme" aria-label="Toggle theme">🌓</button>
   </div>
 </header>
@@ -1449,6 +1449,52 @@ document.addEventListener('click',function(e){
     if(catEl)catEl.scrollIntoView({behavior:'smooth',block:'start'});
     return;
   }
+  if(action==='stop'){return;}
+  if(action==='print'){window.print();return;}
+  if(action==='openSetup'){openSetup(arg);return;}
+  if(action==='toggleOwasp'){toggleOwasp(btn);return;}
+  if(action==='toggleArch'){toggleArch(btn);return;}
+  if(action==='toggleComp'){toggleComp(btn);return;}
+  if(action==='toggleApProduct'){if(btn.parentElement)btn.parentElement.classList.toggle('open');return;}
+  if(action==='toggleMsSrc'){
+    var msBody=btn.parentElement&&btn.parentElement.querySelector('.ms-src-body');
+    if(msBody)msBody.style.display=(msBody.style.display==='none'?'':'none');
+    return;
+  }
+  if(action==='togglePolDet'){
+    var pd=btn.querySelector('.pol-det');
+    if(pd)pd.style.display=(pd.style.display==='none'?'block':'none');
+    return;
+  }
+  if(action==='applyMsSourcePresetFilter'){applyMsSourcePresetFilter(btn);return;}
+  if(action==='toggleRepoOverflow'){
+    var sib=btn.nextElementSibling;
+    if(sib)sib.style.display=(sib.style.display==='none'?'inline':'none');
+    btn.textContent=(btn.textContent.indexOf('+')>=0?'hide':(btn.dataset.moreLabel||'more'));
+    return;
+  }
+  if(action==='toggleResOverflow'){
+    var par=btn.parentNode;
+    if(par)par.querySelectorAll('.res-overflow').forEach(function(el){el.style.display=(el.style.display==='none'?'list-item':'none')});
+    btn.textContent=(btn.textContent.indexOf('+')>=0?(btn.dataset.hideLabel||'Hide'):(btn.dataset.moreLabel||'more'));
+    return;
+  }
+});
+/* Event delegation for change events (checkboxes, selects) */
+document.addEventListener('change',function(e){
+  var el=e.target.closest('[data-change]');
+  if(!el)return;
+  var action=el.dataset.change;
+  if(action==='apToggleCheck'){apToggleCheck(el);return;}
+  if(action==='apToggleCheckMs'){apToggleCheck(el);msUpdateProgress();return;}
+  if(action==='apToggleCheckSaas'){apToggleCheck(el);saasUpdateProgress();return;}
+  if(action==='openProwler'){openProwlerFromOverview(el);return;}
+});
+/* Event delegation for input events (search box) */
+document.addEventListener('input',function(e){
+  var el=e.target.closest('[data-input]');
+  if(!el)return;
+  if(el.dataset.input==='apFilterProducts'){apFilterProducts(el.value);return;}
 });
 /* Keyboard navigation for tabs */
 document.getElementById('mainTabs').addEventListener('keydown',function(e){

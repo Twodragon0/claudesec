@@ -237,7 +237,7 @@ def build_priority_queue_html(
                 ),
                 "chips": chips,
                 "footer": "Jump to top findings",
-                "onclick": "document.getElementById('top-findings-section').scrollIntoView({behavior:'smooth'});",
+                "attrs": 'data-action="scroll-to" data-target="top-findings-section"',
             }
         )
     else:
@@ -249,7 +249,7 @@ def build_priority_queue_html(
                 "body": "Use the remaining items to tighten coverage, medium findings, and operational hygiene.",
                 "chips": ["Urgent backlog clear"],
                 "footer": "Review medium and warning findings",
-                "onclick": "document.getElementById('scanner-section').scrollIntoView({behavior:'smooth'});",
+                "attrs": 'data-action="scroll-to" data-target="scanner-section"',
             }
         )
 
@@ -265,7 +265,7 @@ def build_priority_queue_html(
                 ),
                 "chips": visibility_gaps[:3],
                 "footer": "Open environment and network setup",
-                "onclick": "switchTab('networktools');",
+                "attrs": 'data-action="switchTab" data-arg="networktools"',
             }
         )
     else:
@@ -277,7 +277,7 @@ def build_priority_queue_html(
                 "body": "Environment, cloud, and telemetry inputs are present, so prioritization is based on a broader signal set.",
                 "chips": ["Coverage baseline met"],
                 "footer": "Inspect coverage details",
-                "onclick": "document.getElementById('scanner-section').scrollIntoView({behavior:'smooth'});",
+                "attrs": 'data-action="scroll-to" data-target="scanner-section"',
             }
         )
 
@@ -292,10 +292,10 @@ def build_priority_queue_html(
                 ),
                 "chips": focus_items[:3],
                 "footer": "Open the dominant area",
-                "onclick": (
-                    "switchTab('prowler');"
+                "attrs": (
+                    'data-action="switchTab" data-arg="prowler"'
                     if top_provider and (not top_scanner_categories or top_provider[2] >= top_scanner_categories[0][1])
-                    else "document.getElementById('scanner-section').scrollIntoView({behavior:'smooth'});"
+                    else 'data-action="scroll-to" data-target="scanner-section"'
                 ),
             }
         )
@@ -308,14 +308,14 @@ def build_priority_queue_html(
                 "body": "When findings are low, the next wins come from best-practice adoption, design review, and missing telemetry setup.",
                 "chips": ["Architecture", "Code security", "Network tooling"],
                 "footer": "Review guidance surfaces",
-                "onclick": "switchTab('bestpractices');",
+                "attrs": 'data-action="switchTab" data-arg="bestpractices"',
             }
         )
 
     html = '<div class="priority-grid">'
     for card in cards:
         html += (
-            f'<button class="priority-card priority-{h(card["tone"])}" onclick="{card["onclick"]}" type="button">'
+            f'<button class="priority-card priority-{h(card["tone"])}" {card["attrs"]} type="button">'
             f'<div class="priority-kicker">{h(card["kicker"])}</div>'
             f'<div class="priority-title">{h(card["title"])}</div>'
             f'<div class="priority-body">{h(card["body"])}</div>'
@@ -390,10 +390,10 @@ def _build_top_findings(findings_list, all_findings):
             if cnt > 1
             else ""
         )
-        tab_click = (
-            "switchTab('overview','scanner-section')"
+        tab_attrs = (
+            'data-action="switchTab" data-arg="overview" data-scroll="scanner-section"'
             if str(ff["provider"]) == "Scanner"
-            else "switchTab('prowler')"
+            else 'data-action="switchTab" data-arg="prowler"'
         )
         severity_text = str(ff["severity"])
         provider_text = str(ff["provider"])
@@ -403,7 +403,7 @@ def _build_top_findings(findings_list, all_findings):
         resource_text = str(ff.get("resource") or "")
         res_html = f'<div class="tf-resource"><span class="tf-res-label">Location:</span> <code>{h(resource_text[:80])}</code></div>' if resource_text else ""
         action_html = f'<div class="tf-action"><span class="tf-act-label">Action:</span> {h(en["action"][:120])}</div>'
-        top_findings_html += f'<div class="top-finding" onclick="{tab_click}"><div class="tf-badge">{sev_badge(severity_text)}</div><div class="tf-body"><div class="tf-check"><code>{h(check_text)}</code><span class="tf-prov">{h(provider_text.upper())}</span>{cnt_html}</div><div class="tf-msg">{h(message_text[:150])}</div>{res_html}{action_html}</div></div>'
+        top_findings_html += f'<div class="top-finding" {tab_attrs}><div class="tf-badge">{sev_badge(severity_text)}</div><div class="tf-body"><div class="tf-check"><code>{h(check_text)}</code><span class="tf-prov">{h(provider_text.upper())}</span>{cnt_html}</div><div class="tf-msg">{h(message_text[:150])}</div>{res_html}{action_html}</div></div>'
     if not top_findings_html:
         top_findings_html = '<div class="top-finding" style="border-color:var(--border)"><div class="tf-body" style="color:var(--muted);font-size:.9rem">No critical or high findings from the scanner or Prowler in this scan. Check the Scanner and Prowler CSPM tabs for full results.</div></div>'
     return top_findings_html
