@@ -532,7 +532,10 @@ def test_target_posture_shows_identifier_when_env_set():
                                             "dns": {"ips": []}, "tls": {"grade": "A"},
                                             "http": {"status": 200}}]}
         })
-    assert "example.com" in html
+    # Assert the fully-delimited rendered table cell, not a bare host
+    # substring — this is checking rendered HTML output, not validating a
+    # URL/host (avoids the py/incomplete-url-substring-sanitization heuristic).
+    assert '<td class="mono">example.com</td>' in html
 
 
 def test_target_posture_renders_dns_count():
