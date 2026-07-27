@@ -139,6 +139,29 @@ datadog_api_request_with_retry() {
   return 1
 }
 
+# Percent-encode a string for safe use as a URL query VALUE (RFC 3986): the
+# unreserved set (A-Z a-z 0-9 . ~ _ -) passes through, every other byte becomes
+# %HH. Pure bash (no curl/python subprocess) so it works offline and needs no
+# extra dependency. Byte-wise via LC_ALL=C, with a signed-byte guard (`ord < 0`)
+# so multibyte/high bytes encode correctly on every bash the scanner supports
+# (>= 4.3, the nameref floor). Writes the result to the global _URL_ENCODED.
+_URL_ENCODED=""
+_url_encode() {
+  local s="$1" out="" i c ord
+  local LC_ALL=C
+  for (( i=0; i<${#s}; i++ )); do
+    c="${s:i:1}"
+    case "$c" in
+      [a-zA-Z0-9.~_-]) out+="$c" ;;
+      *) printf -v ord '%d' "'$c"
+         (( ord < 0 )) && (( ord += 256 ))
+         printf -v c '%%%02X' "$ord"
+         out+="$c" ;;
+    esac
+  done
+  _URL_ENCODED="$out"
+}
+
 collect_datadog_dashboard_artifacts() {
   local datadog_enabled="${CLAUDESEC_DATADOG_FETCH_CLOUD_SECURITY:-1}"
   [[ "$datadog_enabled" == "0" ]] && return 0
@@ -166,7 +189,16 @@ collect_datadog_dashboard_artifacts() {
   run_id="local-$(date +%s)"
   local dd_service="${DD_SERVICE:-claudesec}"
   local dd_env="${DD_ENV:-local}"
-  local dd_tags="service:${dd_service},env:${dd_env},ci_pipeline_id:${run_id}"
+  # Percent-encode the env-derived VALUES before splicing them into the ddtags
+  # URL query below. The key:value / comma separators of the ddtags syntax stay
+  # literal, but the values themselves are encoded, so a DD_SERVICE / DD_ENV
+  # containing `&`, a space, `#`, or `"` (from the CI environment) cannot append
+  # spurious query parameters or otherwise break the outbound intake URL.
+  local dd_service_u dd_env_u run_id_u
+  _url_encode "$dd_service"; dd_service_u="$_URL_ENCODED"
+  _url_encode "$dd_env";     dd_env_u="$_URL_ENCODED"
+  _url_encode "$run_id";     run_id_u="$_URL_ENCODED"
+  local dd_tags="service:${dd_service_u},env:${dd_env_u},ci_pipeline_id:${run_id_u}"
   local dd_query="service:${dd_service} env:${dd_env} ci_pipeline_id:${run_id}"
 
   # JSON-escape the config/env-derived values before embedding them in the

@@ -36,6 +36,30 @@ assert_eq() {
   fi
 }
 
+assert_contains() {
+  local label="$1" haystack="$2" needle="$3"
+  if [[ "$haystack" == *"$needle"* ]]; then
+    echo "  PASS: $label"; ((TEST_PASSED++))
+  else
+    echo "  FAIL: $label"
+    echo "    expected to contain: $(printf '%q' "$needle")"
+    echo "    actual:              $(printf '%q' "$haystack")"
+    ((TEST_FAILED++))
+  fi
+}
+
+assert_not_contains() {
+  local label="$1" haystack="$2" needle="$3"
+  if [[ "$haystack" != *"$needle"* ]]; then
+    echo "  PASS: $label"; ((TEST_PASSED++))
+  else
+    echo "  FAIL: $label"
+    echo "    expected NOT to contain: $(printf '%q' "$needle")"
+    echo "    actual:                  $(printf '%q' "$haystack")"
+    ((TEST_FAILED++))
+  fi
+}
+
 if ! command -v python3 >/dev/null 2>&1; then
   echo "  SKIP: python3 not available — datadog JSON payload test skipped"
   echo ""
@@ -63,7 +87,10 @@ mkdir -p "$capture"
 # ── Network stubs: capture each outbound JSON payload (the deleted-after-POST
 # files) so we can assert on the exact bytes that would be sent. ───────────────
 # intake.json goes out via `run_with_timeout ... curl ... -d @"$dd_dir/intake.json"`.
+# Also record the full arg list so we can assert on the ddtags URL query built
+# into the intake POST (the injection surface fixed by _url_encode).
 run_with_timeout() {
+  printf '%s\n' "$*" > "$capture/intake-args.txt"
   cp "$SCAN_DIR/.claudesec-datadog/intake.json" "$capture/intake.json" 2>/dev/null || true
   return 0
 }
@@ -121,6 +148,25 @@ sys.stdout.write("OK" if 'svc"\\x' in q and "injected" not in d and "injected" n
 PY
 )"
 assert_eq "query.json: hostile service contained in query string" "OK" "$query_check"
+
+# ── ddtags URL query (percent-encoding) ──────────────────────────────────────
+# The intake POST URL is `.../v1/input?ddtags=service:<svc>,env:<env>,...`. The
+# env-derived values must be percent-encoded so a DD_SERVICE/DD_ENV containing a
+# space, ", or & cannot break the URL or append spurious query parameters.
+echo ""
+echo "=== ddtags URL query: env values percent-encoded ==="
+intake_args="$(cat "$capture/intake-args.txt" 2>/dev/null || true)"
+# DD_SERVICE=$'svc"\\x' -> svc%22%5Cx ; DD_ENV contains a space and a " -> %20 %22
+assert_contains "ddtags: structural prefix present"        "$intake_args" "ddtags=service:"
+assert_contains "ddtags: DD_SERVICE quote/backslash encoded" "$intake_args" "service:svc%22%5Cx"
+assert_contains "ddtags: DD_ENV space encoded (%20)"       "$intake_args" "%20"
+assert_contains "ddtags: DD_ENV quote encoded (%22)"       "$intake_args" "%22"
+# The raw hostile chars must NOT appear literally inside the ddtags value: a raw
+# space would end the URL, a raw " could break shell/HTTP handling. Isolate the
+# ddtags token (up to the next whitespace) and assert it is clean.
+ddtags_token="$(printf '%s\n' "$intake_args" | grep -oE 'ddtags=[^ ]*' | head -1)"
+assert_not_contains "ddtags: no raw double-quote in value"  "$ddtags_token" '"'
+assert_not_contains "ddtags: no raw backslash in value"     "$ddtags_token" '\'
 
 # ==============================================================================
 echo ""
