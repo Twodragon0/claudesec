@@ -1,0 +1,117 @@
+name: Dashboard Control Liveness
+
+# Empirically catches dashboard "dead control" regressions the source/pytest
+# guards cannot: a `data-action` value emitted with NO matching dispatcher case
+# (or a renamed case), plus a reintroduced inline `onclick` that the meta-CSP
+# (`script-src 'nonce-…' 'strict-dynamic'`, no `'unsafe-inline'`) silently
+# blocks. The harness generates the dashboard OFFLINE, loads it in real headless
+# Chrome, drives every control class, and asserts the DOM effect + zero CSP
+# self-violations. See scanner/tests/dashboard-control-liveness.mjs.
+#
+# NON-REQUIRED check: path-gated via the `changes` job so docs-only PRs skip it.
+# It is intentionally NOT wired into branch-protection required contexts, so a
+# simple job-level path-gate is sufficient (no always() aggregator needed — that
+# pattern is reserved for required checks, per the paths-ignore/#186 incident).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard-control-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+# Offline guard at workflow level (PR #190): un-gated GitHub API calls in the
+# dashboard generator were the root cause of multi-minute CI hangs. Force the
+# generator hermetic so the smoke never touches the network.
+env:
+  CLAUDESEC_DASHBOARD_OFFLINE: "1"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job: changes
+  # Path-gates the smoke to changes that could affect dashboard controls. Mirrors
+  # the security-scan.yml "Detect changed paths" pattern. Docs-only / unrelated
+  # PRs short-circuit the smoke job.
+  # ---------------------------------------------------------------------------
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      dashboard: ${{ steps.detect.outputs.dashboard }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          NULL_SHA: "0000000000000000000000000000000000000000"
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch origin "$BASE_SHA" --depth=1 >/dev/null 2>&1 || true
+            FILES=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA")
+          elif [ -n "${BEFORE_SHA:-}" ] && [ "$BEFORE_SHA" != "$NULL_SHA" ]; then
+            git fetch origin "$BEFORE_SHA" --depth=1 >/dev/null 2>&1 || true
+            FILES=$(git diff --name-only "$BEFORE_SHA"..HEAD 2>/dev/null \
+                    || git diff --name-only HEAD~1..HEAD)
+          else
+            FILES=$(git diff --name-only HEAD~1..HEAD 2>/dev/null || true)
+          fi
+          echo "Changed files:"
+          echo "$FILES"
+          # `dashboard=true` when a changed file could affect the dashboard's
+          # controls or the smoke harness itself:
+          #   - scanner/lib/**        (dashboard generator, template, builders)
+          #   - scanner/tests/dashboard-control-liveness.mjs   (the harness)
+          #   - scanner/tests/test_dashboard_control_liveness.sh (its wrapper)
+          #   - this workflow file    (any gating-logic change must re-run)
+          match=$(printf '%s\n' "$FILES" | grep -E \
+            '^(scanner/lib/|scanner/tests/dashboard-control-liveness\.mjs$|scanner/tests/test_dashboard_control_liveness\.sh$|\.github/workflows/dashboard-control-smoke\.yml$)' \
+            || true)
+          if [ -n "$match" ]; then
+            echo "dashboard=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dashboard=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Job: smoke
+  # Generates the dashboard offline and drives every control in headless Chrome.
+  # Chrome is preinstalled on the GitHub-hosted ubuntu-latest image; we verify it
+  # explicitly so a missing binary fails loudly rather than silently skipping.
+  # ---------------------------------------------------------------------------
+  smoke:
+    name: Dashboard control smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    needs: changes
+    if: needs.changes.outputs.dashboard == 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # Node >= 21 for the harness's built-in WebSocket (CDP transport, no npm deps).
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Verify Chrome is available
+        run: |
+          set -euo pipefail
+          google-chrome --version
+
+      - name: Run dashboard control-liveness smoke
+        timeout-minutes: 5
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: bash scanner/tests/test_dashboard_control_liveness.sh
