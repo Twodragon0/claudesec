@@ -78,8 +78,31 @@ cat > "$tmpdir/scan-report.json" <<'JSON'
 }
 JSON
 
+# Synthetic policies fixture so the Policies card (and its togglePolDet control)
+# renders. The card is emitted ONLY when .claudesec-assets/policies.json exists
+# in the scan dir; a normal scan has none. PLACEHOLDER data only — no real
+# QueryPie/company/internal content (repo no-sensitive-data rule).
+mkdir -p "$tmpdir/.claudesec-assets"
+cat > "$tmpdir/.claudesec-assets/policies.json" <<'JSON'
+[
+  {
+    "name": "Sample Access Control Policy",
+    "url": "",
+    "total_chapters": 2,
+    "total_articles": 3,
+    "isms_controls": ["2.5.1"],
+    "articles": [
+      {"chapter": "Chapter 1 General", "num": "Article 1", "title": "Purpose"},
+      {"chapter": "Chapter 1 General", "num": "Article 2", "title": "Scope"},
+      {"chapter": "Chapter 2 Controls", "num": "Article 3", "title": "Access review"}
+    ]
+  }
+]
+JSON
+
 dash="$tmpdir/dashboard.html"
-CLAUDESEC_SCAN_JSON="$tmpdir/scan-report.json" \
+CLAUDESEC_SCAN_DIR="$tmpdir" \
+  CLAUDESEC_SCAN_JSON="$tmpdir/scan-report.json" \
   CLAUDESEC_GENERATE_DIAGRAMS=0 \
   python3 "$GEN" "$dash" >/dev/null
 
