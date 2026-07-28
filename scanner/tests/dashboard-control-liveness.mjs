@@ -138,7 +138,24 @@ async function waitForDevtoolsPort(portFile, timeoutMs) {
 //   - window.print is overridden so the print control fires without a dialog;
 //   - navigator.clipboard.writeText is overridden so copyCmd is observable
 //     (a headless file:// context is insecure/unfocused, so the real clipboard
-//     API is absent or rejects — the override makes the call deterministic).
+//     API is absent or rejects — the override makes the call deterministic);
+//   - window.scrollTo and Element.prototype.scrollIntoView are overridden so the
+//     scroll-top / scroll-to controls are observable deterministically. Real
+//     smooth scrolling is async and its final scrollY is unreliable in headless;
+//     recording the CALL (not the resulting scroll) proves the dispatcher case
+//     fired. Native anchor-href navigation does NOT route through
+//     Element.prototype.scrollIntoView, so a dead scroll-to dispatcher records
+//     nothing here even when the <a href="#…"> fallback still jumps → the
+//     assertion bites (same discriminator idea as the print/clipboard overrides).
+//     These two overrides are GLOBAL for the page lifetime, so earlier controls
+//     that also scroll (switchTab / scrollToCategory, which defer via setTimeout)
+//     write to the same recorders. INVARIANT: ASSERT_CONTROLS must stay fully
+//     synchronous with NO `await` between clicks — run-to-completion then means a
+//     deferred timer from an earlier click cannot fire between the scrollTo /
+//     scrollTop resets and their assertions. Each scroll assertion also resets
+//     its recorder immediately before its own click. If you ever make
+//     ASSERT_CONTROLS async, re-audit this or a stale scroll call will overwrite
+//     the recorder mid-run and flake the assertion.
 const DOCUMENT_START = `
 window.__cspViolations = [];
 document.addEventListener('securitypolicyviolation', function(e){
@@ -158,6 +175,10 @@ try {
     value: { writeText: function(t){ window.__copied = String(t); return Promise.resolve(); } }
   });
 } catch (e) { /* if clipboard is non-configurable, copyCmd block records it */ }
+window.__scrolledTo = null;
+window.scrollTo = function(){ window.__scrolledTo = (arguments.length === 1) ? arguments[0] : {top: arguments[1], left: arguments[0]}; };
+window.__scrolledIntoViewId = null;
+Element.prototype.scrollIntoView = function(){ window.__scrolledIntoViewId = this.id || '(no-id)'; };
 `;
 
 // Runs in the page. Drives every control class by STRUCTURAL selector and
@@ -309,6 +330,67 @@ const ASSERT_CONTROLS = `(function(){
     var after = pd.style.display;
     rec('togglePolDet', before === 'none' && after === 'block', 'pol-det display ' + before + '->' + after);
   })();
+
+  // scrollTop: the #scrollTopBtn / .scroll-top button (data-action="scroll-top")
+  // has NO href fallback, so its ONLY scroll path is the dispatcher calling
+  // window.scrollTo({top:0,…}). Click it and assert the recording override
+  // captured a top:0 call (see the document_start override for why we observe
+  // the CALL, not the resulting scrollY).
+  (function(){
+    var t = document.querySelector('.scroll-top') || document.getElementById('scrollTopBtn');
+    if(!t){ rec('scrollTop', false, 'no .scroll-top / #scrollTopBtn button'); return; }
+    window.__scrolledTo = null;
+    t.click();
+    var ok = !!window.__scrolledTo && Number(window.__scrolledTo.top) === 0;
+    rec('scrollTop', ok, 'window.scrollTo top=' + (window.__scrolledTo ? window.__scrolledTo.top : 'null'));
+  })();
+
+  // scrollTo: the "Open critical queue →" .section-link (data-action="scroll-to")
+  // is a <span> — NO href fallback — so if the dispatcher case is dead nothing
+  // scrolls. Read its data-target, click, and assert Element.prototype.
+  // scrollIntoView fired on exactly that element id (recorded via the override).
+  // Selected by the stable .section-link class + the scroll-to action (the same
+  // class is reused for switchTab links, so the action qualifier disambiguates).
+  (function(){
+    var t = document.querySelector('.section-link[data-action="scroll-to"]');
+    if(!t){ rec('scrollTo', false, 'no .section-link scroll-to trigger'); return; }
+    var wantId = t.getAttribute('data-target') || '';
+    if(!document.getElementById(wantId)){ rec('scrollTo', false, 'scroll-to target #' + wantId + ' MISSING'); return; }
+    window.__scrolledIntoViewId = null;
+    t.click();
+    var ok = window.__scrolledIntoViewId === wantId;
+    rec('scrollTo', ok, 'scrollIntoView on #' + (window.__scrolledIntoViewId === null ? '(none)' : window.__scrolledIntoViewId) + ' want #' + wantId);
+  })();
+
+  // closeSetupOverlay: the setup modal closes two ways — the .setup-modal-close
+  // button (action="closeSetup", exercised by openSetup/copyCmd above) AND a
+  // backdrop click on the #setupModal overlay itself (action="close-setup-overlay",
+  // guarded by e.target===btn so only the backdrop, not its children, closes).
+  // Open the modal (same pill-selection as openSetup), then click the overlay
+  // element directly (a programmatic .click() targets the element itself → the
+  // e.target===btn path) and assert .open is removed.
+  (function(){
+    var modal = document.getElementById('setupModal');
+    if(!modal){ rec('closeSetupOverlay', false, 'no #setupModal'); return; }
+    var pills = Array.prototype.slice.call(document.querySelectorAll('.env-pill'));
+    var configs = (typeof SETUP_CONFIGS !== 'undefined') ? SETUP_CONFIGS : {};
+    var pill = pills.filter(function(p){ return configs[p.getAttribute('data-arg')]; })[0] || pills[0];
+    if(!pill){ rec('closeSetupOverlay', false, 'no .env-pill to open the modal'); return; }
+    pill.click();
+    var opened = modal.classList.contains('open');
+    if(!opened){ rec('closeSetupOverlay', false, 'modal did not open (openSetup precondition failed)'); return; }
+    modal.click(); // backdrop click: e.target === the overlay === the data-action element
+    var closed = !modal.classList.contains('open');
+    rec('closeSetupOverlay', opened && closed, '#setupModal.open opened=' + opened + ' -> closed=' + closed);
+  })();
+
+  // toggleMsSrc: EXPLICIT SKIP. Its markup (the MS/SaaS audit-source cards) comes
+  // only from dashboard_html_audit_sources.py, which dashboard-gen.py does NOT
+  // wire in — the audit-sources section, like the audit-points one, lives in the
+  // ISMS dashboard now (aa234cf). The template keeps the dispatcher case + JS
+  // helpers, but zero data-action="toggleMsSrc" elements render here, so there is
+  // nothing to drive. Recorded (not silently omitted) to document WHY.
+  rec('toggleMsSrc', true, 'SKIP: MS/SaaS audit-source section not rendered in this dashboard (dashboard_html_audit_sources.py unwired; moved to ISMS dashboard)', true);
 
   // apToggleCheck: EXPLICIT SKIP. Its section (QueryPie Audit Points) is not
   // rendered in this dashboard — the {{AUDIT_POINTS_HTML}} placeholder was
