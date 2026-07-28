@@ -24,11 +24,21 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILES = ["docker-compose.yml", "docker-compose.quickstart.yml"]
 
+# Shared comment-stripping primitive. Import as a top-level module so it resolves
+# under both pytest and `python3 -m unittest`.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import strip_inline_comment  # noqa: E402
+
 # Required hardening lines inside the dashboard service block. Each is a regex
 # matched against the block text (comments stripped).
 REQUIRED = {
     "read_only": re.compile(r"^\s*read_only:\s*true\s*$", re.MULTILINE),
     "cap_drop ALL": re.compile(r"^\s*cap_drop:\s*\[?\s*[\"']?ALL[\"']?", re.MULTILINE),
+    # Unanchored on purpose: this token legitimately appears MID-line in the
+    # inline-array form `security_opt: ["no-new-privileges:true"]` as well as the
+    # block-list form `- "no-new-privileges:true"`, so it cannot be `^`-anchored
+    # like the others. Comment-evasion is closed by stripping trailing inline
+    # comments in `_strip_comments` (ADR-001 §1), not by anchoring.
     "no-new-privileges": re.compile(r"no-new-privileges:true"),
     "tmpfs": re.compile(r"^\s*tmpfs:\s*$", re.MULTILINE),
     "mem_limit": re.compile(r"^\s*mem_limit:\s*\S+", re.MULTILINE),
@@ -37,12 +47,15 @@ REQUIRED = {
 
 
 def _strip_comments(text: str) -> str:
+    # Drop whole-line `#` comments AND trailing inline `# ...` comments, so a
+    # hardening token riding a trailing comment on an unrelated line (e.g.
+    # `image: x  # no-new-privileges:true`) cannot satisfy a presence check while
+    # the real directive has been deleted (ADR-001 §1).
     out = []
     for line in text.splitlines():
-        # Drop whole-line comments; keep inline (compose has no inline # in these keys).
         if line.lstrip().startswith("#"):
             continue
-        out.append(line)
+        out.append(strip_inline_comment(line))
     return "\n".join(out)
 
 
@@ -109,6 +122,16 @@ class TestHardeningGuardSelfTest(unittest.TestCase):
     def test_dropped_read_only_detected(self):
         mutant = self._GOOD.replace("    read_only: true\n", "")
         self.assertIn("read_only", missing_directives(mutant))
+
+    def test_dropped_no_new_privileges_via_comment_detected(self):
+        # ADR-001 §1: `security_opt` is removed, but the token survives ONLY in a
+        # trailing inline comment on the (active) image line. A matcher that
+        # keeps trailing comments would stay green here.
+        mutant = self._GOOD.replace(
+            "    image: x\n",
+            "    image: x  # no-new-privileges:true (was here, now default)\n",
+        ).replace('    security_opt: ["no-new-privileges:true"]\n', "")
+        self.assertIn("no-new-privileges", missing_directives(mutant))
 
     def test_block_scoped_not_leaking_from_other_service(self):
         # Hardening on `other:` must NOT satisfy the dashboard block.

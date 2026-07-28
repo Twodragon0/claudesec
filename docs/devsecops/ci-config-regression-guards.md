@@ -124,7 +124,10 @@ triaged by the same bar used to add one (an incident, past or plausible, where
 worth a guard, to avoid sprawl). Reviewed 2026-06-19; re-triaged 2026-06-22
 (all Tier-3 workflows confirmed KEEP-AS-MONITOR — decision unchanged; the
 `workflow_run` trigger added to `provenance-verify.yml` in #263/#264 is already
-covered by `test_ci_provenance_verify.py`).
+covered by `test_ci_provenance_verify.py`). **Quarterly ADR-001 adversarial
+audit 2026-07-28** (issue #297): all 38 `test_ci_*.py` guards re-audited — see
+"Quarterly audit 2026-07-28" below for the comment/unhandled-form findings fixed
+and the matcher-completeness backlog opened.
 
 ### Tier 2 — incident-backed (now implemented)
 
@@ -178,6 +181,58 @@ Both former Tier-2 candidates landed in #258 and are now in the Catalog above:
   comment is a readability/doc-accuracy wart, not a security regression — below
   the incident bar. Mitigation is a one-time normalization on each major action
   bump, not a guard.
+
+### Quarterly audit 2026-07-28 (ADR-001, issue #297)
+
+A full adversarial re-audit of all 38 `test_ci_*.py` guards (three independent
+review passes; every finding reproduced with an executed proof, not a static
+read). Three guards were confirmed CLEAN with the comment-evasion class
+inapplicable by construction: `test_ci_lighthouse_perf_gate.py` (strict
+`json.loads`), `test_ci_codeowners_invariants.py` (mirrors GitHub's own
+CODEOWNERS grammar — no inline-comment syntax exists), `test_ci_compliance_keyword_guard.py`
+(executes the real module and inspects the runtime `COMPLIANCE_CONTROL_MAP`, no
+text surface).
+
+**Fixed (Class 1 — comment/unhandled-form evasion; the natural "comment out the
+control" regression path, the exact class ADR-001 §1/§3 target):**
+
+- `test_ci_net005_fail_escalation.py` — section built from raw lines; a
+  `# fail "NET-005" ... "critical"` comment satisfied the escalation check while
+  active code downgraded to WARN → now routes through `strip_comment_lines` +
+  comment-survival mutation test.
+- `test_ci_changes_job_merge_base.py` — imported only `join_continuations`; the
+  `|| git diff` fallback / non-shallow fetch tokens satisfied the check from a
+  comment → now `join_continuations(strip_comment_lines(text))` + mutation test.
+- `test_ci_compose_dashboard_hardening.py` — `_strip_comments` kept trailing
+  inline comments and the `no-new-privileges` regex is (necessarily) unanchored,
+  so the token rode a trailing comment on an unrelated line → now strips trailing
+  inline comments via `strip_inline_comment` + mutation test.
+- `test_ci_dependabot_config.py` — used `non_comment_lines` (whole-line only); a
+  required ecosystem token rode a trailing inline comment → now composes
+  `strip_inline_comment` + mutation test.
+- `test_ci_injection_surface.py` — the twice-hardened block-scalar rule still
+  missed flow-style step mappings (`steps: [{run: "…${{ github.event.* }}…"}]`),
+  leaving that `run:` body unscanned → added a grammar-complete flow-style
+  extractor (ADR-001 §4) + mutation test. (The multi-line-split `${{ }}` form
+  is a separate, runtime-**unverified** robustness gap — see backlog below.)
+
+**Backlog (Class 2 — matcher-completeness / enumeration gaps; require a
+deliberate, unusual edit rather than a comment-out, so lower natural-regression
+risk — triaged as follow-up, not blocking):**
+
+- `test_ci_no_ere_pipe_regression.py` — misses the `--extended-regexp` long-flag
+  form and cross-line variable-indirection of the `\|` ERE bug.
+- `test_ci_npm_files.py` — `files[]` glob match is not grammar-complete (`docs/**`
+  ships the tree; order-blind to a positive pattern re-added after its negation).
+- `test_ci_plugin_skills_cli_parity.py` / `test_ci_provider_labels_sync.py` —
+  parse `case` arms into an unordered `set()`, so moving the `*)` catch-all ahead
+  of a real arm (runtime-unreachable) still satisfies the presence check.
+- `test_ci_cross_os_non_required.py` — `FORBIDDEN_IN_LINT` is a fixed 4-string
+  enumeration (bypassed by `macos-14`/`windows-2022` labels); collision check
+  omits the `"Lint"` required context.
+- `test_ci_catalog_completeness.py` / `test_ci_catalog_no_ghost_rows.py` — no
+  shipped mutation self-test; catalog_completeness also does not strip Markdown
+  `<!-- -->` comments (low severity).
 
 ### Verified already-guarded during this review (not backlog)
 

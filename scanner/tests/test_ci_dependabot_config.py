@@ -53,7 +53,7 @@ DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
 # Shared guard primitive (comment-stripping). Import as a top-level module so it
 # resolves under both pytest and `python3 -m unittest`.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import non_comment_lines  # noqa: E402
+from _ci_guard_util import non_comment_lines, strip_inline_comment  # noqa: E402
 
 # Each ecosystem must stay declared, else that surface stops getting update PRs.
 REQUIRED_ECOSYSTEMS = (
@@ -94,8 +94,16 @@ def _alpine_freeze_colocated(lines: list) -> bool:
     return False
 
 
+def _scanned_lines(text: str) -> list:
+    """Config lines with whole-line `#` comments dropped AND trailing inline
+    `# ...` comments stripped, so a required token surviving only in a comment
+    (whole-line OR trailing on an active line) cannot satisfy a presence check
+    (ADR-001 §1)."""
+    return [strip_inline_comment(ln) for ln in non_comment_lines(text)]
+
+
 def config_violations(text: str) -> list:
-    lines = non_comment_lines(text)
+    lines = _scanned_lines(text)
     scan = "\n".join(lines)
     problems = []
     if SCHEMA_VERSION not in scan:
@@ -135,7 +143,8 @@ class TestDependabotConfigGuard(unittest.TestCase):
         )
 
     def test_all_ecosystems_present(self):
-        missing = [eco for eco in REQUIRED_ECOSYSTEMS if eco not in self.text]
+        scan = "\n".join(_scanned_lines(self.text))
+        missing = [eco for eco in REQUIRED_ECOSYSTEMS if eco not in scan]
         self.assertEqual(
             missing, [],
             "dependabot.yml dropped ecosystem coverage: "
@@ -145,10 +154,11 @@ class TestDependabotConfigGuard(unittest.TestCase):
         )
 
     def test_alpine_freeze_intact(self):
+        scan = "\n".join(_scanned_lines(self.text))
         missing = [
             f"{name}={tok!r}"
             for name, tok in sorted(ALPINE_FREEZE_TOKENS.items())
-            if tok not in self.text
+            if tok not in scan
         ]
         self.assertEqual(
             missing, [],
@@ -208,6 +218,20 @@ class TestDependabotConfigGuardMutation(unittest.TestCase):
         self.assertTrue(
             any('"pip"' in p for p in config_violations(mutant)),
             "Mutation FAILED: dropping the pip ecosystem was NOT detected.",
+        )
+
+    def test_ecosystem_surviving_only_in_trailing_comment_is_detected(self):
+        # ADR-001 §1: the docker ecosystem block is removed, but its token rides
+        # a trailing inline `# ...` comment on the (active) npm line. A matcher
+        # that only drops whole-line comments would stay green here.
+        mutant = self._GOOD.replace(
+            '  - package-ecosystem: "npm"\n',
+            '  - package-ecosystem: "npm"  # dropped: package-ecosystem: "docker"\n',
+        ).replace('  - package-ecosystem: "docker"\n', "")
+        self.assertTrue(
+            any("docker" in p for p in config_violations(mutant)),
+            "Mutation FAILED: docker ecosystem dropped but a trailing-comment "
+            "token satisfied the presence check (comment-evasion).",
         )
 
     def test_loosening_alpine_minor_freeze_is_detected(self):

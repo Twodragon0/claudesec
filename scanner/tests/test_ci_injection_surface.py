@@ -92,6 +92,14 @@ _EXPR_RE = re.compile(r"\$\{\{(.*?)\}\}")
 # sibling step key (e.g. `name:`) aligns with `run:` and must end the body, while
 # the body is indented deeper.
 _RUN_RE = re.compile(r"^(\s*(?:-\s+)?)run:\s?(.*)$")
+# Flow-style step mapping — `steps: [{name: x, run: "cmd"}]` — puts `run:`
+# mid-line after a `{`/`,`, so the line-anchored block scan above never sees it.
+# Match each flow-style run value (double/single-quoted or bare) so its `${{ }}`
+# interpolations are scanned too. Grammar-complete over line-start-only per
+# ADR-001 §4 (flow style is spec-standard YAML sugar, not an edge form).
+_FLOW_RUN_RE = re.compile(
+    r"""[{,]\s*run:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^,}\]]+)"""
+)
 
 
 def _lead_width(s: str) -> int:
@@ -147,6 +155,15 @@ def run_block_lines(text: str) -> list:
                 i += 1
             else:
                 break
+    # Flow-style `run:` values (see _FLOW_RUN_RE) — one physical line may hold
+    # several step mappings, each contributing its command string. A bare/quoted
+    # value is unwrapped so `_EXPR_RE` sees the same shell text the runner would.
+    for ln in lines:
+        for fm in _FLOW_RUN_RE.finditer(ln):
+            val = fm.group(1).strip()
+            if len(val) >= 2 and val[0] in "\"'" and val[-1] == val[0]:
+                val = val[1:-1]  # unquote
+            out.append(val)
     return out
 
 
@@ -374,6 +391,19 @@ class TestInjectionDetectorMutation(unittest.TestCase):
                     injection_violations(wf),
                     f"Mutation FAILED: untrusted context `{expr}` not detected.",
                 )
+
+    def test_fires_on_flow_style_step(self):
+        # Flow-style step mapping (spec-standard YAML) puts `run:` mid-line; the
+        # untrusted interpolation must still be detected (ADR-001 §4).
+        wf = (
+            "jobs:\n  j:\n    steps: "
+            "[{name: x, run: \"echo '${{ github.event.issue.title }}'\"}]\n"
+        )
+        v = injection_violations(wf)
+        self.assertTrue(
+            any("github.event.issue.title" in ctx for _, ctx in v),
+            f"flow-style run: interpolation not detected: {v}",
+        )
 
     def test_fires_on_tab_indented_body(self):
         # Finding 7: a tab-indented block body must still be measured as deeper
