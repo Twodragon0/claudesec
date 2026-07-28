@@ -85,13 +85,6 @@ def _empty_ms():
     }
 
 
-def _empty_saas():
-    return {
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
-        "sources": [],
-    }
-
-
 def _empty_audit():
     return {"products": [], "fetched_at": ""}
 
@@ -134,7 +127,6 @@ def _patches_for_generate(
     audit_detected=None,
     audit_points=None,
     ms=None,
-    saas=None,
     datadog=None,
     network=None,
 ):
@@ -146,8 +138,6 @@ def _patches_for_generate(
                      return_value=audit_detected or _empty_detected()),
         patch.object(MOD, "load_microsoft_best_practices",
                      return_value=ms or _empty_ms()),
-        patch.object(MOD, "load_saas_best_practices",
-                     return_value=saas or _empty_saas()),
         patch.object(MOD, "load_datadog_logs",
                      return_value=datadog or _empty_datadog()),
         patch.object(MOD, "load_network_tool_results",

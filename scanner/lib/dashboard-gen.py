@@ -70,7 +70,7 @@ from dashboard_api_client import (  # noqa: F401
 from dashboard_data_loader import (  # noqa: F401
     load_scan_results, load_prowler_files, load_scan_history,
     load_audit_points_detected, load_audit_points,
-    load_microsoft_best_practices, load_saas_best_practices,
+    load_microsoft_best_practices,
     load_network_tool_results, load_datadog_logs,
     analyze_prowler, _parse_ocsf_json, _normalize_provider,
     github_findings, aws_findings, gcp_findings, gws_findings,
@@ -104,7 +104,7 @@ from dashboard_html_sections import (  # noqa: F401
     _build_top_findings, _build_network_config_section,
     _build_tooling_readiness_section, _build_overview_blocks,
     _build_owasp_html, _build_arch_html, _build_compliance_html,
-    _build_audit_points_html, _build_prov_table,
+    _build_prov_table,
 )
 
 
@@ -473,13 +473,6 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         + "</div>"
     )
     auth_summary_html = build_auth_summary_html(envs, findings_list)
-    saas_bp_data = load_saas_best_practices(scan_dir)
-    audit_points_html = _build_audit_points_html(
-        audit_points_data,
-        audit_points_detected,
-        ms_best_practices_data,
-        saas_bp_data,
-    )
     overview = _build_overview_blocks(
         prov_summary,
         all_findings,
@@ -692,7 +685,6 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         bar_low,
         network_tools_html,
         network_tools_badge,
-        audit_points_html,
         failed + warnings,
         scan_scope_html,
         auth_summary_html,
