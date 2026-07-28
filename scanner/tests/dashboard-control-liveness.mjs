@@ -133,8 +133,12 @@ async function waitForDevtoolsPort(portFile, timeoutMs) {
 }
 
 // Injected at document_start (bypasses page CSP because the debugger injects it):
-// records securitypolicyviolation events and makes window.print observable so
-// we can assert the print control actually fires without opening a print dialog.
+// records securitypolicyviolation events and makes side-effecting controls
+// observable without real I/O:
+//   - window.print is overridden so the print control fires without a dialog;
+//   - navigator.clipboard.writeText is overridden so copyCmd is observable
+//     (a headless file:// context is insecure/unfocused, so the real clipboard
+//     API is absent or rejects — the override makes the call deterministic).
 const DOCUMENT_START = `
 window.__cspViolations = [];
 document.addEventListener('securitypolicyviolation', function(e){
@@ -147,13 +151,20 @@ document.addEventListener('securitypolicyviolation', function(e){
 });
 window.__printed = false;
 window.print = function(){ window.__printed = true; };
+window.__copied = null;
+try {
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: function(t){ window.__copied = String(t); return Promise.resolve(); } }
+  });
+} catch (e) { /* if clipboard is non-configurable, copyCmd block records it */ }
 `;
 
 // Runs in the page. Drives every control class by STRUCTURAL selector and
 // asserts the DOM effect. Returns { results:[{name, ok, detail}], violations }.
 const ASSERT_CONTROLS = `(function(){
   var results = [];
-  function rec(name, ok, detail){ results.push({name: name, ok: !!ok, detail: detail || ''}); }
+  function rec(name, ok, detail, skip){ results.push({name: name, ok: !!ok, detail: detail || '', skip: !!skip}); }
 
   // toggleOwasp: .owasp-header click -> closest .owasp-item gains .expanded
   (function(){
@@ -244,6 +255,68 @@ const ASSERT_CONTROLS = `(function(){
     rec('scannerCategoryLink', ok, 'overview.active=' + (overview ? overview.classList.contains('active') : '?') + ' target=' + (scrollTarget ? 'present' : 'MISSING'));
   })();
 
+  // toggleRow: an expandable findings row (tr.expandable) click -> the row gains
+  // .expanded AND its next sibling detail row gains .open. Structural selector.
+  (function(){
+    var t = document.querySelector('tr.expandable');
+    if(!t){ rec('toggleRow', false, 'no tr.expandable findings row'); return; }
+    var detail = t.nextElementSibling;
+    if(!detail){ rec('toggleRow', false, 'expandable row has no detail sibling'); return; }
+    var rowBefore = t.classList.contains('expanded');
+    var detBefore = detail.classList.contains('open');
+    t.click();
+    var rowAfter = t.classList.contains('expanded');
+    var detAfter = detail.classList.contains('open');
+    rec('toggleRow', !rowBefore && rowAfter && !detBefore && detAfter,
+      'row.expanded ' + rowBefore + '->' + rowAfter + ', detail.open ' + detBefore + '->' + detAfter);
+  })();
+
+  // copyCmd: reachable ONLY inside the setup modal. Open the modal first (same
+  // pill-selection logic as openSetup), then click a .setup-cmd-copy button and
+  // assert navigator.clipboard.writeText fired (observed via the document_start
+  // override; a real headless file:// clipboard would be absent/reject).
+  (function(){
+    var modal = document.getElementById('setupModal');
+    if(!modal){ rec('copyCmd', false, 'no #setupModal to open'); return; }
+    var pills = Array.prototype.slice.call(document.querySelectorAll('.env-pill'));
+    var configs = (typeof SETUP_CONFIGS !== 'undefined') ? SETUP_CONFIGS : {};
+    var pill = pills.filter(function(p){ return configs[p.getAttribute('data-arg')]; })[0] || pills[0];
+    if(!pill){ rec('copyCmd', false, 'no .env-pill to open the modal'); return; }
+    pill.click();
+    var copyBtn = document.querySelector('.setup-cmd-copy');
+    if(!copyBtn){ rec('copyCmd', false, 'no .setup-cmd-copy button after openSetup'); }
+    else {
+      window.__copied = null;
+      copyBtn.click();
+      rec('copyCmd', window.__copied !== null, 'clipboard.writeText fired=' + (window.__copied !== null));
+    }
+    var closeBtn = document.querySelector('.setup-modal-close');
+    if(closeBtn) closeBtn.click();
+  })();
+
+  // togglePolDet: a Policies card (data-action="togglePolDet") click -> its
+  // .pol-det article list toggles display none<->block. The Policies card only
+  // renders when a policies.json fixture is present in the scan dir (the wrapper
+  // supplies a synthetic one). No stable structural class exists on the card, so
+  // this one selects by the card's data-action.
+  (function(){
+    var card = document.querySelector('[data-action="togglePolDet"]');
+    if(!card){ rec('togglePolDet', false, 'no policies card (policies.json fixture missing?)'); return; }
+    var pd = card.querySelector('.pol-det');
+    if(!pd){ rec('togglePolDet', false, 'card has no .pol-det detail'); return; }
+    var before = pd.style.display;
+    card.click();
+    var after = pd.style.display;
+    rec('togglePolDet', before === 'none' && after === 'block', 'pol-det display ' + before + '->' + after);
+  })();
+
+  // apToggleCheck: EXPLICIT SKIP. Its section (QueryPie Audit Points) is not
+  // rendered in this dashboard — the {{AUDIT_POINTS_HTML}} placeholder was
+  // removed in aa234cf ("moved to ISMS dashboard"), so there is nothing to
+  // drive. Recorded (not silently omitted) so the harness output documents WHY
+  // this delegated data-change handler is uncovered here.
+  rec('apToggleCheck', true, 'SKIP: audit-points section not rendered in this dashboard (removed aa234cf)', true);
+
   return { results: results, violations: (window.__cspViolations || []) };
 })()`;
 
@@ -309,9 +382,12 @@ try {
   // ── report ────────────────────────────────────────────────────────────────
   console.log("=== dashboard control-liveness ===");
   let dead = 0;
+  let skipped = 0;
   for (const r of results) {
-    console.log(`${r.ok ? "PASS" : "FAIL"}: ${r.name} — ${r.detail}`);
-    if (!r.ok) dead++;
+    const tag = r.skip ? "SKIP" : r.ok ? "PASS" : "FAIL";
+    console.log(`${tag}: ${r.name} — ${r.detail}`);
+    if (r.skip) skipped++;
+    else if (!r.ok) dead++;
   }
   // A nonce/CSP regression (reintroduced inline handler, broken nonce) fires a
   // script-src* securitypolicyviolation. A healthy offline dashboard fires none
@@ -324,8 +400,9 @@ try {
 
   const controlsOk = dead === 0;
   const cspOk = violations.length === 0;
+  const driven = results.length - skipped;
   console.log(
-    `\nRESULT: controls ${results.length - dead}/${results.length} live, ${violations.length} CSP self-violation(s)`
+    `\nRESULT: controls ${driven - dead}/${driven} live, ${skipped} skipped, ${violations.length} CSP self-violation(s)`
   );
   exitCode = controlsOk && cspOk ? 0 : 1;
 
