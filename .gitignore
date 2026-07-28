@@ -90,6 +90,9 @@ run-all.sh
 tmp-*.svg
 tmp-*.png
 
+# Accidental CLI-flag redirect artifacts (e.g. a stray `claudesec ... > --help`)
+/--*
+
 # MCP / Orchestration (local tool configs)
 .mcp.json
 .claudesec-sources/
