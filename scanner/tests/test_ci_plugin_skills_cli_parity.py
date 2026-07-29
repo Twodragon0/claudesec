@@ -56,15 +56,31 @@ def cli_case_arms(text):
     ignored). Trailing inline `#` comments are irrelevant here (arm headers have
     none), but we still anchor to the start-of-line indented `word)` form so a
     `)` inside a string/body cannot be mistaken for an arm.
+
+    Order matters: bash `case` is FIRST-MATCH-WINS, so any arm placed AFTER the
+    `*` catch-all is unreachable dead code even though it is textually present.
+    We collect only up to (and including) the top-level catch-all arm, so a real
+    subcommand demoted below `*)` is correctly seen as NOT dispatched. Arms are
+    scoped to the top-level case indent (the first arm's indent), so a nested
+    `case`'s deeper-indented `*)` does not end collection early.
     """
     arms = set()
+    base_indent = None
     for raw in text.splitlines():
-        m = re.match(r"^\s{2,}([A-Za-z0-9_|*-]+)\)\s*$", raw)
+        m = re.match(r"^(\s{2,})([A-Za-z0-9_|*-]+)\)\s*$", raw)
         if not m:
             continue
-        for tok in m.group(1).split("|"):
+        indent, pattern = m.group(1), m.group(2)
+        if base_indent is None:
+            base_indent = indent
+        if indent != base_indent:
+            continue  # deeper-indented arm of a nested case — not a subcommand
+        toks = pattern.split("|")
+        for tok in toks:
             if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", tok):
                 arms.add(tok)
+        if "*" in toks:  # top-level catch-all: nothing after it is reachable
+            break
     return arms
 
 
@@ -113,6 +129,52 @@ class TestPluginSkillsCliParity(unittest.TestCase):
                     f"CLI subcommand {sub!r} disappeared from bin/claudesec-cli.sh "
                     "— a published marketplace skill depends on it (issue #20)",
                 )
+
+
+class TestCliCaseArmsParserSelfTest(unittest.TestCase):
+    """Mutation self-test for the first-match-wins parse of `cli_case_arms`."""
+
+    _GOOD = (
+        'case "${1:-help}" in\n'
+        "  scan)\n    do_scan ;;\n"
+        "  prowler)\n    do_prowler ;;\n"
+        "  help|--help|-h|*)\n    usage ;;\n"
+        "esac\n"
+    )
+    # `prowler)` demoted BELOW the `*)` catch-all: `claudesec prowler` would fall
+    # through to usage — textually present but unreachable dead code.
+    _ORDER_BLIND = (
+        'case "${1:-help}" in\n'
+        "  scan)\n    do_scan ;;\n"
+        "  help|--help|-h|*)\n    usage ;;\n"
+        "  prowler)\n    do_prowler ;;\n"
+        "esac\n"
+    )
+    # A nested case with its own `*)` must NOT end top-level collection early.
+    _NESTED = (
+        'case "${1:-help}" in\n'
+        "  scan)\n"
+        '    case "$2" in\n      fast) f ;;\n      *) s ;;\n    esac\n    ;;\n'
+        "  prowler)\n    do_prowler ;;\n"
+        "  help|--help|-h|*)\n    usage ;;\n"
+        "esac\n"
+    )
+
+    def test_good_collects_reachable_arms(self):
+        self.assertEqual(cli_case_arms(self._GOOD), {"scan", "prowler", "help"})
+
+    def test_arm_after_catch_all_is_unreachable(self):
+        arms = cli_case_arms(self._ORDER_BLIND)
+        self.assertNotIn(
+            "prowler", arms,
+            "Order-blind parse: `prowler)` placed AFTER the `*)` catch-all is "
+            "unreachable but was collected — parity would pass on a dead arm.",
+        )
+        self.assertEqual(arms, {"scan", "help"})
+
+    def test_nested_case_default_does_not_truncate_top_level(self):
+        # The nested `*)` is deeper-indented; top-level `prowler)` stays reachable.
+        self.assertEqual(cli_case_arms(self._NESTED), {"scan", "prowler", "help"})
 
 
 if __name__ == "__main__":
