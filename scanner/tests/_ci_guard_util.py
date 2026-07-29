@@ -66,24 +66,27 @@ def strip_inline_comment(line: str) -> str:
     return re.sub(r"\s+#.*$", "", line)
 
 
-# Bash word-boundary chars after which a `#` begins a comment with NO preceding
-# whitespace (`;#`, `&#`, `|#`). Conservative set: unambiguous command
-# separators only — NOT `{`/`(` (they collide with `${#var}` length expansion and
-# `$(` command substitution).
-_SH_COMMENT_BOUNDARY = " \t;&|"
+# Bash metacharacters: a `#` begins a comment when it starts a new word, i.e.
+# when preceded by start-of-line, whitespace, or one of these (bash's own token
+# delimiters) — with NO intervening space (`;#`, `&#`, `|#`, `)#`, `>#`). This is
+# the full metacharacter set, so the rule is complete by the bash grammar rather
+# than an enumeration of a few separators (ADR-001 §4). A `#` preceded by a word
+# char (`foo#bar`) or `$`/`{` (`${#var}`) is NOT a word start, so it is preserved.
+_SH_COMMENT_BOUNDARY = " \t;&|()<>"
 
 
 def strip_inline_comment_sh(line: str) -> str:
     """A SINGLE shell line with its trailing bash comment removed, quote-aware.
 
     Unlike `strip_inline_comment` (whitespace-only), a `#` here begins a comment
-    when it sits at a bash word boundary — start-of-line, whitespace, OR a command
-    separator (`;`, `&`, `|`) — AND is not inside a single-/double-quoted string.
-    Real bash treats `echo x;#exit 1` as a comment (the `exit 1` never runs) with
-    no space before `#`; a whitespace-only stripper misses it, letting a token
-    that survives only in such a comment satisfy a shell-scanning guard's presence
-    check (ADR-001 §1; the class that hid a `;#exit 1` from the Security-Scan-Gate
-    guard). A `#` inside quotes, or mid-word (`foo#bar`, `${#var}`), is preserved."""
+    when it starts a bash word — after start-of-line, whitespace, OR a bash
+    metacharacter (`;`, `&`, `|`, `(`, `)`, `<`, `>`) — AND is not inside a
+    single-/double-quoted string. Real bash treats `echo x;#exit 1` and
+    `FILES=$(cmd)#…` as comments (the tail never runs) with no space before `#`; a
+    whitespace-only stripper misses them, letting a token that survives only in
+    such a comment satisfy a shell-scanning guard's presence check (ADR-001 §1;
+    the class that hid a `;#exit 1` from the Security-Scan-Gate guard). A `#`
+    inside quotes, or mid-word (`foo#bar`, `${#var}`), is preserved."""
     in_s = in_d = False
     prev = ""  # previous unescaped char; "" == start-of-line boundary
     i, n = 0, len(line)

@@ -48,6 +48,14 @@ class TestStripInlineCommentSh(unittest.TestCase):
         self.assertEqual(strip_inline_comment_sh("a &#c"), "a &")
         self.assertEqual(strip_inline_comment_sh("a |#c"), "a |")
 
+    def test_strips_after_close_paren_and_redirect(self):
+        # `)#` (after a command substitution) and `>#` are real bash comments.
+        self.assertEqual(
+            strip_inline_comment_sh('FILES=$(git diff)#|| git diff HEAD~1'),
+            "FILES=$(git diff)",
+        )
+        self.assertEqual(strip_inline_comment_sh("cmd >#not-a-file"), "cmd >")
+
     def test_start_of_line_is_a_comment(self):
         self.assertEqual(strip_inline_comment_sh("#whole"), "")
 
