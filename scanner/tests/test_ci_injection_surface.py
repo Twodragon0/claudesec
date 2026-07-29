@@ -108,6 +108,16 @@ _RUN_RE = re.compile(r"^(\s*(?:-\s+)?)run:\s?(.*)$")
 _FLOW_RUN_RE = re.compile(
     r"""[{,]\s*run:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^,}\]]+)"""
 )
+# A flow-style `run:` whose quoted value is NOT closed on its physical line — a
+# multi-line flow scalar. A stdlib/no-PyYAML line scanner cannot reassemble it
+# (bracket-depth folding can't tell YAML flow braces from shell `${..}`/`{ ..; }`
+# without a real parser), so its `${{ }}` interpolations would go UNSCANNED. We
+# don't try to scan it — we FLAG its presence so a would-be injection can't hide
+# in an unscannable shape (see `unscannable_flow_runs`). The value is unterminated
+# when, after the opening quote, no matching close appears before end-of-line.
+_FLOW_RUN_UNTERMINATED_RE = re.compile(
+    r"""[{,]\s*run:\s*(?:"(?:[^"\\]|\\.)*|'(?:[^'\\]|\\.)*)$"""
+)
 
 
 def _lead_width(s: str) -> int:
@@ -187,6 +197,21 @@ def injection_violations(text: str) -> list:
     return out
 
 
+def unscannable_flow_runs(text: str) -> list:
+    """Lines with a flow-style `run:` whose quoted value spans multiple physical
+    lines (see `_FLOW_RUN_UNTERMINATED_RE`).
+
+    Such a value cannot be statically reassembled under the stdlib/no-PyYAML
+    constraint, so `injection_violations` would silently miss an untrusted
+    `${{ }}` inside it. Rather than half-close that gap with a fragile
+    bracket-depth heuristic, this tripwire flags the unscannable SHAPE so the
+    author restructures to a block scalar (fully scanned) or a single-line flow
+    value (already scanned) — ADR-001 §4 (prefer a rule complete by construction
+    over an incomplete reassembler). Dormant on this repo (all `run:` are block
+    style), so it is false-positive-free today."""
+    return [ln.strip() for ln in text.splitlines() if _FLOW_RUN_UNTERMINATED_RE.search(ln)]
+
+
 def _workflow_files():
     return sorted(glob(str(WORKFLOW_DIR / "*.yml")))
 
@@ -213,6 +238,22 @@ class TestNoInjectionSurface(unittest.TestCase):
             "shell body — script-injection / RCE surface (OWASP CICD-SEC-4). Move "
             "the value into an `env:` block and reference `$VAR` in the shell:\n  "
             + "\n  ".join(offenders),
+        )
+
+    def test_no_unscannable_multiline_flow_run(self):
+        # A multi-line-quoted flow-style `run:` cannot be scanned for injection
+        # under the no-PyYAML constraint; forbid the shape so nothing hides in it.
+        offenders = []
+        for path in _workflow_files():
+            for ln in unscannable_flow_runs(Path(path).read_text(encoding="utf-8")):
+                offenders.append(f"{Path(path).name}:  {ln}")
+        self.assertEqual(
+            offenders,
+            [],
+            "Flow-style `run:` with a quoted value spanning multiple physical "
+            "lines — this cannot be statically scanned for `${{ }}` injection "
+            "(stdlib/no-PyYAML). Use a block scalar (`run: |`) or keep the flow "
+            "value on one line:\n  " + "\n  ".join(offenders),
         )
 
 
@@ -411,6 +452,25 @@ class TestInjectionDetectorMutation(unittest.TestCase):
         self.assertTrue(
             any("github.event.issue.title" in ctx for _, ctx in v),
             f"flow-style run: interpolation not detected: {v}",
+        )
+
+    def test_tripwire_flags_multiline_flow_scalar(self):
+        # A multi-line-quoted flow `run:` is unscannable → the tripwire must flag
+        # it (and single-line/block forms must NOT be flagged).
+        multiline = 'jobs:\n  j:\n    steps: [{name: x, run: "echo\n      ${{ github.event.issue.title }}"}]\n'
+        self.assertTrue(
+            unscannable_flow_runs(multiline),
+            "tripwire FAILED: a multi-line flow-style run: scalar was not flagged.",
+        )
+        single_line = 'jobs:\n  j:\n    steps: [{name: x, run: "echo hi"}]\n'
+        block = "jobs:\n  j:\n    steps:\n      - run: |\n          echo hi\n"
+        self.assertEqual(
+            unscannable_flow_runs(single_line), [],
+            "tripwire false-positive on a single-line flow value.",
+        )
+        self.assertEqual(
+            unscannable_flow_runs(block), [],
+            "tripwire false-positive on a block scalar.",
         )
 
     def test_fires_on_tab_indented_body(self):

@@ -234,10 +234,13 @@ control" regression path, the exact class ADR-001 §1/§3 target):**
   missed single-line flow-style step mappings
   (`steps: [{run: "…${{ github.event.* }}…"}]`), leaving that `run:` body
   unscanned → added a grammar-complete flow-style extractor (ADR-001 §4) +
-  mutation test. **Documented known limitations** (below): a flow-style `run:`
-  quoted value spanning MULTIPLE physical lines is not reassembled, and the
-  multi-line-split `${{ }}` block-scalar form is a runtime-**unverified**
-  robustness gap.
+  mutation test. The multi-line-quoted flow scalar (unreassemblable by a
+  no-PyYAML line scanner) is now caught by a **tripwire** (`unscannable_flow_runs`)
+  that FAILS on the unscannable shape so an injection cannot hide in it — the
+  author must use a block scalar or a single-line flow value (dormant on this
+  repo: all `run:` are block style, so zero false positives). The
+  multi-line-split `${{ }}` block-scalar form remains a documented,
+  runtime-**unverified** robustness gap.
 
 **Backlog (Class 2 — matcher-completeness / enumeration gaps; require a
 deliberate, unusual edit rather than a comment-out, so lower natural-regression
@@ -256,16 +259,15 @@ risk — triaged as follow-up, not blocking):**
 - `test_ci_catalog_completeness.py` / `test_ci_catalog_no_ghost_rows.py` — no
   shipped mutation self-test; catalog_completeness also does not strip Markdown
   `<!-- -->` comments (low severity).
-- `test_ci_injection_surface.py` — **known scanner limitations** (bounded by the
-  stdlib-only / no-PyYAML constraint, not closeable by a line scanner without a
-  fragile bracket-depth heuristic): (a) a flow-style `run:` quoted value spanning
-  multiple physical lines is not reassembled; (b) an untrusted `${{ }}` split
-  across two physical lines inside a block scalar — the latter's runtime
+- `test_ci_injection_surface.py` — **known scanner limitation** (bounded by the
+  stdlib-only / no-PyYAML constraint): an untrusted `${{ }}` split across two
+  physical lines inside a block scalar is not reassembled; its runtime
   exploitability (whether the Actions expression lexer executes a newline-split
-  interpolation) is **unverified**. Both are pathological authoring forms; tracked
-  rather than half-closed. Revisit if PyYAML ever becomes available to the CI test
-  job, or promote to a coarse "flow-style/multi-line-run requires manual review"
-  tripwire if a real workflow ever adopts the form.
+  interpolation) is **unverified**. A pathological authoring form; tracked rather
+  than half-closed with a fragile bracket-depth heuristic. Revisit if PyYAML ever
+  becomes available to the CI test job. (The sibling multi-line-quoted flow
+  scalar limitation was **closed** by the `unscannable_flow_runs` tripwire — see
+  the fixed list above.)
 
 ### Verified already-guarded during this review (not backlog)
 
