@@ -37,9 +37,30 @@ WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 CROSS_OS_YML = WORKFLOW_DIR / "cross-os-checks.yml"
 LINT_YML = WORKFLOW_DIR / "lint.yml"
 
-# Tokens that, if they appear in lint.yml, would mean the OS-runner jobs were
+# Name tokens that, if they appear in lint.yml, mean the OS-runner jobs were
 # pulled into the required lint pipeline (the exact regression this guards).
-FORBIDDEN_IN_LINT = ("cross-os", "live-os-checks", "macos-latest", "windows-latest")
+FORBIDDEN_NAME_TOKENS = ("cross-os", "live-os-checks")
+# Any macOS/Windows runner label, VERSION-AGNOSTIC — `macos-latest`, `macos-14`,
+# `windows-latest`, `windows-2022`, … The hyphen is required so it never matches
+# a test-script name like `test_check_macos_cis_security.sh` (`macos_`) or a path
+# like `macos/cis-security` (`macos/`); only real runner labels use `<os>-<ver>`.
+_OS_RUNNER_RE = re.compile(r"\b(?:macos|windows)-[a-z0-9.]+\b")
+
+# Required branch-protection contexts a cross-OS job name must NOT collide with.
+REQUIRED_CONTEXTS = ("Lint", "Security Scan Gate")
+
+
+def _lint_absorption_hits(lint_text: str) -> list:
+    """OS-runner / cross-OS references in lint.yml, comment-immune. Whole-line
+    AND trailing inline `#` comments are stripped so a prose mention of a runner
+    can't false-positive, then name tokens + version-agnostic OS runner labels
+    are collected."""
+    stripped = "\n".join(
+        strip_inline_comment(ln) for ln in strip_comment_lines(lint_text).splitlines()
+    )
+    hits = [tok for tok in FORBIDDEN_NAME_TOKENS if tok in stripped]
+    hits += sorted(set(_OS_RUNNER_RE.findall(stripped)))
+    return hits
 
 
 def active_scan(text):
@@ -66,7 +87,7 @@ class TestCrossOsWorkflowNonRequired(unittest.TestCase):
         self.assertTrue(
             CROSS_OS_YML.is_file(),
             f"{CROSS_OS_YML} not found — if the cross-OS workflow was renamed, "
-            "update CROSS_OS_YML and FORBIDDEN_IN_LINT in this guard.",
+            "update CROSS_OS_YML in this guard.",
         )
 
     def test_cross_os_is_a_standalone_informational_lane(self):
@@ -86,21 +107,23 @@ class TestCrossOsWorkflowNonRequired(unittest.TestCase):
 
     def test_lint_yml_does_not_absorb_cross_os(self):
         self.assertTrue(LINT_YML.is_file(), f"{LINT_YML} not found")
-        hits = [tok for tok in FORBIDDEN_IN_LINT if tok in self.lint]
+        hits = _lint_absorption_hits(self.lint)
         self.assertEqual(
             hits,
             [],
             "lint.yml now references the cross-OS live-runner workflow / OS runners "
             f"({', '.join(hits)}). That would make the expensive, flaky macOS/Windows "
             "runs part of the REQUIRED lint pipeline and block merges. Keep cross-OS "
-            "checks in their own non-required workflow. If this is truly intended, "
-            "update FORBIDDEN_IN_LINT here with a justification.",
+            "checks in their own non-required workflow. The OS-runner match is "
+            "version-agnostic (macos-14/windows-2022 etc.), so a version-bumped "
+            "label cannot slip past.",
         )
 
     def test_cross_os_job_names_do_not_collide_with_required_contexts(self):
-        # Required contexts are "Lint" and "Security Scan Gate". A cross-OS job
-        # display name matching either would let it masquerade as a required check.
-        for ctx in ("Security Scan Gate",):
+        # A cross-OS job display name matching EITHER required context
+        # ("Lint" or "Security Scan Gate") would let it masquerade as a required
+        # check — both must be checked (the audit found "Lint" was omitted).
+        for ctx in REQUIRED_CONTEXTS:
             self.assertNotRegex(
                 self.cross,
                 rf"(?m)^\s*name:\s*{re.escape(ctx)}\s*$",
@@ -122,6 +145,37 @@ class TestCrossOsScanScoping(unittest.TestCase):
 
     def test_live_runner_is_counted(self):
         self.assertIn("macos-latest", active_scan("        runs-on: macos-latest"))
+
+
+class TestCrossOsGuardSelfTest(unittest.TestCase):
+    """Mutation self-tests for the version-agnostic / both-contexts hardening."""
+
+    def test_version_pinned_runner_is_detected(self):
+        # The audit bypass: fold OS jobs in with `macos-14`/`windows-2022` labels
+        # that the old fixed `macos-latest`/`windows-latest` list missed.
+        mutant = (
+            "name: Lint\njobs:\n  lint-gate:\n    needs: [os-matrix]\n"
+            "  os-matrix:\n    strategy:\n      matrix:\n"
+            "        os: [macos-14, windows-2022]\n    runs-on: ${{ matrix.os }}\n"
+        )
+        hits = _lint_absorption_hits(mutant)
+        self.assertIn("macos-14", hits)
+        self.assertIn("windows-2022", hits)
+
+    def test_prose_comment_runner_is_not_flagged(self):
+        # A commented-out runner label must NOT trip the guard (comment-immune).
+        clean = (
+            "name: Lint\njobs:\n"
+            "  test:\n    runs-on: ubuntu-latest  # not macos-14, never\n"
+            "    steps:\n      - run: bash scanner/tests/test_check_macos_cis.sh\n"
+        )
+        self.assertEqual(_lint_absorption_hits(clean), [])
+
+    def test_lint_named_cross_os_job_collides(self):
+        # A cross-OS job named exactly "Lint" must be caught (the omitted context).
+        mutant = "jobs:\n  live-os-checks:\n    name: Lint\n    runs-on: macos-14\n"
+        self.assertRegex(mutant, r"(?m)^\s*name:\s*Lint\s*$")
+        self.assertIn("Lint", REQUIRED_CONTEXTS)
 
 
 if __name__ == "__main__":
