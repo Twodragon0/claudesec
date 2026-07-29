@@ -31,7 +31,7 @@ TLS_SH = REPO_ROOT / "scanner" / "checks" / "network" / "tls.sh"
 # Shared comment-stripping primitive. Import as a top-level module so it resolves
 # under both pytest and `python3 -m unittest`.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_comment_lines  # noqa: E402
+from _ci_guard_util import strip_comment_lines, strip_inline_comment  # noqa: E402
 
 
 def net005_section(text: str) -> str:
@@ -41,8 +41,11 @@ def net005_section(text: str) -> str:
     Stripping comments is load-bearing: a `fail "NET-005" ... "critical"`
     surviving only in a comment must NOT satisfy the escalation check while the
     active code has been silently downgraded to a mere WARN (ADR-001 §1; the same
-    class as the `# exit 1` Security-Scan-Gate evasion, #271). The banner search
-    runs on the RAW lines (the delimiter IS a comment) before stripping."""
+    class as the `# exit 1` Security-Scan-Gate evasion, #271). BOTH whole-line
+    (`strip_comment_lines`) AND trailing-inline (`strip_inline_comment`) comments
+    are removed — a `fail ... "critical"` riding a trailing comment on the active
+    `warn` line is the same evasion. The banner search runs on the RAW lines (the
+    delimiter IS a comment) before stripping."""
     lines = text.splitlines()
     start = next(
         (i for i, ln in enumerate(lines) if "NET-005" in ln and ln.lstrip().startswith("#")),
@@ -56,7 +59,8 @@ def net005_section(text: str) -> str:
         if s.startswith("# NET-") and "NET-005" not in lines[j]:
             end = j
             break
-    return strip_comment_lines("\n".join(lines[start:end]))
+    body = strip_comment_lines("\n".join(lines[start:end]))
+    return "\n".join(strip_inline_comment(ln) for ln in body.splitlines())
 
 
 class TestNet005FailEscalation(unittest.TestCase):
@@ -128,6 +132,20 @@ class TestNet005SectionMutation(unittest.TestCase):
         ]
     )
 
+    # Active code WARNs, but the CRITICAL `fail` rides a TRAILING inline comment
+    # on the active `warn` line — `strip_comment_lines` (whole-line only) does not
+    # touch it; `strip_inline_comment` must.
+    _TRAILING_COMMENT_EVASION = "\n".join(
+        [
+            "# NET-005: Firewall rules (cloud/IaC)",
+            "if files_contain \"*.tf\" '(0\\.0\\.0\\.0/0.*22|port.*22.*0\\.0\\.0\\.0/0)'; then",
+            '  warn "NET-005" "Ingress rule allows 0.0.0.0/0" "Review"  '
+            '# fail "NET-005" "SSH open to 0.0.0.0/0" "critical"',
+            "fi",
+            "# NET-006: next check",
+        ]
+    )
+
     _RX = r'fail\s+"NET-005"[^\n]*"critical"'
 
     def test_critical_fail_in_comment_does_not_satisfy_escalation(self):
@@ -135,6 +153,13 @@ class TestNet005SectionMutation(unittest.TestCase):
             net005_section(self._COMMENT_EVASION), self._RX,
             "comment-evasion regression: a `# fail ... critical` comment satisfied "
             "the NET-005 escalation check while the active code only WARNs.",
+        )
+
+    def test_critical_fail_in_trailing_comment_does_not_satisfy_escalation(self):
+        self.assertNotRegex(
+            net005_section(self._TRAILING_COMMENT_EVASION), self._RX,
+            "trailing-inline comment-evasion regression: a `warn ...  # fail ... "
+            "critical` line satisfied the NET-005 escalation check.",
         )
 
     def test_active_critical_fail_is_recognized(self):

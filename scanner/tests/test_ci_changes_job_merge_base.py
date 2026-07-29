@@ -41,7 +41,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 LINT_YML = REPO_ROOT / ".github" / "workflows" / "lint.yml"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import join_continuations, strip_comment_lines  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    join_continuations,
+    strip_comment_lines,
+    strip_inline_comment,
+)
 
 # The PR-event three-dot diff, with backslash-continuations joined onto one line.
 _PR_DIFF_RE = re.compile(
@@ -54,11 +58,14 @@ _BASE_FETCH_RE = re.compile(r'git fetch origin "\$BASE_SHA"(?!\s+--depth=1)')
 
 
 def _joined(text: str) -> str:
-    # Drop whole-line `#` comments BEFORE joining/scanning so a required token
-    # (the `|| git diff` fallback, the non-shallow base fetch) surviving only in
-    # a comment cannot satisfy a presence check while the active code has
-    # regressed to the fragile shallow/no-fallback form (ADR-001 §1).
-    return join_continuations(strip_comment_lines(text))
+    # Drop BOTH whole-line `#` comments AND trailing inline `# ...` comments
+    # BEFORE joining/scanning so a required token (the `|| git diff` fallback, the
+    # non-shallow base fetch) surviving only in a comment — whole-line OR trailing
+    # on the active shallow/no-fallback line — cannot satisfy a presence check
+    # (ADR-001 §1).
+    body = strip_comment_lines(text)
+    body = "\n".join(strip_inline_comment(ln) for ln in body.splitlines())
+    return join_continuations(body)
 
 
 def violations(text: str) -> list:
@@ -135,6 +142,15 @@ class TestChangesJobMergeBaseMutation(unittest.TestCase):
     def test_bad_form_is_detected(self):
         self.assertEqual(len(violations(self._BAD)), 2, violations(self._BAD))
 
+    # Active code is _BAD, but the good tokens survive ONLY in TRAILING inline
+    # comments on those active lines (whole-line stripping alone misses this).
+    _TRAILING_COMMENT_EVASION = (
+        'git fetch origin "$BASE_SHA" --depth=1 >/dev/null 2>&1 || true  '
+        '# git fetch origin "$BASE_SHA" >/dev/null 2>&1 || true\n'
+        'FILES=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA")  '
+        '# 2>/dev/null || git diff --name-only HEAD~1..HEAD\n'
+    )
+
     def test_comment_only_survival_is_detected(self):
         # ADR-001 §1: a token living only in a `#` comment must NOT satisfy the
         # invariant. Both controls are absent from the active code, so both
@@ -144,6 +160,15 @@ class TestChangesJobMergeBaseMutation(unittest.TestCase):
             "comment-evasion regression: the fallback/deepened-fetch tokens "
             "survived only in comments but the guard did not fire — "
             f"got {violations(self._COMMENT_EVASION)}",
+        )
+
+    def test_trailing_comment_survival_is_detected(self):
+        # The good tokens ride TRAILING comments on the active _BAD lines.
+        self.assertEqual(
+            len(violations(self._TRAILING_COMMENT_EVASION)), 2,
+            "trailing-comment-evasion regression: the fallback/deepened-fetch "
+            "tokens survived only in trailing comments on the active lines but "
+            f"the guard did not fire — got {violations(self._TRAILING_COMMENT_EVASION)}",
         )
 
 

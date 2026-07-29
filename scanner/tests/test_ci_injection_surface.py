@@ -95,8 +95,16 @@ _RUN_RE = re.compile(r"^(\s*(?:-\s+)?)run:\s?(.*)$")
 # Flow-style step mapping — `steps: [{name: x, run: "cmd"}]` — puts `run:`
 # mid-line after a `{`/`,`, so the line-anchored block scan above never sees it.
 # Match each flow-style run value (double/single-quoted or bare) so its `${{ }}`
-# interpolations are scanned too. Grammar-complete over line-start-only per
+# interpolations are scanned too. Closes the single-physical-line flow form per
 # ADR-001 §4 (flow style is spec-standard YAML sugar, not an edge form).
+#
+# KNOWN LIMITATION (backlog, catalog "Quarterly audit 2026-07-28"): a flow-style
+# run value whose quoted string SPANS MULTIPLE physical lines is not reassembled
+# here — the closing quote must be on the same line. A full flow-YAML string
+# scanner is infeasible under the stdlib-only / no-PyYAML constraint; the risk is
+# minimal (a multi-line-quoted flow-style `run:` string is a pathological form no
+# author writes) and is tracked rather than half-closed with a fragile
+# bracket-depth heuristic that could false-positive on block-scalar shell bodies.
 _FLOW_RUN_RE = re.compile(
     r"""[{,]\s*run:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^,}\]]+)"""
 )
