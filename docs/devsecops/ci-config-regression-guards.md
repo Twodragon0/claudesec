@@ -219,9 +219,17 @@ control" regression path, the exact class ADR-001 §1/§3 target):**
   bash starts a comment after a command separator (`;`/`&`/`|`) with no space.
   Added a quote-aware, bash-word-boundary `strip_inline_comment_sh` and routed
   the three shell-scanning guards (`security_gate`, `net005_fail_escalation`,
-  `changes_job_merge_base`) through it (+ metachar mutation tests). The
-  whitespace-only `strip_inline_comment` is retained for YAML/Dockerfile callers,
-  where `;#` is literal scalar content, not a comment.
+  `changes_job_merge_base`) through it (+ metachar AND backtick mutation tests).
+  The comment-start boundary set (whitespace + the bash metacharacters
+  `;`/`&`/`|`/`(`/`)`/`<`/`>` + backtick) was proven complete by enumerating
+  every ASCII preceding char against real `bash` (a further review pass found the
+  backtick `` `#… ` `` form after the initial metachar set; both are now closed
+  and confirmed). The whitespace-only `strip_inline_comment` is retained for
+  YAML/Dockerfile callers, where `;#` is literal scalar content, not a comment.
+  Documented **over-strip** limitations (opposite direction — they drop live text
+  → a false ALARM, never a silent bypass; none is triggered by the scanned
+  blocks): cross-line quoted strings, ANSI-C `$'...'` escaping, and heredoc
+  bodies are not modeled (see the `strip_inline_comment_sh` docstring).
 - `test_ci_injection_surface.py` — the twice-hardened block-scalar rule still
   missed single-line flow-style step mappings
   (`steps: [{run: "…${{ github.event.* }}…"}]`), leaving that `run:` body

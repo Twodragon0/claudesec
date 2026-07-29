@@ -337,6 +337,18 @@ class TestSeverityBlockCommentEvasion(unittest.TestCase):
             "surviving only in a comment must NOT satisfy the CRITICAL merge-block.",
         )
 
+    def test_backtick_commented_exit_one_does_not_satisfy(self):
+        # `` `#exit 1` `` — a `#` right after an opening backtick is also a real
+        # bash comment (4th-pass finding).
+        mutant = 'if [ "$CRITS" -gt 0 ]; then\n  echo "downgraded"`#exit 1`\nfi'
+        body = conditional_body_from(mutant, "CRITS") or ""
+        self.assertNotRegex(
+            body,
+            r"\bexit\s+1\b",
+            "backtick comment-evasion: a `` `#exit 1` `` surviving only in a "
+            "comment must NOT satisfy the CRITICAL merge-block.",
+        )
+
     def test_real_exit_one_satisfies(self):
         good = 'if [ "$CRITS" -gt 0 ]; then\n  exit 1\nfi'
         self.assertRegex(conditional_body_from(good, "CRITS"), r"\bexit\s+1\b")

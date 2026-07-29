@@ -56,6 +56,16 @@ class TestStripInlineCommentSh(unittest.TestCase):
         )
         self.assertEqual(strip_inline_comment_sh("cmd >#not-a-file"), "cmd >")
 
+    def test_strips_after_backtick(self):
+        # `` `#cmd` `` — a `#` right after an opening backtick starts a comment.
+        self.assertEqual(strip_inline_comment_sh("echo x`#exit 1`"), "echo x`")
+
+    def test_preserves_backtick_hash_inside_quotes(self):
+        # inside double quotes the whole thing is literal string data.
+        self.assertEqual(
+            strip_inline_comment_sh('echo "x`#y`"'), 'echo "x`#y`"'
+        )
+
     def test_start_of_line_is_a_comment(self):
         self.assertEqual(strip_inline_comment_sh("#whole"), "")
 

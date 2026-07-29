@@ -191,6 +191,22 @@ class TestChangesJobMergeBaseMutation(unittest.TestCase):
             f"the guard did not fire — got {violations(self._METACHAR_COMMENT_EVASION)}",
         )
 
+    # The good tokens ride `` `#... ` `` backtick comments (4th-pass finding).
+    _BACKTICK_COMMENT_EVASION = (
+        'git fetch origin "$BASE_SHA" --depth=1 >/dev/null 2>&1 || true`'
+        '#git fetch origin "$BASE_SHA" >/dev/null 2>&1 || true`\n'
+        'FILES=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA")`'
+        '#2>/dev/null || git diff --name-only HEAD~1..HEAD`\n'
+    )
+
+    def test_backtick_comment_survival_is_detected(self):
+        self.assertEqual(
+            len(violations(self._BACKTICK_COMMENT_EVASION)), 2,
+            "backtick-comment-evasion regression: the fallback/deepened-fetch "
+            "tokens survived only in `` `#... ` `` bash comments but the guard did "
+            f"not fire — got {violations(self._BACKTICK_COMMENT_EVASION)}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

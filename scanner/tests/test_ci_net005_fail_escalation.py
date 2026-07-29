@@ -177,12 +177,32 @@ class TestNet005SectionMutation(unittest.TestCase):
             "critical` line satisfied the NET-005 escalation check.",
         )
 
+    # `` `#... ` `` — a `#` right after an opening backtick is also a real bash
+    # comment (4th-pass finding); the tail never runs.
+    _BACKTICK_COMMENT_EVASION = "\n".join(
+        [
+            "# NET-005: Firewall rules (cloud/IaC)",
+            "if files_contain \"*.tf\" '(0\\.0\\.0\\.0/0.*22|port.*22.*0\\.0\\.0\\.0/0)'; then",
+            '  warn "NET-005" "Ingress rule allows 0.0.0.0/0" "Review"`'
+            '#fail "NET-005" "SSH open to 0.0.0.0/0" "critical"`',
+            "fi",
+            "# NET-006: next check",
+        ]
+    )
+
     def test_critical_fail_in_metachar_comment_does_not_satisfy_escalation(self):
         self.assertNotRegex(
             net005_section(self._METACHAR_COMMENT_EVASION), self._RX,
             "metachar-adjacent comment-evasion regression: a `warn ...;#fail ... "
             "critical` line (real bash comment, no space) satisfied the escalation "
             "check.",
+        )
+
+    def test_critical_fail_in_backtick_comment_does_not_satisfy_escalation(self):
+        self.assertNotRegex(
+            net005_section(self._BACKTICK_COMMENT_EVASION), self._RX,
+            "backtick comment-evasion regression: a `` warn ...`#fail ... critical` "
+            "`` line satisfied the escalation check.",
         )
 
     def test_active_critical_fail_is_recognized(self):
