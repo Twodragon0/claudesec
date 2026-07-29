@@ -31,7 +31,7 @@ TLS_SH = REPO_ROOT / "scanner" / "checks" / "network" / "tls.sh"
 # Shared comment-stripping primitive. Import as a top-level module so it resolves
 # under both pytest and `python3 -m unittest`.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_comment_lines, strip_inline_comment  # noqa: E402
+from _ci_guard_util import strip_comment_lines, strip_inline_comment_sh  # noqa: E402
 
 
 def net005_section(text: str) -> str:
@@ -42,10 +42,12 @@ def net005_section(text: str) -> str:
     surviving only in a comment must NOT satisfy the escalation check while the
     active code has been silently downgraded to a mere WARN (ADR-001 §1; the same
     class as the `# exit 1` Security-Scan-Gate evasion, #271). BOTH whole-line
-    (`strip_comment_lines`) AND trailing-inline (`strip_inline_comment`) comments
-    are removed — a `fail ... "critical"` riding a trailing comment on the active
-    `warn` line is the same evasion. The banner search runs on the RAW lines (the
-    delimiter IS a comment) before stripping."""
+    (`strip_comment_lines`) AND trailing-inline SHELL (`strip_inline_comment_sh`)
+    comments are removed — a `fail ... "critical"` riding a trailing comment on
+    the active `warn` line is the same evasion, INCLUDING the bash
+    command-separator form (`warn ...;#fail ... "critical"`) that a whitespace-only
+    stripper misses. The banner search runs on the RAW lines (the delimiter IS a
+    comment) before stripping."""
     lines = text.splitlines()
     start = next(
         (i for i, ln in enumerate(lines) if "NET-005" in ln and ln.lstrip().startswith("#")),
@@ -60,7 +62,7 @@ def net005_section(text: str) -> str:
             end = j
             break
     body = strip_comment_lines("\n".join(lines[start:end]))
-    return "\n".join(strip_inline_comment(ln) for ln in body.splitlines())
+    return "\n".join(strip_inline_comment_sh(ln) for ln in body.splitlines())
 
 
 class TestNet005FailEscalation(unittest.TestCase):
@@ -155,11 +157,32 @@ class TestNet005SectionMutation(unittest.TestCase):
             "the NET-005 escalation check while the active code only WARNs.",
         )
 
+    # No space before `#`: bash treats `;#...` as a real comment. A
+    # whitespace-only stripper misses it (ADR-001 §1, 3rd-pass finding).
+    _METACHAR_COMMENT_EVASION = "\n".join(
+        [
+            "# NET-005: Firewall rules (cloud/IaC)",
+            "if files_contain \"*.tf\" '(0\\.0\\.0\\.0/0.*22|port.*22.*0\\.0\\.0\\.0/0)'; then",
+            '  warn "NET-005" "Ingress rule allows 0.0.0.0/0" "Review";'
+            '#fail "NET-005" "SSH open to 0.0.0.0/0" "critical"',
+            "fi",
+            "# NET-006: next check",
+        ]
+    )
+
     def test_critical_fail_in_trailing_comment_does_not_satisfy_escalation(self):
         self.assertNotRegex(
             net005_section(self._TRAILING_COMMENT_EVASION), self._RX,
             "trailing-inline comment-evasion regression: a `warn ...  # fail ... "
             "critical` line satisfied the NET-005 escalation check.",
+        )
+
+    def test_critical_fail_in_metachar_comment_does_not_satisfy_escalation(self):
+        self.assertNotRegex(
+            net005_section(self._METACHAR_COMMENT_EVASION), self._RX,
+            "metachar-adjacent comment-evasion regression: a `warn ...;#fail ... "
+            "critical` line (real bash comment, no space) satisfied the escalation "
+            "check.",
         )
 
     def test_active_critical_fail_is_recognized(self):

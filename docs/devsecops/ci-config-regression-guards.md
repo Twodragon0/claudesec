@@ -210,6 +210,18 @@ control" regression path, the exact class ADR-001 §1/§3 target):**
 - `test_ci_dependabot_config.py` — used `non_comment_lines` (whole-line only); a
   required ecosystem token rode a trailing inline comment → now composes
   `strip_inline_comment` + mutation test.
+- `test_ci_security_gate.py` (**required `Security Scan Gate` merge-block**, the
+  #271 F-1 incident class) — surfaced by the mandated ADR-001 §2 review chain: a
+  `;#exit 1` (a REAL bash comment — no space before `#`, verified the `exit 1`
+  never runs) survived `strip_inline_comment` and satisfied the CRITICAL
+  merge-block check while the active code was warn-only. Root cause was the
+  SHARED primitive: `strip_inline_comment` required whitespace before `#`, but
+  bash starts a comment after a command separator (`;`/`&`/`|`) with no space.
+  Added a quote-aware, bash-word-boundary `strip_inline_comment_sh` and routed
+  the three shell-scanning guards (`security_gate`, `net005_fail_escalation`,
+  `changes_job_merge_base`) through it (+ metachar mutation tests). The
+  whitespace-only `strip_inline_comment` is retained for YAML/Dockerfile callers,
+  where `;#` is literal scalar content, not a comment.
 - `test_ci_injection_surface.py` — the twice-hardened block-scalar rule still
   missed single-line flow-style step mappings
   (`steps: [{run: "…${{ github.event.* }}…"}]`), leaving that `run:` body

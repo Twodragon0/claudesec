@@ -29,15 +29,22 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import extract_on_block, strip_inline_comment  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    extract_on_block,
+    strip_inline_comment,
+    strip_inline_comment_sh,
+)
 
 
 def conditional_body_from(text, var):
     """The body of `if [ "$<var>" -gt 0 ]; then ... fi`.
 
-    Trailing inline `#` comments are stripped per line first, so a commented-out
-    `# exit 1` can neither satisfy nor falsely trip the severity-block checks
-    (comment-evasion class, F-1). The closing `fi` is found by a BALANCED if/fi
+    Trailing inline shell `#` comments are stripped per line first, so a
+    commented-out `# exit 1` — INCLUDING the bash command-separator form
+    `;#exit 1` (a real comment with no preceding space, which a whitespace-only
+    stripper misses) — can neither satisfy nor falsely trip the severity-block
+    checks (comment-evasion class, F-1; 3rd-pass finding). The closing `fi` is
+    found by a BALANCED if/fi
     depth count — NOT the first `fi` — so a nested `if … fi` inside the block (or
     a heredoc) cannot terminate the capture early and hide a trailing `exit 1`
     (2nd-review Finding 1). `elif`/`else`/`then` are not `\\bfi\\b`/`\\bif\\b`
@@ -51,7 +58,7 @@ def conditional_body_from(text, var):
         return None
     # Comment-stripped remainder after the CRITS `then` (so a `# fi`/`# if` in a
     # comment cannot skew the depth count).
-    rest = "\n".join(strip_inline_comment(ln) for ln in text[m.end():].splitlines())
+    rest = "\n".join(strip_inline_comment_sh(ln) for ln in text[m.end():].splitlines())
     depth, end = 1, len(rest)
     for tk in re.finditer(r"\bif\b|\bfi\b", rest):
         depth += 1 if tk.group(0) == "if" else -1
@@ -315,6 +322,19 @@ class TestSeverityBlockCommentEvasion(unittest.TestCase):
             r"\bexit\s+1\b",
             "comment-evasion: a `# exit 1` surviving only in a comment must NOT "
             "satisfy the CRITICAL merge-block check.",
+        )
+
+    def test_metachar_commented_exit_one_does_not_satisfy(self):
+        # `;#exit 1` is a REAL bash comment (verified: the exit never runs) with
+        # no space before `#` — a whitespace-only stripper misses it (3rd-pass
+        # CRITICAL finding). The gate would falsely certify the merge-block intact.
+        mutant = 'if [ "$CRITS" -gt 0 ]; then\n  echo "no longer blocking";#exit 1\nfi'
+        body = conditional_body_from(mutant, "CRITS") or ""
+        self.assertNotRegex(
+            body,
+            r"\bexit\s+1\b",
+            "metachar comment-evasion: a `;#exit 1` (real bash comment, no space) "
+            "surviving only in a comment must NOT satisfy the CRITICAL merge-block.",
         )
 
     def test_real_exit_one_satisfies(self):

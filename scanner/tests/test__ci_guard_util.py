@@ -19,6 +19,7 @@ from _ci_guard_util import (  # noqa: E402
     extract_on_block,
     strip_comment_lines,
     strip_inline_comment,
+    strip_inline_comment_sh,
     top_level_jobs,
 )
 
@@ -30,6 +31,38 @@ class TestStripInlineComment(unittest.TestCase):
     def test_requires_whitespace_before_hash(self):
         # `foo#bar` is not a shell comment — a `#` with no preceding space stays.
         self.assertEqual(strip_inline_comment("image@sha256:dead#beef"), "image@sha256:dead#beef")
+
+
+class TestStripInlineCommentSh(unittest.TestCase):
+    """Bash-aware trailing-comment stripping: `#` at a command-separator boundary
+    (`;#`/`&#`/`|#`) is a real bash comment even with no preceding space."""
+
+    def test_strips_after_whitespace(self):
+        self.assertEqual(strip_inline_comment_sh("exit 1  # done"), "exit 1")
+
+    def test_strips_semicolon_adjacent(self):
+        # The proven Security-Scan-Gate evasion: `;#exit 1` is a real comment.
+        self.assertEqual(strip_inline_comment_sh('echo x;#exit 1'), "echo x;")
+
+    def test_strips_amp_and_pipe_adjacent(self):
+        self.assertEqual(strip_inline_comment_sh("a &#c"), "a &")
+        self.assertEqual(strip_inline_comment_sh("a |#c"), "a |")
+
+    def test_start_of_line_is_a_comment(self):
+        self.assertEqual(strip_inline_comment_sh("#whole"), "")
+
+    def test_preserves_midword_hash(self):
+        # Not a word boundary → literal, not a comment.
+        self.assertEqual(strip_inline_comment_sh("echo foo#bar"), "echo foo#bar")
+
+    def test_preserves_param_length_expansion(self):
+        self.assertEqual(strip_inline_comment_sh("echo ${#arr[@]}"), "echo ${#arr[@]}")
+
+    def test_preserves_hash_inside_quotes(self):
+        self.assertEqual(
+            strip_inline_comment_sh('echo "a # b" ; run'), 'echo "a # b" ; run'
+        )
+        self.assertEqual(strip_inline_comment_sh("echo 'a;#b'"), "echo 'a;#b'")
 
 
 class TestExtractOnBlockF7(unittest.TestCase):

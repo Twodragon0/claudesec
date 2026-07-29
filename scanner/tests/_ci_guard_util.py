@@ -57,8 +57,73 @@ def strip_inline_comment(line: str) -> str:
     before the `#` so a `#` inside a token (a URL fragment, a quoted value) is
     not stripped. Per-line and distinct from strip_comment_lines/non_comment_lines,
     which drop WHOLE comment lines from a multi-line text — several guards need
-    the trailing-comment form when scanning one `run:`/`uses:` line at a time."""
+    the trailing-comment form when scanning one `run:`/`uses:` line at a time.
+
+    Whitespace-only boundary: correct for YAML/Dockerfile lines (where `;#` is
+    literal scalar content, NOT a comment). For SHELL lines use
+    `strip_inline_comment_sh`, because bash starts a comment after a command
+    separator with no intervening space (`echo x;#exit 1`)."""
     return re.sub(r"\s+#.*$", "", line)
+
+
+# Bash word-boundary chars after which a `#` begins a comment with NO preceding
+# whitespace (`;#`, `&#`, `|#`). Conservative set: unambiguous command
+# separators only — NOT `{`/`(` (they collide with `${#var}` length expansion and
+# `$(` command substitution).
+_SH_COMMENT_BOUNDARY = " \t;&|"
+
+
+def strip_inline_comment_sh(line: str) -> str:
+    """A SINGLE shell line with its trailing bash comment removed, quote-aware.
+
+    Unlike `strip_inline_comment` (whitespace-only), a `#` here begins a comment
+    when it sits at a bash word boundary — start-of-line, whitespace, OR a command
+    separator (`;`, `&`, `|`) — AND is not inside a single-/double-quoted string.
+    Real bash treats `echo x;#exit 1` as a comment (the `exit 1` never runs) with
+    no space before `#`; a whitespace-only stripper misses it, letting a token
+    that survives only in such a comment satisfy a shell-scanning guard's presence
+    check (ADR-001 §1; the class that hid a `;#exit 1` from the Security-Scan-Gate
+    guard). A `#` inside quotes, or mid-word (`foo#bar`, `${#var}`), is preserved."""
+    in_s = in_d = False
+    prev = ""  # previous unescaped char; "" == start-of-line boundary
+    i, n = 0, len(line)
+    while i < n:
+        c = line[i]
+        if in_s:  # single quotes: no escaping in bash
+            if c == "'":
+                in_s = False
+            prev = c
+            i += 1
+            continue
+        if in_d:
+            if c == "\\" and i + 1 < n:
+                prev = "x"
+                i += 2
+                continue
+            if c == '"':
+                in_d = False
+            prev = c
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:  # unquoted escape
+            prev = "x"
+            i += 2
+            continue
+        if c == "'":
+            in_s = True
+            prev = c
+            i += 1
+            continue
+        if c == '"':
+            in_d = True
+            prev = c
+            i += 1
+            continue
+        if c == "#" and (prev == "" or prev in _SH_COMMENT_BOUNDARY):
+            return line[:i].rstrip()
+        prev = c
+        i += 1
+    return line
 
 
 def top_level_jobs(text: str) -> list:
