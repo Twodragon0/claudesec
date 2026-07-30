@@ -96,11 +96,16 @@ ALLOWLIST: list[tuple[str, str]] = [
 # ERE-context detection heuristics
 # ---------------------------------------------------------------------------
 
-# Regex that matches a line containing grep in ERE mode — the short `-…E` flag
-# combination (grep -qE, grep -E, grep -nrE, grep -rE) OR the GNU long option
-# `--extended-regexp` (which has no uppercase `E` token, so the short-flag branch
-# would miss it — an audit-found bypass).
-_GREP_E_RE = re.compile(r"\bgrep\b[^|&;\n]*(?:-[A-Za-z]*E|--extended-regexp)")
+# Regex that matches a line invoking grep in ERE mode:
+#   * `egrep` — IMPLICITLY ERE (no flag needed); `\bgrep\b` never matches it (no
+#     word boundary between `e` and `grep`), so it needs its own alternative
+#     (ADR-001 §2 audit bypass); OR
+#   * `grep` with the short `-…E` flag combination (grep -qE, -E, -nrE, -rE) OR
+#     the GNU long option `--extended-regexp` (no uppercase `E`, so the short-flag
+#     branch alone would miss it — an earlier audit bypass).
+_GREP_E_RE = re.compile(
+    r"\begrep\b|\bgrep\b[^|&;\n]*(?:-[A-Za-z]*E|--extended-regexp)"
+)
 
 # The named helpers in scanner/lib/checks.sh and injection.sh that internally
 # call grep -E.  Match the function name followed by its first argument quote.
@@ -375,6 +380,19 @@ class TestMutationSelfTest(unittest.TestCase):
         snippet = "  grep -Ei 'foo\\|bar' \"$file\""
         hits = _scan_text_lines(snippet, "synthetic.sh")
         self.assertTrue(hits, "regression: grep -Ei no longer detected")
+
+    def test_detects_egrep_backslash_pipe(self):
+        # Audit finding (ADR-001 §2): `\bgrep\b` never matches `egrep` (no word
+        # boundary between `e` and `grep`), and `egrep` is IMPLICITLY ERE (no `-E`
+        # flag), so the `-…E`/`--extended-regexp` branch also misses it — an
+        # `egrep 'a\|b'` literal-pipe bug slipped past entirely.
+        snippet = "  egrep 'foo\\|bar' \"$file\""
+        hits = _scan_text_lines(snippet, "synthetic.sh")
+        self.assertTrue(
+            hits,
+            "MUTATION SELF-TEST FAILED: egrep 'foo\\\\|bar' (implicit ERE) should "
+            "be detected but was NOT flagged.",
+        )
 
     def test_detects_files_contain_helper_with_backslash_pipe(self):
         snippet = '  files_contain "*.py" "import\\|require"'

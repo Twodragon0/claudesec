@@ -40,26 +40,59 @@ LINT_YML = WORKFLOW_DIR / "lint.yml"
 # Name tokens that, if they appear in lint.yml, mean the OS-runner jobs were
 # pulled into the required lint pipeline (the exact regression this guards).
 FORBIDDEN_NAME_TOKENS = ("cross-os", "live-os-checks")
-# Any macOS/Windows runner label, VERSION-AGNOSTIC — `macos-latest`, `macos-14`,
-# `windows-latest`, `windows-2022`, … The hyphen is required so it never matches
-# a test-script name like `test_check_macos_cis_security.sh` (`macos_`) or a path
-# like `macos/cis-security` (`macos/`); only real runner labels use `<os>-<ver>`.
-_OS_RUNNER_RE = re.compile(r"\b(?:macos|windows)-[a-z0-9.]+\b")
+# Any macOS/Windows runner label, VERSION-AGNOSTIC and case-INSENSITIVE —
+# `macos-latest`, `macos-14`, `macOS-14`, `windows-latest`, `windows-2022`, …
+# GitHub runner labels are case-insensitive, so `macOS-14` is the same runner as
+# `macos-14` (without IGNORECASE the capitalized form evaded — ADR-001 §2). The
+# hyphen is required so it never matches a test-script name like
+# `test_check_macos_cis_security.sh` (`macos_`) or a path `macos/cis-security`.
+_OS_RUNNER_RE = re.compile(r"\b(?:macos|windows)-[a-z0-9.]+\b", re.IGNORECASE)
+
+# A runner label only counts when it appears in a RUNNER context — a `runs-on:`
+# key or a matrix `os:` key (scalar, flow-array, or block-list items) — NOT in
+# arbitrary `run:`/`name:` text. `windows-1252` (a charset) and `macos-universal`
+# (a build arch) share the runner-label SHAPE but are not runners; scoping to the
+# context is the only way to exclude them without also dropping real `<os>-<ver>`
+# labels, since a charset like `windows-1252` is indistinguishable by shape from a
+# version like `windows-2022` (ADR-001 §2 false-positive finding).
+_RUNNER_KEY_RE = re.compile(r"^(\s*)(?:runs-on|os)\s*:(.*)$")
+_LIST_ITEM_RE = re.compile(r"^(\s*)-\s*(.+)$")
 
 # Required branch-protection contexts a cross-OS job name must NOT collide with.
 REQUIRED_CONTEXTS = ("Lint", "Security Scan Gate")
 
 
 def _lint_absorption_hits(lint_text: str) -> list:
-    """OS-runner / cross-OS references in lint.yml, comment-immune. Whole-line
-    AND trailing inline `#` comments are stripped so a prose mention of a runner
-    can't false-positive, then name tokens + version-agnostic OS runner labels
-    are collected."""
-    stripped = "\n".join(
+    """OS-runner / cross-OS references in lint.yml, comment-immune and context-
+    scoped. Whole-line AND trailing inline `#` comments are stripped first (a
+    prose mention of a runner can't false-positive), then OS-runner labels are
+    collected ONLY from `runs-on:`/matrix `os:` contexts (scalar, flow-array, or
+    a following block list) so a charset/arch token in `run:`/`name:` text does
+    not false-trip this REQUIRED-lint guard, while the match stays version- and
+    case-agnostic. FORBIDDEN_NAME_TOKENS stay a whole-text scan (job/workflow
+    references, not runner labels)."""
+    lines = [
         strip_inline_comment(ln) for ln in strip_comment_lines(lint_text).splitlines()
-    )
-    hits = [tok for tok in FORBIDDEN_NAME_TOKENS if tok in stripped]
-    hits += sorted(set(_OS_RUNNER_RE.findall(stripped)))
+    ]
+    labels: list = []
+    in_os_list, key_indent = False, -1
+    for ln in lines:
+        key = _RUNNER_KEY_RE.match(ln)
+        if key:
+            key_indent = len(key.group(1))
+            labels += _OS_RUNNER_RE.findall(key.group(2))  # scalar or flow-array
+            in_os_list = key.group(2).strip() == ""  # bare key may head a block list
+            continue
+        if in_os_list:
+            item = _LIST_ITEM_RE.match(ln)
+            if item and len(item.group(1)) >= key_indent:
+                labels += _OS_RUNNER_RE.findall(item.group(2))
+                continue
+            if ln.strip():  # a non-list, non-blank line ends the block
+                in_os_list = False
+    text = "\n".join(lines)
+    hits = [tok for tok in FORBIDDEN_NAME_TOKENS if tok in text]
+    hits += sorted(set(labels))
     return hits
 
 
@@ -170,6 +203,47 @@ class TestCrossOsGuardSelfTest(unittest.TestCase):
             "    steps:\n      - run: bash scanner/tests/test_check_macos_cis.sh\n"
         )
         self.assertEqual(_lint_absorption_hits(clean), [])
+
+    def test_capitalized_runner_is_detected(self):
+        # GitHub runner labels are case-INSENSITIVE; `macOS-14` is the same runner
+        # as `macos-14`. A case-sensitive match lets the capitalized form evade.
+        mutant = "name: Lint\njobs:\n  os:\n    runs-on: macOS-14\n"
+        hits = _lint_absorption_hits(mutant)
+        self.assertIn("macOS-14", hits, "capitalized `macOS-14` runner evaded the guard")
+
+    def test_array_runs_on_capitalized_is_detected(self):
+        # Flow-array runs-on with a capitalized label must still be caught.
+        mutant = (
+            "name: Lint\njobs:\n  os:\n"
+            "    runs-on: [self-hosted, macOS-latest]\n"
+        )
+        self.assertIn("macOS-latest", _lint_absorption_hits(mutant))
+
+    def test_block_style_matrix_os_is_detected(self):
+        # Block-style matrix `os:` list (not just flow `[...]`) must be scanned.
+        mutant = (
+            "name: Lint\njobs:\n  os-matrix:\n    strategy:\n      matrix:\n"
+            "        os:\n          - macos-14\n          - windows-2022\n"
+            "    runs-on: ${{ matrix.os }}\n"
+        )
+        hits = _lint_absorption_hits(mutant)
+        self.assertIn("macos-14", hits)
+        self.assertIn("windows-2022", hits)
+
+    def test_charset_and_arch_tokens_are_not_flagged(self):
+        # `windows-1252` (charset) and `macos-universal` (arch) share the runner
+        # label SHAPE but live in `run:`/`name:` text, not a runner context. The
+        # match must be scoped so they do not false-trip the REQUIRED lint guard.
+        clean = (
+            "name: Lint\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n"
+            "      - run: iconv -f windows-1252 in.txt > out.txt\n"
+            "      - name: Build macos-universal bundle\n"
+        )
+        self.assertEqual(
+            _lint_absorption_hits(clean), [],
+            "a charset/arch token (windows-1252 / macos-universal) in run:/name: "
+            "text false-tripped the required-lint OS-runner guard.",
+        )
 
     def test_lint_named_cross_os_job_collides(self):
         # A cross-OS job named exactly "Lint" must be caught (the omitted context).
