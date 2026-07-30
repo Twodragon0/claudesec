@@ -226,10 +226,18 @@ control" regression path, the exact class ADR-001 §1/§3 target):**
   backtick `` `#… ` `` form after the initial metachar set; both are now closed
   and confirmed). The whitespace-only `strip_inline_comment` is retained for
   YAML/Dockerfile callers, where `;#` is literal scalar content, not a comment.
-  Documented **over-strip** limitations (opposite direction — they drop live text
-  → a false ALARM, never a silent bypass; none is triggered by the scanned
-  blocks): cross-line quoted strings, ANSI-C `$'...'` escaping, and heredoc
-  bodies are not modeled (see the `strip_inline_comment_sh` docstring).
+  A **5th-pass** review (ADR-001 §2) then found the ANSI-C `$'...'` case was NOT
+  an over-strip but an **UNDER-strip** (false negative): `$'\''` is one escape-
+  aware string, and a single-quote branch with no escape awareness ran off the
+  line "in a quote" and never stripped the trailing `#`, hiding a dead `exit 1`
+  from the gate. Modeled it (a `'` after an unescaped `$` opens an escape-aware
+  string) + added ANSI-C mutation tests to the primitive, `security_gate`, and
+  `net005_fail_escalation`. Remaining documented **over-strip** limitations
+  (opposite direction — they drop live text → a false ALARM, never a silent
+  bypass; none is triggered by the scanned blocks): cross-line quoted strings,
+  heredoc bodies, and a command substitution `$(...)` closing inside a word
+  (`x=$(cmd)#c` keeps `#c` literal, but the single preceding-char model cannot
+  tell that `)` from a subshell `)`) — see the `strip_inline_comment_sh` docstring.
 - `test_ci_injection_surface.py` — the twice-hardened block-scalar rule still
   missed single-line flow-style step mappings
   (`steps: [{run: "…${{ github.event.* }}…"}]`), leaving that `run:` body

@@ -205,6 +205,27 @@ class TestNet005SectionMutation(unittest.TestCase):
             "`` line satisfied the escalation check.",
         )
 
+    # `$'\''` is one ANSI-C string (escaped literal quote), so the trailing
+    # ` #fail ... critical` is a real bash comment — 5th-pass finding (ADR-001 §2).
+    # A single-quote stripper with no escape awareness misses it (UNDER-strip).
+    _ANSI_C_COMMENT_EVASION = "\n".join(
+        [
+            "# NET-005: Firewall rules (cloud/IaC)",
+            "if files_contain \"*.tf\" '(0\\.0\\.0\\.0/0.*22|port.*22.*0\\.0\\.0\\.0/0)'; then",
+            '  warn "NET-005" "Ingress rule allows 0.0.0.0/0" "Review" '
+            + r"""$'\'' #fail "NET-005" "SSH open to 0.0.0.0/0" "critical" """.rstrip(),
+            "fi",
+            "# NET-006: next check",
+        ]
+    )
+
+    def test_critical_fail_in_ansi_c_comment_does_not_satisfy_escalation(self):
+        self.assertNotRegex(
+            net005_section(self._ANSI_C_COMMENT_EVASION), self._RX,
+            "ANSI-C comment-evasion regression: a `warn ... $'\\'' #fail ... "
+            "critical` line (real bash comment) satisfied the escalation check.",
+        )
+
     def test_active_critical_fail_is_recognized(self):
         self.assertRegex(
             net005_section(self._ACTIVE_FAIL), self._RX,

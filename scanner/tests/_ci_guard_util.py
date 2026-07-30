@@ -89,21 +89,39 @@ def strip_inline_comment_sh(line: str) -> str:
     Security-Scan-Gate guard). A `#` inside quotes, or mid-word (`foo#bar`,
     `${#var}`), is preserved.
 
-    KNOWN LIMITATIONS (over-strip direction — they drop live text, causing a
+    ANSI-C `$'...'` quoting IS modeled: a `'` immediately preceded by an
+    unescaped `$` opens an escape-aware string (bash reads `\\'` as a literal
+    quote there), so `$'\\''` is one string and a trailing `#` is a real comment.
+    Missing this was an UNDER-strip (false NEGATIVE) that hid a dead `exit 1` from
+    the Security-Scan-Gate guard (ADR-001 §2 5th-pass finding), NOT the over-strip
+    the earlier docstring claimed.
+
+    KNOWN LIMITATIONS (all OVER-strip direction — they drop live text, causing a
     guard to see LESS, so a false ALARM, never a silent security bypass; none is
     triggered by the shell blocks the current guards scan, so they are documented
     rather than modeled): (1) per-line operation does not carry cross-line quote
     state, so a `#` on a continuation line of a multi-line double-quoted string is
-    treated as a comment; (2) ANSI-C `$'...'` quoting (with `\\'` escapes) is not
-    modeled — its single-quote branch has no escape awareness; (3) heredoc bodies
-    are not recognized, so a literal `;#` inside a heredoc would be stripped.
-    Revisit if a scanned guard block ever adopts one of these forms."""
-    in_s = in_d = False
+    treated as a comment; (2) heredoc bodies are not recognized, so a literal `;#`
+    inside a heredoc would be stripped; (3) a command substitution `$(...)` closing
+    inside a word keeps the `#` literal (`x=$(cmd)#c` -> value `…#c`), but a single
+    preceding-char model cannot tell that `)` from a subshell `)` (a real command
+    boundary), so it over-strips. Revisit if a scanned guard block adopts one."""
+    in_s = in_d = in_ansi = False
     prev = ""  # previous unescaped char; "" == start-of-line boundary
     i, n = 0, len(line)
     while i < n:
         c = line[i]
-        if in_s:  # single quotes: no escaping in bash
+        if in_ansi:  # ANSI-C $'...': backslash escapes the next char (unlike '...')
+            if c == "\\" and i + 1 < n:
+                prev = "x"
+                i += 2
+                continue
+            if c == "'":
+                in_ansi = False
+            prev = c
+            i += 1
+            continue
+        if in_s:  # plain single quotes: no escaping in bash
             if c == "'":
                 in_s = False
             prev = c
@@ -124,7 +142,11 @@ def strip_inline_comment_sh(line: str) -> str:
             i += 2
             continue
         if c == "'":
-            in_s = True
+            # `$'` opens an ANSI-C (escape-aware) string; a plain `'` does not.
+            if prev == "$":
+                in_ansi = True
+            else:
+                in_s = True
             prev = c
             i += 1
             continue

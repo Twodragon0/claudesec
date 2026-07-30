@@ -48,13 +48,39 @@ class TestStripInlineCommentSh(unittest.TestCase):
         self.assertEqual(strip_inline_comment_sh("a &#c"), "a &")
         self.assertEqual(strip_inline_comment_sh("a |#c"), "a |")
 
-    def test_strips_after_close_paren_and_redirect(self):
-        # `)#` (after a command substitution) and `>#` are real bash comments.
+    def test_strips_after_subshell_close_and_redirect(self):
+        # A SUBSHELL close `)` and a redirect `>` are real command boundaries, so a
+        # `#` immediately after them starts a comment (verified: `(echo A)#x ; echo
+        # DONE` prints only A). `>#f` is a comment (bash errors on the missing
+        # redirect target), so stripping to `cmd >` is correct.
+        self.assertEqual(strip_inline_comment_sh("(echo A)#c"), "(echo A)")
+        self.assertEqual(strip_inline_comment_sh("cmd >#not-a-file"), "cmd >")
+
+    def test_overstrips_cmdsub_in_word_documented(self):
+        # DOCUMENTED over-strip (fail-safe): a command substitution CLOSING inside a
+        # word keeps the `#` LITERAL — verified: `x=$(echo hi)#ZZZ` -> x=[hi#ZZZ].
+        # A single-preceding-char model cannot tell a subshell `)` (command
+        # boundary) from a `$(...)` `)` (mid-word), so we over-strip here. This
+        # drops live text -> a guard sees LESS -> a false ALARM, never a silent
+        # bypass; it is not triggered by the shell blocks the current guards scan.
         self.assertEqual(
             strip_inline_comment_sh('FILES=$(git diff)#|| git diff HEAD~1'),
             "FILES=$(git diff)",
         )
-        self.assertEqual(strip_inline_comment_sh("cmd >#not-a-file"), "cmd >")
+
+    def test_ansi_c_escaped_quote_is_not_a_reopen(self):
+        # 5th-pass finding (ADR-001 §2): `$'\''` is ONE ANSI-C string — the `\'` is
+        # an escaped literal quote, NOT a close+reopen — so the trailing ` #exit 1`
+        # is a real comment (the exit never runs). A single-quote branch with no
+        # escape awareness runs off the line "in a quote" and fails to strip it,
+        # an UNDER-strip that hid a dead `exit 1` from the Security-Scan-Gate guard.
+        self.assertEqual(
+            strip_inline_comment_sh(r": $'\'' #exit 1"), r": $'\''"
+        )
+
+    def test_ansi_c_preserves_internal_hash(self):
+        # A `#` inside an ANSI-C string is literal content, not a comment.
+        self.assertEqual(strip_inline_comment_sh(r"echo $'a#b'"), r"echo $'a#b'")
 
     def test_strips_after_backtick(self):
         # `` `#cmd` `` — a `#` right after an opening backtick starts a comment.

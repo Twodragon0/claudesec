@@ -349,6 +349,26 @@ class TestSeverityBlockCommentEvasion(unittest.TestCase):
             "comment must NOT satisfy the CRITICAL merge-block.",
         )
 
+    def test_ansi_c_commented_exit_one_does_not_satisfy(self):
+        # 5th-pass finding (ADR-001 §2): `$'\''` is ONE ANSI-C string (the `\'` is
+        # an escaped literal quote), so ` #exit 1` is a real bash comment — verified
+        # by execution: the exit never runs, the gate does NOT block. A single-quote
+        # stripper with no escape awareness re-opens the quote at the trailing `'`,
+        # runs off the line "in a quote", never strips the `#`, and lets the dead
+        # `exit 1` satisfy the merge-block. Regression direction: presence.
+        mutant = (
+            'if [ "$CRITS" -gt 0 ]; then\n'
+            + r"""  : $'\'' #exit 1"""
+            + "\nfi"
+        )
+        body = conditional_body_from(mutant, "CRITS") or ""
+        self.assertNotRegex(
+            body,
+            r"\bexit\s+1\b",
+            "ANSI-C comment-evasion: an `exit 1` surviving only in a `$'\\''`-"
+            "prefixed bash comment must NOT satisfy the CRITICAL merge-block.",
+        )
+
     def test_real_exit_one_satisfies(self):
         good = 'if [ "$CRITS" -gt 0 ]; then\n  exit 1\nfi'
         self.assertRegex(conditional_body_from(good, "CRITS"), r"\bexit\s+1\b")
