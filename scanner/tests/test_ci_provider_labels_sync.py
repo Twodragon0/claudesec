@@ -61,8 +61,8 @@ _FUNC_RE = re.compile(
 # A single case arm:  aws) echo "AWS" ;;
 # Excludes the default arm (`*) echo "$1" ;;`) which is the fallthrough.
 _ARM_RE = re.compile(r'^\s*([a-z0-9]+)\)\s*echo\s+"([^"]*)"\s*;;', re.MULTILINE)
-# The catch-all default arm (`*) echo "$1" ;;`).
-_DEFAULT_ARM_RE = re.compile(r'^\s*\*\)', re.MULTILINE)
+# The catch-all default arm — `*)` or the spaced `* )` form (both valid bash).
+_DEFAULT_ARM_RE = re.compile(r'^\s*\*\s*\)', re.MULTILINE)
 
 
 def _parse_bash_case(text: str) -> dict:
@@ -232,6 +232,29 @@ _prowler_dashboard_summary_provider_label() {
             "Order-blind parse: an `aws)` arm placed AFTER the `*)` catch-all is "
             "unreachable but was collected — the parity guard would pass on a "
             "moved-below-default (dead) mapping.",
+        )
+        self.assertEqual(parsed, {"kubernetes": "Kubernetes"})
+
+    # A SPACED default arm `* )` (valid bash catch-all — verified) with a slug
+    # demoted below it. `^\s*\*\)` (adjacent-only) misses the space and fails to
+    # truncate, wrongly collecting the dead `aws`.
+    _ORDER_BLIND_SPACED_DEFAULT = """\
+_prowler_dashboard_summary_provider_label() {
+  case "$1" in
+    kubernetes) echo "Kubernetes" ;;
+    * ) echo "$1" ;;
+    aws) echo "AWS" ;;
+  esac
+}
+"""
+
+    def test_parser_truncates_at_spaced_default_arm(self) -> None:
+        parsed = _parse_bash_case(self._ORDER_BLIND_SPACED_DEFAULT)
+        self.assertNotIn(
+            "aws", parsed,
+            "Order-blind parse: an `aws)` after a SPACED `* )` catch-all is "
+            "unreachable but was collected — the default-arm matcher must accept "
+            "the spaced form `* )`.",
         )
         self.assertEqual(parsed, {"kubernetes": "Kubernetes"})
 
