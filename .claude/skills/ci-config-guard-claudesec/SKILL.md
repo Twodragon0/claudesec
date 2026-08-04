@@ -126,9 +126,11 @@ two-pass adversarial review here. Two sub-classes, from the #297 audits:
 
 - **Class-1 — comment / quote state.** The token hides in a comment, or the
   quote tracker loses sync. Highest risk: it can disable a check that branch
-  protection actually requires (today: `Lint`, `Security Scan Gate`). The shipped
-  instance was #271 F-1 — a `# exit 1` satisfying the Security Scan Gate's
-  merge-block check.
+  protection actually requires (today: `Lint`, `Security Scan Gate`). Two shipped
+  instances, same guard, same required gate, different adjacency: #271 F-1
+  (`# exit 1`), and `;#exit 1` — still live on main until #376 lands, because
+  `conditional_body_from` strips with the whitespace-only regex, so it finds the
+  commented-out `exit 1` and stays green while bash exits 0.
 - **Class-2 — matcher completeness.** The parser enumerates a few shapes instead
   of modelling the rule, so a plausible edit slips past. Examples: a top-level
   `*)` indented deeper than the first arm (#378); `macOS-14` missed because the
@@ -170,7 +172,8 @@ you claim it.
   ANSI-C `$'...'` case under "over-strip direction … never a silent security
   bypass" when it was in fact an under-strip.
 - **Shipping a known false negative needs an explicit cost argument, not a
-  heading.** The bar is high but not infinite. `no_ere_pipe_regression` accepts
+  heading.** The bar is high but not infinite, and never for an invariant behind
+  a required check. `no_ere_pipe_regression` accepts
   its cross-line variable-indirection gap (`PATTERN="foo\|bar"` on one line,
   `grep -E "$PATTERN"` on another) and documents *why*: the only line-scanner
   rule that would catch it — flag every `\|` in any string assignment — was
@@ -179,18 +182,22 @@ you claim it.
   instance actually lands") (#379). That is the shape of a defensible exception.
   "It's only over-strip" is not.
 - **A fix to this class can create the class.** #376's CRITICAL was introduced
-  *by the hardening*: modelling quote state opened an under-strip direction the
-  naive whitespace regex never had (the naive one strips that case correctly; it
-  misses `;#` instead). Neither matcher dominates — so re-attack the new version
-  on its own terms, not just the old one's known gaps.
+  *by the hardening*: modelling quote state opened a new under-strip **case** —
+  ANSI-C — in a matcher that had just closed the naive regex's own under-strips
+  (`;#`, `&#`, `` `# ``, all real bash comments it leaves intact). Each version
+  gets a different set wrong: the naive one strips the ANSI-C case correctly, the
+  modelled one strips `;#` correctly, and even the fixed one over-strips
+  `x=$(cmd)#c` where the naive one is right. Neither dominates — re-attack the
+  new version on its own terms, not just the old one's known gaps.
 
 ### Adversarial pass — how to run it
 
 Dispatch two `sec-reviewer` passes in parallel (`/team 2:sec-reviewer`, with
 `model=opus` — this pass has to reason about bash quote state), each briefed
 with a **different lens**, then a second round if the first finds a CRITICAL.
-The first fix has repeatedly left a residual hole: #376 needed five passes, and
-the fifth found the CRITICAL.
+The first fix has repeatedly left a residual hole: #376 took five passes — an
+earlier one closed a live gate evasion (`;#exit 1`), the fifth found the ANSI-C
+CRITICAL. Neither was the pass that "finished" the guard.
 
 - **False-negative lens**: build a *runnable* PoC where the control is genuinely
   removed yet the guard returns green.
