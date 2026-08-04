@@ -36,14 +36,13 @@ a severity `exit 1`, a load-bearing version pin.
 - **Non-vacuous**: prove it fails on the regression before shipping (see below).
 - **Dual-runner**: pass under `pytest` and `python3 -m unittest`.
 - **Route every presence/regex check through the shared primitives** in
-  `scanner/tests/_ci_guard_util.py` (ADR-001 §1) — never hand-roll comment
-  stripping. A token surviving only in a `#` comment must never satisfy an
-  invariant. Read that module for the current set before writing your own;
-  it holds whole-line strippers (`strip_comment_lines`, `non_comment_lines`),
-  the per-line trailing-comment stripper (`strip_inline_comment`), structural
-  scopers (`top_level_jobs`, `extract_on_block`), and `join_continuations`.
-  If you do need a new primitive, add it there (covered by
-  `test__ci_guard_util.py`) rather than locally in one guard.
+  `scanner/tests/_ci_guard_util.py` (ADR-001 Decision 1) — never hand-roll
+  comment stripping. A token surviving only in a `#` comment must never satisfy
+  an invariant. Read that module for the current set, and mind the
+  shell-vs-YAML split under **Picking a stripper** below. A new primitive goes
+  there **and** gets a test in `test__ci_guard_util.py` — coverage is not
+  automatic (`join_continuations` and `on_key_inline` have no direct tests
+  today, 94% module coverage).
 
 ## Authoring steps
 
@@ -64,11 +63,12 @@ a severity `exit 1`, a load-bearing version pin.
    - **Non-vacuous also applies to self-tests of the parser itself.** A
      scoping test that never exercises the scoping is worthless: in #378 a
      nested-`case` self-test used an inline `*) s ;;` arm that the bare-arm
-     regex never matched, so the depth logic was never entered. Assert the
-     test enters the branch you think it does.
+     regex never matched, so the scoping branch under test (then indent-based,
+     now `case`/`esac` depth) was never entered. Assert the test enters the
+     branch you think it does — instrument the counter if you are not sure.
 5. If the guard parses text (substring / regex / mini-parser), do the
    adversarial pass in **Parse/substring guards** below before merge. This is
-   not optional for that class — ADR-001 §2.
+   not optional for that class — ADR-001 Decision 2.
 
 ## Template
 
@@ -120,63 +120,89 @@ except AssertionError:
 
 Text matchers share one failure mode: the real control is gone but a protected
 token survives in a form the parser mis-reads, so the guard stays **green** and
-gives false assurance. ADR-001 (`docs/devsecops/adr-001-ci-guard-hardening-and-audit-cadence.md`)
-mandates a two-pass adversarial review here. Two sub-classes, from the #297
-quarterly audits:
+gives false assurance. ADR-001
+(`docs/devsecops/adr-001-ci-guard-hardening-and-audit-cadence.md`) mandates a
+two-pass adversarial review here. Two sub-classes, from the #297 audits:
 
 - **Class-1 — comment / quote state.** The token hides in a comment, or the
-  quote tracker loses sync. Highest risk: it can disable a *required* check.
-  Examples: `# exit 1` satisfying the Security Scan Gate merge block (#271 F-1);
-  ANSI-C `$'\''` leaving the stripper stuck "inside quotes" to end-of-line, so a
-  trailing `#exit 1` is **not** stripped — bash treats it as a comment, the
-  guard still finds `exit 1` (#376, CRITICAL).
+  quote tracker loses sync. Highest risk: it can disable a check that branch
+  protection actually requires (today: `Lint`, `Security Scan Gate`). The shipped
+  instance was #271 F-1 — a `# exit 1` satisfying the Security Scan Gate's
+  merge-block check.
 - **Class-2 — matcher completeness.** The parser enumerates a few shapes instead
   of modelling the rule, so a plausible edit slips past. Examples: a top-level
   `*)` indented deeper than the first arm (#378); `macOS-14` missed because the
-  runner regex was case-sensitive (#379).
+  runner regex was case-sensitive (#379). Both were residuals in the audit's own
+  *first fixes*, found by the second pass — not holes in long-shipped guards.
+
+### Picking a stripper
+
+`strip_inline_comment` is whitespace-boundary only (`\s+#`). That is correct for
+YAML and Dockerfile lines and **bypassable on shell lines**: bash treats
+`echo x;#exit 1` as a comment, the regex leaves it intact. For shell text use
+the bash-aware variant (`strip_inline_comment_sh`, landing with #376), whose
+boundary set is space, tab, `;` `&` `|` `(` `)` `<` `>` and a backtick.
+
+Adjacency is boundary-specific, so write PoCs from the real grammar, not by
+analogy: `x;#c` and `` x`#c` `` are comments, but `$'\''#c` is **not** — after a
+closing quote the `#` is literal word text. Verify each form against bash before
+you claim it.
 
 ### Rules that came out of the audit
 
 - **Model the grammar, not a proxy.** Indentation is not what decides `case` arm
   ownership — `case`/`esac` depth is. A block scalar *is* any `run:` value
   starting with `|`/`>`. A third patch to an enumeration is a redesign signal
-  (ADR-001 §4).
+  (ADR-001 Decision 4).
 - **A regex can be wrong in both directions at once.** #379's runner regex was
-  too narrow (case-sensitive → missed `macOS-latest`) *and* too broad (matched
-  real `windows-1252` charsets in `run:`/`name:`). Fixing one direction can
-  worsen the other: bare `re.IGNORECASE` widens the false positives, because
+  too narrow (case-sensitive → missed `macOS-latest`) *and* too broad (a genuine
+  `windows-1252` charset or `macos-universal` arch token in `run:`/`name:` text
+  would trip it — prospective, none in today's `lint.yml`). Fixing one direction
+  can worsen the other: bare `re.IGNORECASE` widens the false positives, because
   `windows-1252` and `windows-2022` are shape-identical. When token shape can't
   disambiguate, **scope by context** (`runs-on:` / matrix `os:`) instead.
 - **Check word-boundary assumptions.** `\bgrep\b` does not match `egrep`.
-- **Treat safety claims in docstrings as findings-in-waiting.** #376's stripper
-  documented its residual limits as "over-strip only, never a bypass" — that
-  claim was false and was actively hiding the CRITICAL. Either prove such a
-  claim by execution or don't write it. (The boundary *character set* there was
-  in fact complete; the bug was the quote-state model — so name precisely what
-  you verified.)
+- **Classify every residual limit by DIRECTION, and say which.** Over-strip
+  (false alarm) is a documented known limitation — fine to ship, like the
+  cross-line variable indirection in `no_ere_pipe_regression` (documented there
+  by #379), where a catching rule would cost more false positives than the gap
+  it closes. Under-strip is a **bypass**
+  and must be fixed. Documenting a limit is right; documenting it in the wrong
+  direction is what hid #376's CRITICAL, whose docstring filed an unmodelled
+  ANSI-C `$'...'` case under "over-strip direction … never a silent security
+  bypass" when it was in fact an under-strip. Prove the direction by execution
+  before you write it down.
+- **A fix to this class can create the class.** #376's CRITICAL was introduced
+  *by the hardening*: modelling quote state opened an under-strip direction the
+  naive whitespace regex never had (the naive one strips that case correctly; it
+  misses `;#` instead). Neither matcher dominates — so re-attack the new version
+  on its own terms, not just the old one's known gaps.
 
 ### Adversarial pass — how to run it
 
-Run two reviewers with **different lenses**, in parallel, then a second pass if
-the first finds a CRITICAL (the first fix has repeatedly left a residual hole —
-#376 was the 5th hole after a 4-pass chain):
+Dispatch two `sec-reviewer` passes in parallel (`/team 2:sec-reviewer`, with
+`model=opus` — this pass has to reason about bash quote state), each briefed
+with a **different lens**, then a second round if the first finds a CRITICAL.
+The first fix has repeatedly left a residual hole: #376 needed five passes, and
+the fifth found the CRITICAL.
 
-- **bypass-hunter** (false negatives): build a *runnable* PoC where the control
-  is genuinely removed yet the guard returns green.
-- **correctness-critic** (false positives, vacuous tests, crashes, claims):
-  legit edits that would now trip, self-tests that don't exercise the logic,
-  parser crashes, docstring assertions.
+- **False-negative lens**: build a *runnable* PoC where the control is genuinely
+  removed yet the guard returns green.
+- **False-positive / claim lens**: legit edits that would now trip, self-tests
+  that don't exercise the logic, parser crashes, docstring assertions.
 
 Every finding must carry execution evidence on both sides — the real tool's
 behaviour (e.g. bash actually treating it as a comment) **and** the consumer
 guard function returning "invariant holds". Reasoning alone is not a finding.
+**A pass that finds nothing must record the attack set it executed**; a bare
+"CLEAN" is not a completed pass.
 
-**When the reviewers disagree, do not take a vote or defer to the more
-confident one** — reproduce it yourself and let the execution decide. In #376
-the critic had trusted the docstring for `$'...'` while inspecting only `$()`;
-running bash plus the real consumer (`conditional_body_from`) settled it. The
-no-self-approval rule applies to the *approval* pass; independently reproducing
-a disputed fact is required, not a conflict of interest.
+**When the reviewers disagree, do not take a vote or defer to the more confident
+one** — reproduce it yourself and let the execution decide. In #376 a reviewer
+that had trusted the docstring for `$'...'` was overruled by running bash plus
+the real consumer (`conditional_body_from`). The no-self-approval rule applies
+to the *approval* pass; independently reproducing a disputed fact is required,
+not a conflict of interest.
 
 ## Porting to another repo
 
@@ -194,7 +220,8 @@ The PATTERN is portable; the INVARIANTS are repo-specific. Before porting,
   verify in **its** CI separately.
 
 Worked example of the adversarial pass above, with the full #376/#378/#379
-findings and evidence: `docs/reports/adr-001-q3-audit-retrospective.md`.
+findings and evidence: `docs/reports/adr-001-q3-audit-retrospective.md`
+(landing in #380 — not on disk before that merges).
 
 See also [[reference: docs/devsecops/ci-config-regression-guards.md]] and the
 `verify-consumer-end-to-end-path` discipline: prove the guard fails on the real
