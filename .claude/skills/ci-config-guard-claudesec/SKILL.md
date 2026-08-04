@@ -162,16 +162,22 @@ you claim it.
   `windows-1252` and `windows-2022` are shape-identical. When token shape can't
   disambiguate, **scope by context** (`runs-on:` / matrix `os:`) instead.
 - **Check word-boundary assumptions.** `\bgrep\b` does not match `egrep`.
-- **Classify every residual limit by DIRECTION, and say which.** Over-strip
-  (false alarm) is a documented known limitation — fine to ship, like the
-  cross-line variable indirection in `no_ere_pipe_regression` (documented there
-  by #379), where a catching rule would cost more false positives than the gap
-  it closes. Under-strip is a **bypass**
-  and must be fixed. Documenting a limit is right; documenting it in the wrong
-  direction is what hid #376's CRITICAL, whose docstring filed an unmodelled
+- **Classify every residual limit by DIRECTION, and say which.** Over-strip /
+  false alarm is documentable — annoying, not dangerous. Under-strip / false
+  negative is a **bypass**: fix it. Prove the direction by execution before you
+  write it down, because filing an under-strip under an over-strip heading is
+  precisely what hid #376's CRITICAL — its docstring listed the unmodelled
   ANSI-C `$'...'` case under "over-strip direction … never a silent security
-  bypass" when it was in fact an under-strip. Prove the direction by execution
-  before you write it down.
+  bypass" when it was in fact an under-strip.
+- **Shipping a known false negative needs an explicit cost argument, not a
+  heading.** The bar is high but not infinite. `no_ere_pipe_regression` accepts
+  its cross-line variable-indirection gap (`PATTERN="foo\|bar"` on one line,
+  `grep -E "$PATTERN"` on another) and documents *why*: the only line-scanner
+  rule that would catch it — flag every `\|` in any string assignment — was
+  judged worse than the gap, every real occurrence has the `\|` on the same line
+  as the ERE consumer, and it records a revisit trigger ("only if an indirection
+  instance actually lands") (#379). That is the shape of a defensible exception.
+  "It's only over-strip" is not.
 - **A fix to this class can create the class.** #376's CRITICAL was introduced
   *by the hardening*: modelling quote state opened an under-strip direction the
   naive whitespace regex never had (the naive one strips that case correctly; it
