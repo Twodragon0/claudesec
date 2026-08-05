@@ -63,8 +63,8 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_codeowners_invariants.py` | `.github/CODEOWNERS` keeps security-sensitive paths code-owner gated | every required pattern (`*`, `.github/workflows/`, `.github/CODEOWNERS`, `hooks/`, `scanner/`, `scripts/`, `templates/`, `Dockerfile*`, `docker-compose*.yml`) is present AND has a non-empty `@owner`; the global `*` default must have an owner — else those paths merge with NO code-owner review (`require_code_owner_reviews=true` only fires on a matched, owned pattern) | #248 |
 | `scanner/tests/test_ci_no_ere_pipe_regression.py` | No literal `\|` in an ERE context in `scanner/checks/**` + `scanner/lib/**` `.sh` | flags `\|` (literal-pipe, NOT alternation) inside `grep -[qnrlc]*E`, the `_code_grep`/`files_contain`/`file_contains` helpers, and bash `[[ =~ ]]` — the silent detection-breaking bug class fixed in #221/#223/#224; two intentional literals (`code/injection.sh` `\|safe`, `solutions.sh` `curl\|sh`) are allowlisted and asserted still present | #244, #246 |
 | `scanner/tests/test_ci_prowler_provider_guard_ordering.py` | `_prowler_provider_available` precedes `_prowler_report` per provider (`scanner/checks/prowler/integration.sh`) | within each provider section of the Provider Scans block, `min(guard line) < min(report line)` — reordering would silently regress the #238 build-parity fix (lean image would emit a misleading auth warning instead of an accurate "not in this build" skip); promotes the shell-level `#241` assertion into the pytest CI gate. `integration.sh` is pure bash, so guard/report call detection strips trailing comments with `strip_inline_comment_sh`: a decoy `echo x;#_prowler_provider_available "…"` must not lend its early line number to `min(guard)` and mask a real guard that now sits after the report | #242 |
-| `scanner/tests/test_ci_catalog_completeness.py` | Completeness of this catalog vs the on-disk guard suite | every `scanner/tests/test_ci_*.py` file has its repo-relative path listed in this catalog (presence) — a new guard added without a Catalog row is silent documentation drift that makes the inventory understate coverage; the meta-guard documents itself so the invariant is uniform | #254 |
-| `scanner/tests/test_ci_catalog_no_ghost_rows.py` | No ghost rows in this catalog vs the on-disk guard suite | every concrete `scanner/tests/test_ci_<name>.py` path cited in this catalog resolves to a real file (existence) — the reverse of the completeness guard: a renamed/deleted guard left in the table is a ghost row that makes the inventory overstate coverage. Together the two guards verify a 1:1 catalog↔suite mapping | #255 |
+| `scanner/tests/test_ci_catalog_completeness.py` | Completeness of this catalog vs the on-disk guard suite | every `scanner/tests/test_ci_*.py` file has its repo-relative path listed in this catalog (presence) — a new guard added without a Catalog row is silent documentation drift that makes the inventory understate coverage; the meta-guard documents itself so the invariant is uniform. HTML-comment-stripped, so a row parked in `<!-- ... -->` (invisible when rendered, the Markdown comment-evasion form) does NOT satisfy the presence check. Mutation self-tests | #254 |
+| `scanner/tests/test_ci_catalog_no_ghost_rows.py` | No ghost rows in this catalog vs the on-disk guard suite | every concrete `scanner/tests/test_ci_<name>.py` path cited in this catalog resolves to a real file (existence) — the reverse of the completeness guard: a renamed/deleted guard left in the table is a ghost row that makes the inventory overstate coverage. Together the two guards verify a 1:1 catalog↔suite mapping. HTML-comment-stripped, the opposite direction from the completeness guard: a row parked in `<!-- ... -->` claims no coverage, so flagging it as a ghost would be a false alarm — a test pins that a commented ghost still does not mask a live one. Mutation self-tests | #255 |
 | `scanner/tests/test_ci_branch_protection_codified.py` | Codified branch protection (`scripts/sync-repo-protection.sh`) + its nightly notifier (`protection-drift-watch.yml`) | the desired state keeps `DESIRED_CONTEXTS=["Lint","Security Scan Gate"]` (both required checks — an exact two-sided pin: dropping a context un-requires that aggregator, and silently *adding* a third required context is equally caught, proven by appended+prepended mutation self-tests), `DESIRED_ENFORCE_ADMINS="true"` (admins not exempt — no force-push to main), `strict`/`require_code_owner_reviews` true, `set -euo pipefail`, and the default-arm dry-run; the `DRIFT DETECTED` marker contract holds on both producer (script) and consumer (`grep -q`) sides; the watch keeps `schedule:` + tooling-error `exit 1` and its `on:` block never gains a `pull_request(_target)` trigger (scheduled notifier, must not become a required PR check). Protects the #250/#251 codification | #256 |
 | `scanner/tests/test_ci_dependabot_config.py` | `.github/dependabot.yml` update coverage + alpine version freeze | all four ecosystems stay declared (`github-actions`, `npm`, `pip`, `docker`) so no surface silently stops getting update PRs (OWASP CICD-SEC-3); the `docker` `ignore` keeps the `alpine` `semver-minor`+`semver-major` freeze that holds alpine on its py3.12 minor line — loosening it would let Dependabot propose the bump that ships py3.14 and crashes prowler (pydantic v1, incident #220). Distinct from `test_ci_dependabot_automerge.py` (guards the *workflow*, not this *config*) | #256 |
 | `scanner/tests/test_ci_prowler_version_pinned.py` | prowler install pin in `Dockerfile` | prowler is installed via an exact `==` pin through the `PROWLER_VERSION` build arg (version-shaped value), never a bare unpinned `pip install ... prowler`. An unpinned spec silently backtracks to ancient prowler 3.11.3 (pydantic v1) on a newer Python and crashes at runtime (incident #237). Pins the *pinning*, so a lockstep version bump stays green | #258 |
@@ -312,6 +312,30 @@ The meta-guard deliberately exempts the two shapes that are not inert: negative
 line-anchored regexes (`(?m)^\s*token`), which a `#`-commented copy cannot
 satisfy — three guards rely on that form correctly and are not flagged.
 
+**Catalog meta-guards hardened (this PR — closes the last non-deferred Class 2
+item):**
+
+`test_ci_catalog_completeness.py` and `test_ci_catalog_no_ghost_rows.py` shipped
+with **no mutation self-test** — they only ever ran against the real catalog, so
+a parser regression would have gone unnoticed and both would have passed
+vacuously. Detectors are now extracted to module level (`missing_rows`,
+`cited_paths` / `ghost_rows`) and exercised on synthetic input: undocumented
+guard, ghost row, prose glob, duplicate citations, empty catalog.
+
+Both also scanned the catalog RAW. Markdown has no `#` comment, so `<!-- ... -->`
+is the escape hatch, and a row parked inside one renders as nothing while still
+satisfying a substring check — a guard could vanish from the published inventory
+with `catalog_completeness` green. Both now route through a shared
+`strip_html_comments` in `_ci_guard_util.py`. The strip cuts **both ways, and
+both are correct**: it makes `completeness` STRICTER (a hidden row no longer
+satisfies presence) and `no_ghost_rows` more LENIENT (a commented row claims no
+coverage, so flagging it would be a false alarm) — with a test pinning that a
+commented ghost still does not mask a live one. An unclosed `<!--` degrades to
+no-strip rather than blanking the document, which would fail every consumer at
+once.
+
+Non-vacuous: neutering `strip_html_comments` fails 3 of the new tests.
+
 **Backlog (Class 2 — matcher-completeness / enumeration gaps; require a
 deliberate, unusual edit rather than a comment-out, so lower natural-regression
 risk — triaged as follow-up, not blocking):**
@@ -326,9 +350,6 @@ risk — triaged as follow-up, not blocking):**
 - `test_ci_cross_os_non_required.py` — `FORBIDDEN_IN_LINT` is a fixed 4-string
   enumeration (bypassed by `macos-14`/`windows-2022` labels); collision check
   omits the `"Lint"` required context.
-- `test_ci_catalog_completeness.py` / `test_ci_catalog_no_ghost_rows.py` — no
-  shipped mutation self-test; catalog_completeness also does not strip Markdown
-  `<!-- -->` comments (low severity).
 - `test_ci_injection_surface.py` — **known scanner limitation** (bounded by the
   stdlib-only / no-PyYAML constraint): an untrusted `${{ }}` split across two
   physical lines inside a block scalar is not reassembled; its runtime
