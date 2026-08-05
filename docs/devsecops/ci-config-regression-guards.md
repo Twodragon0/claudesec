@@ -124,7 +124,10 @@ triaged by the same bar used to add one (an incident, past or plausible, where
 worth a guard, to avoid sprawl). Reviewed 2026-06-19; re-triaged 2026-06-22
 (all Tier-3 workflows confirmed KEEP-AS-MONITOR — decision unchanged; the
 `workflow_run` trigger added to `provenance-verify.yml` in #263/#264 is already
-covered by `test_ci_provenance_verify.py`).
+covered by `test_ci_provenance_verify.py`). **Quarterly ADR-001 adversarial
+audit 2026-07-28** (issue #297): all 38 `test_ci_*.py` guards re-audited — see
+"Quarterly audit 2026-07-28" below for the comment/unhandled-form findings fixed
+and the matcher-completeness backlog opened.
 
 ### Tier 2 — incident-backed (now implemented)
 
@@ -178,6 +181,101 @@ Both former Tier-2 candidates landed in #258 and are now in the Catalog above:
   comment is a readability/doc-accuracy wart, not a security regression — below
   the incident bar. Mitigation is a one-time normalization on each major action
   bump, not a guard.
+
+### Quarterly audit 2026-07-28 (ADR-001, issue #297)
+
+A full adversarial re-audit of all 38 `test_ci_*.py` guards (three independent
+review passes; every finding reproduced with an executed proof, not a static
+read). Three guards were confirmed CLEAN with the comment-evasion class
+inapplicable by construction: `test_ci_lighthouse_perf_gate.py` (strict
+`json.loads`), `test_ci_codeowners_invariants.py` (mirrors GitHub's own
+CODEOWNERS grammar — no inline-comment syntax exists), `test_ci_compliance_keyword_guard.py`
+(executes the real module and inspects the runtime `COMPLIANCE_CONTROL_MAP`, no
+text surface).
+
+**Fixed (Class 1 — comment/unhandled-form evasion; the natural "comment out the
+control" regression path, the exact class ADR-001 §1/§3 target):**
+
+- `test_ci_net005_fail_escalation.py` — section built from raw lines; a
+  `# fail "NET-005" ... "critical"` comment satisfied the escalation check while
+  active code downgraded to WARN → now routes through `strip_comment_lines` +
+  comment-survival mutation test.
+- `test_ci_changes_job_merge_base.py` — imported only `join_continuations`; the
+  `|| git diff` fallback / non-shallow fetch tokens satisfied the check from a
+  comment → now `join_continuations(strip_comment_lines(text))` + mutation test.
+- `test_ci_compose_dashboard_hardening.py` — `_strip_comments` kept trailing
+  inline comments and the `no-new-privileges` regex is (necessarily) unanchored,
+  so the token rode a trailing comment on an unrelated line → now strips trailing
+  inline comments via `strip_inline_comment` + mutation test.
+- `test_ci_dependabot_config.py` — used `non_comment_lines` (whole-line only); a
+  required ecosystem token rode a trailing inline comment → now composes
+  `strip_inline_comment` + mutation test.
+- `test_ci_security_gate.py` (**required `Security Scan Gate` merge-block**, the
+  #271 F-1 incident class) — surfaced by the mandated ADR-001 §2 review chain: a
+  `;#exit 1` (a REAL bash comment — no space before `#`, verified the `exit 1`
+  never runs) survived `strip_inline_comment` and satisfied the CRITICAL
+  merge-block check while the active code was warn-only. Root cause was the
+  SHARED primitive: `strip_inline_comment` required whitespace before `#`, but
+  bash starts a comment after a command separator (`;`/`&`/`|`) with no space.
+  Added a quote-aware, bash-word-boundary `strip_inline_comment_sh` and routed
+  the three shell-scanning guards (`security_gate`, `net005_fail_escalation`,
+  `changes_job_merge_base`) through it (+ metachar AND backtick mutation tests).
+  The comment-start boundary set (whitespace + the bash metacharacters
+  `;`/`&`/`|`/`(`/`)`/`<`/`>` + backtick) was proven complete by enumerating
+  every ASCII preceding char against real `bash` (a further review pass found the
+  backtick `` `#… ` `` form after the initial metachar set; both are now closed
+  and confirmed). The whitespace-only `strip_inline_comment` is retained for
+  YAML/Dockerfile callers, where `;#` is literal scalar content, not a comment.
+  A **5th-pass** review (ADR-001 §2) then found the ANSI-C `$'...'` case was NOT
+  an over-strip but an **UNDER-strip** (false negative): `$'\''` is one escape-
+  aware string, and a single-quote branch with no escape awareness ran off the
+  line "in a quote" and never stripped the trailing `#`, hiding a dead `exit 1`
+  from the gate. Modeled it (a `'` after an unescaped `$` opens an escape-aware
+  string) + added ANSI-C mutation tests to the primitive, `security_gate`, and
+  `net005_fail_escalation`. Remaining documented **over-strip** limitations
+  (opposite direction — they drop live text → a false ALARM, never a silent
+  bypass; none is triggered by the scanned blocks): cross-line quoted strings,
+  heredoc bodies, and a command substitution `$(...)` closing inside a word
+  (`x=$(cmd)#c` keeps `#c` literal, but the single preceding-char model cannot
+  tell that `)` from a subshell `)`) — see the `strip_inline_comment_sh` docstring.
+- `test_ci_injection_surface.py` — the twice-hardened block-scalar rule still
+  missed single-line flow-style step mappings
+  (`steps: [{run: "…${{ github.event.* }}…"}]`), leaving that `run:` body
+  unscanned → added a grammar-complete flow-style extractor (ADR-001 §4) +
+  mutation test. The multi-line-quoted flow scalar (unreassemblable by a
+  no-PyYAML line scanner) is now caught by a **tripwire** (`unscannable_flow_runs`)
+  that FAILS on the unscannable shape so an injection cannot hide in it — the
+  author must use a block scalar or a single-line flow value (dormant on this
+  repo: all `run:` are block style, so zero false positives). The
+  multi-line-split `${{ }}` block-scalar form remains a documented,
+  runtime-**unverified** robustness gap.
+
+**Backlog (Class 2 — matcher-completeness / enumeration gaps; require a
+deliberate, unusual edit rather than a comment-out, so lower natural-regression
+risk — triaged as follow-up, not blocking):**
+
+- `test_ci_no_ere_pipe_regression.py` — misses the `--extended-regexp` long-flag
+  form and cross-line variable-indirection of the `\|` ERE bug.
+- `test_ci_npm_files.py` — `files[]` glob match is not grammar-complete (`docs/**`
+  ships the tree; order-blind to a positive pattern re-added after its negation).
+- `test_ci_plugin_skills_cli_parity.py` / `test_ci_provider_labels_sync.py` —
+  parse `case` arms into an unordered `set()`, so moving the `*)` catch-all ahead
+  of a real arm (runtime-unreachable) still satisfies the presence check.
+- `test_ci_cross_os_non_required.py` — `FORBIDDEN_IN_LINT` is a fixed 4-string
+  enumeration (bypassed by `macos-14`/`windows-2022` labels); collision check
+  omits the `"Lint"` required context.
+- `test_ci_catalog_completeness.py` / `test_ci_catalog_no_ghost_rows.py` — no
+  shipped mutation self-test; catalog_completeness also does not strip Markdown
+  `<!-- -->` comments (low severity).
+- `test_ci_injection_surface.py` — **known scanner limitation** (bounded by the
+  stdlib-only / no-PyYAML constraint): an untrusted `${{ }}` split across two
+  physical lines inside a block scalar is not reassembled; its runtime
+  exploitability (whether the Actions expression lexer executes a newline-split
+  interpolation) is **unverified**. A pathological authoring form; tracked rather
+  than half-closed with a fragile bracket-depth heuristic. Revisit if PyYAML ever
+  becomes available to the CI test job. (The sibling multi-line-quoted flow
+  scalar limitation was **closed** by the `unscannable_flow_runs` tripwire — see
+  the fixed list above.)
 
 ### Verified already-guarded during this review (not backlog)
 
