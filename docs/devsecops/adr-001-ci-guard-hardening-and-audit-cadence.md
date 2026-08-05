@@ -45,6 +45,17 @@ hypothetical:
    instances in guards that **predated** the shared comment-stripping helpers.
    Remediation landed across #271 / #275 / #277, clearing the backlog (F-1..F-9).
 
+3. **The #297 quarterly audit (2026-07/08, 9 PRs).** Beyond more comment-evasion,
+   it surfaced a strictly worse class: **inert guards** whose haystack was the
+   *raw whole file*, so commenting the control out — or deleting it outright —
+   left the guard green with no evasion needed. Two were found by hand; codifying
+   that triage as an AST meta-guard found **seven more** in guards that had
+   already passed review, including both required merge contexts and a
+   `pull_request_target` fork guard. The same audit found that the two REQUIRED
+   workflows never *ran* on stacked PRs, so a correct guard can still be worth
+   zero. Retrospective:
+   [ADR-001 Q3 audit](../reports/adr-001-q3-audit-retrospective.md).
+
 The common root cause: guards authored before a hardening primitive existed never
 adopted it, and substring/parse guards are bypassable in non-obvious ways that a
 single author pass misses.
@@ -52,37 +63,92 @@ single author pass misses.
 ## Decision
 
 1. **Route every presence/regex check through the shared comment-stripping
-   primitives** in `scanner/tests/_ci_guard_util.py`
-   (`strip_comment_lines` for whole-line comments, `strip_inline_comment` for
-   trailing comments, plus `extract_on_block` / `top_level_jobs` for structural
-   scoping). A token surviving only in a comment must never satisfy an invariant.
+   primitives** in `scanner/tests/_ci_guard_util.py`: `strip_comment_lines` for
+   whole-line comments; `strip_inline_comment` for trailing comments in
+   **YAML/Dockerfile** lines, where `;#` is literal scalar content;
+   `strip_inline_comment_sh` for **shell** lines, where bash starts a comment
+   after a metacharacter (`;`/`&`/`|`/`(`/`)`/`<`/`>`/backtick) with no space;
+   `strip_html_comments` for **Markdown**, whose only comment form is
+   `<!-- ... -->`; plus `extract_on_block` / `top_level_jobs` for structural
+   scoping. Pick the stripper by the language of the scanned line, not the file
+   extension — a `run:` body in a `.yml` file is shell. A token surviving only in
+   a comment must never satisfy an invariant.
 
-2. **Two-pass adversarial review for any substring/parse guard before merge.**
+2. **Scope the haystack before choosing a matcher.** A presence assertion aimed
+   at the raw whole file is **inert**: it survives commenting the control out and
+   misses a plain deletion, while reading green. No amount of stripping fixes
+   `assertIn("exit 1", lint_yml)` when the file holds a dozen unrelated
+   `exit 1` lines — bound the haystack to the owning block (balanced `if`/`fi`
+   depth, the `- name:` step, the `case` arm) first, then match. A line-anchored
+   regex (`(?m)^\s*token`) is an acceptable inline scoping. Negative
+   (FORBIDDEN-token) assertions are exempt: over a raw file they only
+   over-report, which is a false alarm, never a silent bypass. Enforced by
+   `test_ci_guard_assertion_scoping.py`.
+
+3. **Two-pass adversarial review for any substring/parse guard before merge.**
    New or materially-changed guards of this class get an independent adversarial
    review whose explicit goal is to find a bypass (false negative) or a false
    positive — and, given the evidence above, a **second** pass when the first
    finds a CRITICAL, because the first fix has repeatedly left a residual hole.
 
-3. **Every detector ships a non-vacuous mutation self-test.** The test must fail
+4. **Every detector ships a non-vacuous mutation self-test.** The test must fail
    on the targeted regression (prove it by mutation) and stay green on the real
    on-disk files. State the regression direction (floor `>=`, pin `==`,
-   presence) in the docstring.
+   presence) in the docstring. **Prove the verification harness can produce a
+   RED before trusting a green**: the #297 audit's first inertness measurement
+   reported green across the board because `unittest` re-ran `setUpClass` and
+   reloaded the real file over the injected mutant. The measurement was wrong,
+   not the finding.
 
-4. **Prefer a grammar-complete rule over enumerating forms.** When a matcher
+5. **Prefer a grammar-complete rule over enumerating forms.** When a matcher
    keeps missing cases of a structured input (YAML block-scalar headers, `on:`
    trigger styles), invert to a rule that is complete by the grammar instead of
    patching the enumeration a third time.
 
-5. **Run a periodic comprehensive adversarial audit** of the whole guard suite —
+6. **Run a periodic comprehensive adversarial audit** of the whole guard suite —
    not just newly-touched guards — to catch older guards that predate a
    hardening primitive. Record the review date and any backlog in the catalog's
    "Unguarded invariants backlog" section.
+
+7. **The meta-guards are in audit scope, and are audited FIRST.** Four guards now
+   guard the guard suite itself. An inert meta-guard is the worst case in this
+   design — every invariant it is supposed to protect silently loses its
+   backstop — so each audit pass starts here, and each of the four must carry its
+   own mutation self-test:
+
+   | Meta-guard | Protects |
+   |---|---|
+   | `test_ci_guard_assertion_scoping.py` | no guard makes a positive presence assertion against raw whole-file text (Decision 2), pinned by set equality against an **empty** baseline |
+   | `test_ci_pr_trigger_scope.py` | the two REQUIRED workflows keep an unscoped `pull_request:` trigger — no `branches:` (hides the check from stacked PRs) and no `paths:`/`paths-ignore:` (the #186 permanent merge-block) |
+   | `test_ci_catalog_completeness.py` | every guard file has a catalog row (HTML-comment-stripped, so a row hidden in `<!-- -->` does not count) |
+   | `test_ci_catalog_no_ghost_rows.py` | every catalog-cited guard path exists on disk |
+
+   Both catalog meta-guards shipped with **no** mutation self-test and ran only
+   against the real catalog — a parser regression would have made them pass
+   vacuously. That is now fixed and is the standing bar for any future
+   meta-guard.
+
+8. **Audit whether each guard RUNS, not only whether its logic is right.** A
+   guard that is never triggered is worth zero regardless of correctness. Each
+   audit pass verifies the workflows behind the REQUIRED contexts still fire for
+   the PR shapes in use — the #297 audit found its own entire follow-on chain
+   unverified in CI because `on.pull_request.branches: [main]` skipped stacked
+   PRs. Distinguish the two directions before proposing a trigger change:
+   widening a `branches:` filter is strictly additive, whereas a workflow-level
+   `paths-ignore:` on a required check blocks merges permanently (#186).
 
 ## Consequences
 
 - **Positive:** silent weakening of a CI gate fails loudly and reviewably; the
   hardening stays uniform across guards via the shared helpers; regressions are
-  pinned by mutation tests; periodic audits surface drift in older guards.
+  pinned by mutation tests; periodic audits surface drift in older guards. Two of
+  the recurring manual triage steps — "is this haystack raw?" and "is a catalog
+  row real?" — are now machine-checked on every PR rather than once a quarter.
+- **Cost of the meta layer:** four guards exist only to guard other guards, and
+  Decision 2's scoping rule makes an ordinary presence check slightly more work
+  to author. Accepted: the #297 audit's meta-guard found 7 inert sites in guards
+  that had already passed a two-pass review, so the human passes demonstrably do
+  not catch this class on their own.
 - **Cost:** new guards take longer (two review passes + mutation tests); the
   shared helpers are a small coupling point (changes there must keep all
   consumers green — covered by `scanner/tests/test__ci_guard_util.py`).
@@ -93,6 +159,7 @@ single author pass misses.
 ## References
 
 - [CI Config Regression Guards catalog](./ci-config-regression-guards.md)
+- [ADR-001 Q3 audit retrospective (#297)](../reports/adr-001-q3-audit-retrospective.md)
 - OWASP Top 10 CI/CD Security Risks — CICD-SEC-1 (Insufficient Flow Control):
   <https://owasp.org/www-project-top-10-ci-cd-security-risks/>
 - OWASP Top 10 CI/CD — CICD-SEC-4 (Poisoned Pipeline Execution):
