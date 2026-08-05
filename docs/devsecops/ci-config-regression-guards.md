@@ -372,3 +372,5 @@ coverage, ERE-pipe regressions, prowler provider ordering, coverage floors, npm
   `scanner/tests/test_ci_*.py`
 - Decision record: [ADR-001 — CI Guard Hardening Discipline & Periodic
   Adversarial Audit](./adr-001-ci-guard-hardening-and-audit-cadence.md)
+
+<!-- probe base: disposable, see the stacked-check verification -->
