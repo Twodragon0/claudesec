@@ -3,8 +3,14 @@ name: Lint
 on:
   push:
     branches: [main]
+  # No `branches:` filter: a stacked PR (base = another feature branch)
+  # must still get this REQUIRED check. With `branches: [main]` it never
+  # ran at all — PR #384 saw 3 checks and neither required context;
+  # the same branch retargeted to main (#385) saw 28. Unlike the #186
+  # `paths-ignore` incident, widening here cannot block a merge: PRs
+  # targeting `main` are unaffected, so the required contexts always
+  # report. Pinned by scanner/tests/test_ci_pr_trigger_scope.py.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
