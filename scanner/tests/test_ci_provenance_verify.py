@@ -38,12 +38,40 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     extract_on_block,
+    non_comment_lines,
     strip_inline_comment as _strip_comment,
 )
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "provenance-verify.yml"
+
+# `npm audit signatures` in COMMAND position: at the start of a line or right
+# after a shell separator/keyword. Scoping is load-bearing — the workflow names
+# the command in four whole-line comments AND inside two `echo "::error::…"`
+# strings, so a bare substring/regex search stays green after the real
+# invocation is deleted (inert-guard class, verified by the mutation self-test
+# below).
+_AUDIT_SIG_CMD_RE = re.compile(
+    r"(?:^|;|&&|\|\||\(|\{|!|\bif\b|\bthen\b|\belse\b|\bdo\b)"
+    r"\s*npm\s+audit\s+signatures\b"
+)
+
+
+def audit_signatures_invoked(text):
+    """True when `npm audit signatures` is actually RUN, not merely mentioned.
+
+    Drops whole-line comments, strips trailing comments, requires the token in
+    command position, and rejects a match sitting inside a double-quoted string
+    (an even number of `"` must precede it on the line) so an `echo "… npm audit
+    signatures …"` cannot satisfy the invariant.
+    """
+    for raw in non_comment_lines(text):
+        line = _strip_comment(raw)
+        for m in _AUDIT_SIG_CMD_RE.finditer(line):
+            if line.count('"', 0, m.start()) % 2 == 0:
+                return True
+    return False
 
 
 class TestProvenanceVerifyWorkflow(unittest.TestCase):
@@ -85,11 +113,11 @@ class TestProvenanceVerifyWorkflow(unittest.TestCase):
         )
 
     def test_runs_npm_audit_signatures(self):
-        self.assertRegex(
-            self.text,
-            r"\bnpm\s+audit\s+signatures\b",
-            "provenance-verify.yml no longer runs `npm audit signatures` — the "
-            "actual registry-signature + SLSA-provenance verification is gone.",
+        self.assertTrue(
+            audit_signatures_invoked(self.text),
+            "provenance-verify.yml no longer RUNS `npm audit signatures` — the "
+            "actual registry-signature + SLSA-provenance verification is gone. "
+            "Mentioning it in a comment or an `echo` string does not count.",
         )
 
     def test_keeps_workflow_run_post_publish_trigger(self):
@@ -119,6 +147,61 @@ class TestProvenanceVerifyWorkflow(unittest.TestCase):
             r"(?m)^\s*types:\s*\[[^\]]*\bcompleted\b[^\]]*\]\s*$",
             "the `workflow_run` trigger no longer fires on `types: [completed]` — "
             "post-publish verification would never run.",
+        )
+
+
+class TestAuditSignaturesInvocationScoping(unittest.TestCase):
+    """Mutation self-tests for `audit_signatures_invoked`.
+
+    The bare `assertRegex(text, r"npm audit signatures")` this replaced could
+    not detect deletion of the real invocation: the workflow's own explanatory
+    comments and its `echo "::error::npm audit signatures FAILED …"` message
+    satisfied the pattern on their own.
+    """
+
+    def test_real_invocation_counts(self):
+        self.assertTrue(
+            audit_signatures_invoked(
+                "          if npm audit signatures > sig.log 2>&1; then\n"
+            )
+        )
+
+    def test_bare_command_counts(self):
+        self.assertTrue(audit_signatures_invoked("          npm audit signatures\n"))
+
+    def test_whole_line_comment_does_not_count(self):
+        self.assertFalse(
+            audit_signatures_invoked(
+                "# `npm audit signatures` verifies the registry signature\n"
+                "          # No -e on purpose: the npm audit signatures exit is\n"
+            )
+        )
+
+    def test_echo_string_does_not_count(self):
+        self.assertFalse(
+            audit_signatures_invoked(
+                '            echo "::error::npm audit signatures FAILED for x"\n'
+            )
+        )
+
+    def test_trailing_comment_does_not_count(self):
+        self.assertFalse(
+            audit_signatures_invoked("          true  # npm audit signatures\n")
+        )
+
+    def test_gutted_workflow_is_detected(self):
+        # The realistic weakening: the invocation swapped for a no-op while every
+        # comment and echo mentioning it stays. Must be False.
+        gutted = (
+            "# `npm audit signatures` verifies BOTH the registry signature and\n"
+            "          # the `npm audit signatures` non-zero exit is the signal\n"
+            "          if true > sig.log 2>&1; then\n"
+            '            echo "::error::npm audit signatures FAILED for x"\n'
+        )
+        self.assertFalse(
+            audit_signatures_invoked(gutted),
+            "Inert-guard regression: a workflow that only MENTIONS the command "
+            "must not satisfy the invocation check.",
         )
 
 

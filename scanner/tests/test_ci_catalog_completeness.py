@@ -24,14 +24,30 @@ the measured coverage gate.
 OWASP CICD-SEC-1 (Insufficient Flow Control) / NIST SSDF (SP 800-218) PO.3, PW.4.
 """
 
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import strip_html_comments  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTS_DIR = REPO_ROOT / "scanner" / "tests"
 CATALOG_REL = "docs/devsecops/ci-config-regression-guards.md"
 CATALOG = REPO_ROOT / CATALOG_REL
+
+
+def missing_rows(catalog_text: str, guard_names) -> list:
+    """Guard file names with no row in `catalog_text`, HTML-comment-stripped.
+
+    Stripping `<!-- ... -->` first is load-bearing: Markdown has no `#` comment,
+    so an HTML comment is the escape hatch. A row parked in one renders as
+    nothing — the published inventory silently loses the guard — while a raw
+    substring scan still finds the path and reports green. That is the Markdown
+    form of the comment-evasion class the rest of the suite defends against."""
+    active = strip_html_comments(catalog_text)
+    return [name for name in guard_names if f"scanner/tests/{name}" not in active]
 
 
 class TestCiCatalogCompleteness(unittest.TestCase):
@@ -57,11 +73,7 @@ class TestCiCatalogCompleteness(unittest.TestCase):
         )
 
     def test_every_guard_listed_in_catalog(self):
-        missing = [
-            name
-            for name in self.guard_files
-            if f"scanner/tests/{name}" not in self.catalog_text
-        ]
+        missing = missing_rows(self.catalog_text, self.guard_files)
         self.assertEqual(
             missing,
             [],
@@ -72,6 +84,57 @@ class TestCiCatalogCompleteness(unittest.TestCase):
             "Landed) for each new guard so the inventory stays the single source "
             "of truth.",
         )
+
+
+
+class TestCatalogCompletenessDetector(unittest.TestCase):
+    """Mutation self-tests — the guard shipped without any, so a parser
+    regression would have gone unnoticed (Class 2 backlog item)."""
+
+    _NAMES = ["test_ci_alpha.py", "test_ci_beta.py"]
+    _ROWS = (
+        "| `scanner/tests/test_ci_alpha.py` | a | a | #1 |\n"
+        "| `scanner/tests/test_ci_beta.py` | b | b | #2 |\n"
+    )
+
+    def test_documented_guards_are_not_missing(self):
+        self.assertEqual(missing_rows(self._ROWS, self._NAMES), [])
+
+    def test_undocumented_guard_is_detected(self):
+        self.assertEqual(
+            missing_rows(self._ROWS, self._NAMES + ["test_ci_gamma.py"]),
+            ["test_ci_gamma.py"],
+            "A guard with no catalog row was NOT detected.",
+        )
+
+    def test_row_parked_in_an_html_comment_does_not_count(self):
+        mutant = self._ROWS.replace(
+            "| `scanner/tests/test_ci_beta.py` | b | b | #2 |",
+            "<!-- | `scanner/tests/test_ci_beta.py` | b | b | #2 | -->",
+        )
+        self.assertEqual(
+            missing_rows(mutant, self._NAMES),
+            ["test_ci_beta.py"],
+            "A row hidden inside an HTML comment satisfied the presence check — "
+            "the rendered inventory drops the guard while the check reads green.",
+        )
+
+    def test_multiline_html_comment_is_stripped(self):
+        mutant = (
+            "| `scanner/tests/test_ci_alpha.py` | a | a | #1 |\n"
+            "<!--\nparked for later:\n"
+            "| `scanner/tests/test_ci_beta.py` | b | b | #2 |\n-->\n"
+        )
+        self.assertEqual(missing_rows(mutant, self._NAMES), ["test_ci_beta.py"])
+
+    def test_unclosed_comment_marker_does_not_blank_the_catalog(self):
+        # Degrades to no-strip rather than eating the document, which would make
+        # every guard look undocumented at once.
+        mutant = self._ROWS + "<!-- note without a closer\n"
+        self.assertEqual(missing_rows(mutant, self._NAMES), [])
+
+    def test_empty_catalog_reports_every_guard(self):
+        self.assertEqual(missing_rows("", self._NAMES), self._NAMES)
 
 
 if __name__ == "__main__":

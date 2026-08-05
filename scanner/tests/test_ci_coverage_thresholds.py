@@ -26,7 +26,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_comment_lines, strip_inline_comment  # noqa: E402
+from _ci_guard_util import strip_comment_lines, strip_inline_comment_sh  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -41,9 +41,17 @@ MIN_BASH_COVERAGE_THRESHOLD = 90.0
 def active_text(text):
     """`text` with whole-line AND trailing-inline `#` comments removed, so a
     floor value surviving only in a comment cannot satisfy the gate check
-    (comment-evasion false-negative class — F-2)."""
+    (comment-evasion false-negative class — F-2).
+
+    Uses the BASH-aware `strip_inline_comment_sh`, not the whitespace-boundary
+    variant: both floors live in shell command lines inside `run:` blocks
+    (`pytest --cov-fail-under=99`, the kcov `threshold = 90.0` heredoc), where
+    bash starts a comment after a metacharacter with no space. A whitespace-only
+    stripper left `pytest scanner/;#--cov-fail-under=99` intact, so a floor
+    surviving only in that comment satisfied the presence check while no gate
+    ran (ADR-001 §1; same class as the Security-Scan-Gate `;#exit 1` in #376)."""
     return "\n".join(
-        strip_inline_comment(ln) for ln in strip_comment_lines(text).splitlines()
+        strip_inline_comment_sh(ln) for ln in strip_comment_lines(text).splitlines()
     )
 
 
@@ -109,6 +117,34 @@ class TestCoverageCommentEvasion(unittest.TestCase):
 
     def test_active_floor_is_counted(self):
         scan = active_text("run: pytest --cov-fail-under=99")
+        self.assertEqual(re.findall(r"--cov-fail-under=(\d+)", scan), ["99"])
+
+    def test_metachar_adjacent_comment_floor_is_not_counted(self):
+        # Bash starts a comment after `;`/`&`/`|`/backtick with NO space, so the
+        # gate is gone but the token survives. Verified against real bash:
+        # `bash -c 'echo A;#--cov-fail-under=99'` prints `A` and never sees the
+        # tail. The whitespace-boundary stripper missed this (Class B, #383).
+        for mutant in (
+            "run: pytest scanner/;#--cov-fail-under=99",
+            "run: pytest scanner/ &#--cov-fail-under=99",
+            "run: pytest scanner/ | tee log`#--cov-fail-under=99`",
+        ):
+            with self.subTest(mutant=mutant):
+                self.assertEqual(
+                    re.findall(r"--cov-fail-under=(\d+)", active_text(mutant)),
+                    [],
+                    "metachar-adjacency comment-evasion: a `--cov-fail-under` "
+                    "surviving only after a `;#`/`&#`/backtick comment start is "
+                    "NOT an active coverage gate.",
+                )
+
+    def test_quoted_hash_is_not_treated_as_comment(self):
+        # The over-strip direction: a `#` inside quotes is literal, so the
+        # bash-aware stripper must NOT cut the line there.
+        # The floor deliberately sits AFTER the quoted `#`: a whitespace-boundary
+        # stripper truncates the line at ` #slow"` and loses the real gate, so
+        # this pins the over-strip direction non-vacuously.
+        scan = active_text('run: pytest -k "not #slow" --cov-fail-under=99')
         self.assertEqual(re.findall(r"--cov-fail-under=(\d+)", scan), ["99"])
 
 

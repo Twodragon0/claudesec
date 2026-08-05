@@ -57,8 +57,127 @@ def strip_inline_comment(line: str) -> str:
     before the `#` so a `#` inside a token (a URL fragment, a quoted value) is
     not stripped. Per-line and distinct from strip_comment_lines/non_comment_lines,
     which drop WHOLE comment lines from a multi-line text — several guards need
-    the trailing-comment form when scanning one `run:`/`uses:` line at a time."""
+    the trailing-comment form when scanning one `run:`/`uses:` line at a time.
+
+    Whitespace-only boundary: correct for YAML/Dockerfile lines (where `;#` is
+    literal scalar content, NOT a comment). For SHELL lines use
+    `strip_inline_comment_sh`, because bash starts a comment after a command
+    separator with no intervening space (`echo x;#exit 1`)."""
     return re.sub(r"\s+#.*$", "", line)
+
+
+# Positions after which a `#` begins a bash comment when it starts a new word,
+# with NO intervening space: start-of-line, whitespace, the bash metacharacters
+# (`;`, `&`, `|`, `(`, `)`, `<`, `>`), and the backtick (opening a command
+# substitution starts a fresh command context, so `` `#cmd` `` is a comment too —
+# verified by execution). A `#` preceded by a word char (`foo#bar`) or `$`/`{`
+# (`${#var}`) is NOT a word start, so it is preserved.
+_SH_COMMENT_BOUNDARY = " \t;&|()<>`"
+
+
+def strip_inline_comment_sh(line: str) -> str:
+    """A SINGLE shell line with its trailing bash comment removed, quote-aware.
+
+    Unlike `strip_inline_comment` (whitespace-only), a `#` here begins a comment
+    when it starts a bash word — after start-of-line, whitespace, a bash
+    metacharacter (`;`, `&`, `|`, `(`, `)`, `<`, `>`), or a backtick — AND is not
+    inside a single-/double-quoted string. Real bash treats `echo x;#exit 1`,
+    `FILES=$(cmd)#…`, and `` echo x`#exit 1` `` as comments (the tail never runs)
+    with no space before `#`; a whitespace-only stripper misses them, letting a
+    token that survives only in such a comment satisfy a shell-scanning guard's
+    presence check (ADR-001 §1; the class that hid a `;#exit 1` from the
+    Security-Scan-Gate guard). A `#` inside quotes, or mid-word (`foo#bar`,
+    `${#var}`), is preserved.
+
+    ANSI-C `$'...'` quoting IS modeled: a `'` immediately preceded by an
+    unescaped `$` opens an escape-aware string (bash reads `\\'` as a literal
+    quote there), so `$'\\''` is one string and a trailing `#` is a real comment.
+    Missing this was an UNDER-strip (false NEGATIVE) that hid a dead `exit 1` from
+    the Security-Scan-Gate guard (ADR-001 §2 5th-pass finding), NOT the over-strip
+    the earlier docstring claimed.
+
+    KNOWN LIMITATIONS (all OVER-strip direction — they drop live text, causing a
+    guard to see LESS, so a false ALARM, never a silent security bypass; none is
+    triggered by the shell blocks the current guards scan, so they are documented
+    rather than modeled): (1) per-line operation does not carry cross-line quote
+    state, so a `#` on a continuation line of a multi-line double-quoted string is
+    treated as a comment; (2) heredoc bodies are not recognized, so a literal `;#`
+    inside a heredoc would be stripped; (3) a command substitution `$(...)` closing
+    inside a word keeps the `#` literal (`x=$(cmd)#c` -> value `…#c`), but a single
+    preceding-char model cannot tell that `)` from a subshell `)` (a real command
+    boundary), so it over-strips. Revisit if a scanned guard block adopts one."""
+    in_s = in_d = in_ansi = False
+    prev = ""  # previous unescaped char; "" == start-of-line boundary
+    i, n = 0, len(line)
+    while i < n:
+        c = line[i]
+        if in_ansi:  # ANSI-C $'...': backslash escapes the next char (unlike '...')
+            if c == "\\" and i + 1 < n:
+                prev = "x"
+                i += 2
+                continue
+            if c == "'":
+                in_ansi = False
+            prev = c
+            i += 1
+            continue
+        if in_s:  # plain single quotes: no escaping in bash
+            if c == "'":
+                in_s = False
+            prev = c
+            i += 1
+            continue
+        if in_d:
+            if c == "\\" and i + 1 < n:
+                prev = "x"
+                i += 2
+                continue
+            if c == '"':
+                in_d = False
+            prev = c
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:  # unquoted escape
+            prev = "x"
+            i += 2
+            continue
+        if c == "'":
+            # `$'` opens an ANSI-C (escape-aware) string; a plain `'` does not.
+            if prev == "$":
+                in_ansi = True
+            else:
+                in_s = True
+            prev = c
+            i += 1
+            continue
+        if c == '"':
+            in_d = True
+            prev = c
+            i += 1
+            continue
+        if c == "#" and (prev == "" or prev in _SH_COMMENT_BOUNDARY):
+            return line[:i].rstrip()
+        prev = c
+        i += 1
+    return line
+
+
+def strip_html_comments(text: str) -> str:
+    """`text` with HTML/Markdown comments (`<!-- ... -->`, possibly multi-line)
+    removed.
+
+    Markdown has no `#` comment, so the `strip_comment_lines` family does not
+    apply to the docs the catalog meta-guards scan. `<!-- -->` is the equivalent
+    escape hatch: a catalog row parked inside one is invisible when rendered but
+    still satisfies a raw substring presence check, so a guard could be dropped
+    from the published inventory while `test_ci_catalog_completeness` stays
+    green (the comment-evasion class of ADR-001 §1, in Markdown).
+
+    An UNCLOSED `<!--` is left intact rather than eating the rest of the file:
+    the pattern requires a closing `-->`, so a stray opener degrades to
+    no-strip (under-strip, a false NEGATIVE for that one row) instead of
+    blanking the document (which would make every consumer fail at once)."""
+    return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
 
 
 def top_level_jobs(text: str) -> list:

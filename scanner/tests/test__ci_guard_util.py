@@ -18,7 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     extract_on_block,
     strip_comment_lines,
+    strip_html_comments,
     strip_inline_comment,
+    strip_inline_comment_sh,
     top_level_jobs,
 )
 
@@ -30,6 +32,82 @@ class TestStripInlineComment(unittest.TestCase):
     def test_requires_whitespace_before_hash(self):
         # `foo#bar` is not a shell comment — a `#` with no preceding space stays.
         self.assertEqual(strip_inline_comment("image@sha256:dead#beef"), "image@sha256:dead#beef")
+
+
+class TestStripInlineCommentSh(unittest.TestCase):
+    """Bash-aware trailing-comment stripping: `#` at a command-separator boundary
+    (`;#`/`&#`/`|#`) is a real bash comment even with no preceding space."""
+
+    def test_strips_after_whitespace(self):
+        self.assertEqual(strip_inline_comment_sh("exit 1  # done"), "exit 1")
+
+    def test_strips_semicolon_adjacent(self):
+        # The proven Security-Scan-Gate evasion: `;#exit 1` is a real comment.
+        self.assertEqual(strip_inline_comment_sh('echo x;#exit 1'), "echo x;")
+
+    def test_strips_amp_and_pipe_adjacent(self):
+        self.assertEqual(strip_inline_comment_sh("a &#c"), "a &")
+        self.assertEqual(strip_inline_comment_sh("a |#c"), "a |")
+
+    def test_strips_after_subshell_close_and_redirect(self):
+        # A SUBSHELL close `)` and a redirect `>` are real command boundaries, so a
+        # `#` immediately after them starts a comment (verified: `(echo A)#x ; echo
+        # DONE` prints only A). `>#f` is a comment (bash errors on the missing
+        # redirect target), so stripping to `cmd >` is correct.
+        self.assertEqual(strip_inline_comment_sh("(echo A)#c"), "(echo A)")
+        self.assertEqual(strip_inline_comment_sh("cmd >#not-a-file"), "cmd >")
+
+    def test_overstrips_cmdsub_in_word_documented(self):
+        # DOCUMENTED over-strip (fail-safe): a command substitution CLOSING inside a
+        # word keeps the `#` LITERAL — verified: `x=$(echo hi)#ZZZ` -> x=[hi#ZZZ].
+        # A single-preceding-char model cannot tell a subshell `)` (command
+        # boundary) from a `$(...)` `)` (mid-word), so we over-strip here. This
+        # drops live text -> a guard sees LESS -> a false ALARM, never a silent
+        # bypass; it is not triggered by the shell blocks the current guards scan.
+        self.assertEqual(
+            strip_inline_comment_sh('FILES=$(git diff)#|| git diff HEAD~1'),
+            "FILES=$(git diff)",
+        )
+
+    def test_ansi_c_escaped_quote_is_not_a_reopen(self):
+        # 5th-pass finding (ADR-001 §2): `$'\''` is ONE ANSI-C string — the `\'` is
+        # an escaped literal quote, NOT a close+reopen — so the trailing ` #exit 1`
+        # is a real comment (the exit never runs). A single-quote branch with no
+        # escape awareness runs off the line "in a quote" and fails to strip it,
+        # an UNDER-strip that hid a dead `exit 1` from the Security-Scan-Gate guard.
+        self.assertEqual(
+            strip_inline_comment_sh(r": $'\'' #exit 1"), r": $'\''"
+        )
+
+    def test_ansi_c_preserves_internal_hash(self):
+        # A `#` inside an ANSI-C string is literal content, not a comment.
+        self.assertEqual(strip_inline_comment_sh(r"echo $'a#b'"), r"echo $'a#b'")
+
+    def test_strips_after_backtick(self):
+        # `` `#cmd` `` — a `#` right after an opening backtick starts a comment.
+        self.assertEqual(strip_inline_comment_sh("echo x`#exit 1`"), "echo x`")
+
+    def test_preserves_backtick_hash_inside_quotes(self):
+        # inside double quotes the whole thing is literal string data.
+        self.assertEqual(
+            strip_inline_comment_sh('echo "x`#y`"'), 'echo "x`#y`"'
+        )
+
+    def test_start_of_line_is_a_comment(self):
+        self.assertEqual(strip_inline_comment_sh("#whole"), "")
+
+    def test_preserves_midword_hash(self):
+        # Not a word boundary → literal, not a comment.
+        self.assertEqual(strip_inline_comment_sh("echo foo#bar"), "echo foo#bar")
+
+    def test_preserves_param_length_expansion(self):
+        self.assertEqual(strip_inline_comment_sh("echo ${#arr[@]}"), "echo ${#arr[@]}")
+
+    def test_preserves_hash_inside_quotes(self):
+        self.assertEqual(
+            strip_inline_comment_sh('echo "a # b" ; run'), 'echo "a # b" ; run'
+        )
+        self.assertEqual(strip_inline_comment_sh("echo 'a;#b'"), "echo 'a;#b'")
 
 
 class TestExtractOnBlockF7(unittest.TestCase):
@@ -61,6 +139,35 @@ class TestTopLevelJobs(unittest.TestCase):
 class TestStripCommentLines(unittest.TestCase):
     def test_drops_whole_line_comments_only(self):
         self.assertEqual(strip_comment_lines("a\n# c\n  b"), "a\n  b")
+
+
+
+class TestStripHtmlComments(unittest.TestCase):
+    """Markdown has no `#` comment; `<!-- -->` is the escape hatch the catalog
+    meta-guards must see through."""
+
+    def test_single_line_comment_removed(self):
+        self.assertEqual(strip_html_comments("a <!-- hidden --> b"), "a  b")
+
+    def test_multiline_comment_removed(self):
+        self.assertEqual(strip_html_comments("a <!--\nx\ny\n--> b"), "a  b")
+
+    def test_multiple_comments_removed_independently(self):
+        self.assertEqual(strip_html_comments("<!--x-->A<!--y-->B"), "AB")
+
+    def test_non_greedy_does_not_swallow_between_comments(self):
+        # A greedy `.*` would eat `KEEP` along with both comments.
+        self.assertIn("KEEP", strip_html_comments("<!--a-->KEEP<!--b-->"))
+
+    def test_unclosed_opener_is_left_intact(self):
+        # Under-strip beats blanking the document: a stray `<!--` must not eat
+        # the rest of the file and make every consumer fail at once.
+        self.assertEqual(
+            strip_html_comments("live row\n<!-- dangling"), "live row\n<!-- dangling"
+        )
+
+    def test_text_without_comments_is_unchanged(self):
+        self.assertEqual(strip_html_comments("plain text"), "plain text")
 
 
 if __name__ == "__main__":

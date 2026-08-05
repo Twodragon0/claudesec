@@ -48,6 +48,31 @@ WORKFLOW = REPO_ROOT / ".github" / "workflows" / "dashboard-control-smoke.yml"
 HARNESS_MJS = REPO_ROOT / "scanner" / "tests" / "dashboard-control-liveness.mjs"
 HARNESS_SH = REPO_ROOT / "scanner" / "tests" / "test_dashboard_control_liveness.sh"
 
+HARNESS_INVOCATION = "bash scanner/tests/test_dashboard_control_liveness.sh"
+
+
+def harness_step_block(text):
+    """The single `- name:` step block that invokes the harness, or None.
+
+    Scoping is load-bearing for the per-step `timeout-minutes` assertion: this
+    workflow also carries JOB-level `timeout-minutes` keys, so an unscoped search
+    is satisfied by those and cannot detect removal of the per-step cap it claims
+    to guard (inert-guard class — the same defect as the unscoped `exit 1` in
+    test_ci_docker_image_size_gate.py).
+    """
+    blocks, cur = [], None
+    for line in text.splitlines():
+        if re.match(r"^\s*-\s+name:", line):
+            if cur is not None:
+                blocks.append("\n".join(cur))
+            cur = [line]
+        elif cur is not None:
+            cur.append(line)
+    if cur is not None:
+        blocks.append("\n".join(cur))
+    hits = [b for b in blocks if HARNESS_INVOCATION in b]
+    return hits[0] if len(hits) == 1 else None
+
 
 class TestDashboardControlSmoke(unittest.TestCase):
     @classmethod
@@ -95,18 +120,27 @@ class TestDashboardControlSmoke(unittest.TestCase):
         )
 
     def test_browser_step_is_bounded_and_runs_harness(self):
-        # Per-step timeout so a hung headless Chrome can't burn the job budget.
-        self.assertRegex(
-            self.text,
-            r"timeout-minutes:\s*\d+",
-            "no per-step timeout-minutes on the smoke job — a hung Chrome would "
-            "run to the job cap",
-        )
         # The workflow must invoke the real harness wrapper.
         self.assertIn(
-            "bash scanner/tests/test_dashboard_control_liveness.sh",
+            HARNESS_INVOCATION,
             self.text,
             "the smoke job no longer invokes the control-liveness harness wrapper",
+        )
+        # Per-step timeout so a hung headless Chrome can't burn the job budget.
+        # Scoped to the harness STEP: unscoped, the workflow's job-level
+        # `timeout-minutes` keys satisfy it and removing the per-step cap goes
+        # undetected.
+        step = harness_step_block(self.text)
+        self.assertIsNotNone(
+            step,
+            "could not isolate exactly one `- name:` step invoking "
+            f"`{HARNESS_INVOCATION}` — step parsing broke, or the invocation moved",
+        )
+        self.assertRegex(
+            step,
+            r"timeout-minutes:\s*\d+",
+            "no per-step timeout-minutes on the harness step — a hung Chrome would "
+            "run to the job cap (a job-level timeout elsewhere does not count)",
         )
 
     def test_harness_files_exist(self):
@@ -116,6 +150,62 @@ class TestDashboardControlSmoke(unittest.TestCase):
                     p.is_file(),
                     f"{p} missing — the smoke workflow would be a silent no-op",
                 )
+
+
+class TestHarnessStepScoping(unittest.TestCase):
+    """Mutation self-tests for `harness_step_block`.
+
+    The unscoped `assertRegex(text, r"timeout-minutes:\\s*\\d+")` this replaced
+    could not detect removal of the harness step's own cap, because the workflow
+    carries job-level `timeout-minutes` keys that satisfied the pattern.
+    """
+
+    _JOB_LEVEL = "jobs:\n  smoke:\n    timeout-minutes: 8\n    steps:\n"
+    _GOOD = (
+        _JOB_LEVEL + "      - name: Run smoke\n"
+        "        timeout-minutes: 5\n"
+        f"        run: {HARNESS_INVOCATION}\n"
+    )
+    # Per-step cap gone; the JOB-level one remains — the exact shape the old
+    # unscoped check called green.
+    _NO_STEP_CAP = (
+        _JOB_LEVEL + "      - name: Run smoke\n" f"        run: {HARNESS_INVOCATION}\n"
+    )
+    # A LATER step has a cap; the harness step does not.
+    _CAP_ON_WRONG_STEP = (
+        _JOB_LEVEL + "      - name: Run smoke\n"
+        f"        run: {HARNESS_INVOCATION}\n"
+        "      - name: Upload artifact\n"
+        "        timeout-minutes: 5\n"
+        "        run: echo up\n"
+    )
+
+    def test_good_step_has_cap(self):
+        self.assertRegex(harness_step_block(self._GOOD), r"timeout-minutes:\s*\d+")
+
+    def test_job_level_cap_does_not_satisfy(self):
+        step = harness_step_block(self._NO_STEP_CAP)
+        self.assertIsNotNone(step)
+        self.assertNotRegex(
+            step,
+            r"timeout-minutes:\s*\d+",
+            "Scoping failure: a JOB-level timeout leaked into the harness step, "
+            "so removing the per-step cap would go undetected.",
+        )
+
+    def test_later_step_cap_does_not_satisfy(self):
+        step = harness_step_block(self._CAP_ON_WRONG_STEP)
+        self.assertIsNotNone(step)
+        self.assertNotRegex(step, r"timeout-minutes:\s*\d+")
+
+    def test_missing_invocation_returns_none(self):
+        self.assertIsNone(harness_step_block(self._JOB_LEVEL))
+
+    def test_real_workflow_isolates_one_step(self):
+        raw = WORKFLOW.read_text(encoding="utf-8") if WORKFLOW.is_file() else ""
+        step = harness_step_block(strip_comment_lines(raw))
+        self.assertIsNotNone(step, "harness step not isolated in the real workflow")
+        self.assertIn(HARNESS_INVOCATION, step)
 
 
 if __name__ == "__main__":
