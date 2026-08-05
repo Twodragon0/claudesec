@@ -190,6 +190,59 @@ you claim it.
   `x=$(cmd)#c` where the naive one is right. Neither dominates — re-attack the
   new version on its own terms, not just the old one's known gaps.
 
+### The inert guard — check the HAYSTACK before the matcher
+
+A subtler failure than a beatable matcher: a guard whose **haystack is the raw
+whole file**. Comment the control out and the token is still there, so a
+presence assertion stays green — no evasion needed, and it misses a *plain
+deletion* too. This is worse than no guard: a reviewer reads the green check as
+proof the control is intact.
+
+Two were found by hand in #383 (`npm audit signatures` satisfied by the
+workflow's own comments and `echo "::error::…"` strings; `exit 1` satisfied by
+any of a dozen unrelated lines). Codifying that triage as an AST meta-guard
+(`test_ci_guard_assertion_scoping.py`) then found **seven more** in guards that
+had passed review — including both required merge contexts and a
+`pull_request_target` fork guard.
+
+- **Never assert presence against the raw text.** Aim at the comment-stripped
+  scan the guard already builds, or scope the haystack to the step/block that
+  owns the control. A line-anchored regex (`(?m)^\s*token`) also counts as
+  scoped — a `#`-commented copy cannot match it.
+- **Scope before you match.** `assertIn("exit 1", lint_yml)` is unfixable by any
+  amount of stripping — `lint.yml` has a dozen unrelated `exit 1` lines. Bound
+  it to the owning block first (balanced `if`/`fi` depth, the `- name:` step),
+  then match.
+- **Negative assertions are exempt.** Scanning raw text for a FORBIDDEN token
+  only over-reports — a false alarm, never a silent bypass.
+- **Watch for weak duplicates.** Several guards had a strict aggregate validator
+  *and* narrower per-invariant tests that re-checked the raw text for better
+  error messages. The narrow ones were inert. Same file, two strictness levels.
+- **When you keep finding a shape by hand, ask whether the triage can be a
+  guard.** Two hand-found instances became seven automated ones, and the check
+  now runs on every new guard.
+
+### Does the guard actually RUN?
+
+Audit the trigger, not just the logic. During #297 the entire follow-on chain
+sat on stacked PRs, and `on.pull_request.branches: [main]` meant the two
+REQUIRED workflows never fired for a PR whose base was a feature branch —
+3 checks instead of 28, with `Lint` and `Security Scan Gate` **absent**. Every
+guard was correct and none of them ran.
+
+Note the asymmetry with the #186 lesson before proposing a fix: `paths-ignore`
+on a required check blocks merges *permanently* (it never reports for a PR that
+does target `main`); removing a `branches:` filter is **strictly additive** and
+cannot recreate that. Both are now pinned by `test_ci_pr_trigger_scope.py`.
+
+### Distrust your own verification harness
+
+The first attempt to prove those seven sites inert reported **green across the
+board** — the harness injected mutated text into the class attribute, but
+`unittest` re-ran `setUpClass`, which reloaded the real file. The measurement
+was wrong, not the finding. Before believing a "no problem here" result, prove
+the harness can produce a RED: run it against a case you *know* is broken.
+
 ### Adversarial pass — how to run it
 
 Dispatch two `sec-reviewer` passes in parallel (`/team 2:sec-reviewer`, with
