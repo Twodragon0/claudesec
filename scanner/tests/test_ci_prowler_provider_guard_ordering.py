@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_inline_comment  # noqa: E402
+from _ci_guard_util import strip_inline_comment_sh  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -138,6 +138,15 @@ def _parse_provider_sections(
         # skip whole-line comments and strip trailing inline comments, so a guard
         # surviving only in a comment cannot mask a real guard that is now after
         # the report (which would skew the min(guard)<min(report) ordering check).
+        #
+        # integration.sh is a pure BASH file, so trailing comments are stripped
+        # with `strip_inline_comment_sh`, not the whitespace-boundary variant: a
+        # decoy `echo x;#_prowler_provider_available "azure"` is a real comment to
+        # bash (no space needed after `;`), and under the old stripper its early
+        # line number satisfied min(guard) < min(report) while the only live guard
+        # sat AFTER the report — the exact masking F-8 defends against, just via a
+        # metacharacter instead of leading whitespace (Class B of the #383 sweep;
+        # primitive from #376).
         if _SECTION_HEADER_RE.match(raw):
             _flush(current_label, current_guards, current_reports)
             current_label = raw.strip()
@@ -145,7 +154,7 @@ def _parse_provider_sections(
             current_reports = []
             continue
 
-        active = "" if raw.lstrip().startswith("#") else strip_inline_comment(raw)
+        active = "" if raw.lstrip().startswith("#") else strip_inline_comment_sh(raw)
 
         m = _GUARD_CALL_RE.search(active)
         if m:
@@ -337,6 +346,57 @@ _prowler_provider_available "fakeprovider"
             "F-8: a guard surviving only in a comment masked a real guard placed "
             "AFTER the report — the ordering check was evaded.",
         )
+
+    # Class B (#383 sweep): same masking, but the decoy comment starts at a bash
+    # METACHARACTER with no preceding whitespace. `bash -c 'echo A;#x'` prints
+    # `A`, so the tail is a genuine comment — the whitespace-boundary stripper
+    # left it intact and the decoy's line number hid the bad ordering.
+    _METACHAR_COMMENT_DECOY = """\
+#!/usr/bin/env bash
+# ── Provider Scans ──────────────────────────────────────────────────────────
+
+# ── Fake Provider ────────────────────────────────────────────────────────────
+
+echo start;#_prowler_provider_available "fakeprovider"
+_fake_json=$(_prowler_scan "fakeprovider")
+_prowler_report "FakeProvider" "$_fake_json" "PROWLER-FAKE"
+_prowler_provider_available "fakeprovider"
+"""
+
+    # Over-strip control: a `#` inside a quoted string is literal, so a real
+    # guard call on such a line must still be counted.
+    _QUOTED_HASH_GUARD = """\
+#!/usr/bin/env bash
+# ── Provider Scans ──────────────────────────────────────────────────────────
+
+# ── Fake Provider ────────────────────────────────────────────────────────────
+
+echo "issue #238" && _prowler_provider_available "fakeprovider"
+_prowler_report "FakeProvider" "$_fake_json" "PROWLER-FAKE"
+"""
+
+    def test_metachar_comment_guard_does_not_mask_bad_ordering(self) -> None:
+        violations = self._check_ordering(self._METACHAR_COMMENT_DECOY)
+        self.assertTrue(
+            violations,
+            "A decoy guard parked behind a `;#` bash comment masked a real guard "
+            "placed AFTER the report — metachar-adjacency comment-evasion.",
+        )
+
+    def test_quoted_hash_does_not_drop_a_real_guard(self) -> None:
+        # Asserts the guard is COUNTED, not merely that no violation is reported:
+        # a stripper that truncates at the quoted `#` loses the guard entirely,
+        # and a section with no guard is skipped by the ordering check — which
+        # would make an "expect no violations" assertion pass vacuously.
+        sections = _parse_provider_sections(self._QUOTED_HASH_GUARD)
+        guards = [g for _, gs, _ in sections for g in gs]
+        self.assertEqual(
+            [p for p, _ in guards],
+            ["fakeprovider"],
+            "Over-strip: a `#` inside a double-quoted string is literal — the "
+            "line must not be truncated before the real guard call.",
+        )
+        self.assertEqual(self._check_ordering(self._QUOTED_HASH_GUARD), [])
 
 
 if __name__ == "__main__":

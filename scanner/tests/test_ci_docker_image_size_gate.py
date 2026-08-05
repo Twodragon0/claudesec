@@ -28,7 +28,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_comment_lines, strip_inline_comment  # noqa: E402
+from _ci_guard_util import strip_comment_lines, strip_inline_comment_sh  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -44,16 +44,16 @@ def active_text(text):
     cap value surviving only in a comment cannot satisfy the gate check
     (comment-evasion false-negative class).
 
-    OPEN GAP (under-strip / false negative, NOT accepted — being fixed):
-    `strip_inline_comment` is whitespace-boundary only, so a shell metacharacter
-    adjacency such as `echo "…";#exit 1` is left intact even though bash treats
-    it as a comment. The `exit 1` assertion below therefore still passes on that
-    one mutant. The bash-aware stripper (`strip_inline_comment_sh`) arrives with
-    #376; this scan switches to it in the follow-up that adopts it repo-wide,
-    rather than growing a divergent local copy of the boundary logic here.
+    Uses the BASH-aware `strip_inline_comment_sh`. Both the `max_mb=N` cap and
+    the breach block's `exit 1` live in shell inside a `run:` block, where bash
+    starts a comment after a metacharacter with no space. The whitespace-boundary
+    stripper left `echo "::error::…";#exit 1` intact, so the breach-block scan
+    below saw a dead `exit 1` and called the gate live while a 900 MB image only
+    echoed — the under-strip #383 recorded as a KNOWN OPEN gap pending the
+    primitive from #376, closed here.
     """
     return "\n".join(
-        strip_inline_comment(ln) for ln in strip_comment_lines(text).splitlines()
+        strip_inline_comment_sh(ln) for ln in strip_comment_lines(text).splitlines()
     )
 
 
@@ -152,6 +152,43 @@ class TestImageSizeCommentEvasion(unittest.TestCase):
     def test_active_cap_is_counted(self):
         scan = active_text("          max_mb=600")
         self.assertEqual(re.findall(r"max_mb\s*=\s*(\d+)", scan), ["600"])
+
+    def test_metachar_adjacent_commented_cap_is_not_counted(self):
+        scan = active_text('          echo "sizing";#max_mb=9999')
+        self.assertEqual(
+            re.findall(r"max_mb\s*=\s*(\d+)", scan),
+            [],
+            "metachar-adjacency comment-evasion: a `max_mb=` surviving only "
+            "after a `;#` bash comment start is not an active size gate.",
+        )
+
+    def test_parked_exit_does_not_satisfy_the_breach_block(self):
+        # The gap #383 recorded and deferred to the strip_inline_comment_sh
+        # adoption. `bash -c 'echo A;#exit 1'` prints `A` and returns 0 — the
+        # `exit 1` never runs, so the size gate is dead while the token remains.
+        mutant = (
+            '          if [ "$size_mb" -gt "$max_mb" ]; then\n'
+            '            echo "::error::Image size too big";#exit 1\n'
+            "          fi\n"
+        )
+        body = breach_block(active_text(mutant))
+        self.assertIsNotNone(body, "breach `if` should still be found")
+        self.assertNotRegex(
+            body,
+            r"\bexit\s+1\b",
+            "A `;#exit 1` bash comment satisfied the breach-block exit check — "
+            "the cap only echoes and an oversized image merges.",
+        )
+
+    def test_live_exit_after_a_quoted_hash_still_counts(self):
+        # Over-strip control: a `#` inside quotes is literal, so a real `exit 1`
+        # on the same line must survive the strip.
+        mutant = (
+            '          if [ "$size_mb" -gt "$max_mb" ]; then\n'
+            '            echo "size # over cap" && exit 1\n'
+            "          fi\n"
+        )
+        self.assertRegex(breach_block(active_text(mutant)), r"\bexit\s+1\b")
 
 
 class TestBreachBlockScoping(unittest.TestCase):
