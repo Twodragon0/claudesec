@@ -21,8 +21,15 @@ stdlib-only (regex/line scanning, no PyYAML — not installed in the
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import (  # noqa: E402
+    strip_comment_lines,
+    strip_inline_comment,
+)
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -35,10 +42,23 @@ LINT_YML = WORKFLOW_DIR / "lint.yml"
 FORBIDDEN_IN_LINT = ("cross-os", "live-os-checks", "macos-latest", "windows-latest")
 
 
+def active_scan(text):
+    """`text` with whole-line AND trailing inline `#` comments removed.
+
+    The runner label lives in a YAML `runs-on:` value, so the whitespace-boundary
+    `strip_inline_comment` is the correct stripper here (`;#` is literal scalar
+    content in YAML, not a comment). Without stripping, the presence check below
+    is satisfied by a commented-out `runs-on: macos-latest` and goes inert."""
+    return "\n".join(
+        strip_inline_comment(ln) for ln in strip_comment_lines(text).splitlines()
+    )
+
+
 class TestCrossOsWorkflowNonRequired(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.cross = CROSS_OS_YML.read_text(encoding="utf-8") if CROSS_OS_YML.is_file() else ""
+        cls.cross_scan = active_scan(cls.cross)
         cls.lint = LINT_YML.read_text(encoding="utf-8") if LINT_YML.is_file() else ""
 
     def test_cross_os_workflow_exists(self):
@@ -60,7 +80,7 @@ class TestCrossOsWorkflowNonRequired(unittest.TestCase):
         )
         self.assertIn(
             "macos-latest",
-            self.cross,
+            self.cross_scan,
             "cross-os-checks.yml no longer references an OS runner — parsing/intent broke.",
         )
 
@@ -87,6 +107,21 @@ class TestCrossOsWorkflowNonRequired(unittest.TestCase):
                 f"A cross-OS job is named '{ctx}', colliding with a required "
                 "branch-protection context. Rename it.",
             )
+
+
+
+class TestCrossOsScanScoping(unittest.TestCase):
+    """`macos-latest` was asserted against the RAW workflow text, so a
+    commented-out `runs-on:` kept the check green (inert)."""
+
+    def test_commented_runner_is_not_counted(self):
+        for mutant in ("        # runs-on: macos-latest",
+                       "        runs-on: ubuntu-latest  # was macos-latest"):
+            with self.subTest(mutant=mutant):
+                self.assertNotIn("macos-latest", active_scan(mutant))
+
+    def test_live_runner_is_counted(self):
+        self.assertIn("macos-latest", active_scan("        runs-on: macos-latest"))
 
 
 if __name__ == "__main__":

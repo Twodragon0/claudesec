@@ -51,7 +51,7 @@ All guards follow the same rules (see the existing files for reference):
 
 | Guard | Protects | Key assertions | Landed |
 |-------|----------|----------------|--------|
-| `scanner/tests/test_ci_coverage_thresholds.py` | Coverage floors in `lint.yml` | pytest `--cov-fail-under >= 99`; bash kcov `threshold >= 90.0` | #200 |
+| `scanner/tests/test_ci_coverage_thresholds.py` | Coverage floors in `lint.yml` | pytest `--cov-fail-under >= 99`; bash kcov `threshold >= 90.0`. Both floors are read from shell inside `run:` blocks, so the scan strips comments with the bash-aware `strip_inline_comment_sh` — a floor surviving only in a `;#`/`&#`/backtick comment is not an active gate | #200 |
 | `scanner/tests/test_ci_gate_topology.py` | Enforcement topology of `lint.yml` | every `uses:` across all `.github/workflows/*.yml` is 40-hex SHA-pinned (OWASP A08); every job is in `lint-gate.needs` or a tiny documented allowlist | #201 (allowlist tightened in #203) |
 | `scanner/tests/test_ci_security_gate.py` | `Security Scan Gate` + DAST signals | `security-scan-gate` keeps `name`, `if: always()`, `needs: ⊇ {changes, scan, lighthouse}`, pass-set `not in (success, skipped)`; `dast-baseline.yml` keeps its `pull_request` trigger; `dast-full-scan.yml` keeps its `schedule:` trigger | #205, #216 |
 | `scanner/tests/test_ci_required_jobs_exist.py` | Existence of security/enforcement jobs in `lint.yml` | `{gitleaks, pii-check, dependency-review, workflow-fork-guard, scanner-unit-tests, scanner-shell-coverage}` are all present — deleting a whole job is a silent control loss the topology guard cannot see | #215 |
@@ -59,10 +59,10 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_npm_publish.py` | npm release supply-chain integrity + auto-release wiring (`npm-publish.yml`) | every `npm publish` carries `--provenance` (SLSA attestation); workflow-level `permissions:` stays `contents: read` (job-level `id-token: write` + `contents: write` are not flagged); the publish job upgrades npm (`npm install -g npm`, OIDC needs >= 11.5.1 but Node 22 ships npm 10.x); the `on:` block keeps a push-to-`main` trigger (version-bump auto-publish) and a `contents: write` exists for pushing the `vX.Y.Z` tag | #216, #262 |
 | `scanner/tests/test_ci_cross_os_non_required.py` | Cross-OS live-runner workflow stays non-required | `cross-os-checks.yml` exists and keeps `workflow_dispatch` (standalone informational lane); `lint.yml` references none of `{cross-os, live-os-checks, macos-latest, windows-latest}` — so the costly/flaky macOS+Windows runs never become a required merge gate | #228 |
 | `scanner/tests/test_ci_net005_fail_escalation.py` | NET-005 SSH-open-to-world FAIL escalation (`network/tls.sh`) | NET-005 keeps `fail "NET-005" ... "critical"` and an ERE `(0\.0\.0\.0/0.*22\|port.*22.*0\.0\.0\.0/0)` alternation; no `\|` literal-pipe regression (which silently downgraded it to WARN, fixed in #224) | #228 |
-| `scanner/tests/test_ci_dependabot_automerge.py` | Dependabot auto-arm safety (`dependabot-auto-merge.yml`, a `pull_request_target` write-token workflow) | keeps the fork guard (`actor==dependabot[bot]` AND `head.repo.full_name==github.repository`), the hard-exclude path arms (`Dockerfile*`/`.github`/`scanner`/`hooks`/`scripts`), the `semver-patch\|minor`-only update-type allowlist + `semver-major` exclude, the `pip\|docker\|github-actions` ecosystem allowlist, and `gh pr merge --auto`; forbids `--admin` (code-owner bypass) and the `pr review --approve` bot self-approve removed in #249 (OWASP CICD-SEC-1/-4) | #249, #250 |
+| `scanner/tests/test_ci_dependabot_automerge.py` | Dependabot auto-arm safety (`dependabot-auto-merge.yml`, a `pull_request_target` write-token workflow) | keeps the fork guard (`actor==dependabot[bot]` AND `head.repo.full_name==github.repository`), the hard-exclude path arms (`Dockerfile*`/`.github`/`scanner`/`hooks`/`scripts`), the `semver-patch\|minor`-only update-type allowlist + `semver-major` exclude, the `pip\|docker\|github-actions` ecosystem allowlist, and `gh pr merge --auto`; forbids `--admin` (code-owner bypass) and the `pr review --approve` bot self-approve removed in #249 (OWASP CICD-SEC-1/-4). Every check — the aggregate validator AND the narrower per-invariant tests — runs against the bash-comment-stripped text (`strip_inline_comment_sh`), so an arm parked behind `;#` neither satisfies a REQUIRED token nor false-trips a FORBIDDEN one | #249, #250 |
 | `scanner/tests/test_ci_codeowners_invariants.py` | `.github/CODEOWNERS` keeps security-sensitive paths code-owner gated | every required pattern (`*`, `.github/workflows/`, `.github/CODEOWNERS`, `hooks/`, `scanner/`, `scripts/`, `templates/`, `Dockerfile*`, `docker-compose*.yml`) is present AND has a non-empty `@owner`; the global `*` default must have an owner — else those paths merge with NO code-owner review (`require_code_owner_reviews=true` only fires on a matched, owned pattern) | #248 |
 | `scanner/tests/test_ci_no_ere_pipe_regression.py` | No literal `\|` in an ERE context in `scanner/checks/**` + `scanner/lib/**` `.sh` | flags `\|` (literal-pipe, NOT alternation) inside `grep -[qnrlc]*E`, the `_code_grep`/`files_contain`/`file_contains` helpers, and bash `[[ =~ ]]` — the silent detection-breaking bug class fixed in #221/#223/#224; two intentional literals (`code/injection.sh` `\|safe`, `solutions.sh` `curl\|sh`) are allowlisted and asserted still present | #244, #246 |
-| `scanner/tests/test_ci_prowler_provider_guard_ordering.py` | `_prowler_provider_available` precedes `_prowler_report` per provider (`scanner/checks/prowler/integration.sh`) | within each provider section of the Provider Scans block, `min(guard line) < min(report line)` — reordering would silently regress the #238 build-parity fix (lean image would emit a misleading auth warning instead of an accurate "not in this build" skip); promotes the shell-level `#241` assertion into the pytest CI gate | #242 |
+| `scanner/tests/test_ci_prowler_provider_guard_ordering.py` | `_prowler_provider_available` precedes `_prowler_report` per provider (`scanner/checks/prowler/integration.sh`) | within each provider section of the Provider Scans block, `min(guard line) < min(report line)` — reordering would silently regress the #238 build-parity fix (lean image would emit a misleading auth warning instead of an accurate "not in this build" skip); promotes the shell-level `#241` assertion into the pytest CI gate. `integration.sh` is pure bash, so guard/report call detection strips trailing comments with `strip_inline_comment_sh`: a decoy `echo x;#_prowler_provider_available "…"` must not lend its early line number to `min(guard)` and mask a real guard that now sits after the report | #242 |
 | `scanner/tests/test_ci_catalog_completeness.py` | Completeness of this catalog vs the on-disk guard suite | every `scanner/tests/test_ci_*.py` file has its repo-relative path listed in this catalog (presence) — a new guard added without a Catalog row is silent documentation drift that makes the inventory understate coverage; the meta-guard documents itself so the invariant is uniform | #254 |
 | `scanner/tests/test_ci_catalog_no_ghost_rows.py` | No ghost rows in this catalog vs the on-disk guard suite | every concrete `scanner/tests/test_ci_<name>.py` path cited in this catalog resolves to a real file (existence) — the reverse of the completeness guard: a renamed/deleted guard left in the table is a ghost row that makes the inventory overstate coverage. Together the two guards verify a 1:1 catalog↔suite mapping | #255 |
 | `scanner/tests/test_ci_branch_protection_codified.py` | Codified branch protection (`scripts/sync-repo-protection.sh`) + its nightly notifier (`protection-drift-watch.yml`) | the desired state keeps `DESIRED_CONTEXTS=["Lint","Security Scan Gate"]` (both required checks — an exact two-sided pin: dropping a context un-requires that aggregator, and silently *adding* a third required context is equally caught, proven by appended+prepended mutation self-tests), `DESIRED_ENFORCE_ADMINS="true"` (admins not exempt — no force-push to main), `strict`/`require_code_owner_reviews` true, `set -euo pipefail`, and the default-arm dry-run; the `DRIFT DETECTED` marker contract holds on both producer (script) and consumer (`grep -q`) sides; the watch keeps `schedule:` + tooling-error `exit 1` and its `on:` block never gains a `pull_request(_target)` trigger (scheduled notifier, must not become a required PR check). Protects the #250/#251 codification | #256 |
@@ -73,10 +73,10 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_changes_job_merge_base.py` | `changes` job PR diff in `lint.yml` | The path-gating job diffs PR base↔head. A `--depth=1` base fetch + three-dot (`BASE...HEAD`) diff hard-fails with `fatal: no merge base` when the branch is behind a moved `main`, cascading to the Lint / Security Scan Gate aggregators and blocking the merge. The guard asserts the base is fetched WITH ancestry (not shallow-only) and the three-dot diff has a two-endpoint (`\|\|  git diff`) fallback, so a missing merge base degrades instead of failing | CI robustness |
 | `scanner/tests/test_ci_compose_dashboard_hardening.py` | Dashboard container hardening (`docker-compose.yml`, `docker-compose.quickstart.yml`) | the network-exposed static-content dashboard service keeps its CIS hardening — `read_only: true` (+ tmpfs-backed writable paths), `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, and `mem_limit`/`pids_limit`. Block-scoped so hardening on a sibling service can't satisfy it. As a security toolkit, ClaudeSec must not silently regress its own container's posture | CI robustness |
 | `scanner/tests/test_ci_npm_files.py` | npm package payload (`package.json` `files[]` allowlist) | `docs/` is NOT in `files[]` (it shipped ~38 MB of `.pptx` not used at runtime — incident #261); the six operator-only scripts keep their `!scripts/<name>` negations (cost-xlsx / license / PC-sheet / full-asset-sync / gsheet-auth×2 — else internal tooling publishes to the public registry); `scripts/` stays included (so the negations have effect) and `CHANGELOG.md` stays shipped. `.npmignore` cannot express these — paths under a `files[]` dir override it (confirmed via `npm publish --dry-run`) | #262 |
-| `scanner/tests/test_ci_provenance_verify.py` | Published-package supply-chain monitor (`provenance-verify.yml`) | the workflow keeps a `schedule:` trigger (periodic check of the *published* artifact), keeps a `workflow_run` trigger on "Publish to npm" whose `types:` list still includes `completed` (verifies right after each release — the cadence that maps to when the artifact changes; a `workflow_run` key without `completed` would silently never fire), never gains a `pull_request(_target)` trigger (a zero-dep `npm audit signatures` adds no PR value and must not become a flaky required gate / write-token foot-gun), and still runs `npm audit signatures` (verifies npm registry signature + SLSA provenance, OWASP A08) | #263 |
+| `scanner/tests/test_ci_provenance_verify.py` | Published-package supply-chain monitor (`provenance-verify.yml`) | the workflow keeps a `schedule:` trigger (periodic check of the *published* artifact), keeps a `workflow_run` trigger on "Publish to npm" whose `types:` list still includes `completed` (verifies right after each release — the cadence that maps to when the artifact changes; a `workflow_run` key without `completed` would silently never fire), never gains a `pull_request(_target)` trigger (a zero-dep `npm audit signatures` adds no PR value and must not become a flaky required gate / write-token foot-gun), and still RUNS `npm audit signatures` — matched in shell **command position** with whole-line comments dropped and quoted-string matches rejected, because the workflow names the command in four of its own comments and in two `echo "::error::…"` strings, so the former bare-substring check stayed green after the real invocation was deleted (inert-guard class; mutation self-tests pin the gutted-workflow case). Verifies npm registry signature + SLSA provenance, OWASP A08 | #263 |
 | `scanner/tests/test_ci_injection_surface.py` | No GitHub Actions script-injection surface in any `.github/workflows/*.yml` | no documented-untrusted `${{ github.event.* }}` context (PR/issue/comment/review/discussion title·body, commit message, `head_ref`, `pages.*.page_name`, …) is interpolated DIRECTLY into a `run:` shell body — the OWASP CICD-SEC-4 / GitHub script-injection RCE class. Scans only `run:` bodies (inline + `\|`/`>` block scalars), threshold at the `run:` column so sibling `env:`/`with:`/`if:` keys aren't slurped; `env:`-block and expression-context (`if:`) interpolation and trusted contexts (`github.sha`, `needs.*`) are NOT flagged. Direction: presence-of-violation; mutation self-tests prove it fires on inline + block-scalar injection and stays quiet on the `env:` safe-fix. Incident: `npm-publish.yml` inline `VERSION=` (hardened #266); `og-meta-verify.yml` is `pull_request`+`pull-requests:write` | #270 |
 | `scanner/tests/test_ci_npm_oidc_floor.py` | OIDC npm-CLI floor pin in `npm-publish.yml` + `provenance-verify.yml` | both workflows' `npm install -g npm` self-upgrade pins the trusted-publishing floor `npm@'>=11.5.1'` (version-shaped) and is NOT a bare `npm@latest` — OIDC `npm publish --provenance` / `npm audit signatures` break below npm 11.5.1, and Node 22 ships npm 10.x, so the floor must be a *visible* pin (Dependabot cannot track a runner binary installed by a shell command). Ratcheting the floor up stays green; reverting to `@latest` trips it (OWASP A08; SSDF PW.4) | #264 |
-| `scanner/tests/test_ci_docker_image_size_gate.py` | Docker image-size cap in `lint.yml` (`dashboard-regression-check`) | the `max_mb=N` size gate is present, breaches the build (`size_mb -gt max_mb` → `exit 1`), and `N <= 600` MB — locking in the ~513 MB scanner image achieved by prowler-provider stripping (was 1.47 GB, cycle #217-#237, issue #11). Loosening the cap back toward the old 1.8 GB or re-adding a stripped ~700 MB provider would slip through; tightening DOWN stays green (CIS Docker Benchmark — minimal image surface). Comment-evasion-proof | #11 |
+| `scanner/tests/test_ci_docker_image_size_gate.py` | Docker image-size cap in `lint.yml` (`dashboard-regression-check`) | the `max_mb=N` size gate is present, breaches the build (`size_mb -gt max_mb` → `exit 1`), and `N <= 600` MB — locking in the ~513 MB scanner image achieved by prowler-provider stripping (was 1.47 GB, cycle #217-#237, issue #11). Loosening the cap back toward the old 1.8 GB or re-adding a stripped ~700 MB provider would slip through; tightening DOWN stays green (CIS Docker Benchmark — minimal image surface). The `exit 1` assertion is scoped to the breach `if … fi` block by balanced depth — unscoped it was satisfied by any of `lint.yml`'s dozen unrelated `exit 1` lines and could not detect removal of this gate's own exit (inert-guard class). Comment-evasion-proof for BOTH the `max_mb` cap and the `exit 1` scan: the whole scan routes through the bash-aware `strip_inline_comment_sh`, so the `;#exit 1` metachar adjacency #383 recorded as a KNOWN OPEN under-strip is closed (primitive from #376) | #11 |
 | `scanner/tests/test_ci_lighthouse_perf_gate.py` | Lighthouse Performance/SEO/A11y gate (`lighthouserc.json`, consumed by `lighthouse.yml` against live Pages) | each of `categories:{performance,seo,accessibility}` keeps an `error`-level floor `minScore >= 0.9` (demoting to `warn`/`off` or lowering the floor trips it; ratcheting UP stays green), and `collect.numberOfRuns >= 3` so lhci asserts on the MEDIAN run — reverting to a single run re-introduces the cold-vs-warm-CDN variance that would make the hard Performance gate flaky. Adds the Performance floor from issue #19 (live baseline 0.93 cold / 1.00 warm, 2026-06) | #19 |
 | `scanner/tests/test_ci_plugin_skills_cli_parity.py` | Marketplace plugin skill ↔ CLI subcommand parity (`.claude-plugin/marketplace.json` ↔ `bin/claudesec-cli.sh`) | every `skills[].command` is `npx claudesec <sub>` where `<sub>` is a real `case` arm in the CLI — a skill pointing at a non-existent/typo'd subcommand would make that installed slash command silently fall through to usage for every user (the manifest and the CLI have no compile-time link); and the `{scan,prowler,compliance,dashboard,setup}` arms stay wired so a CLI refactor cannot silently drop a published surface. Adds the `/prowler` + `/compliance` commands from issue #20 | #20 |
 | `scanner/tests/test_ci_lychee_config.py` | lychee link-check exclude allowlist single-source-of-truth (`lychee.toml` ↔ `lint.yml` `link-check`) | `lychee.toml` (undotted, auto-discoverable) exists and the dotted `.lychee.toml` does NOT (a dotted config is never auto-discovered, so it silently goes stale — the original drift); the `link-check` job wires `--config lychee.toml` and carries NO inline `--exclude`/`--exclude-path` flag (so the allowlist cannot drift back into a second copy); `lychee.toml`'s `exclude` includes the release-time `compare/` entry the inline list was missing (the CHANGELOG compare-URL 404 fix) and keeps `node_modules` in `exclude_path`; and `lychee.toml` stays in BOTH the `scanner` and `markdown` change-detection buckets of the `changes` job, so a `lychee.toml`-only PR still triggers this guard AND a live link-check (else the allowlist could change unvalidated at PR time). Comment-stripped + job-scoped; the `v0.23.0` binary pin is owned separately by `test_ci_gate_topology.py` (OWASP CICD-SEC-7) | this PR |
@@ -88,7 +88,8 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_scanner_lib_reachability.py` | No NEW unreachable (dead) top-level function in the kcov SUT libs (`scanner/lib/{checks,checks_credentials,output,output_prowler}.sh`) | the bash coverage floor measures "executed by a test", not "reachable from the scanner", so a test-only function stays fully covered while being dead (the class removed in the dead-code PR: `compute_trend`, `load_scan_history`, `_html_findings_rows*`, `html_escape`, `api_key_found`, `compliance_map`). For each top-level SUT function the guard requires >=1 reference in the production corpus (`scanner/claudesec` + `scanner/checks/**` + `scanner/lib/**`), comment-stripped, own-def-line excluded, whole-word (a substring/comment does not count). Regression-pin: asserts the dead set EQUALS the documented `KNOWN_UNREFERENCED` baseline (`_prowler_dashboard_summary`, `count_files`, `datadog_validate_api_key` — removal candidates), so a NEW dead function fails AND a stale allowlist entry fails once it is wired-up/removed. Conservative (only under-reports), so it never false-blocks a reachable function. Mutation self-tests | this PR |
 | `scanner/tests/test_ci_no_code_injection_regression.py` | No CWE-94 code-injection sites where a bash variable is interpolated directly into a `python3 -c "..."` program body OR an unquoted heredoc feeding an interpreter (`scanner/claudesec`, `scanner/lib/**`, `scanner/checks/**`, `scripts/**`, `hooks/**`) | for every DOUBLE-quoted `python3 -c "..."` / `python -c "..."` site (captured across multi-line bodies, comment-stripped first, concatenation-aware for adjacent quoted segments), flags a `$NAME`/`${...}`/`$(...)` bash expansion inside the program text — splicing a shell value into Python source before parsing is OWASP A03:2021 / CWE-94 injection. ALSO flags an UNQUOTED heredoc (`<<EOF`/`<<-EOF`) whose owning command is a code-executing interpreter (`python`/`python3`/`sh`/`bash`/`awk`/`perl`/`node`/`ruby`, basename-matched, continuation-line-aware) — a quoted delimiter (`<<'EOF'`/`<<"EOF"`) disables expansion and stays safe; a heredoc feeding a non-interpreter (`cat`, `kubectl`, `gh api`, ...) is data, not code, and is never flagged. Regression-pin: asserts the violation set EQUALS the `KNOWN_INJECTION_SITES` baseline, empty after this PR's fix (`scripts/run-prowler-k8s.sh`, `scripts/check-prowler-python-ceiling.sh`, `scripts/sync-scan-to-dashboard.sh` moved the value to the environment, read via `os.environ`), mirroring the #346 `output_prowler.sh`/`prowler_compliance_summary.py` fix. Single-quoted `-c '...'`, argv/stdin/env-var-passed values are explicitly out of scope (safe); quote-concatenation in a `-c` argument is best-effort covered for adjacent quoted segments only (unquoted concatenated runs are not content-checked). Mutation self-tests | this PR |
 | `scanner/tests/test_ci_no_raw_output_interpolation.py` | The hand-built JSON / HTML / URL output-assembly sinks in `scanner/lib` keep routing tainted (env / filename / scanned-content) values through an escaper — a source-level regression pin complementing the per-sink behavior tests (`test_output_functions.sh` / `test_datadog_json_payloads.sh` / `test_prowler_dashboard_summary.sh`) | For each known sink, against comment-stripped + continuation-joined source: asserts the required escaper INVOCATION is present AND the specific known RAW-interpolation string is ABSENT. Pins `output.sh::print_json_summary` → `_json_escape_str "$SCAN_DIR"` (`"scan_directory"` not raw `$SCAN_DIR`, #361); `datadog.sh` → `_json_escape_str`/`_url_encode` on `dd_service`/`dd_env` (intake/query JSON #361 + `ddtags=` URL query #363, neither raw); `output_prowler.sh::_prowler_dashboard_summary` → `_prowler_html_escape "$label"` (#362, filename-XSS). Deliberately a narrow pin over KNOWN sinks, not a general raw-interpolation static analyser (false-positive-prone on numeric/enum fields). Mutation self-tests: a removed escaper usage and a reintroduced raw interpolation both fire the detector | this PR |
-| `scanner/tests/test_ci_dashboard_control_smoke.py` | Dashboard control-liveness smoke stays hermetic, path-gated, and bounded (`dashboard-control-smoke.yml` + `scanner/tests/{dashboard-control-liveness.mjs,test_dashboard_control_liveness.sh}`) | the workflow sets `CLAUDESEC_DASHBOARD_OFFLINE=1` (else the generator makes live GitHub API calls and can hang the job — #190) AND the harness wrapper self-exports it too (belt-and-suspenders, not CI-env-dependent); the `changes` job exposes a `dashboard` output and the `smoke` job is path-gated `if: needs.changes.outputs.dashboard == 'true'` (docs-only PRs skip the browser smoke; intentionally NON-required, a simple path-gate not an `always()` aggregator — that pattern is reserved for required checks per the paths-ignore/#186 incident); the browser step carries a per-step `timeout-minutes` (a hung headless Chrome can't burn the job budget) and invokes the real harness wrapper; both harness files exist on disk (a workflow pointing at a deleted script is a silent no-op). Comment-stripped presence checks (OWASP CICD-SEC-1) | this PR |
+| `scanner/tests/test_ci_dashboard_control_smoke.py` | Dashboard control-liveness smoke stays hermetic, path-gated, and bounded (`dashboard-control-smoke.yml` + `scanner/tests/{dashboard-control-liveness.mjs,test_dashboard_control_liveness.sh}`) | the workflow sets `CLAUDESEC_DASHBOARD_OFFLINE=1` (else the generator makes live GitHub API calls and can hang the job — #190) AND the harness wrapper self-exports it too (belt-and-suspenders, not CI-env-dependent); the `changes` job exposes a `dashboard` output and the `smoke` job is path-gated `if: needs.changes.outputs.dashboard == 'true'` (docs-only PRs skip the browser smoke; intentionally NON-required, a simple path-gate not an `always()` aggregator — that pattern is reserved for required checks per the paths-ignore/#186 incident); the browser step carries a per-step `timeout-minutes` (a hung headless Chrome can't burn the job budget) — asserted inside the isolated `- name:` step block that invokes the harness, because unscoped it was satisfied by the workflow's JOB-level `timeout-minutes` keys and could not detect removal of the per-step cap (inert-guard class; mutation self-tests pin job-level and wrong-step caps) — and invokes the real harness wrapper; both harness files exist on disk (a workflow pointing at a deleted script is a silent no-op). Comment-stripped presence checks (OWASP CICD-SEC-1) | this PR |
+| `scanner/tests/test_ci_guard_assertion_scoping.py` | **Meta-guard** — no `test_ci_*.py` guard makes a POSITIVE presence assertion against the RAW, whole-file text of the artifact it protects | AST scan (stdlib `ast`, not text) of every guard file: `assertIn(tok, raw)` / `assertRegex(raw, pat)` / `assertTrue(tok in raw)` where the haystack is a name bound directly to `Path.read_text()` is an INERT assertion — commenting the control out leaves the token in the file, so the guard reads green while the control is dead, which is worse than no guard (a reviewer takes the green as proof). Exempts the two non-inert shapes: NEGATIVE assertions (raw scanning for a FORBIDDEN token only over-reports — a false alarm, never a bypass) and LINE-ANCHORED regexes (`(?m)^\s*token`, which a `#`-commented copy cannot satisfy). Regression-pin: the detected set must EQUAL `KNOWN_RAW_PRESENCE_ASSERTIONS`, currently **empty** — a new offender fails AND a stale exemption fails once its site is fixed. Generalizes the two inert guards #383 found by hand (`provenance_verify` `npm audit signatures`, `docker_image_size_gate` `exit 1`) into a check that runs on all 40 guards and on every new one. Under-reports by design (never false-blocks). Mutation self-tests | this PR |
 
 ### Related enforcement (not a pytest guard)
 
@@ -124,7 +125,10 @@ triaged by the same bar used to add one (an incident, past or plausible, where
 worth a guard, to avoid sprawl). Reviewed 2026-06-19; re-triaged 2026-06-22
 (all Tier-3 workflows confirmed KEEP-AS-MONITOR — decision unchanged; the
 `workflow_run` trigger added to `provenance-verify.yml` in #263/#264 is already
-covered by `test_ci_provenance_verify.py`).
+covered by `test_ci_provenance_verify.py`). **Quarterly ADR-001 adversarial
+audit 2026-07-28** (issue #297): all 38 `test_ci_*.py` guards re-audited — see
+"Quarterly audit 2026-07-28" below for the comment/unhandled-form findings fixed
+and the matcher-completeness backlog opened.
 
 ### Tier 2 — incident-backed (now implemented)
 
@@ -178,6 +182,161 @@ Both former Tier-2 candidates landed in #258 and are now in the Catalog above:
   comment is a readability/doc-accuracy wart, not a security regression — below
   the incident bar. Mitigation is a one-time normalization on each major action
   bump, not a guard.
+
+### Quarterly audit 2026-07-28 (ADR-001, issue #297)
+
+A full adversarial re-audit of all 38 `test_ci_*.py` guards (three independent
+review passes; every finding reproduced with an executed proof, not a static
+read). Three guards were confirmed CLEAN with the comment-evasion class
+inapplicable by construction: `test_ci_lighthouse_perf_gate.py` (strict
+`json.loads`), `test_ci_codeowners_invariants.py` (mirrors GitHub's own
+CODEOWNERS grammar — no inline-comment syntax exists), `test_ci_compliance_keyword_guard.py`
+(executes the real module and inspects the runtime `COMPLIANCE_CONTROL_MAP`, no
+text surface).
+
+**Fixed (Class 1 — comment/unhandled-form evasion; the natural "comment out the
+control" regression path, the exact class ADR-001 §1/§3 target):**
+
+- `test_ci_net005_fail_escalation.py` — section built from raw lines; a
+  `# fail "NET-005" ... "critical"` comment satisfied the escalation check while
+  active code downgraded to WARN → now routes through `strip_comment_lines` +
+  comment-survival mutation test.
+- `test_ci_changes_job_merge_base.py` — imported only `join_continuations`; the
+  `|| git diff` fallback / non-shallow fetch tokens satisfied the check from a
+  comment → now `join_continuations(strip_comment_lines(text))` + mutation test.
+- `test_ci_compose_dashboard_hardening.py` — `_strip_comments` kept trailing
+  inline comments and the `no-new-privileges` regex is (necessarily) unanchored,
+  so the token rode a trailing comment on an unrelated line → now strips trailing
+  inline comments via `strip_inline_comment` + mutation test.
+- `test_ci_dependabot_config.py` — used `non_comment_lines` (whole-line only); a
+  required ecosystem token rode a trailing inline comment → now composes
+  `strip_inline_comment` + mutation test.
+- `test_ci_security_gate.py` (**required `Security Scan Gate` merge-block**, the
+  #271 F-1 incident class) — surfaced by the mandated ADR-001 §2 review chain: a
+  `;#exit 1` (a REAL bash comment — no space before `#`, verified the `exit 1`
+  never runs) survived `strip_inline_comment` and satisfied the CRITICAL
+  merge-block check while the active code was warn-only. Root cause was the
+  SHARED primitive: `strip_inline_comment` required whitespace before `#`, but
+  bash starts a comment after a command separator (`;`/`&`/`|`) with no space.
+  Added a quote-aware, bash-word-boundary `strip_inline_comment_sh` and routed
+  the three shell-scanning guards (`security_gate`, `net005_fail_escalation`,
+  `changes_job_merge_base`) through it (+ metachar AND backtick mutation tests).
+  The comment-start boundary set (whitespace + the bash metacharacters
+  `;`/`&`/`|`/`(`/`)`/`<`/`>` + backtick) was proven complete by enumerating
+  every ASCII preceding char against real `bash` (a further review pass found the
+  backtick `` `#… ` `` form after the initial metachar set; both are now closed
+  and confirmed). The whitespace-only `strip_inline_comment` is retained for
+  YAML/Dockerfile callers, where `;#` is literal scalar content, not a comment.
+  A **5th-pass** review (ADR-001 §2) then found the ANSI-C `$'...'` case was NOT
+  an over-strip but an **UNDER-strip** (false negative): `$'\''` is one escape-
+  aware string, and a single-quote branch with no escape awareness ran off the
+  line "in a quote" and never stripped the trailing `#`, hiding a dead `exit 1`
+  from the gate. Modeled it (a `'` after an unescaped `$` opens an escape-aware
+  string) + added ANSI-C mutation tests to the primitive, `security_gate`, and
+  `net005_fail_escalation`. Remaining documented **over-strip** limitations
+  (opposite direction — they drop live text → a false ALARM, never a silent
+  bypass; none is triggered by the scanned blocks): cross-line quoted strings,
+  heredoc bodies, and a command substitution `$(...)` closing inside a word
+  (`x=$(cmd)#c` keeps `#c` literal, but the single preceding-char model cannot
+  tell that `)` from a subshell `)`) — see the `strip_inline_comment_sh` docstring.
+- `test_ci_injection_surface.py` — the twice-hardened block-scalar rule still
+  missed single-line flow-style step mappings
+  (`steps: [{run: "…${{ github.event.* }}…"}]`), leaving that `run:` body
+  unscanned → added a grammar-complete flow-style extractor (ADR-001 §4) +
+  mutation test. The multi-line-quoted flow scalar (unreassemblable by a
+  no-PyYAML line scanner) is now caught by a **tripwire** (`unscannable_flow_runs`)
+  that FAILS on the unscannable shape so an injection cannot hide in it — the
+  author must use a block scalar or a single-line flow value (dormant on this
+  repo: all `run:` are block style, so zero false positives). The
+  multi-line-split `${{ }}` block-scalar form remains a documented,
+  runtime-**unverified** robustness gap.
+
+**Class B follow-up — `strip_inline_comment_sh` adoption (this PR):**
+
+The #383 sweep classified three further guards as **Class B**: they *do* catch a
+plain deletion of the control, but they scanned shell with the whitespace-boundary
+`strip_inline_comment`, so the same `;#` metachar adjacency that hid a dead
+`exit 1` from the Security Scan Gate applied to them too. They waited on the
+primitive rather than growing a divergent local copy of the bash boundary logic.
+All three are now routed through `strip_inline_comment_sh`, together with the one
+gap #383 recorded against itself:
+
+- `test_ci_coverage_thresholds.py` — `pytest scanner/;#--cov-fail-under=99` left
+  the floor token in the file with no gate running.
+- `test_ci_dependabot_automerge.py` — `echo skip;#scanner/*|scanner)` parked a
+  hard-exclude arm in a comment, so a `pull_request_target` write-token workflow
+  would auto-arm `scanner/` changes with the guard green. The four narrower
+  per-invariant tests additionally asserted against the **raw** file text, which
+  made them inert against a plain comment-out; they now share the stripped scan.
+- `test_ci_prowler_provider_guard_ordering.py` — a decoy
+  `echo x;#_prowler_provider_available "…"` lent its early line number to
+  `min(guard)` and masked a real guard placed after the report (the F-8 masking,
+  reached via a metacharacter instead of leading whitespace).
+- `test_ci_docker_image_size_gate.py` — the `exit 1` breach-block scan, the gap
+  #383 documented in the function docstring and the catalog row; `;#exit 1` made
+  a 900 MB image merge with a green guard.
+
+Each was reproduced with an executed proof against real `bash` before the change,
+and each fix ships mutation self-tests proven non-vacuous (all 10 FAIL when the
+primitive is reverted to `strip_inline_comment`). The over-strip direction is
+pinned too: a `#` inside quotes is literal and must not truncate a live control.
+
+**Inert-assertion class, promoted to a meta-guard (this PR):**
+
+The two inert guards #383 found (`provenance_verify`, `docker_image_size_gate`)
+shared one shape: a positive presence assertion aimed at the **raw whole-file
+text**. Hand triage caught them, but it does not scale to 40 guards and does not
+run on new ones, so the triage is now codified as
+`test_ci_guard_assertion_scoping.py` — an AST scan of the guard suite itself.
+
+Running it found **seven more** live instances, each confirmed inert by executing
+the guard against a commented-out artifact (green before the fix, red after —
+same mutant, only the haystack changed):
+
+| Site | Control left dead while the guard read green |
+|---|---|
+| `test_ci_branch_protection_codified.py` ×2 | `DESIRED_CONTEXTS` (both required merge contexts) and `DESIRED_ENFORCE_ADMINS="true"` commented out |
+| `test_ci_branch_protection_codified.py` ×2 | the `DRIFT DETECTED` producer/consumer marker contract on both ends |
+| `test_ci_cross_os_non_required.py` | the `macos-latest` runner canary |
+| `test_ci_npm_publish.py` ×2 | the push-`branches: [main]` auto-release trigger |
+
+All seven now assert against the guard's comment-stripped scan; the
+branch-protection pair additionally moved to `strip_inline_comment_sh`, since
+both artifacts are shell-bearing and were open to the same `;#` adjacency. The
+baseline `KNOWN_RAW_PRESENCE_ASSERTIONS` therefore ships **empty**, and its
+set-equality pin fails on a stale entry as well as a new offender.
+
+The meta-guard deliberately exempts the two shapes that are not inert: negative
+(FORBIDDEN-token) assertions, where raw scanning only over-reports, and
+line-anchored regexes (`(?m)^\s*token`), which a `#`-commented copy cannot
+satisfy — three guards rely on that form correctly and are not flagged.
+
+**Backlog (Class 2 — matcher-completeness / enumeration gaps; require a
+deliberate, unusual edit rather than a comment-out, so lower natural-regression
+risk — triaged as follow-up, not blocking):**
+
+- `test_ci_no_ere_pipe_regression.py` — misses the `--extended-regexp` long-flag
+  form and cross-line variable-indirection of the `\|` ERE bug.
+- `test_ci_npm_files.py` — `files[]` glob match is not grammar-complete (`docs/**`
+  ships the tree; order-blind to a positive pattern re-added after its negation).
+- `test_ci_plugin_skills_cli_parity.py` / `test_ci_provider_labels_sync.py` —
+  parse `case` arms into an unordered `set()`, so moving the `*)` catch-all ahead
+  of a real arm (runtime-unreachable) still satisfies the presence check.
+- `test_ci_cross_os_non_required.py` — `FORBIDDEN_IN_LINT` is a fixed 4-string
+  enumeration (bypassed by `macos-14`/`windows-2022` labels); collision check
+  omits the `"Lint"` required context.
+- `test_ci_catalog_completeness.py` / `test_ci_catalog_no_ghost_rows.py` — no
+  shipped mutation self-test; catalog_completeness also does not strip Markdown
+  `<!-- -->` comments (low severity).
+- `test_ci_injection_surface.py` — **known scanner limitation** (bounded by the
+  stdlib-only / no-PyYAML constraint): an untrusted `${{ }}` split across two
+  physical lines inside a block scalar is not reassembled; its runtime
+  exploitability (whether the Actions expression lexer executes a newline-split
+  interpolation) is **unverified**. A pathological authoring form; tracked rather
+  than half-closed with a fragile bracket-depth heuristic. Revisit if PyYAML ever
+  becomes available to the CI test job. (The sibling multi-line-quoted flow
+  scalar limitation was **closed** by the `unscannable_flow_runs` tripwire — see
+  the fixed list above.)
 
 ### Verified already-guarded during this review (not backlog)
 

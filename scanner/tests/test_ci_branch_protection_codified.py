@@ -82,7 +82,11 @@ WATCH = REPO_ROOT / ".github" / "workflows" / "protection-drift-watch.yml"
 # Shared guard primitives (comment-stripping, on:-block extraction). Import as a
 # top-level module so it resolves under both pytest and `python3 -m unittest`.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import extract_on_block, strip_comment_lines  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    extract_on_block,
+    strip_comment_lines,
+    strip_inline_comment_sh,
+)
 
 # Literal desired-state assignments that MUST be present verbatim in the script.
 # Tightening the posture (e.g. adding a context) is allowed; weakening any of
@@ -125,8 +129,23 @@ BOOLEAN_DESIRED = {
 _ASSIGN_RE = re.compile(r'^\s*(DESIRED_\w+)=["\']?([^"\'\s#]+)')
 
 
+def active_scan(text: str) -> str:
+    """`text` with whole-line AND trailing bash comments removed.
+
+    Both artifacts are shell-bearing (`sync-repo-protection.sh` is bash;
+    the drift watch's invariants live in its `run:` blocks), so trailing
+    comments are cut with the BASH-aware `strip_inline_comment_sh`: bash starts
+    a comment right after `;`/`&`/`|`/`)`/backtick with no space, so
+    `echo x;#DESIRED_ENFORCE_ADMINS="true"` would otherwise leave the token in
+    the file with the posture gone (the #376/#383 comment-evasion class).
+    """
+    return "\n".join(
+        strip_inline_comment_sh(ln) for ln in strip_comment_lines(text).splitlines()
+    )
+
+
 def script_violations(text: str) -> list:
-    scan = strip_comment_lines(text)
+    scan = active_scan(text)
     problems = [
         f"MISSING required script invariant [{name}]: {tok!r}"
         for name, tok in sorted(REQUIRED_SCRIPT_TOKENS.items())
@@ -154,7 +173,7 @@ def script_violations(text: str) -> list:
 
 
 def watch_violations(text: str) -> list:
-    scan = strip_comment_lines(text)
+    scan = active_scan(text)
     problems = [
         f"MISSING required watch invariant [{name}]: {tok!r}"
         for name, tok in sorted(REQUIRED_WATCH_TOKENS.items())
@@ -177,6 +196,12 @@ class TestBranchProtectionCodified(unittest.TestCase):
     def setUpClass(cls):
         cls.script = SCRIPT.read_text(encoding="utf-8") if SCRIPT.is_file() else ""
         cls.watch = WATCH.read_text(encoding="utf-8") if WATCH.is_file() else ""
+        # The per-invariant tests below assert against these COMMENT-STRIPPED
+        # scans, not the raw text: a presence check over the raw file survives
+        # the natural regression path (comment the control out) and goes inert
+        # while reading green. Same discipline the aggregate validators apply.
+        cls.script_scan = active_scan(cls.script)
+        cls.watch_scan = active_scan(cls.watch)
 
     def test_script_exists(self):
         self.assertTrue(
@@ -194,7 +219,7 @@ class TestBranchProtectionCodified(unittest.TestCase):
 
     def test_required_contexts_present(self):
         self.assertIn(
-            REQUIRED_SCRIPT_TOKENS["desired_contexts"], self.script,
+            REQUIRED_SCRIPT_TOKENS["desired_contexts"], self.script_scan,
             "DESIRED_CONTEXTS no longer pins both 'Lint' and 'Security Scan Gate' "
             "— --apply would un-require a mandatory status check, letting a PR "
             "merge with that whole gate red. Restore both contexts or update this "
@@ -203,7 +228,7 @@ class TestBranchProtectionCodified(unittest.TestCase):
 
     def test_enforce_admins_true(self):
         self.assertIn(
-            REQUIRED_SCRIPT_TOKENS["enforce_admins_true"], self.script,
+            REQUIRED_SCRIPT_TOKENS["enforce_admins_true"], self.script_scan,
             "DESIRED_ENFORCE_ADMINS is no longer \"true\" — admins would become "
             "exempt from branch protection and could force-push to main.",
         )
@@ -231,11 +256,11 @@ class TestBranchProtectionCodified(unittest.TestCase):
     def test_drift_marker_contract(self):
         # The marker is a contract between producer (script) and consumer (watch).
         self.assertIn(
-            "DRIFT DETECTED", self.script,
+            "DRIFT DETECTED", self.script_scan,
             "Script no longer emits the 'DRIFT DETECTED' marker.",
         )
         self.assertIn(
-            'grep -q "DRIFT DETECTED"', self.watch,
+            'grep -q "DRIFT DETECTED"', self.watch_scan,
             "Watch workflow no longer greps for the 'DRIFT DETECTED' marker — it "
             "would silently reclassify real drift as a tooling error and never "
             "open an alert issue.",
@@ -430,6 +455,45 @@ class TestBranchProtectionCodifiedMutation(unittest.TestCase):
                 watch_violations(WATCH.read_text(encoding="utf-8")), [],
                 "The real protection-drift-watch.yml failed the invariant validator.",
             )
+
+
+
+class TestRawTextAssertionScoping(unittest.TestCase):
+    """The per-invariant presence tests asserted against the RAW file text, which
+    survives the natural regression path (comment the control out). These pin the
+    stripped-scan fix: the token must be GONE from the scan once commented."""
+
+    _SCRIPT = (
+        'DESIRED_CONTEXTS=("Lint" "Security Scan Gate")\n'
+        'DESIRED_ENFORCE_ADMINS="true"\n'
+        'echo "DRIFT DETECTED"\n'
+    )
+
+    def test_whole_line_commented_control_is_stripped(self):
+        mutant = "\n".join("# " + ln for ln in self._SCRIPT.splitlines())
+        scan = active_scan(mutant)
+        for tok in ('DESIRED_CONTEXTS=("Lint" "Security Scan Gate")',
+                    'DESIRED_ENFORCE_ADMINS="true"', "DRIFT DETECTED"):
+            with self.subTest(tok=tok):
+                self.assertNotIn(
+                    tok, scan,
+                    "A control surviving only in a whole-line comment must not "
+                    "satisfy the presence check.",
+                )
+
+    def test_metachar_parked_control_is_stripped(self):
+        # `bash -c 'echo A;#x'` prints `A` — the tail is a real comment.
+        scan = active_scan('echo disabled;#DESIRED_ENFORCE_ADMINS="true"')
+        self.assertNotIn('DESIRED_ENFORCE_ADMINS="true"', scan)
+
+    def test_live_control_survives_the_strip(self):
+        scan = active_scan(self._SCRIPT)
+        self.assertIn('DESIRED_ENFORCE_ADMINS="true"', scan)
+        self.assertIn("DRIFT DETECTED", scan)
+
+    def test_quoted_hash_does_not_truncate_a_live_control(self):
+        scan = active_scan('echo "see #256" && DESIRED_ENFORCE_ADMINS="true"')
+        self.assertIn('DESIRED_ENFORCE_ADMINS="true"', scan)
 
 
 if __name__ == "__main__":
