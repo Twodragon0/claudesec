@@ -89,6 +89,7 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_no_code_injection_regression.py` | No CWE-94 code-injection sites where a bash variable is interpolated directly into a `python3 -c "..."` program body OR an unquoted heredoc feeding an interpreter (`scanner/claudesec`, `scanner/lib/**`, `scanner/checks/**`, `scripts/**`, `hooks/**`) | for every DOUBLE-quoted `python3 -c "..."` / `python -c "..."` site (captured across multi-line bodies, comment-stripped first, concatenation-aware for adjacent quoted segments), flags a `$NAME`/`${...}`/`$(...)` bash expansion inside the program text — splicing a shell value into Python source before parsing is OWASP A03:2021 / CWE-94 injection. ALSO flags an UNQUOTED heredoc (`<<EOF`/`<<-EOF`) whose owning command is a code-executing interpreter (`python`/`python3`/`sh`/`bash`/`awk`/`perl`/`node`/`ruby`, basename-matched, continuation-line-aware) — a quoted delimiter (`<<'EOF'`/`<<"EOF"`) disables expansion and stays safe; a heredoc feeding a non-interpreter (`cat`, `kubectl`, `gh api`, ...) is data, not code, and is never flagged. Regression-pin: asserts the violation set EQUALS the `KNOWN_INJECTION_SITES` baseline, empty after this PR's fix (`scripts/run-prowler-k8s.sh`, `scripts/check-prowler-python-ceiling.sh`, `scripts/sync-scan-to-dashboard.sh` moved the value to the environment, read via `os.environ`), mirroring the #346 `output_prowler.sh`/`prowler_compliance_summary.py` fix. Single-quoted `-c '...'`, argv/stdin/env-var-passed values are explicitly out of scope (safe); quote-concatenation in a `-c` argument is best-effort covered for adjacent quoted segments only (unquoted concatenated runs are not content-checked). Mutation self-tests | this PR |
 | `scanner/tests/test_ci_no_raw_output_interpolation.py` | The hand-built JSON / HTML / URL output-assembly sinks in `scanner/lib` keep routing tainted (env / filename / scanned-content) values through an escaper — a source-level regression pin complementing the per-sink behavior tests (`test_output_functions.sh` / `test_datadog_json_payloads.sh` / `test_prowler_dashboard_summary.sh`) | For each known sink, against comment-stripped + continuation-joined source: asserts the required escaper INVOCATION is present AND the specific known RAW-interpolation string is ABSENT. Pins `output.sh::print_json_summary` → `_json_escape_str "$SCAN_DIR"` (`"scan_directory"` not raw `$SCAN_DIR`, #361); `datadog.sh` → `_json_escape_str`/`_url_encode` on `dd_service`/`dd_env` (intake/query JSON #361 + `ddtags=` URL query #363, neither raw); `output_prowler.sh::_prowler_dashboard_summary` → `_prowler_html_escape "$label"` (#362, filename-XSS). Deliberately a narrow pin over KNOWN sinks, not a general raw-interpolation static analyser (false-positive-prone on numeric/enum fields). Mutation self-tests: a removed escaper usage and a reintroduced raw interpolation both fire the detector | this PR |
 | `scanner/tests/test_ci_dashboard_control_smoke.py` | Dashboard control-liveness smoke stays hermetic, path-gated, and bounded (`dashboard-control-smoke.yml` + `scanner/tests/{dashboard-control-liveness.mjs,test_dashboard_control_liveness.sh}`) | the workflow sets `CLAUDESEC_DASHBOARD_OFFLINE=1` (else the generator makes live GitHub API calls and can hang the job — #190) AND the harness wrapper self-exports it too (belt-and-suspenders, not CI-env-dependent); the `changes` job exposes a `dashboard` output and the `smoke` job is path-gated `if: needs.changes.outputs.dashboard == 'true'` (docs-only PRs skip the browser smoke; intentionally NON-required, a simple path-gate not an `always()` aggregator — that pattern is reserved for required checks per the paths-ignore/#186 incident); the browser step carries a per-step `timeout-minutes` (a hung headless Chrome can't burn the job budget) — asserted inside the isolated `- name:` step block that invokes the harness, because unscoped it was satisfied by the workflow's JOB-level `timeout-minutes` keys and could not detect removal of the per-step cap (inert-guard class; mutation self-tests pin job-level and wrong-step caps) — and invokes the real harness wrapper; both harness files exist on disk (a workflow pointing at a deleted script is a silent no-op). Comment-stripped presence checks (OWASP CICD-SEC-1) | this PR |
+| `scanner/tests/test_ci_guard_assertion_scoping.py` | **Meta-guard** — no `test_ci_*.py` guard makes a POSITIVE presence assertion against the RAW, whole-file text of the artifact it protects | AST scan (stdlib `ast`, not text) of every guard file: `assertIn(tok, raw)` / `assertRegex(raw, pat)` / `assertTrue(tok in raw)` where the haystack is a name bound directly to `Path.read_text()` is an INERT assertion — commenting the control out leaves the token in the file, so the guard reads green while the control is dead, which is worse than no guard (a reviewer takes the green as proof). Exempts the two non-inert shapes: NEGATIVE assertions (raw scanning for a FORBIDDEN token only over-reports — a false alarm, never a bypass) and LINE-ANCHORED regexes (`(?m)^\s*token`, which a `#`-commented copy cannot satisfy). Regression-pin: the detected set must EQUAL `KNOWN_RAW_PRESENCE_ASSERTIONS`, currently **empty** — a new offender fails AND a stale exemption fails once its site is fixed. Generalizes the two inert guards #383 found by hand (`provenance_verify` `npm audit signatures`, `docker_image_size_gate` `exit 1`) into a check that runs on all 40 guards and on every new one. Under-reports by design (never false-blocks). Mutation self-tests | this PR |
 
 ### Related enforcement (not a pytest guard)
 
@@ -279,6 +280,36 @@ Each was reproduced with an executed proof against real `bash` before the change
 and each fix ships mutation self-tests proven non-vacuous (all 10 FAIL when the
 primitive is reverted to `strip_inline_comment`). The over-strip direction is
 pinned too: a `#` inside quotes is literal and must not truncate a live control.
+
+**Inert-assertion class, promoted to a meta-guard (this PR):**
+
+The two inert guards #383 found (`provenance_verify`, `docker_image_size_gate`)
+shared one shape: a positive presence assertion aimed at the **raw whole-file
+text**. Hand triage caught them, but it does not scale to 40 guards and does not
+run on new ones, so the triage is now codified as
+`test_ci_guard_assertion_scoping.py` — an AST scan of the guard suite itself.
+
+Running it found **seven more** live instances, each confirmed inert by executing
+the guard against a commented-out artifact (green before the fix, red after —
+same mutant, only the haystack changed):
+
+| Site | Control left dead while the guard read green |
+|---|---|
+| `test_ci_branch_protection_codified.py` ×2 | `DESIRED_CONTEXTS` (both required merge contexts) and `DESIRED_ENFORCE_ADMINS="true"` commented out |
+| `test_ci_branch_protection_codified.py` ×2 | the `DRIFT DETECTED` producer/consumer marker contract on both ends |
+| `test_ci_cross_os_non_required.py` | the `macos-latest` runner canary |
+| `test_ci_npm_publish.py` ×2 | the push-`branches: [main]` auto-release trigger |
+
+All seven now assert against the guard's comment-stripped scan; the
+branch-protection pair additionally moved to `strip_inline_comment_sh`, since
+both artifacts are shell-bearing and were open to the same `;#` adjacency. The
+baseline `KNOWN_RAW_PRESENCE_ASSERTIONS` therefore ships **empty**, and its
+set-equality pin fails on a stale entry as well as a new offender.
+
+The meta-guard deliberately exempts the two shapes that are not inert: negative
+(FORBIDDEN-token) assertions, where raw scanning only over-reports, and
+line-anchored regexes (`(?m)^\s*token`), which a `#`-commented copy cannot
+satisfy — three guards rely on that form correctly and are not flagged.
 
 **Backlog (Class 2 — matcher-completeness / enumeration gaps; require a
 deliberate, unusual edit rather than a comment-out, so lower natural-regression

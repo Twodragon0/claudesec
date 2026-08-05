@@ -141,6 +141,11 @@ class TestNpmPublishAutoRelease(unittest.TestCase):
         cls.text = (
             NPM_PUBLISH.read_text(encoding="utf-8") if NPM_PUBLISH.is_file() else ""
         )
+        # The push-trigger checks below run against the COMMENT-STRIPPED text:
+        # over the raw file, a commented-out `branches: [main]` satisfies both
+        # and the guard goes inert while auto-release is dead. `branches:` is a
+        # YAML key, so the whitespace-boundary stripper is the right one here.
+        cls.scan = "\n".join(_strip_comment(ln) for ln in cls.text.splitlines())
 
     def test_npm_upgraded_before_publish(self):
         # OIDC trusted publishing needs npm >= 11.5.1; Node 22 bundles npm 10.x.
@@ -177,12 +182,12 @@ class TestNpmPublishAutoRelease(unittest.TestCase):
         # and flow form (`branches: [main]`), with optional quoting.
         self.assertIn(
             "branches:",
-            self.text,
+            self.scan,
             "npm-publish.yml lost its push `branches:` trigger — auto-publish on a "
             "main version bump is gone (manual-tag-only regression).",
         )
         self.assertRegex(
-            self.text,
+            self.scan,
             r"branches:\s*(?:-\s*|\[\s*)['\"]?main\b",
             "push trigger no longer targets `main` — version-bump auto-release "
             "would silently stop firing.",
@@ -228,6 +233,31 @@ class TestNpmPublishFsixHardening(unittest.TestCase):
             "F-6: a `# contents: write` surviving only in a comment must not "
             "satisfy the tag-permission check.",
         )
+
+
+
+class TestAutoReleaseTriggerScoping(unittest.TestCase):
+    """The push-`branches:` trigger checks were aimed at the RAW workflow text,
+    so commenting the trigger out left both of them green (inert)."""
+
+    _PATTERN = r"branches:\s*(?:-\s*|\[\s*)['\"]?main\b"
+
+    @staticmethod
+    def _scan(text):
+        return "\n".join(_strip_comment(ln) for ln in text.splitlines())
+
+    def test_commented_trigger_is_not_counted(self):
+        for mutant in ("    # branches: [main]",
+                       "    tags: ['v*']  # branches: [main]"):
+            with self.subTest(mutant=mutant):
+                scan = self._scan(mutant)
+                self.assertNotIn("branches:", scan)
+                self.assertNotRegex(scan, self._PATTERN)
+
+    def test_live_trigger_is_counted(self):
+        scan = self._scan("    branches: [main]")
+        self.assertIn("branches:", scan)
+        self.assertRegex(scan, self._PATTERN)
 
 
 if __name__ == "__main__":
