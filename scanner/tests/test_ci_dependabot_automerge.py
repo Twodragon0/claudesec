@@ -54,7 +54,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_comment_lines, strip_inline_comment  # noqa: E402
+from _ci_guard_util import strip_comment_lines, strip_inline_comment_sh  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -98,20 +98,34 @@ FORBIDDEN_TOKENS = {
 }
 
 
-def _violations(text: str) -> list:
-    """Return a list of problem descriptions for REQUIRED/FORBIDDEN violations.
+def _active_scan(text: str) -> str:
+    """`text` with whole-line AND trailing-inline `#` comments stripped.
 
-    Whole-line AND trailing-inline `#` comments are stripped first (F-3 + 2nd-review
-    Finding 2): a fork-guard token surviving only in a comment must NOT satisfy a
-    REQUIRED check (the real `if:` could be neutered to `true`), and a `--admin`
-    in a trailing comment must NOT false-trip a FORBIDDEN check. The case-arm /
-    fork-guard strings carry no inline `#`, so stripping is safe for them. (A
-    `--admin` in non-comment prose, e.g. an `echo`, is an accepted residual
-    false-positive — substring matching can't tell prose from a command.)
+    (F-3 + 2nd-review Finding 2): a fork-guard token surviving only in a comment
+    must NOT satisfy a REQUIRED check (the real `if:` could be neutered to
+    `true`), and a `--admin` in a trailing comment must NOT false-trip a
+    FORBIDDEN check. The case-arm / fork-guard strings carry no inline `#`, so
+    stripping is safe for them. (A `--admin` in non-comment prose, e.g. an
+    `echo`, is an accepted residual false-positive — substring matching can't
+    tell prose from a command.)
+
+    Uses the BASH-aware `strip_inline_comment_sh`, not the whitespace-boundary
+    variant: every hard-exclude arm, allowlist arm and the `gh pr merge --auto`
+    arm lives in shell inside a `run:` block, where bash starts a comment right
+    after `;`/`&`/`|`/`)`/backtick with no space. A whitespace-only stripper left
+    `echo skip;#scanner/*|scanner)` intact, so a hard-exclude arm parked in that
+    comment satisfied the REQUIRED check while the real arm was gone — a
+    write-token `pull_request_target` workflow auto-arming `scanner/` changes
+    with a green guard (Class B of the #383 sweep; primitive from #376).
     """
-    scan = "\n".join(
-        strip_inline_comment(ln) for ln in strip_comment_lines(text).splitlines()
+    return "\n".join(
+        strip_inline_comment_sh(ln) for ln in strip_comment_lines(text).splitlines()
     )
+
+
+def _violations(text: str) -> list:
+    """Return a list of problem descriptions for REQUIRED/FORBIDDEN violations."""
+    scan = _active_scan(text)
     problems = []
     for name, tok in sorted(REQUIRED_TOKENS.items()):
         if tok not in scan:
@@ -128,6 +142,13 @@ class TestDependabotAutoMergeGuard(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.text = WORKFLOW.read_text(encoding="utf-8") if WORKFLOW.is_file() else ""
+        # The per-invariant tests below assert against the COMMENT-STRIPPED text,
+        # not `cls.text`. Asserting presence over the raw file makes each of them
+        # inert against the natural regression path (comment the control out) —
+        # the token stays in the file and the assertion stays green. Only
+        # `test_all_invariants_hold` was defended; these narrower tests exist for
+        # their targeted failure messages and must be just as strict.
+        cls.scan = _active_scan(cls.text)
 
     def test_workflow_exists(self):
         self.assertTrue(
@@ -151,12 +172,12 @@ class TestDependabotAutoMergeGuard(unittest.TestCase):
 
     def test_fork_guard_present(self):
         self.assertIn(
-            REQUIRED_TOKENS["fork_guard_actor"], self.text,
+            REQUIRED_TOKENS["fork_guard_actor"], self.scan,
             "Fork guard missing the actor==dependabot[bot] check — a fork PR could "
             "trigger this write-token workflow.",
         )
         self.assertIn(
-            REQUIRED_TOKENS["fork_guard_same_repo"], self.text,
+            REQUIRED_TOKENS["fork_guard_same_repo"], self.scan,
             "Fork guard missing the same-repo (head.repo.full_name==github.repository) "
             "check — a fork PR could trigger this write-token workflow (pwn request).",
         )
@@ -167,22 +188,22 @@ class TestDependabotAutoMergeGuard(unittest.TestCase):
             "exclude_hooks", "exclude_scripts",
         ):
             self.assertIn(
-                REQUIRED_TOKENS[key], self.text,
+                REQUIRED_TOKENS[key], self.scan,
                 f"Hard-exclude path arm [{key}] removed — Dependabot PRs touching "
                 "that sensitive surface could auto-merge without human review.",
             )
 
     def test_update_type_and_ecosystem_allowlists(self):
         self.assertIn(
-            REQUIRED_TOKENS["eligible_update_types"], self.text,
+            REQUIRED_TOKENS["eligible_update_types"], self.scan,
             "Update-type allowlist changed — only semver-patch/minor may auto-arm.",
         )
         self.assertIn(
-            REQUIRED_TOKENS["semver_major_excluded"], self.text,
+            REQUIRED_TOKENS["semver_major_excluded"], self.scan,
             "semver-major hard-exclude removed — major bumps could auto-arm.",
         )
         self.assertIn(
-            REQUIRED_TOKENS["eligible_ecosystems"], self.text,
+            REQUIRED_TOKENS["eligible_ecosystems"], self.scan,
             "Ecosystem allowlist changed from pip|docker|github-actions — a policy "
             "change that must be reviewed, not slipped in.",
         )
@@ -190,7 +211,7 @@ class TestDependabotAutoMergeGuard(unittest.TestCase):
     def test_no_bypass_tokens(self):
         for key, tok in FORBIDDEN_TOKENS.items():
             self.assertNotIn(
-                tok, self.text,
+                tok, self.scan,
                 f"Forbidden token [{key}] {tok!r} present — it would bypass the "
                 "human code-owner review gate or re-introduce the broken #249 "
                 "bot self-approve.",
@@ -252,6 +273,47 @@ class TestDependabotAutoMergeGuardMutation(unittest.TestCase):
             any("fork_guard_same_repo" in p for p in _violations(mutant)),
             "Mutation FAILED (F-3): the same-repo fork guard surviving only in a "
             "comment satisfied the REQUIRED check — comment-evasion not defended.",
+        )
+
+    def test_hard_exclude_parked_behind_metachar_comment_is_detected(self):
+        # Class B (#383 sweep): bash starts a comment after `;` with NO space, so
+        # `echo skip;#scanner/*|scanner)` deletes the arm while keeping the token
+        # in the file. Verified against real bash: `bash -c 'echo A;#x'` prints
+        # `A` — the tail never runs. The whitespace-boundary stripper missed it.
+        mutant = self._GOOD.replace(
+            "  scanner/*|scanner)", "  echo skip;#scanner/*|scanner)"
+        )
+        self.assertTrue(
+            any("exclude_scanner" in p for p in _violations(mutant)),
+            "Mutation FAILED: the scanner/ hard-exclude arm parked behind a `;#` "
+            "bash comment satisfied the REQUIRED check — a write-token "
+            "pull_request_target workflow would auto-arm scanner/ changes.",
+        )
+
+    def test_admin_bypass_behind_metachar_comment_is_not_false_flagged(self):
+        # Over-strip direction of the same primitive: a `--admin` that is only a
+        # `;#` comment is NOT an active bypass and must not trip FORBIDDEN.
+        mutant = self._GOOD.replace(
+            'gh pr merge --auto --squash "$PR_URL"',
+            'gh pr merge --auto --squash "$PR_URL";#--admin',
+        )
+        self.assertEqual(
+            _violations(mutant), [],
+            "A `--admin` living only in a `;#` bash comment must not be reported "
+            "as an active code-owner bypass.",
+        )
+
+    def test_quoted_hash_is_not_treated_as_comment(self):
+        # The bash-aware stripper must keep a `#` inside quotes (literal), so a
+        # required token on such a line is still seen.
+        mutant = self._GOOD.replace(
+            'gh pr merge --auto --squash "$PR_URL"',
+            'echo "ref #249" && gh pr merge --auto --squash "$PR_URL"',
+        )
+        self.assertEqual(
+            _violations(mutant), [],
+            "Over-strip: a `#` inside a double-quoted string is literal, so the "
+            "line must not be truncated before `gh pr merge --auto`.",
         )
 
     def test_dropping_a_hard_exclude_path_is_detected(self):
