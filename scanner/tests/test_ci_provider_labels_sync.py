@@ -61,14 +61,24 @@ _FUNC_RE = re.compile(
 # A single case arm:  aws) echo "AWS" ;;
 # Excludes the default arm (`*) echo "$1" ;;`) which is the fallthrough.
 _ARM_RE = re.compile(r'^\s*([a-z0-9]+)\)\s*echo\s+"([^"]*)"\s*;;', re.MULTILINE)
+# The catch-all default arm — `*)` or the spaced `* )` form (both valid bash).
+_DEFAULT_ARM_RE = re.compile(r'^\s*\*\s*\)', re.MULTILINE)
 
 
 def _parse_bash_case(text: str) -> dict:
-    """Extract slug→label pairs from the output.sh provider-label bash case."""
+    """Extract slug→label pairs from the output.sh provider-label bash case.
+
+    bash `case` is FIRST-MATCH-WINS: any slug arm placed AFTER the `*)` catch-all
+    is unreachable dead code even though it is textually present. Truncate the
+    body at the default arm before collecting so a real slug demoted below `*)`
+    is correctly absent from the parsed map (and the parity check then trips)."""
     m = _FUNC_RE.search(text)
     if not m:
         return {}
     body = m.group(1)
+    default = _DEFAULT_ARM_RE.search(body)
+    if default:
+        body = body[: default.start()]
     pairs = {}
     for slug, label in _ARM_RE.findall(body):
         pairs[slug] = label
@@ -200,6 +210,53 @@ _prowler_dashboard_summary_provider_label() {
             "Parser failed to distinguish a drifted kubernetes label — the "
             "parity guard would silently pass on real drift.",
         )
+
+    # A real slug arm demoted BELOW the `*)` catch-all: textually present but
+    # unreachable at runtime (`_prowler_...label aws` would echo the raw "aws").
+    _ORDER_BLIND = """\
+_prowler_dashboard_summary_provider_label() {
+  case "$1" in
+    kubernetes) echo "Kubernetes" ;;
+    *) echo "$1" ;;
+    aws) echo "AWS" ;;
+  esac
+}
+"""
+
+    def test_parser_ignores_arms_after_default(self) -> None:
+        # first-match-wins: `aws)` below `*)` is dead code, so the parser must
+        # NOT report it as a live mapping (else the parity guard is order-blind).
+        parsed = _parse_bash_case(self._ORDER_BLIND)
+        self.assertNotIn(
+            "aws", parsed,
+            "Order-blind parse: an `aws)` arm placed AFTER the `*)` catch-all is "
+            "unreachable but was collected — the parity guard would pass on a "
+            "moved-below-default (dead) mapping.",
+        )
+        self.assertEqual(parsed, {"kubernetes": "Kubernetes"})
+
+    # A SPACED default arm `* )` (valid bash catch-all — verified) with a slug
+    # demoted below it. `^\s*\*\)` (adjacent-only) misses the space and fails to
+    # truncate, wrongly collecting the dead `aws`.
+    _ORDER_BLIND_SPACED_DEFAULT = """\
+_prowler_dashboard_summary_provider_label() {
+  case "$1" in
+    kubernetes) echo "Kubernetes" ;;
+    * ) echo "$1" ;;
+    aws) echo "AWS" ;;
+  esac
+}
+"""
+
+    def test_parser_truncates_at_spaced_default_arm(self) -> None:
+        parsed = _parse_bash_case(self._ORDER_BLIND_SPACED_DEFAULT)
+        self.assertNotIn(
+            "aws", parsed,
+            "Order-blind parse: an `aws)` after a SPACED `* )` catch-all is "
+            "unreachable but was collected — the default-arm matcher must accept "
+            "the spaced form `* )`.",
+        )
+        self.assertEqual(parsed, {"kubernetes": "Kubernetes"})
 
 
 if __name__ == "__main__":
