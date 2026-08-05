@@ -96,9 +96,16 @@ ALLOWLIST: list[tuple[str, str]] = [
 # ERE-context detection heuristics
 # ---------------------------------------------------------------------------
 
-# Regex that matches a line containing grep with -E (in any flag combination).
-# Examples: grep -qE, grep -E, grep -nrE, grep -rE
-_GREP_E_RE = re.compile(r"\bgrep\b[^|&;\n]*-[A-Za-z]*E")
+# Regex that matches a line invoking grep in ERE mode:
+#   * `egrep` — IMPLICITLY ERE (no flag needed); `\bgrep\b` never matches it (no
+#     word boundary between `e` and `grep`), so it needs its own alternative
+#     (ADR-001 §2 audit bypass); OR
+#   * `grep` with the short `-…E` flag combination (grep -qE, -E, -nrE, -rE) OR
+#     the GNU long option `--extended-regexp` (no uppercase `E`, so the short-flag
+#     branch alone would miss it — an earlier audit bypass).
+_GREP_E_RE = re.compile(
+    r"\begrep\b|\bgrep\b[^|&;\n]*(?:-[A-Za-z]*E|--extended-regexp)"
+)
 
 # The named helpers in scanner/lib/checks.sh and injection.sh that internally
 # call grep -E.  Match the function name followed by its first argument quote.
@@ -106,6 +113,14 @@ _HELPER_RE = re.compile(r"\b(?:files_contain|file_contains|_code_grep)\s+['\"]")
 
 # Bash ERE match: [[ ... =~ ... ]]
 _BASH_ERE_RE = re.compile(r"\[\[.*=~")
+
+# KNOWN LIMITATION (documented, not fixed): variable indirection across lines —
+# `PATTERN="foo\|bar"` on one line, then `grep -E "$PATTERN"` on another — is not
+# detected. Catching it needs cross-line dataflow (which pattern var reaches an
+# ERE consumer); a line scanner can only approximate it by flagging every `\|`
+# inside any string assignment, a high false-positive rule rejected as worse than
+# the gap. The `\|` here is on the SAME line as the ERE consumer in every real
+# occurrence this guards; revisit only if an indirection instance actually lands.
 
 
 def _is_ere_context(line: str) -> bool:
@@ -346,6 +361,37 @@ class TestMutationSelfTest(unittest.TestCase):
             hits,
             "MUTATION SELF-TEST FAILED: grep -E 'foo\\\\|bar' should be detected "
             "but was NOT flagged.",
+        )
+
+    def test_detects_grep_long_extended_regexp_flag(self):
+        # Audit finding: the GNU long option `--extended-regexp` has no uppercase
+        # `E`, so the short-flag branch missed it. It is ERE mode all the same.
+        snippet = "  grep --extended-regexp 'foo\\|bar' \"$file\""
+        hits = _scan_text_lines(snippet, "synthetic.sh")
+        self.assertTrue(
+            hits,
+            "MUTATION SELF-TEST FAILED: grep --extended-regexp 'foo\\\\|bar' should "
+            "be detected but was NOT flagged.",
+        )
+
+    def test_grep_Ei_combined_flag_still_detected(self):
+        # Guard against the fix over-tightening: `-Ei` (ERE + ignore-case) must
+        # still match (a `\b` after the short flag would wrongly drop this).
+        snippet = "  grep -Ei 'foo\\|bar' \"$file\""
+        hits = _scan_text_lines(snippet, "synthetic.sh")
+        self.assertTrue(hits, "regression: grep -Ei no longer detected")
+
+    def test_detects_egrep_backslash_pipe(self):
+        # Audit finding (ADR-001 §2): `\bgrep\b` never matches `egrep` (no word
+        # boundary between `e` and `grep`), and `egrep` is IMPLICITLY ERE (no `-E`
+        # flag), so the `-…E`/`--extended-regexp` branch also misses it — an
+        # `egrep 'a\|b'` literal-pipe bug slipped past entirely.
+        snippet = "  egrep 'foo\\|bar' \"$file\""
+        hits = _scan_text_lines(snippet, "synthetic.sh")
+        self.assertTrue(
+            hits,
+            "MUTATION SELF-TEST FAILED: egrep 'foo\\\\|bar' (implicit ERE) should "
+            "be detected but was NOT flagged.",
         )
 
     def test_detects_files_contain_helper_with_backslash_pipe(self):
