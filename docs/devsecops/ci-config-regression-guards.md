@@ -374,3 +374,5 @@ coverage, ERE-pipe regressions, prowler provider ordering, coverage floors, npm
   Adversarial Audit](./adr-001-ci-guard-hardening-and-audit-cadence.md)
 
 <!-- probe base: disposable, see the stacked-check verification -->
+
+<!-- probe head: stacked on probe/stacked-check-base -->
