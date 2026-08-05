@@ -162,6 +162,24 @@ def strip_inline_comment_sh(line: str) -> str:
     return line
 
 
+def strip_html_comments(text: str) -> str:
+    """`text` with HTML/Markdown comments (`<!-- ... -->`, possibly multi-line)
+    removed.
+
+    Markdown has no `#` comment, so the `strip_comment_lines` family does not
+    apply to the docs the catalog meta-guards scan. `<!-- -->` is the equivalent
+    escape hatch: a catalog row parked inside one is invisible when rendered but
+    still satisfies a raw substring presence check, so a guard could be dropped
+    from the published inventory while `test_ci_catalog_completeness` stays
+    green (the comment-evasion class of ADR-001 §1, in Markdown).
+
+    An UNCLOSED `<!--` is left intact rather than eating the rest of the file:
+    the pattern requires a closing `-->`, so a stray opener degrades to
+    no-strip (under-strip, a false NEGATIVE for that one row) instead of
+    blanking the document (which would make every consumer fail at once)."""
+    return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+
+
 def top_level_jobs(text: str) -> list:
     """The job keys under a workflow's top-level `jobs:` map (2-space-indented
     `name:` lines), in document order. Stops at the dedent to the next top-level

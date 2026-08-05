@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     extract_on_block,
     strip_comment_lines,
+    strip_html_comments,
     strip_inline_comment,
     strip_inline_comment_sh,
     top_level_jobs,
@@ -138,6 +139,35 @@ class TestTopLevelJobs(unittest.TestCase):
 class TestStripCommentLines(unittest.TestCase):
     def test_drops_whole_line_comments_only(self):
         self.assertEqual(strip_comment_lines("a\n# c\n  b"), "a\n  b")
+
+
+
+class TestStripHtmlComments(unittest.TestCase):
+    """Markdown has no `#` comment; `<!-- -->` is the escape hatch the catalog
+    meta-guards must see through."""
+
+    def test_single_line_comment_removed(self):
+        self.assertEqual(strip_html_comments("a <!-- hidden --> b"), "a  b")
+
+    def test_multiline_comment_removed(self):
+        self.assertEqual(strip_html_comments("a <!--\nx\ny\n--> b"), "a  b")
+
+    def test_multiple_comments_removed_independently(self):
+        self.assertEqual(strip_html_comments("<!--x-->A<!--y-->B"), "AB")
+
+    def test_non_greedy_does_not_swallow_between_comments(self):
+        # A greedy `.*` would eat `KEEP` along with both comments.
+        self.assertIn("KEEP", strip_html_comments("<!--a-->KEEP<!--b-->"))
+
+    def test_unclosed_opener_is_left_intact(self):
+        # Under-strip beats blanking the document: a stray `<!--` must not eat
+        # the rest of the file and make every consumer fail at once.
+        self.assertEqual(
+            strip_html_comments("live row\n<!-- dangling"), "live row\n<!-- dangling"
+        )
+
+    def test_text_without_comments_is_unchanged(self):
+        self.assertEqual(strip_html_comments("plain text"), "plain text")
 
 
 if __name__ == "__main__":
