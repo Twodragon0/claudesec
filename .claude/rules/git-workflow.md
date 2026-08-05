@@ -39,7 +39,8 @@ When creating PRs:
 
 - **Never push to `main`.** A pre-push hook blocks `git push origin main`.
   Always branch (`docs/`, `fix/`, `feat/`, ...) → open a PR → squash-merge.
-- Use `--delete-branch` on merge to keep the remote clean.
+- Use `--delete-branch` on merge to keep the remote clean. If the PR has open
+  PRs stacked on it, retarget those FIRST — see [Stacked PRs](#stacked-prs-base--another-feature-branch).
 
 ### Pre-PR validation (docs changes)
 
@@ -60,6 +61,43 @@ lychee "**/*.md"
   repo-level CodeQL workflow file.
 - Treat an external action download `401` as transient: rerun the failed
   workflow up to 2 times before manual triage.
+
+### Stacked PRs (base = another feature branch)
+
+**Default to branching from `main` and waiting for the dependency to merge.**
+Stacking is allowed but has two costs, both measured on 2026-08-05:
+
+1. **Retarget every dependent PR BEFORE merging its base.** Merging with
+   `--delete-branch` (required posture — `DESIRED_DELETE_BRANCH="true"` in
+   `scripts/sync-repo-protection.sh`) deletes the base ref, which **auto-closes**
+   any open PR targeting it. A closed PR's base cannot be changed and the PR
+   cannot be reopened once its base ref is gone:
+
+   ```console
+   $ gh pr edit 384 --base main
+   Cannot change the base branch of a closed pull request.
+   $ gh pr reopen 384
+   Could not open the pull request.
+   ```
+
+   Recovery is a rebase plus a brand-new PR, losing the review thread:
+
+   ```bash
+   git rebase --onto origin/main <old-merge-base> <branch>
+   git push --force-with-lease origin <branch>
+   gh pr create --base main --head <branch>   # then comment "supersedes #<old>"
+   ```
+
+2. **Expect a rebase after each upstream merge.** `main` is strict
+   (up-to-date-branch required), so an upstream PR that goes `BEHIND` needs
+   `gh pr update-branch` and a full CI re-run before it can merge.
+
+Since the `pull_request:` trigger on `lint.yml` / `security-scan.yml` is
+unscoped (pinned by `scanner/tests/test_ci_pr_trigger_scope.py`), a stacked PR
+**does** now get `Lint` and `Security Scan Gate`. If that filter is ever
+re-added, a stacked PR loses both required checks silently — it previously got
+3 checks instead of 28 — so state in the PR body that they did not run and that
+local runs are the only evidence.
 
 ### Dependabot action PRs
 
