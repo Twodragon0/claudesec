@@ -28,6 +28,7 @@ no PyYAML (absent from requirements-ci.txt). No network, no subprocess, does not
 import scanner/lib. Passes under pytest and `python3 -m unittest`.
 """
 
+import fnmatch
 import json
 import unittest
 from pathlib import Path
@@ -52,6 +53,28 @@ def _normalize(entry: str) -> str:
     return entry.strip().rstrip("/")
 
 
+def _pattern_matches(pattern: str, path: str) -> bool:
+    """Does a (positive, already-normalized) `files[]` pattern cover `path`?
+    A bare dir/file (`scripts`) covers itself and everything under it; globs
+    (`scripts/*`, `docs/**`) match via fnmatch (npm globs are not slash-aware,
+    matching fnmatch's behaviour closely enough for this guard)."""
+    return path == pattern or path.startswith(pattern + "/") or fnmatch.fnmatch(path, pattern)
+
+
+def _is_shipped(files: list, path: str) -> bool:
+    """Resolve whether `path` ends up in the tarball. npm applies `files[]` in
+    order with negations removing matches, so the LAST matching entry wins —
+    a positive pattern re-added AFTER its `!negation` re-ships the path. Order-
+    aware, unlike a set-membership check (the audit's order-blind finding)."""
+    shipped = False
+    for entry in files:
+        e = entry.strip()
+        neg = e.startswith("!")
+        if _pattern_matches(_normalize(e[1:] if neg else e), path):
+            shipped = not neg
+    return shipped
+
+
 class TestNpmFilesAllowlist(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -72,11 +95,14 @@ class TestNpmFilesAllowlist(unittest.TestCase):
         )
 
     def test_docs_not_shipped(self):
-        # Any include entry that pulls in docs/ (not a negation).
+        # Any positive entry that pulls in docs/ — `docs`, `docs/`, `docs/*`,
+        # `docs/**`, or a `docs/<subdir>` — all re-ship the tree (glob-family,
+        # not just the two enumerated forms the audit found bypassable).
         offenders = [
             e
             for e in self.files
-            if not e.lstrip().startswith("!") and _normalize(e) in ("docs", "docs/*")
+            if not e.lstrip().startswith("!")
+            and (_normalize(e) == "docs" or _normalize(e).startswith("docs/"))
         ]
         self.assertEqual(
             offenders,
@@ -87,17 +113,16 @@ class TestNpmFilesAllowlist(unittest.TestCase):
         )
 
     def test_operator_scripts_excluded(self):
-        normalized = {_normalize(e) for e in self.files}
-        missing = [
-            s for s in EXCLUDED_SCRIPTS if ("!" + s) not in normalized
-        ]
+        # Order-aware: a `!scripts/x` negation only holds if no LATER positive
+        # pattern re-includes it (npm files[] is last-match-wins).
+        shipped = [s for s in EXCLUDED_SCRIPTS if _is_shipped(self.files, s)]
         self.assertEqual(
-            missing,
+            shipped,
             [],
-            "Operator-only scripts lost their `!scripts/...` exclusion in files[] "
-            "— they would publish to the public npm registry (information "
-            "exposure). Re-add the negated pattern(s):\n  "
-            + "\n  ".join("!" + m for m in missing),
+            "Operator-only scripts would publish to the public npm registry "
+            "(information exposure) — either their `!scripts/...` negation is "
+            "missing, or a later positive `files[]` pattern re-includes them "
+            "(order-blind bypass). Re-exclude:\n  " + "\n  ".join(shipped),
         )
 
     def test_scripts_dir_still_shipped(self):
@@ -117,6 +142,37 @@ class TestNpmFilesAllowlist(unittest.TestCase):
             normalized,
             "CHANGELOG.md dropped from files[] — release notes stop shipping with "
             "the package (repo convention lists README/LICENSE/CHANGELOG).",
+        )
+
+
+class TestNpmFilesResolverSelfTest(unittest.TestCase):
+    """Mutation self-tests for the glob-family / order-aware resolution."""
+
+    def test_docs_recursive_glob_is_flagged(self):
+        # `docs/**` shipped the tree but the old `in ("docs","docs/*")` check
+        # missed it (audit finding). It must now count as a docs offender.
+        for form in ("docs", "docs/", "docs/*", "docs/**", "docs/architecture"):
+            self.assertTrue(
+                _normalize(form) == "docs" or _normalize(form).startswith("docs/"),
+                f"docs form {form!r} not recognised as shipping docs/",
+            )
+
+    def test_negation_then_positive_reships(self):
+        # `!scripts/x` followed by a later positive `scripts/x` re-ships it
+        # (last-match-wins). The order-blind set check missed this.
+        files = ["scripts", "!scripts/gsheet-auth.py", "scripts/gsheet-auth.py"]
+        self.assertTrue(
+            _is_shipped(files, "scripts/gsheet-auth.py"),
+            "resolver is order-blind: a positive pattern after the negation must "
+            "re-ship the path.",
+        )
+
+    def test_negation_last_excludes(self):
+        # The real, correct order: dir include then negation → excluded.
+        files = ["scripts", "!scripts/gsheet-auth.py"]
+        self.assertFalse(
+            _is_shipped(files, "scripts/gsheet-auth.py"),
+            "a `!scripts/x` negation after the `scripts` include must exclude it.",
         )
 
 
