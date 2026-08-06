@@ -25,9 +25,14 @@ WHY IT IS NEEDED HERE (incident-backed bar)
 
 WHAT IT CHECKS / DOES NOT
 -------------------------
-- Scans ONLY `run:` shell bodies (inline `run: cmd` and block scalars `run: |` /
-  `run: >`). Interpolation in `if:`, `with:`, `name:`, or an `env:` mapping is a
+- Scans ONLY `run:` shell bodies (inline `run: cmd` — including its multi-line
+  plain/quoted scalar continuation lines — and block scalars `run: |` / `run: >`).
+  Interpolation in `if:`, `with:`, `name:`, or an `env:` mapping is a
   GitHub-expression / assignment context, NOT shell injection, and is ignored.
+- A `${{ }}` that a line scanner cannot reassemble (split across two physical
+  lines) is not scanned but is **flagged as an unscannable shape** — see the two
+  tripwires (`unscannable_flow_runs`, `unscannable_block_runs`), which fail closed
+  so an injection cannot hide where the scanner is blind.
 - Flags only the **documented-untrusted** contexts (free-text fields an external
   actor controls), not every `${{ }}` — `github.sha`, `github.ref`,
   `needs.*.outputs.*`, etc. are safe and not flagged. This keeps the guard
@@ -120,6 +125,24 @@ _FLOW_RUN_UNTERMINATED_RE = re.compile(
 )
 
 
+# An opened `${{` with no `}}` after it on the SAME physical line — a GitHub
+# expression split across lines. YAML folds the newline away, so the runner sees
+# one expression, but a line scanner sees two halves and `_EXPR_RE` (non-greedy,
+# single-line) matches neither: the untrusted context would go UNSCANNED. Scanned
+# as a character walk rather than a regex because `${{`/`}}` may repeat on a line
+# and only the LAST opener's termination matters.
+def _expr_unterminated(line: str) -> bool:
+    i = 0
+    while True:
+        start = line.find("${{", i)
+        if start == -1:
+            return False
+        end = line.find("}}", start + 3)
+        if end == -1:
+            return True
+        i = end + 2
+
+
 def _lead_width(s: str) -> int:
     """Leading-whitespace width of `s` in columns, with tabs expanded to 8 — so
     a tab-indented line is measured on the same scale as a space-indented one."""
@@ -157,10 +180,17 @@ def run_block_lines(text: str) -> list:
         # rule is complete by the YAML grammar, unlike a header-enumerating regex
         # (which missed `|2-` and `| # comment` across two reviews).
         if rest and rest[0] not in "|>":
-            out.append(rest)  # inline `run: <cmd>`
-            i += 1
-            continue
-        # Block scalar: collect deeper-indented (or blank) following lines.
+            out.append(rest)  # inline `run: <cmd>` (first physical line)
+        # Fall through to the SAME deeper-indented collection loop for both cases.
+        # For a block scalar those lines are the body. For an inline value they are
+        # the continuation lines of a multi-line plain/quoted scalar (`run: echo`
+        # then a deeper `'${{ ... }}'` line) — legal YAML that folds into one
+        # command, and previously dropped entirely, so an untrusted interpolation
+        # on a continuation line went unscanned. The indentation rule is the same
+        # for both scalar styles, and its error direction is safe: over-collecting
+        # a non-continuation line can only raise a false ALARM (a sibling key
+        # aligns with `run:` and still terminates the scan — see
+        # `test_block_body_stops_at_sibling_key`), never a silent bypass.
         i += 1
         while i < n:
             ln = lines[i]
@@ -212,6 +242,27 @@ def unscannable_flow_runs(text: str) -> list:
     return [ln.strip() for ln in text.splitlines() if _FLOW_RUN_UNTERMINATED_RE.search(ln)]
 
 
+def unscannable_block_runs(text: str) -> list:
+    """Run-body lines that open a `${{` without closing it on the same physical
+    line (see `_expr_unterminated`) — a GitHub expression split across lines.
+
+    The sibling tripwire to `unscannable_flow_runs`, closing the last documented
+    scanner gap of this guard. YAML folds the newline, so the runner evaluates one
+    expression, but `injection_violations` matches `${{ ... }}` per line and sees
+    neither half — an untrusted context split as `'${{\\n  github.event.issue.title
+    }}'` inside a `run: |` body was therefore NOT flagged. Reassembling folded
+    lines correctly needs a real YAML parser (unavailable: stdlib-only /
+    no-PyYAML), and whether the Actions expression lexer even accepts the split
+    form is unverified — so this fails CLOSED on the SHAPE instead of guessing at
+    the semantics: the author keeps each `${{ ... }}` on one physical line (always
+    possible, and how every expression in this repo is already written).
+
+    ADR-001 §4 — prefer a rule complete by construction over an incomplete
+    reassembler. Dormant on this repo (zero unterminated `${{` in any run body),
+    so it is false-positive-free today."""
+    return [ln.strip() for ln in run_block_lines(text) if _expr_unterminated(ln)]
+
+
 def _workflow_files():
     return sorted(glob(str(WORKFLOW_DIR / "*.yml")))
 
@@ -254,6 +305,23 @@ class TestNoInjectionSurface(unittest.TestCase):
             "lines — this cannot be statically scanned for `${{ }}` injection "
             "(stdlib/no-PyYAML). Use a block scalar (`run: |`) or keep the flow "
             "value on one line:\n  " + "\n  ".join(offenders),
+        )
+
+    def test_no_unscannable_split_expression_in_run_body(self):
+        # A `${{ }}` split across two physical lines inside a run body cannot be
+        # reassembled without a YAML parser; forbid the shape so nothing hides.
+        offenders = []
+        for path in _workflow_files():
+            for ln in unscannable_block_runs(Path(path).read_text(encoding="utf-8")):
+                offenders.append(f"{Path(path).name}:  {ln}")
+        self.assertEqual(
+            offenders,
+            [],
+            "A `${{` in a `run:` shell body is not closed on the same physical "
+            "line — a line scanner cannot reassemble the split expression, so it "
+            "cannot be checked for untrusted-context injection (stdlib/no-PyYAML). "
+            "Keep each `${{ ... }}` on one line (and prefer moving the value into "
+            "an `env:` block):\n  " + "\n  ".join(offenders),
         )
 
 
@@ -472,6 +540,118 @@ class TestInjectionDetectorMutation(unittest.TestCase):
             unscannable_flow_runs(block), [],
             "tripwire false-positive on a block scalar.",
         )
+
+    _SPLIT_EXPR_BLOCK = "\n".join(
+        [
+            "jobs:",
+            "  j:",
+            "    steps:",
+            "      - run: |",
+            "          echo '${{",
+            "            github.event.issue.title }}'",
+        ]
+    )
+
+    def test_tripwire_flags_split_expression_in_block_scalar(self):
+        # Reproduced before the fix: `injection_violations` returns [] on this
+        # input (each half-line has no complete `${{ ... }}`), so the tripwire is
+        # the ONLY thing standing between a split interpolation and a green guard.
+        self.assertEqual(
+            injection_violations(self._SPLIT_EXPR_BLOCK),
+            [],
+            "Precondition changed: the split expression is now scanned directly — "
+            "re-derive whether the shape tripwire is still the load-bearing check.",
+        )
+        self.assertTrue(
+            unscannable_block_runs(self._SPLIT_EXPR_BLOCK),
+            "tripwire FAILED: a `${{` split across two physical lines inside a "
+            "`run: |` body was not flagged — an injection can hide there.",
+        )
+
+    def test_tripwire_quiet_on_single_line_expressions(self):
+        # Complete expressions (trusted or untrusted, inline or block) are
+        # scannable and must NOT be flagged as an unscannable shape — otherwise
+        # the tripwire fires on every workflow and gets deleted.
+        for wf in (
+            self._UNSAFE_INLINE,
+            self._UNSAFE_BLOCK,
+            self._SAFE_ENV,
+            self._SAFE_IF_AND_TRUSTED,
+            self._SAFE_SIBLING_KEY,
+            "jobs:\n  j:\n    steps:\n      - run: echo '${{ github.sha }}' '${{ github.ref }}'\n",
+        ):
+            with self.subTest(wf=wf.splitlines()[-1]):
+                self.assertEqual(
+                    unscannable_block_runs(wf),
+                    [],
+                    "tripwire false-positive: a `${{ ... }}` that closes on its own "
+                    "physical line was reported as unscannable.",
+                )
+
+    def test_tripwire_ignores_split_expression_outside_run_body(self):
+        # Scope: only `run:` bodies are shell. A split expression in an `env:`
+        # mapping is an assignment context, never shell — flagging it would be
+        # noise the guard cannot justify.
+        wf = "\n".join(
+            [
+                "jobs:", "  j:", "    steps:",
+                "      - env:",
+                "          TITLE: ${{",
+                "            github.event.issue.title }}",
+                "        run: echo \"$TITLE\"",
+            ]
+        )
+        self.assertEqual(
+            unscannable_block_runs(wf),
+            [],
+            "tripwire false-positive: a split expression outside a run body "
+            "(env: mapping) was flagged.",
+        )
+
+    _MULTILINE_PLAIN_SCALAR = "\n".join(
+        [
+            "jobs:",
+            "  j:",
+            "    steps:",
+            "      - run: echo",
+            "          '${{ github.event.issue.title }}'",
+        ]
+    )
+
+    def test_fires_on_multiline_plain_scalar_continuation(self):
+        # A multi-line plain scalar `run:` folds into `echo '${{ ... }}'` at
+        # runtime. The continuation line used to be dropped from the body
+        # entirely, so this injection was invisible to BOTH the scanner and the
+        # split-expression tripwire (the expression closes on its own line).
+        self.assertTrue(
+            any(
+                "github.event.issue.title" in c
+                for _, c in injection_violations(self._MULTILINE_PLAIN_SCALAR)
+            ),
+            "Mutation FAILED: an untrusted interpolation on the continuation line "
+            "of a multi-line plain `run:` scalar was not scanned.",
+        )
+
+    def test_inline_run_body_stops_at_sibling_key(self):
+        # The continuation collection must not slurp a sibling step key that
+        # aligns with the `run:` column (the inline-value analog of
+        # `test_block_body_stops_at_sibling_key`).
+        for sibling in ("env:", "with:"):
+            wf = "\n".join(
+                [
+                    "jobs:", "  j:", "    steps:",
+                    "      - run: echo safe",
+                    f"        {sibling}",
+                    "          title: ${{ github.event.issue.title }}",
+                ]
+            )
+            with self.subTest(sibling=sibling):
+                self.assertEqual(
+                    injection_violations(wf),
+                    [],
+                    f"False positive: a `{sibling}` sibling key after an inline "
+                    "`run:` was slurped into the run body as a scalar continuation.",
+                )
 
     def test_fires_on_tab_indented_body(self):
         # Finding 7: a tab-indented block body must still be measured as deeper

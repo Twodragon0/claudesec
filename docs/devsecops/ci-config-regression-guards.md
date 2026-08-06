@@ -249,8 +249,8 @@ control" regression path, the exact class ADR-001 §1/§3 target):**
   that FAILS on the unscannable shape so an injection cannot hide in it — the
   author must use a block scalar or a single-line flow value (dormant on this
   repo: all `run:` are block style, so zero false positives). The
-  multi-line-split `${{ }}` block-scalar form remains a documented,
-  runtime-**unverified** robustness gap.
+  multi-line-split `${{ }}` block-scalar form is **now closed the same way** —
+  see the entry below.
 
 **Class B follow-up — `strip_inline_comment_sh` adoption (this PR):**
 
@@ -336,6 +336,38 @@ once.
 
 Non-vacuous: neutering `strip_html_comments` fails 3 of the new tests.
 
+**`injection_surface` split-expression gap closed by tripwire (2026-08-06):**
+
+The one remaining Class 2 row — a `${{ }}` split across two physical lines inside
+a `run:` body — is no longer a documented gap. It is closed the way its flow-style
+sibling was: `unscannable_block_runs` **fails closed on the unscannable shape**
+(an opened `${{` with no `}}` on the same physical line inside a run body) instead
+of guessing at semantics the guard cannot verify. The remediation is trivial and
+always available — keep each expression on one line, which is how every `${{ }}`
+in this repo is already written — so the shape ban costs nothing. Reassembling
+folded YAML lines would need a real parser (stdlib-only / no-PyYAML), and whether
+the Actions expression lexer even accepts the split form stays **unverified**;
+failing on the shape makes that question moot rather than load-bearing.
+
+Building it surfaced an **adjacent hole the audit had not recorded**, which a
+tripwire alone would have left open: a multi-line **plain** scalar
+(`run: echo` followed by a deeper-indented `'${{ github.event.issue.title }}'`)
+folds into one command at runtime, but the continuation line was dropped from the
+body entirely — so the interpolation was invisible to the scanner AND to the new
+tripwire (the expression closes on its own line, it is the *body extraction* that
+was incomplete). Fixed by scanning it: an inline `run:` value now shares the
+block scalar's deeper-indented collection loop, since YAML applies the same
+indentation rule to both styles. Error direction is safe — over-collecting can
+only raise a false alarm, and a sibling `env:`/`with:` key aligns with the `run:`
+column and still terminates the scan (pinned by a new test, the inline analog of
+the existing block-scalar case).
+
+Both changes ship mutation self-tests proven non-vacuous by execution: neutering
+`_expr_unterminated` fails the tripwire test, and restoring the early `continue`
+that dropped continuation lines fails the plain-scalar test. Both are dormant on
+the real workflows (zero unterminated `${{`, zero inline-`run:` continuation
+lines), so neither adds a false positive today.
+
 **Backlog (Class 2 — matcher-completeness / enumeration gaps; require a
 deliberate, unusual edit rather than a comment-out, so lower natural-regression
 risk — triaged as follow-up, not blocking):**
@@ -350,15 +382,10 @@ risk — triaged as follow-up, not blocking):**
 - `test_ci_cross_os_non_required.py` — `FORBIDDEN_IN_LINT` is a fixed 4-string
   enumeration (bypassed by `macos-14`/`windows-2022` labels); collision check
   omits the `"Lint"` required context.
-- `test_ci_injection_surface.py` — **known scanner limitation** (bounded by the
-  stdlib-only / no-PyYAML constraint): an untrusted `${{ }}` split across two
-  physical lines inside a block scalar is not reassembled; its runtime
-  exploitability (whether the Actions expression lexer executes a newline-split
-  interpolation) is **unverified**. A pathological authoring form; tracked rather
-  than half-closed with a fragile bracket-depth heuristic. Revisit if PyYAML ever
-  becomes available to the CI test job. (The sibling multi-line-quoted flow
-  scalar limitation was **closed** by the `unscannable_flow_runs` tripwire — see
-  the fixed list above.)
+
+Both `test_ci_injection_surface.py` rows that were listed here are now **closed**
+by shape tripwires rather than deferred — see "split-expression gap closed by
+tripwire" above.
 
 ### Verified already-guarded during this review (not backlog)
 
