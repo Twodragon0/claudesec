@@ -1,5 +1,7 @@
 """
-Regression guard: no GitHub Actions **script-injection** surface in any workflow.
+Regression guard: no GitHub Actions **script-injection** surface in any workflow
+(`.github/workflows/*.yml`/`*.yaml`) or composite action (`.github/actions/**/
+action.yml`) — see `_scanned_files` for why both file sets count.
 
 THE RISK (OWASP CICD-SEC-4 / GitHub script injection)
 -----------------------------------------------------
@@ -61,6 +63,8 @@ from pathlib import Path
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
+# Composite actions: `runs.using: composite` steps run shell too (see `_scanned_files`).
+ACTION_DIR = REPO_ROOT / ".github" / "actions"
 
 # GitHub-documented untrusted-input contexts (the free-text fields an external
 # actor controls). Each is a regex searched INSIDE a `${{ ... }}` expression that
@@ -303,28 +307,58 @@ def unscannable_run_keys(text: str) -> list:
     return [ln.strip() for ln in text.splitlines() if _EXPLICIT_RUN_KEY_RE.match(ln)]
 
 
-def _workflow_files():
-    # BOTH extensions: GitHub Actions runs `.yaml` workflows too, so globbing only
-    # `*.yml` would leave a whole file silently unscanned (found by adversarial
-    # review; the repo has no `.yaml` workflow today, so this adds coverage
-    # without changing today's result).
-    return sorted(
-        glob(str(WORKFLOW_DIR / "*.yml")) + glob(str(WORKFLOW_DIR / "*.yaml"))
-    )
+def _scanned_files():
+    """Every file in this repo whose `run:` bodies GitHub Actions executes.
+
+    Two enumeration gaps were found by adversarial review, both silent (a whole
+    file simply never scanned, so the guard passed vacuously over it):
+
+    - BOTH extensions: Actions honours `.yaml` as well as `.yml`, so a
+      `evil.yaml` workflow was invisible.
+    - COMPOSITE ACTIONS: `.github/actions/<name>/action.yml` declares
+      `runs.using: composite` with `steps[].run` shell bodies that interpolate
+      `${{ }}` exactly like a workflow step, and required workflows call them.
+      Two already exist here (`datadog-ci-collect`, `token-expiry-gate`), and a
+      live `${{ github.event.pull_request.title }}` planted in one of them left
+      this guard green — the same CICD-SEC-4 RCE it exists to prevent.
+
+    Composite actions are matched by their canonical filenames only (`action.yml`
+    /`action.yaml` — the two names Actions resolves), not by every `*.yml` under
+    the directory, so an unrelated helper YAML there is not treated as shell."""
+    out = []
+    for name in ("*.yml", "*.yaml"):
+        out += glob(str(WORKFLOW_DIR / name))
+    for name in ("action.yml", "action.yaml"):
+        out += glob(str(ACTION_DIR / "**" / name), recursive=True)
+    return sorted(out)
 
 
 class TestNoInjectionSurface(unittest.TestCase):
     def test_workflow_dir_canary(self):
         # If the glob finds nothing the path broke — fail loudly rather than
         # vacuously "passing" the injection scan below.
+        found = _scanned_files()
         self.assertTrue(
-            _workflow_files(),
+            found,
             f"No workflow files found under {WORKFLOW_DIR} — path assumption broke",
+        )
+        # Per-file-set canaries: a broken ACTION_DIR path (or a workflows-only
+        # regression) would otherwise be masked by the other set still matching,
+        # and the whole composite-action scan would go vacuously green.
+        self.assertTrue(
+            [p for p in found if "/workflows/" in p],
+            f"No files matched under {WORKFLOW_DIR} — path assumption broke",
+        )
+        self.assertTrue(
+            [p for p in found if "/actions/" in p],
+            f"No composite `action.yml` matched under {ACTION_DIR}. This repo has "
+            "two; if they were intentionally removed, delete this canary in the "
+            "same commit rather than leaving the scan silently empty.",
         )
 
     def test_no_untrusted_interpolation_in_run_blocks(self):
         offenders = []
-        for path in _workflow_files():
+        for path in _scanned_files():
             text = Path(path).read_text(encoding="utf-8")
             for line, ctx in injection_violations(text):
                 offenders.append(f"{Path(path).name}: ${{{{ ...{ctx}... }}}}  in:  {line}")
@@ -341,7 +375,7 @@ class TestNoInjectionSurface(unittest.TestCase):
         # A multi-line-quoted flow-style `run:` cannot be scanned for injection
         # under the no-PyYAML constraint; forbid the shape so nothing hides in it.
         offenders = []
-        for path in _workflow_files():
+        for path in _scanned_files():
             for ln in unscannable_flow_runs(Path(path).read_text(encoding="utf-8")):
                 offenders.append(f"{Path(path).name}:  {ln}")
         self.assertEqual(
@@ -357,7 +391,7 @@ class TestNoInjectionSurface(unittest.TestCase):
         # A `${{ }}` split across two physical lines inside a run body cannot be
         # reassembled without a YAML parser; forbid the shape so nothing hides.
         offenders = []
-        for path in _workflow_files():
+        for path in _scanned_files():
             for ln in unscannable_block_runs(Path(path).read_text(encoding="utf-8")):
                 offenders.append(f"{Path(path).name}:  {ln}")
         self.assertEqual(
@@ -374,7 +408,7 @@ class TestNoInjectionSurface(unittest.TestCase):
         # `? run` / `: cmd` declares a run step with no `run:` substring anywhere,
         # so no line matcher here can see its body. Forbid the shape.
         offenders = []
-        for path in _workflow_files():
+        for path in _scanned_files():
             for ln in unscannable_run_keys(Path(path).read_text(encoding="utf-8")):
                 offenders.append(f"{Path(path).name}:  {ln}")
         self.assertEqual(
@@ -829,29 +863,43 @@ class TestInjectionDetectorMutation(unittest.TestCase):
                     "explicit key) was reported as an explicit-key run step.",
                 )
 
-    def test_workflow_glob_covers_yaml_extension(self):
-        # GitHub Actions runs `.yaml` workflows too; globbing only `*.yml` would
-        # leave such a file entirely unscanned. Asserted BEHAVIOURALLY (redirect
-        # the scanned directory at a fixture), not by reading this file's own
-        # source — a source-text assertion is the inert shape
+    def test_scanned_files_covers_yaml_extension_and_composite_actions(self):
+        # GitHub Actions runs `.yaml` workflows too, and a composite action's
+        # `steps[].run` is shell all the same — globbing only
+        # `.github/workflows/*.yml` left both entirely unscanned. Asserted
+        # BEHAVIOURALLY (redirect the scanned dirs at a fixture), not by reading
+        # this file's own source — a source-text assertion is the inert shape
         # `test_ci_guard_assertion_scoping.py` exists to reject.
-        global WORKFLOW_DIR
-        original = WORKFLOW_DIR
+        global WORKFLOW_DIR, ACTION_DIR
+        original_wf, original_act = WORKFLOW_DIR, ACTION_DIR
         with tempfile.TemporaryDirectory() as tmp:
-            Path(tmp, "a.yml").write_text("jobs: {}\n", encoding="utf-8")
-            Path(tmp, "b.yaml").write_text("jobs: {}\n", encoding="utf-8")
-            Path(tmp, "notes.txt").write_text("ignored\n", encoding="utf-8")
+            wf = Path(tmp, "workflows")
+            wf.mkdir()
+            Path(wf, "a.yml").write_text("jobs: {}\n", encoding="utf-8")
+            Path(wf, "b.yaml").write_text("jobs: {}\n", encoding="utf-8")
+            Path(wf, "notes.txt").write_text("ignored\n", encoding="utf-8")
+            act = Path(tmp, "actions")
+            # Nested one level deep, the layout Actions requires.
+            (act / "c").mkdir(parents=True)
+            (act / "d").mkdir(parents=True)
+            Path(act, "c", "action.yml").write_text("runs: {}\n", encoding="utf-8")
+            Path(act, "d", "action.yaml").write_text("runs: {}\n", encoding="utf-8")
+            # NOT a composite-action entrypoint — Actions only resolves
+            # `action.yml`/`action.yaml`, so a helper YAML here is not shell.
+            Path(act, "c", "helper.yml").write_text("x: 1\n", encoding="utf-8")
             try:
-                WORKFLOW_DIR = Path(tmp)
-                found = sorted(Path(p).name for p in _workflow_files())
+                WORKFLOW_DIR, ACTION_DIR = wf, act
+                found = sorted(Path(p).name for p in _scanned_files())
             finally:
-                WORKFLOW_DIR = original
+                WORKFLOW_DIR, ACTION_DIR = original_wf, original_act
         self.assertEqual(
             found,
-            ["a.yml", "b.yaml"],
-            "`_workflow_files()` must find both `*.yml` and `*.yaml` (and nothing "
-            "else) — GitHub Actions honours both extensions, so a `.yaml` workflow "
-            f"would go entirely unscanned. Found: {found}",
+            ["a.yml", "action.yaml", "action.yml", "b.yaml"],
+            "`_scanned_files()` must find workflow `*.yml` AND `*.yaml` AND nested "
+            "composite `action.yml`/`action.yaml`, and nothing else (no `.txt`, no "
+            "non-entrypoint `helper.yml`). Actions honours both extensions and "
+            "executes composite `steps[].run` as shell, so anything missed here is "
+            f"a whole file scanned by nobody. Found: {found}",
         )
 
     def test_fires_on_tab_indented_body(self):
@@ -865,7 +913,7 @@ class TestInjectionDetectorMutation(unittest.TestCase):
         )
 
     def test_real_workflows_clean(self):
-        for path in _workflow_files():
+        for path in _scanned_files():
             text = Path(path).read_text(encoding="utf-8")
             self.assertEqual(
                 injection_violations(text),

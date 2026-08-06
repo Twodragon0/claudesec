@@ -74,7 +74,7 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_compose_dashboard_hardening.py` | Dashboard container hardening (`docker-compose.yml`, `docker-compose.quickstart.yml`) | the network-exposed static-content dashboard service keeps its CIS hardening — `read_only: true` (+ tmpfs-backed writable paths), `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, and `mem_limit`/`pids_limit`. Block-scoped so hardening on a sibling service can't satisfy it. As a security toolkit, ClaudeSec must not silently regress its own container's posture | CI robustness |
 | `scanner/tests/test_ci_npm_files.py` | npm package payload (`package.json` `files[]` allowlist) | `docs/` is NOT in `files[]` (it shipped ~38 MB of `.pptx` not used at runtime — incident #261); the six operator-only scripts keep their `!scripts/<name>` negations (cost-xlsx / license / PC-sheet / full-asset-sync / gsheet-auth×2 — else internal tooling publishes to the public registry); `scripts/` stays included (so the negations have effect) and `CHANGELOG.md` stays shipped. `.npmignore` cannot express these — paths under a `files[]` dir override it (confirmed via `npm publish --dry-run`) | #262 |
 | `scanner/tests/test_ci_provenance_verify.py` | Published-package supply-chain monitor (`provenance-verify.yml`) | the workflow keeps a `schedule:` trigger (periodic check of the *published* artifact), keeps a `workflow_run` trigger on "Publish to npm" whose `types:` list still includes `completed` (verifies right after each release — the cadence that maps to when the artifact changes; a `workflow_run` key without `completed` would silently never fire), never gains a `pull_request(_target)` trigger (a zero-dep `npm audit signatures` adds no PR value and must not become a flaky required gate / write-token foot-gun), and still RUNS `npm audit signatures` — matched in shell **command position** with whole-line comments dropped and quoted-string matches rejected, because the workflow names the command in four of its own comments and in two `echo "::error::…"` strings, so the former bare-substring check stayed green after the real invocation was deleted (inert-guard class; mutation self-tests pin the gutted-workflow case). Verifies npm registry signature + SLSA provenance, OWASP A08 | #263 |
-| `scanner/tests/test_ci_injection_surface.py` | No GitHub Actions script-injection surface in any `.github/workflows/*.yml` or `*.yaml` | no documented-untrusted `${{ github.event.* }}` context (PR/issue/comment/review/discussion title·body, commit message, `head_ref`, `pages.*.page_name`, …) is interpolated DIRECTLY into a `run:` shell body — the OWASP CICD-SEC-4 / GitHub script-injection RCE class. Scans only `run:` bodies (inline + `\|`/`>` block scalars), threshold at the `run:` column so sibling `env:`/`with:`/`if:` keys aren't slurped; `env:`-block and expression-context (`if:`) interpolation and trusted contexts (`github.sha`, `needs.*`) are NOT flagged. The `run` key is matched plain or quoted (`"run":`), and three tripwires FAIL CLOSED on shapes a line scanner cannot reassemble — multi-line flow scalar, a `${{ }}` split across physical lines, and the explicit-key `? run` / `: cmd` form. Direction: presence-of-violation; mutation self-tests prove it fires on inline + block-scalar + quoted-key injection, that each tripwire fires on its shape, and that it stays quiet on the `env:` safe-fix and on a YAML comment beside a `run:`. Incident: `npm-publish.yml` inline `VERSION=` (hardened #266); `og-meta-verify.yml` is `pull_request`+`pull-requests:write` | #270, #391 |
+| `scanner/tests/test_ci_injection_surface.py` | No GitHub Actions script-injection surface in any `.github/workflows/*.yml`/`*.yaml` **or composite action** (`.github/actions/**/action.yml`) | no documented-untrusted `${{ github.event.* }}` context (PR/issue/comment/review/discussion title·body, commit message, `head_ref`, `pages.*.page_name`, …) is interpolated DIRECTLY into a `run:` shell body — the OWASP CICD-SEC-4 / GitHub script-injection RCE class. Scans only `run:` bodies (inline + `\|`/`>` block scalars), threshold at the `run:` column so sibling `env:`/`with:`/`if:` keys aren't slurped; `env:`-block and expression-context (`if:`) interpolation and trusted contexts (`github.sha`, `needs.*`) are NOT flagged. Scans workflows AND composite actions — a composite `steps[].run` is shell too, and a planted `${{ github.event.pull_request.title }}` in one left the guard green (two composite actions exist here). The `run` key is matched plain or quoted (`"run":`), and three tripwires FAIL CLOSED on shapes a line scanner cannot reassemble — multi-line flow scalar, a `${{ }}` split across physical lines, and the explicit-key `? run` / `: cmd` form. Direction: presence-of-violation; mutation self-tests prove it fires on inline + block-scalar + quoted-key injection, that each tripwire fires on its shape, and that it stays quiet on the `env:` safe-fix and on a YAML comment beside a `run:`. Incident: `npm-publish.yml` inline `VERSION=` (hardened #266); `og-meta-verify.yml` is `pull_request`+`pull-requests:write` | #270, #391 |
 | `scanner/tests/test_ci_npm_oidc_floor.py` | OIDC npm-CLI floor pin in `npm-publish.yml` + `provenance-verify.yml` | both workflows' `npm install -g npm` self-upgrade pins the trusted-publishing floor `npm@'>=11.5.1'` (version-shaped) and is NOT a bare `npm@latest` — OIDC `npm publish --provenance` / `npm audit signatures` break below npm 11.5.1, and Node 22 ships npm 10.x, so the floor must be a *visible* pin (Dependabot cannot track a runner binary installed by a shell command). Ratcheting the floor up stays green; reverting to `@latest` trips it (OWASP A08; SSDF PW.4) | #264 |
 | `scanner/tests/test_ci_docker_image_size_gate.py` | Docker image-size cap in `lint.yml` (`dashboard-regression-check`) | the `max_mb=N` size gate is present, breaches the build (`size_mb -gt max_mb` → `exit 1`), and `N <= 600` MB — locking in the ~513 MB scanner image achieved by prowler-provider stripping (was 1.47 GB, cycle #217-#237, issue #11). Loosening the cap back toward the old 1.8 GB or re-adding a stripped ~700 MB provider would slip through; tightening DOWN stays green (CIS Docker Benchmark — minimal image surface). The `exit 1` assertion is scoped to the breach `if … fi` block by balanced depth — unscoped it was satisfied by any of `lint.yml`'s dozen unrelated `exit 1` lines and could not detect removal of this gate's own exit (inert-guard class). Comment-evasion-proof for BOTH the `max_mb` cap and the `exit 1` scan: the whole scan routes through the bash-aware `strip_inline_comment_sh`, so the `;#exit 1` metachar adjacency #383 recorded as a KNOWN OPEN under-strip is closed (primitive from #376) | #11 |
 | `scanner/tests/test_ci_lighthouse_perf_gate.py` | Lighthouse Performance/SEO/A11y gate (`lighthouserc.json`, consumed by `lighthouse.yml` against live Pages) | each of `categories:{performance,seo,accessibility}` keeps an `error`-level floor `minScore >= 0.9` (demoting to `warn`/`off` or lowering the floor trips it; ratcheting UP stays green), and `collect.numberOfRuns >= 3` so lhci asserts on the MEDIAN run — reverting to a single run re-introduces the cold-vs-warm-CDN variance that would make the hard Performance gate flaky. Adds the Performance floor from issue #19 (live baseline 0.93 cold / 1.00 warm, 2026-06) | #19 |
@@ -394,6 +394,41 @@ would NOT have closed the plain-scalar hole or the two key-form holes, because a
 tripwire only fires on a shape the extractor already reaches. Banning an
 unscannable shape and *verifying the extractor reaches every shape* are separate
 obligations.
+
+**Composite actions folded in (same PR, found by the follow-up guard-wide sweep):**
+
+Fixing the `.yaml` extension raised the obvious next question — *which file sets
+does this guard enumerate at all?* — and the answer was still incomplete. A
+composite action (`.github/actions/<name>/action.yml`, `runs.using: composite`)
+declares `steps[].run` shell bodies that interpolate `${{ }}` exactly like a
+workflow step, and required workflows call them. Two already exist here
+(`datadog-ci-collect`, `token-expiry-gate`), and a live
+`${{ github.event.pull_request.title }}` planted in one of them left the
+**already-hardened** guard green — the very CICD-SEC-4 RCE it exists to prevent:
+
+| Fixture | Before the fold | After |
+|---|---|---|
+| RCE in a composite `action.yml` | `30 passed` (green) | `2 failed` (caught) |
+| RCE in a `.yaml` workflow (control) | `2 failed` | `2 failed` |
+
+`_workflow_files()` is therefore now `_scanned_files()`, covering workflow
+`*.yml`/`*.yaml` plus nested `action.yml`/`action.yaml` — matched by those two
+canonical entrypoint names only, so an unrelated helper YAML in that directory is
+not treated as shell. The canary is split per file set, since a broken
+`ACTION_DIR` would otherwise be masked by the workflows still matching and the
+whole composite-action scan would pass vacuously. Scanned files: 16 → 18.
+
+Neither existing composite action has a live violation (both correctly use `env:`
+indirection), so this is latent coverage, not a live incident.
+
+**The same sweep found this enumeration/key-quoting class in 10 OTHER guards**
+(`gate_topology` never globs `.github/actions/**` at all, so a tag-pinned `uses:`
+there defeats SHA pinning; `pr_trigger_scope` misses a quoted `"branches":`, which
+defeats the measured #384 stacked-PR incident fix; and more). Those are tracked as
+follow-up work — the fix belongs in **shared `_ci_guard_util.py` primitives** (an
+optionally-quoted key matcher, an explicit-key tripwire, one file enumerator)
+rather than ten separate patches, since ten sites is a grammar-modeling failure and
+not ten typos.
 
 **Backlog (Class 2 — matcher-completeness / enumeration gaps; require a
 deliberate, unusual edit rather than a comment-out, so lower natural-regression
