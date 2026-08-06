@@ -61,9 +61,9 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_gate_topology.py` | Enforcement topology of `lint.yml` | every `uses:` is 40-hex SHA-pinned (OWASP A08) across all `.github/workflows/*.yml`/`*.yaml` **and** composite `.github/actions/**/action.yml` (a composite carries `steps[].uses`, and a tag pin planted there was unreachable — the directory was never globbed); every job is in `lint-gate.needs` or a tiny documented allowlist. The `uses:`, `jobs:`, `lint-gate:` and sibling-job keys are read bare OR quoted, and `? uses`/`? jobs`/`? needs` explicit-key forms fail closed — a quoted key hid an action ref from the SHA scan, and a quoted sibling job smuggled a foreign `needs:` entry into lint-gate's list | #201 (allowlist tightened in #203), #393 |
 | `scanner/tests/test_ci_security_gate.py` | `Security Scan Gate` + DAST signals | `security-scan-gate` keeps `name`, `if: always()`, `needs: ⊇ {changes, scan, lighthouse}`, pass-set `not in (success, skipped)`; `dast-baseline.yml` keeps its `pull_request` trigger; `dast-full-scan.yml` keeps its `schedule:` trigger | #205, #216 |
 | `scanner/tests/test_ci_required_jobs_exist.py` | Existence of security/enforcement jobs in `lint.yml` | `{gitleaks, pii-check, dependency-review, workflow-fork-guard, scanner-unit-tests, scanner-shell-coverage}` are all present — deleting a whole job is a silent control loss the topology guard cannot see | #215 |
-| `scanner/tests/test_ci_codeql_single_model.py` | Single CodeQL model (default setup only) | no workflow uses `github/codeql-action/init` or `/analyze` (a repo-level analysis would duplicate the default-setup model); `upload-sarif` is allowed (DAST SARIF upload, not analysis) | #215 |
-| `scanner/tests/test_ci_npm_publish.py` | npm release supply-chain integrity + auto-release wiring (`npm-publish.yml`) | every `npm publish` carries `--provenance` (SLSA attestation); workflow-level `permissions:` stays `contents: read` (job-level `id-token: write` + `contents: write` are not flagged); the publish job upgrades npm (`npm install -g npm`, OIDC needs >= 11.5.1 but Node 22 ships npm 10.x); the `on:` block keeps a push-to-`main` trigger (version-bump auto-publish) and a `contents: write` exists for pushing the `vX.Y.Z` tag | #216, #262 |
-| `scanner/tests/test_ci_cross_os_non_required.py` | Cross-OS live-runner workflow stays non-required | `cross-os-checks.yml` exists and keeps `workflow_dispatch` (standalone informational lane); `lint.yml` references none of `{cross-os, live-os-checks, macos-latest, windows-latest}` — so the costly/flaky macOS+Windows runs never become a required merge gate | #228 |
+| `scanner/tests/test_ci_codeql_single_model.py` | Single CodeQL model (default setup only) | no workflow uses `github/codeql-action/init` or `/analyze` (a repo-level analysis would duplicate the default-setup model); `upload-sarif` is allowed (DAST SARIF upload, not analysis). Scans workflows in BOTH extensions plus composite `action.yml` (a `codeql.yaml` or a composite invoking `init` is just as much a second model and neither was enumerated), reads the `uses:` key and its value bare OR quoted, and fails closed on `? uses` | #215, #394 |
+| `scanner/tests/test_ci_npm_publish.py` | npm release supply-chain integrity + auto-release wiring (`npm-publish.yml`) | every `npm publish` carries `--provenance` (SLSA attestation); workflow-level `permissions:` stays `contents: read` (job-level `id-token: write` + `contents: write` are not flagged) — the write-grant scan reads a quoted VALUE (`packages: "write"` returned an EMPTY grant list, so the scan reported nothing while the permission was live) and now runs BEFORE the whole-block anchor, because behind it the fixed scan could never be the reporter and its correctness was unobservable; the publish job upgrades npm (`npm install -g npm`, OIDC needs >= 11.5.1 but Node 22 ships npm 10.x); the `on:` block keeps a push-to-`main` trigger (version-bump auto-publish) and a `contents: write` exists for pushing the `vX.Y.Z` tag | #216, #262 |
+| `scanner/tests/test_ci_cross_os_non_required.py` | Cross-OS live-runner workflow stays non-required | `cross-os-checks.yml` exists and keeps `workflow_dispatch` (standalone informational lane); `lint.yml` references none of `{cross-os, live-os-checks, macos-latest, windows-latest}` — so the costly/flaky macOS+Windows runs never become a required merge gate. The `runs-on:`/matrix `os:` key is read bare OR quoted (`"runs-on": macos-14` selected the same runner past the bare-only regex), the job-name collision check accepts a quoted key AND a quoted value (`"name": "Lint"` masqueraded as the required context), and `? name`/`? runs-on` fail closed | #228, #394 |
 | `scanner/tests/test_ci_net005_fail_escalation.py` | NET-005 SSH-open-to-world FAIL escalation (`network/tls.sh`) | NET-005 keeps `fail "NET-005" ... "critical"` and an ERE `(0\.0\.0\.0/0.*22\|port.*22.*0\.0\.0\.0/0)` alternation; no `\|` literal-pipe regression (which silently downgraded it to WARN, fixed in #224) | #228 |
 | `scanner/tests/test_ci_dependabot_automerge.py` | Dependabot auto-arm safety (`dependabot-auto-merge.yml`, a `pull_request_target` write-token workflow) | keeps the fork guard (`actor==dependabot[bot]` AND `head.repo.full_name==github.repository`), the hard-exclude path arms (`Dockerfile*`/`.github`/`scanner`/`hooks`/`scripts`), the `semver-patch\|minor`-only update-type allowlist + `semver-major` exclude, the `pip\|docker\|github-actions` ecosystem allowlist, and `gh pr merge --auto`; forbids `--admin` (code-owner bypass) and the `pr review --approve` bot self-approve removed in #249 (OWASP CICD-SEC-1/-4). Every check — the aggregate validator AND the narrower per-invariant tests — runs against the bash-comment-stripped text (`strip_inline_comment_sh`), so an arm parked behind `;#` neither satisfies a REQUIRED token nor false-trips a FORBIDDEN one | #249, #250 |
 | `scanner/tests/test_ci_codeowners_invariants.py` | `.github/CODEOWNERS` keeps security-sensitive paths code-owner gated | every required pattern (`*`, `.github/workflows/`, `.github/CODEOWNERS`, `hooks/`, `scanner/`, `scripts/`, `templates/`, `Dockerfile*`, `docker-compose*.yml`) is present AND has a non-empty `@owner`; the global `*` default must have an owner — else those paths merge with NO code-owner review (`require_code_owner_reviews=true` only fires on a matched, owned pattern) | #248 |
@@ -97,6 +97,7 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_dashboard_control_smoke.py` | Dashboard control-liveness smoke stays hermetic, path-gated, and bounded (`dashboard-control-smoke.yml` + `scanner/tests/{dashboard-control-liveness.mjs,test_dashboard_control_liveness.sh}`) | the workflow sets `CLAUDESEC_DASHBOARD_OFFLINE=1` (else the generator makes live GitHub API calls and can hang the job — #190) AND the harness wrapper self-exports it too (belt-and-suspenders, not CI-env-dependent); the `changes` job exposes a `dashboard` output and the `smoke` job is path-gated `if: needs.changes.outputs.dashboard == 'true'` (docs-only PRs skip the browser smoke; intentionally NON-required, a simple path-gate not an `always()` aggregator — that pattern is reserved for required checks per the paths-ignore/#186 incident); the browser step carries a per-step `timeout-minutes` (a hung headless Chrome can't burn the job budget) — asserted inside the isolated `- name:` step block that invokes the harness, because unscoped it was satisfied by the workflow's JOB-level `timeout-minutes` keys and could not detect removal of the per-step cap (inert-guard class; mutation self-tests pin job-level and wrong-step caps) — and invokes the real harness wrapper; both harness files exist on disk (a workflow pointing at a deleted script is a silent no-op). Comment-stripped presence checks (OWASP CICD-SEC-1) | this PR |
 | `scanner/tests/test_ci_guard_assertion_scoping.py` | **Meta-guard** — no `test_ci_*.py` guard makes a POSITIVE presence assertion against the RAW, whole-file text of the artifact it protects | AST scan (stdlib `ast`, not text) of every guard file: `assertIn(tok, raw)` / `assertRegex(raw, pat)` / `assertTrue(tok in raw)` where the haystack is a name bound directly to `Path.read_text()` is an INERT assertion — commenting the control out leaves the token in the file, so the guard reads green while the control is dead, which is worse than no guard (a reviewer takes the green as proof). Exempts the two non-inert shapes: NEGATIVE assertions (raw scanning for a FORBIDDEN token only over-reports — a false alarm, never a bypass) and LINE-ANCHORED regexes (`(?m)^\s*token`, which a `#`-commented copy cannot satisfy). Regression-pin: the detected set must EQUAL `KNOWN_RAW_PRESENCE_ASSERTIONS`, currently **empty** — a new offender fails AND a stale exemption fails once its site is fixed. Generalizes the two inert guards #383 found by hand (`provenance_verify` `npm audit signatures`, `docker_image_size_gate` `exit 1`) into a check that runs on all 40 guards and on every new one. Under-reports by design (never false-blocks). Mutation self-tests | this PR |
 | `scanner/tests/test_ci_pr_trigger_scope.py` | The two REQUIRED workflows (`lint.yml` → `Lint`, `security-scan.yml` → `Security Scan Gate`) keep an UNSCOPED `pull_request:` trigger | no `branches:` / `branches-ignore:` and no workflow-level `paths:` / `paths-ignore:` under `pull_request:`. Two opposite failure directions of one root cause — a workflow-level trigger filter on a required check. `branches:` filters by the PR's BASE ref, so `branches: [main]` hid both required checks from stacked PRs entirely: PR #384 (base = a feature branch) got 3 checks with neither required context, the same branch retargeted to `main` (#385) got 28 — the change was unverifiable until its base merged. `paths-ignore:` is the #186 mode: the required check never reports for a PR that DOES target `main`, so protection blocks the merge forever. Not symmetric — removing `branches:` is strictly additive (PRs targeting `main` behave identically, so #186 cannot recur), adding `paths-ignore:` IS #186. Job-level gating with the `changes` job + an `always()` aggregator stays the sanctioned pattern. Scoped to the two required workflows only: `dast-baseline.yml` legitimately carries both filters and is out of scope. Block membership is by indentation under the `on:` → `pull_request:` key, so a sibling `push: branches:` cannot false-trip it and `pull_request_target:` is never matched; flow-style values on the key line are captured. Both the `pull_request:` key and each forbidden filter key are read bare OR quoted, and the explicit-key form fails closed — `"branches": [main]` silently restored the #384 loss past the bare-only regex. Mutation self-tests | #386, #393 |
+| `scanner/tests/test_ci_dead_schedule_arm.py` | Path-gated jobs keep a REAL periodic escape hatch | for every workflow, IF any job `if:` gates on the `schedule` event THEN the workflow's `on:` must declare `schedule:` — direction is CONSISTENCY, so removing the trigger while leaving the arms trips it, and so does adding an arm to a workflow with no trigger. `lint.yml` had SEVEN such arms and no `schedule:` trigger (verified over 1118 runs: 654 pull_request + 464 push, zero schedule), so `npm-audit` had ZERO real executions for ~7 weeks / 117 main commits and `pip-audit` accumulated `setuptools` PYSEC-2026-3447 unnoticed until an unrelated PR touched a requirements file and ate the failure. A `skipped` job reads as green, so nothing alerted. The arm is detected by CO-OCCURRENCE of `github.event_name` and a quoted `schedule` token on one line rather than by enumerating comparison shapes — the first attempt enumerated `==`, the reversed form and `contains(...)`, and the `contains` pattern immediately failed on `fromJSON('["schedule",…]')` because `[^)]*` cannot span the inner `)`. `? schedule` fails closed. Cadence is NOT checked (no policy set). Mutation self-tests, including the real pre-fix `lint.yml` | #394 |
 
 ### Related enforcement (not a pytest guard)
 
@@ -486,13 +487,62 @@ handles `"on"`/`'on'` and returns `""` for `? on`, which makes all four consumer
 RED. Non-YAML guards (Markdown, AST, CODEOWNERS, JSON, Dockerfile, bash) are
 structurally inapplicable, and shape C never occurs independently of shape B.
 
-**Remaining from the sweep (MEDIUM/LOW, follow-up):** `codeql_single_model`
-(`.yaml` glob + quoted `uses:`), `cross_os_non_required` (quoted `runs-on:`;
-quoted `"name": Lint` masquerade), and a genuine false negative in
-`npm_publish.test_top_level_permissions_is_least_privilege` — its write-grant regex
-misses a quoted VALUE (`packages: "write"`) and currently fails only by ACCIDENT,
-because `^\s*contents:\s*read\s*$` lacks `re.MULTILINE` so any second key trips it.
-Fix the intended check; do not rely on the accident.
+**Remaining from the sweep (MEDIUM/LOW):** all closed in #394 — see the next
+section. The sweep backlog is empty.
+
+**Sweep remainder + the dead-schedule-arm class (#394):**
+
+Closes the MEDIUM/LOW tail of the #393 sweep and one structurally different defect
+found alongside it.
+
+*Sweep remainder* — `codeql_single_model` (dual-extension + composite-action
+enumeration, quoted `uses:` key/value, `? uses` tripwire), `cross_os_non_required`
+(quoted `runs-on:`/`os:` key, quoted key AND value in the `"name": Lint`
+masquerade check, `? name`/`? runs-on` tripwire), and the `npm_publish` false
+negative. All verified before/after by execution:
+
+| Mutation | Before | After |
+|---|---|---|
+| `codeql-action/init` in a `codeql.yaml` | `2 passed` | `1 failed` |
+| quoted `"uses": codeql-action/init` | `2 passed` | `1 failed` |
+| quoted `"runs-on": macos-14` in `lint.yml` | `13 passed` | `1 failed` |
+| quoted `"name": Lint` masquerade | `13 passed` | `1 failed` |
+
+The `npm_publish` case needed **two** fixes, and the second only became visible by
+checking *which* assertion reported. Fixing the scan to read a quoted grant value
+(`packages: "write"` had produced an EMPTY grant list) left the test failing on the
+unrelated whole-block anchor instead — the precise message never appeared
+(`matches=0`). The scan was still unobservable, so the ordering was inverted: the
+write-grant scan now runs first and reports `packages: "write"` by name, while the
+anchor remains as a structural catch-all for additions the scan does not classify.
+**Lesson: "the test goes red" is not the same as "the fix is load-bearing" — check
+which assertion fires.**
+
+*Dead schedule arm* — a different class, and worse, because nothing ever went red.
+Path-gated jobs carry `|| github.event_name == 'schedule'` as their periodic
+escape hatch, but `lint.yml` had **no `schedule:` trigger at all** (verified over
+1118 runs: 654 `pull_request` + 464 `push`, zero `schedule`), so that arm could
+never be true for seven jobs. Measured: `npm-audit` had **zero** real executions
+for ~7 weeks / 117 `main` commits (bucket last touched in `e5b9bbb`), and
+`pip-audit` sat dark until a requirements edit fired it and it failed on the spot
+with accumulated runner drift (`setuptools` PYSEC-2026-3447) — a failure that
+looked like it belonged to the unrelated PR that surfaced it. A `skipped` job reads
+as green, so there was no signal to notice.
+
+Fixed with a weekly `schedule:` on `lint.yml` (Wednesday 05:00 UTC, off the
+existing cron slots), which cannot block a merge: required contexts are evaluated
+per-commit on pull requests and are unaffected. `test_ci_dead_schedule_arm.py`
+keeps the promise repo-wide — the trap is generic, and the next workflow to grow a
+schedule arm should not have to rediscover it.
+
+Its detector is worth noting as a small ADR-001 §4 rehearsal: the first version
+enumerated comparison shapes (`==`, the reversed form, `contains(...)`) and the
+`contains` pattern failed immediately on
+`contains(fromJSON('["schedule","push"]'), github.event_name)`, because `[^)]*`
+cannot span the `)` inside `fromJSON(...)`. Replaced by the invariant that actually
+holds for every spelling: **co-occurrence** of `github.event_name` and a quoted
+`schedule` token on one line. Over-reporting direction only (a stray `echo`
+mentioning both demands a trigger — a false alarm, never a bypass).
 
 **Backlog (Class 2 — matcher-completeness / enumeration gaps; require a
 deliberate, unusual edit rather than a comment-out, so lower natural-regression
