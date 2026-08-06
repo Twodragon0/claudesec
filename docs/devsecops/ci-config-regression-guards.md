@@ -74,7 +74,7 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_compose_dashboard_hardening.py` | Dashboard container hardening (`docker-compose.yml`, `docker-compose.quickstart.yml`) | the network-exposed static-content dashboard service keeps its CIS hardening — `read_only: true` (+ tmpfs-backed writable paths), `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, and `mem_limit`/`pids_limit`. Block-scoped so hardening on a sibling service can't satisfy it. As a security toolkit, ClaudeSec must not silently regress its own container's posture | CI robustness |
 | `scanner/tests/test_ci_npm_files.py` | npm package payload (`package.json` `files[]` allowlist) | `docs/` is NOT in `files[]` (it shipped ~38 MB of `.pptx` not used at runtime — incident #261); the six operator-only scripts keep their `!scripts/<name>` negations (cost-xlsx / license / PC-sheet / full-asset-sync / gsheet-auth×2 — else internal tooling publishes to the public registry); `scripts/` stays included (so the negations have effect) and `CHANGELOG.md` stays shipped. `.npmignore` cannot express these — paths under a `files[]` dir override it (confirmed via `npm publish --dry-run`) | #262 |
 | `scanner/tests/test_ci_provenance_verify.py` | Published-package supply-chain monitor (`provenance-verify.yml`) | the workflow keeps a `schedule:` trigger (periodic check of the *published* artifact), keeps a `workflow_run` trigger on "Publish to npm" whose `types:` list still includes `completed` (verifies right after each release — the cadence that maps to when the artifact changes; a `workflow_run` key without `completed` would silently never fire), never gains a `pull_request(_target)` trigger (a zero-dep `npm audit signatures` adds no PR value and must not become a flaky required gate / write-token foot-gun), and still RUNS `npm audit signatures` — matched in shell **command position** with whole-line comments dropped and quoted-string matches rejected, because the workflow names the command in four of its own comments and in two `echo "::error::…"` strings, so the former bare-substring check stayed green after the real invocation was deleted (inert-guard class; mutation self-tests pin the gutted-workflow case). Verifies npm registry signature + SLSA provenance, OWASP A08 | #263 |
-| `scanner/tests/test_ci_injection_surface.py` | No GitHub Actions script-injection surface in any `.github/workflows/*.yml` | no documented-untrusted `${{ github.event.* }}` context (PR/issue/comment/review/discussion title·body, commit message, `head_ref`, `pages.*.page_name`, …) is interpolated DIRECTLY into a `run:` shell body — the OWASP CICD-SEC-4 / GitHub script-injection RCE class. Scans only `run:` bodies (inline + `\|`/`>` block scalars), threshold at the `run:` column so sibling `env:`/`with:`/`if:` keys aren't slurped; `env:`-block and expression-context (`if:`) interpolation and trusted contexts (`github.sha`, `needs.*`) are NOT flagged. Direction: presence-of-violation; mutation self-tests prove it fires on inline + block-scalar injection and stays quiet on the `env:` safe-fix. Incident: `npm-publish.yml` inline `VERSION=` (hardened #266); `og-meta-verify.yml` is `pull_request`+`pull-requests:write` | #270 |
+| `scanner/tests/test_ci_injection_surface.py` | No GitHub Actions script-injection surface in any `.github/workflows/*.yml`/`*.yaml` **or composite action** (`.github/actions/**/action.yml`) | no documented-untrusted `${{ github.event.* }}` context (PR/issue/comment/review/discussion title·body, commit message, `head_ref`, `pages.*.page_name`, …) is interpolated DIRECTLY into a `run:` shell body — the OWASP CICD-SEC-4 / GitHub script-injection RCE class. Scans only `run:` bodies (inline + `\|`/`>` block scalars), threshold at the `run:` column so sibling `env:`/`with:`/`if:` keys aren't slurped; `env:`-block and expression-context (`if:`) interpolation and trusted contexts (`github.sha`, `needs.*`) are NOT flagged. Scans workflows AND composite actions — a composite `steps[].run` is shell too, and a planted `${{ github.event.pull_request.title }}` in one left the guard green (two composite actions exist here). The `run` key is matched plain or quoted (`"run":`), and three tripwires FAIL CLOSED on shapes a line scanner cannot reassemble — multi-line flow scalar, a `${{ }}` split across physical lines, and the explicit-key `? run` / `: cmd` form. Direction: presence-of-violation; mutation self-tests prove it fires on inline + block-scalar + quoted-key injection, that each tripwire fires on its shape, and that it stays quiet on the `env:` safe-fix and on a YAML comment beside a `run:`. Incident: `npm-publish.yml` inline `VERSION=` (hardened #266); `og-meta-verify.yml` is `pull_request`+`pull-requests:write` | #270, #391 |
 | `scanner/tests/test_ci_npm_oidc_floor.py` | OIDC npm-CLI floor pin in `npm-publish.yml` + `provenance-verify.yml` | both workflows' `npm install -g npm` self-upgrade pins the trusted-publishing floor `npm@'>=11.5.1'` (version-shaped) and is NOT a bare `npm@latest` — OIDC `npm publish --provenance` / `npm audit signatures` break below npm 11.5.1, and Node 22 ships npm 10.x, so the floor must be a *visible* pin (Dependabot cannot track a runner binary installed by a shell command). Ratcheting the floor up stays green; reverting to `@latest` trips it (OWASP A08; SSDF PW.4) | #264 |
 | `scanner/tests/test_ci_docker_image_size_gate.py` | Docker image-size cap in `lint.yml` (`dashboard-regression-check`) | the `max_mb=N` size gate is present, breaches the build (`size_mb -gt max_mb` → `exit 1`), and `N <= 600` MB — locking in the ~513 MB scanner image achieved by prowler-provider stripping (was 1.47 GB, cycle #217-#237, issue #11). Loosening the cap back toward the old 1.8 GB or re-adding a stripped ~700 MB provider would slip through; tightening DOWN stays green (CIS Docker Benchmark — minimal image surface). The `exit 1` assertion is scoped to the breach `if … fi` block by balanced depth — unscoped it was satisfied by any of `lint.yml`'s dozen unrelated `exit 1` lines and could not detect removal of this gate's own exit (inert-guard class). Comment-evasion-proof for BOTH the `max_mb` cap and the `exit 1` scan: the whole scan routes through the bash-aware `strip_inline_comment_sh`, so the `;#exit 1` metachar adjacency #383 recorded as a KNOWN OPEN under-strip is closed (primitive from #376) | #11 |
 | `scanner/tests/test_ci_lighthouse_perf_gate.py` | Lighthouse Performance/SEO/A11y gate (`lighthouserc.json`, consumed by `lighthouse.yml` against live Pages) | each of `categories:{performance,seo,accessibility}` keeps an `error`-level floor `minScore >= 0.9` (demoting to `warn`/`off` or lowering the floor trips it; ratcheting UP stays green), and `collect.numberOfRuns >= 3` so lhci asserts on the MEDIAN run — reverting to a single run re-introduces the cold-vs-warm-CDN variance that would make the hard Performance gate flaky. Adds the Performance floor from issue #19 (live baseline 0.93 cold / 1.00 warm, 2026-06) | #19 |
@@ -249,8 +249,8 @@ control" regression path, the exact class ADR-001 §1/§3 target):**
   that FAILS on the unscannable shape so an injection cannot hide in it — the
   author must use a block scalar or a single-line flow value (dormant on this
   repo: all `run:` are block style, so zero false positives). The
-  multi-line-split `${{ }}` block-scalar form remains a documented,
-  runtime-**unverified** robustness gap.
+  multi-line-split `${{ }}` block-scalar form is **now closed the same way** —
+  see the entry below.
 
 **Class B follow-up — `strip_inline_comment_sh` adoption (this PR):**
 
@@ -336,6 +336,100 @@ once.
 
 Non-vacuous: neutering `strip_html_comments` fails 3 of the new tests.
 
+**`injection_surface` split-expression gap closed by tripwire (2026-08-06):**
+
+The one remaining Class 2 row — a `${{ }}` split across two physical lines inside
+a `run:` body — is no longer a documented gap. It is closed the way its flow-style
+sibling was: `unscannable_block_runs` **fails closed on the unscannable shape**
+(an opened `${{` with no `}}` on the same physical line inside a run body) instead
+of guessing at semantics the guard cannot verify. The remediation is trivial and
+always available — keep each expression on one line, which is how every `${{ }}`
+in this repo is already written — so the shape ban costs nothing. Reassembling
+folded YAML lines would need a real parser (stdlib-only / no-PyYAML), and whether
+the Actions expression lexer even accepts the split form stays **unverified**;
+failing on the shape makes that question moot rather than load-bearing.
+
+Building it surfaced an **adjacent hole the audit had not recorded**, which a
+tripwire alone would have left open: a multi-line **plain** scalar
+(`run: echo` followed by a deeper-indented `'${{ github.event.issue.title }}'`)
+folds into one command at runtime, but the continuation line was dropped from the
+body entirely — so the interpolation was invisible to the scanner AND to the new
+tripwire (the expression closes on its own line, it is the *body extraction* that
+was incomplete). Fixed by scanning it: an inline `run:` value now shares the
+block scalar's deeper-indented collection loop, since YAML applies the same
+indentation rule to both styles. Error direction is safe — over-collecting can
+only raise a false alarm, and a sibling `env:`/`with:` key aligns with the `run:`
+column and still terminates the scan (pinned by a new test, the inline analog of
+the existing block-scalar case).
+
+The mandated ADR-001 §2 adversarial pass then found **four more**, all confirmed
+by executing the detector against PyYAML's resolved document as ground truth
+(PyYAML is available outside the CI test job, so it can serve as an oracle for
+what the guard *should* see without becoming a dependency of the guard):
+
+| Finding | Class | Resolution |
+|---|---|---|
+| **Quoted mapping key** — `"run": echo '${{ … }}'` resolves to the same `run` key, but both the block and flow matchers hard-required an unquoted `run:` → guard green, injection live | Class 2, **pre-existing** | `_RUN_KEY` now accepts `run` / `"run"` / `'run'` across all three matchers. Not exotic: GitHub's own docs normalize `"on":` for the YAML-1.1 boolean collision, so a quoted key is a plausible style, not a contrived evasion |
+| **Explicit-key form** — `- ? run` then `: echo '${{ … }}'` puts key and value on different lines, so the substring `run:` never appears and no line matcher can see it | Class 2, **pre-existing** | Third tripwire, `unscannable_run_keys` — fail closed on the shape, same rationale as the other two |
+| **`.yaml` extension** — `_workflow_files()` globbed only `*.yml`, while Actions honours both, so a whole `.yaml` workflow would be silently unscanned | Class 2, **pre-existing** (latent: repo has no `.yaml` workflow) | Glob both extensions; pinned behaviourally against a fixture directory, not by reading this file's own source (that would be the inert shape the AST meta-guard rejects) |
+| **Comment false positive** — a `# never do this: ${{ github.event.issue.title }}` warning comment beside an inline `run:` was collected as scalar continuation and scanned as shell | **introduced by this change** | Stop collection at a comment-only line for inline values *only*. This is exact rather than conservative: PyYAML rejects `run: echo` / `# c` / `hi` as a parse error, so a plain scalar cannot resume after a comment. In a block scalar the same line is literal body text and is still collected |
+
+The review also flagged the new sibling-key boundary test as **vacuous** — an
+absence-only assertion that also passes when continuation collection is deleted
+outright, the same inert shape the AST meta-guard exists to reject. It now pairs
+a positive control (a genuine continuation IS collected) with the negative one,
+so it fails under that mutant too.
+
+Every change ships a mutation self-test proven non-vacuous **by execution** — six
+mutants, each failing exactly its own test(s) and nothing else: neuter
+`_expr_unterminated`; restore the early `continue`; revert `_RUN_KEY` to unquoted;
+neuter `unscannable_run_keys`; drop the comment-stop; revert the `.yaml` glob.
+All are dormant on the real workflows (zero unterminated `${{`, zero inline-`run:`
+continuation lines, zero quoted/explicit keys, no `.yaml` file), so none adds a
+false positive today.
+
+**Lesson, again:** the first fix left residual holes — the fifth instance of the
+pattern ADR-001 predicts. Note the direction: the tripwire this PR set out to add
+would NOT have closed the plain-scalar hole or the two key-form holes, because a
+tripwire only fires on a shape the extractor already reaches. Banning an
+unscannable shape and *verifying the extractor reaches every shape* are separate
+obligations.
+
+**Composite actions folded in (same PR, found by the follow-up guard-wide sweep):**
+
+Fixing the `.yaml` extension raised the obvious next question — *which file sets
+does this guard enumerate at all?* — and the answer was still incomplete. A
+composite action (`.github/actions/<name>/action.yml`, `runs.using: composite`)
+declares `steps[].run` shell bodies that interpolate `${{ }}` exactly like a
+workflow step, and required workflows call them. Two already exist here
+(`datadog-ci-collect`, `token-expiry-gate`), and a live
+`${{ github.event.pull_request.title }}` planted in one of them left the
+**already-hardened** guard green — the very CICD-SEC-4 RCE it exists to prevent:
+
+| Fixture | Before the fold | After |
+|---|---|---|
+| RCE in a composite `action.yml` | `30 passed` (green) | `2 failed` (caught) |
+| RCE in a `.yaml` workflow (control) | `2 failed` | `2 failed` |
+
+`_workflow_files()` is therefore now `_scanned_files()`, covering workflow
+`*.yml`/`*.yaml` plus nested `action.yml`/`action.yaml` — matched by those two
+canonical entrypoint names only, so an unrelated helper YAML in that directory is
+not treated as shell. The canary is split per file set, since a broken
+`ACTION_DIR` would otherwise be masked by the workflows still matching and the
+whole composite-action scan would pass vacuously. Scanned files: 16 → 18.
+
+Neither existing composite action has a live violation (both correctly use `env:`
+indirection), so this is latent coverage, not a live incident.
+
+**The same sweep found this enumeration/key-quoting class in 10 OTHER guards**
+(`gate_topology` never globs `.github/actions/**` at all, so a tag-pinned `uses:`
+there defeats SHA pinning; `pr_trigger_scope` misses a quoted `"branches":`, which
+defeats the measured #384 stacked-PR incident fix; and more). Those are tracked as
+follow-up work — the fix belongs in **shared `_ci_guard_util.py` primitives** (an
+optionally-quoted key matcher, an explicit-key tripwire, one file enumerator)
+rather than ten separate patches, since ten sites is a grammar-modeling failure and
+not ten typos.
+
 **Backlog (Class 2 — matcher-completeness / enumeration gaps; require a
 deliberate, unusual edit rather than a comment-out, so lower natural-regression
 risk — triaged as follow-up, not blocking):**
@@ -350,15 +444,10 @@ risk — triaged as follow-up, not blocking):**
 - `test_ci_cross_os_non_required.py` — `FORBIDDEN_IN_LINT` is a fixed 4-string
   enumeration (bypassed by `macos-14`/`windows-2022` labels); collision check
   omits the `"Lint"` required context.
-- `test_ci_injection_surface.py` — **known scanner limitation** (bounded by the
-  stdlib-only / no-PyYAML constraint): an untrusted `${{ }}` split across two
-  physical lines inside a block scalar is not reassembled; its runtime
-  exploitability (whether the Actions expression lexer executes a newline-split
-  interpolation) is **unverified**. A pathological authoring form; tracked rather
-  than half-closed with a fragile bracket-depth heuristic. Revisit if PyYAML ever
-  becomes available to the CI test job. (The sibling multi-line-quoted flow
-  scalar limitation was **closed** by the `unscannable_flow_runs` tripwire — see
-  the fixed list above.)
+
+Both `test_ci_injection_surface.py` rows that were listed here are now **closed**
+by shape tripwires rather than deferred — see "split-expression gap closed by
+tripwire" above.
 
 ### Verified already-guarded during this review (not backlog)
 

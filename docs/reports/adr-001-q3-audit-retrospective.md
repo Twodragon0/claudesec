@@ -212,6 +212,10 @@ ADR-001 §2의 "1차가 CRITICAL을 찾으면 2차 패스"를 이번엔 **관점
 - `injection_surface`의 줄 분할 `${{ }}` — stdlib-only / no-PyYAML 제약에 묶인
   **의도적 비수정**. 취약한 bracket-depth 휴리스틱으로 반쯤 닫는 대신 추적한다.
   이것이 Class-2 백로그의 유일한 잔여 항목이며, 나머지는 #378/#379/#389로 비웠다.
+  **후속(2026-08-06):** 이 항목은 `unscannable_flow_runs`와 같은 방식 —
+  스캔 불가 **형태**에 fail-closed 하는 `unscannable_block_runs` 트립와이어 — 로
+  닫혔다. 구현 중 감사에 없던 인접 홀(다중 행 plain scalar `run:`의 연속 줄이
+  본문 추출에서 누락)도 함께 드러나 스캔으로 닫았다. Class-2 백로그는 비었다.
 - **스택 PR 운영 함정** — `--delete-branch`(필수 자세)가 base ref를 지우면 스택 PR이
   자동 CLOSE되고, 닫힌 PR은 base 변경도 재오픈도 불가하다. 리베이스 + 새 PR로만
   복구되며 리뷰 스레드를 잃는다(#384 → #385). 코드가 아닌 **프로세스** 문제라
