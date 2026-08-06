@@ -28,7 +28,9 @@ All guards follow the same rules (see the existing files for reference):
   job (`python3 -m pytest scanner/tests/`).
 - **Stdlib-only**: regex / line scanning, **no PyYAML** — it is not in
   `requirements-ci.txt`, so `import yaml` would fail in CI. (The
-  `workflow-fork-guard` job installs PyYAML separately for its own script.)
+  `workflow-fork-guard` job installs PyYAML separately for its own script, from
+  its own pinned `requirements-fork-guard.txt` — kept out of `requirements-ci.txt`
+  precisely so this premise stays true.)
 - **No `scanner/lib` import**: guards add tests without touching the measured
   coverage, so they never move the 99% `scanner/lib` floor.
 - **Direction-explicit semantics**: floors use `>=` (ratcheting a floor *up*
