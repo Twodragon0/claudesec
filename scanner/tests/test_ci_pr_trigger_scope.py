@@ -51,7 +51,11 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import extract_on_block  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    explicit_key_lines,
+    extract_on_block,
+    yaml_key_pattern,
+)
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -67,7 +71,10 @@ REQUIRED_WORKFLOWS = {
 # base ref (the stacked-PR blind spot); `paths*` narrows by diff content (#186).
 FORBIDDEN_FILTER_KEYS = ("branches", "branches-ignore", "paths", "paths-ignore")
 
-_PR_KEY_RE = re.compile(r"^(\s*)pull_request:\s*(.*)$")
+# `pull_request:` bare OR quoted — a quoted key resolves to the same trigger,
+# and `"on":` is already a normalized idiom in GitHub's docs (bare `on` is the
+# YAML-1.1 boolean `True`), so quoting here is realistic authoring.
+_PR_KEY_RE = re.compile(rf"^(\s*){yaml_key_pattern('pull_request')}:\s*(.*)$")
 
 
 def pull_request_block(text: str) -> str:
@@ -113,8 +120,12 @@ def filter_violations(text: str, label: str) -> list:
     found = []
     for key in FORBIDDEN_FILTER_KEYS:
         # Anchor to a mapping key so a `branches` substring inside a value
-        # (or the longer `branches-ignore`) is attributed exactly once.
-        if re.search(rf"(?m)(?:^|[\s{{,]){re.escape(key)}\s*:", block):
+        # (or the longer `branches-ignore`) is attributed exactly once. The key is
+        # matched bare OR quoted: `"branches": [main]` is the same filter to any
+        # YAML parser, and an adversarial sweep proved it left this guard green —
+        # silently restoring the stacked-PR required-check loss this guard exists
+        # to prevent (#384 measured 3 checks instead of 28).
+        if re.search(rf"(?m)(?:^|[\s{{,]){yaml_key_pattern(key)}\s*:", block):
             found.append(f"{label}: `{key}:` under `pull_request:`")
     return found
 
@@ -235,6 +246,55 @@ class TestPullRequestBlockParser(unittest.TestCase):
             with self.subTest(workflow=path.name):
                 on_block = extract_on_block(path.read_text(encoding="utf-8"))
                 self.assertIn("pull_request:", on_block)
+
+
+class TestKeyQuotingMutation(unittest.TestCase):
+    """Non-vacuity for the 2026-08-06 sweep fix: a quoted filter key must be
+    caught. Before it, `"branches": [main]` restored the stacked-PR required-check
+    loss with this guard green — the #384 incident, silently reintroduced."""
+
+    def _wf(self, filter_line):
+        return "\n".join(["on:", "  pull_request:", f"    {filter_line}", "jobs: {}"])
+
+    def test_fires_on_quoted_filter_keys(self):
+        for filter_line in (
+            '"branches": [main]',
+            "'branches': [main]",
+            '"paths-ignore": ["**.md"]',
+            "branches: [main]",
+        ):
+            with self.subTest(filter_line=filter_line):
+                self.assertTrue(
+                    filter_violations(self._wf(filter_line), "test"),
+                    "Mutation FAILED: a quoted trigger-filter key evaded the scan — "
+                    "a stacked PR would silently lose both required checks.",
+                )
+
+    def test_quiet_on_unfiltered_and_on_sibling_triggers(self):
+        clean = "\n".join(["on:", "  push:", "    branches: [main]", "  pull_request:", "jobs: {}"])
+        self.assertEqual(
+            filter_violations(clean, "test"),
+            [],
+            "False positive: a `branches:` filter on `push:` (which is correct and "
+            "required) was attributed to `pull_request:`.",
+        )
+
+    def test_fires_on_quoted_pull_request_key(self):
+        # The block extractor itself must find a quoted `"pull_request":`, else the
+        # filter scan runs over an empty block and passes vacuously.
+        wf = "\n".join(["on:", '  "pull_request":', "    branches: [main]", "jobs: {}"])
+        self.assertTrue(
+            filter_violations(wf, "test"),
+            "Mutation FAILED: a quoted `\"pull_request\":` key made the block "
+            "extractor return nothing, so the filter scan passed vacuously.",
+        )
+
+    def test_tripwire_flags_explicit_key_form(self):
+        wf = "\n".join(["on:", "  pull_request:", "    ? branches", "    : [main]", "jobs: {}"])
+        self.assertTrue(
+            explicit_key_lines(wf, "branches", "paths", "pull_request"),
+            "tripwire FAILED: the explicit-key filter form was not flagged.",
+        )
 
 
 if __name__ == "__main__":

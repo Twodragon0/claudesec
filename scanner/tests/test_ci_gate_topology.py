@@ -24,13 +24,15 @@ runner) and `python3 -m unittest`.
 import re
 import sys
 import unittest
-from glob import glob
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
+    explicit_key_lines,
     strip_inline_comment as _strip_comment,
     top_level_jobs,
+    workflow_and_action_files,
+    yaml_key_pattern,
 )
 
 # scanner/tests/this_file -> parents[2] == repo root
@@ -50,19 +52,34 @@ LINT_YML = WORKFLOW_DIR / "lint.yml"
 UNGATED_JOBS_ALLOWLIST = {"lint-gate"}
 
 
+# `uses:` bare OR quoted. A quoted key resolves identically for any YAML parser,
+# and an adversarial sweep proved `- "uses": actions/checkout@main` slipped past
+# the SHA-pin scan with the whole suite green. See `yaml_key_pattern`.
+_USES_RE = re.compile(rf"""\s*-?\s*{yaml_key_pattern('uses')}:\s*([^\s#'"]+)""")
+
+
 class TestActionShaPinning(unittest.TestCase):
     def test_every_uses_is_sha_pinned(self):
-        workflow_files = sorted(glob(str(WORKFLOW_DIR / "*.yml")))
+        # Workflows AND composite actions, both extensions — a composite
+        # `action.yml` carries `steps[].uses` and was never globbed here, so a
+        # tag pin there defeated OWASP A08 with the guard green.
+        workflow_files = workflow_and_action_files()
         self.assertTrue(
             workflow_files,
             f"No workflow files found under {WORKFLOW_DIR} — path assumption broke",
+        )
+        self.assertTrue(
+            [p for p in workflow_files if "/actions/" in p],
+            "No composite `action.yml` matched — this repo has two; if they were "
+            "intentionally removed, drop this canary in the same commit rather "
+            "than leaving them silently unscanned.",
         )
         violations = []
         for path in workflow_files:
             for lineno, raw in enumerate(
                 Path(path).read_text(encoding="utf-8").splitlines(), start=1
             ):
-                m = re.match(r"\s*-?\s*uses:\s*([^\s#]+)", _strip_comment(raw))
+                m = _USES_RE.match(_strip_comment(raw))
                 if not m:
                     continue
                 ref = m.group(1)
@@ -78,6 +95,25 @@ class TestActionShaPinning(unittest.TestCase):
             + "\n".join(violations),
         )
 
+    def test_no_explicit_key_uses_or_jobs(self):
+        # `? uses` / `: actions/checkout@main` declares the same key while the
+        # substring `uses:` never appears, so the SHA-pin scan above cannot see the
+        # value at all. Same for `? jobs`, which would hide the entire job map from
+        # the gating check. Fail closed on the shape (ADR-001 §4).
+        offenders = []
+        for path in workflow_and_action_files():
+            text = Path(path).read_text(encoding="utf-8")
+            for ln in explicit_key_lines(text, "uses", "jobs", "needs"):
+                offenders.append(f"{Path(path).name}:  {ln}")
+        self.assertEqual(
+            offenders,
+            [],
+            "A `uses:`/`jobs:`/`needs:` key declared with YAML's explicit-key form "
+            "(`? key` on one line, `: value` on the next). The literal `key:` never "
+            "appears, so neither the SHA-pin scan nor the gate-completeness scan can "
+            "read it. Use the ordinary `key: value` form:\n  " + "\n  ".join(offenders),
+        )
+
 
 class TestLintGateNeedsCompleteness(unittest.TestCase):
     @classmethod
@@ -87,14 +123,19 @@ class TestLintGateNeedsCompleteness(unittest.TestCase):
     def _lint_gate_needs(self):
         needs, in_gate, in_needs = [], False, False
         for raw in self.text.splitlines():
-            if re.match(r"^  lint-gate:\s*$", raw):
+            if re.match(rf"^  {yaml_key_pattern('lint-gate')}:\s*$", raw):
                 in_gate = True
                 continue
             if in_gate:
-                # leaving the lint-gate block (next top-level job) ends the scan
-                if re.match(r"^  [A-Za-z0-9_-]+:\s*$", raw) and not re.match(
-                    r"^    ", raw
-                ):
+                # Leaving the lint-gate block (next top-level job) ends the scan.
+                # The sibling job key is matched bare OR quoted: a quoted
+                # `"other-job":` would not terminate the scan, so that job's
+                # `needs:` items would be slurped into lint-gate's list and could
+                # satisfy the completeness check for jobs lint-gate does not
+                # actually depend on.
+                if re.match(
+                    r"""^  (?:"[^"]+"|'[^']+'|[A-Za-z0-9_-]+):\s*$""", raw
+                ) and not re.match(r"^    ", raw):
                     break
                 if re.match(r"^    needs:\s*$", raw):
                     in_needs = True
@@ -183,6 +224,98 @@ class TestLycheeVersionPin(unittest.TestCase):
                 "intended, verify the action install path end-to-end and update "
                 "PINNED_LYCHEE_VERSION in this test.",
             )
+
+
+class TestKeyQuotingAndEnumerationMutation(unittest.TestCase):
+    """Non-vacuity for the 2026-08-06 sweep fixes: each detector must FIRE on the
+    quoted / explicit-key / composite-action form that previously slipped past."""
+
+    def test_uses_matcher_reads_quoted_key(self):
+        for line in (
+            '      - "uses": actions/checkout@main',
+            "      - 'uses': actions/checkout@v4",
+            "      - uses: actions/checkout@v4",
+        ):
+            with self.subTest(line=line.strip()):
+                m = _USES_RE.match(_strip_comment(line))
+                self.assertIsNotNone(
+                    m,
+                    "Mutation FAILED: a quoted `uses` key hid the action ref from "
+                    "the SHA-pin scan — standard YAML key quoting evades OWASP A08.",
+                )
+                self.assertTrue(
+                    m.group(1).startswith("actions/checkout@"),
+                    f"captured the wrong ref: {m.group(1)!r}",
+                )
+
+    def test_uses_matcher_does_not_widen_to_other_keys(self):
+        # The alternation must not swallow neighbouring keys — `with:`/`name:` are
+        # not action refs, and flagging them would be noise that gets the guard
+        # deleted rather than fixed.
+        for line in ("      - name: uses something", '        with: {"uses": x}'):
+            with self.subTest(line=line.strip()):
+                self.assertIsNone(
+                    _USES_RE.match(_strip_comment(line)),
+                    "False positive: the quoted-uses pattern matched a non-`uses` key.",
+                )
+
+    def test_explicit_key_tripwire_fires(self):
+        wf = "\n".join(
+            ["jobs:", "  j:", "    steps:", "      - ? uses", "        : actions/checkout@main"]
+        )
+        self.assertTrue(
+            explicit_key_lines(wf, "uses", "jobs", "needs"),
+            "tripwire FAILED: `? uses` / `: ref` was not flagged, and the SHA-pin "
+            "scan cannot read that value.",
+        )
+        self.assertEqual(
+            explicit_key_lines("jobs:\n  j:\n    steps:\n      - uses: a@" + "0" * 40, "uses"),
+            [],
+            "tripwire false-positive on an ordinary `uses:` line.",
+        )
+
+    def test_composite_actions_are_enumerated(self):
+        found = workflow_and_action_files()
+        self.assertTrue(
+            [p for p in found if "/actions/" in p and p.endswith(("action.yml", "action.yaml"))],
+            "Mutation FAILED: composite `action.yml` files are not enumerated, so a "
+            "tag-pinned `uses:` there evades the SHA-pin scan (verified green before "
+            "this fix).",
+        )
+
+    def test_top_level_jobs_reads_quoted_job_key(self):
+        wf = "\n".join(
+            ["jobs:", "  build:", "    runs-on: x", '  "rogue":', "    runs-on: y"]
+        )
+        self.assertEqual(
+            top_level_jobs(wf),
+            ["build", "rogue"],
+            "Mutation FAILED: a quoted job key is invisible to `top_level_jobs`, so "
+            "an ungated job is hidden from BOTH branch protection and this guard.",
+        )
+
+    def test_quoted_sibling_job_terminates_lint_gate_needs(self):
+        # A quoted sibling job key must still end the lint-gate block, or that
+        # job's `needs:` items get slurped into lint-gate's list and satisfy the
+        # completeness check for dependencies lint-gate does not have.
+        case = TestLintGateNeedsCompleteness("test_lint_yml_exists")
+        case.text = "\n".join(
+            [
+                "jobs:",
+                "  lint-gate:",
+                "    needs:",
+                "      - changes",
+                '  "other":',
+                "    needs:",
+                "      - smuggled",
+            ]
+        )
+        self.assertEqual(
+            case._lint_gate_needs(),
+            ["changes"],
+            "Mutation FAILED: a quoted sibling job key did not terminate the "
+            "lint-gate scan, so a foreign `needs:` entry was attributed to it.",
+        )
 
 
 if __name__ == "__main__":
