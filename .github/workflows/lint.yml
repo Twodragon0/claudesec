@@ -11,6 +11,28 @@ on:
   # targeting `main` are unaffected, so the required contexts always
   # report. Pinned by scanner/tests/test_ci_pr_trigger_scope.py.
   pull_request:
+  # Weekly revalidation. SEVEN jobs below carry
+  # `|| github.event_name == 'schedule'` as their escape hatch from the `changes`
+  # path gate — and that arm could never evaluate true, because this workflow had
+  # no `schedule:` trigger at all (verified: 1118 historical runs, 654
+  # pull_request + 464 push, zero schedule). The consequence was measured:
+  # `npm-audit` had ZERO real executions for ~7 weeks / 117 main commits (its
+  # bucket, `package*.json`/`.nvmrc`, was last touched in e5b9bbb), and
+  # `pip-audit` was likewise dark until a requirements edit finally fired it and
+  # it failed immediately on accumulated tool-cache drift (setuptools
+  # PYSEC-2026-3447). A path gate is not a schedule: without this trigger, an
+  # advisory disclosed against a locked dependency tree is caught only when
+  # someone happens to edit that tree.
+  #
+  # Wednesday 05:00 UTC — off the existing cron slots (06:00 Mon cross-os,
+  # 09:00 Mon security-scan, 06:00/06:30 daily lighthouse/provenance) so the
+  # weekly full run does not pile onto another job's window.
+  #
+  # Merge safety: adding a trigger cannot block a merge. Required contexts are
+  # evaluated per-commit on pull requests, which are unaffected; this only adds
+  # runs on a schedule. Pinned by scanner/tests/test_ci_dead_schedule_arm.py.
+  schedule:
+    - cron: '0 5 * * 3'
 
 permissions:
   contents: read
