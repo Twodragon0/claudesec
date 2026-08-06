@@ -115,15 +115,23 @@ class TestNpmPublishLeastPrivilege(unittest.TestCase):
             "least-privilege default was removed (GITHUB_TOKEN would fall back to "
             "broad default scopes).",
         )
-        self.assertRegex(
-            block,
-            r"^\s*contents:\s*read\s*$",
-            "Workflow-level permissions must keep `contents: read`.",
-        )
+        # ORDER MATTERS. The write-grant scan runs FIRST so that a broadened
+        # permission is reported by the check that actually diagnoses it.
+        #
+        # It used to run second, behind the whole-block anchor below, and that
+        # ordering hid a genuine false negative for as long as it existed: the scan
+        # `:\s*write\b` missed a QUOTED grant value (`packages: "write"` is the same
+        # grant to any YAML parser), so `write_grants` came back EMPTY while the
+        # permission was live. The test still failed — but on the anchor, i.e. by
+        # accident, with a message about block shape rather than about a write
+        # grant. Fixing the scan alone was not enough: with the anchor first, the
+        # scan could never be the reporter, so its correctness was unobservable in
+        # the integrated path (verified — the fixed scan's message did not appear).
+        # Both are now load-bearing and independently observable.
         write_grants = [
             ln.strip()
             for ln in block.splitlines()
-            if re.search(r":\s*write\b", _strip_comment(ln))
+            if re.search(r""":\s*["']?write\b""", _strip_comment(ln))
         ]
         self.assertEqual(
             write_grants,
@@ -132,6 +140,16 @@ class TestNpmPublishLeastPrivilege(unittest.TestCase):
             "(least-privilege regression — keep it `contents: read`; job-level "
             "`id-token: write` belongs under the publish job, not here):\n  "
             + "\n  ".join(write_grants),
+        )
+        # The missing `re.MULTILINE` here is deliberate: `^`/`$` anchor the WHOLE
+        # block, so this passes only when `contents: read` is its sole entry. That
+        # makes it a structural catch-all for any added key the write-grant scan
+        # above does not classify (a read-scope addition, a stray anchor, a typo).
+        self.assertRegex(
+            block,
+            r"^\s*contents:\s*read\s*$",
+            "Workflow-level permissions must keep `contents: read` as its ONLY "
+            "entry (this pattern intentionally anchors the whole block).",
         )
 
 
@@ -258,6 +276,46 @@ class TestAutoReleaseTriggerScoping(unittest.TestCase):
         scan = self._scan("    branches: [main]")
         self.assertIn("branches:", scan)
         self.assertRegex(scan, self._PATTERN)
+
+
+class TestWriteGrantScanMutation(unittest.TestCase):
+    """Non-vacuity for the 2026-08-06 sweep fix: the write-grant scan itself must
+    catch a QUOTED grant value. Before it, `packages: "write"` produced an empty
+    `write_grants` list — the scan reported no violation while the permission was
+    live, and only the (unrelated) whole-block anchor happened to fail."""
+
+    @staticmethod
+    def _write_grants(block):
+        return [
+            ln.strip()
+            for ln in block.splitlines()
+            if re.search(r""":\s*["']?write\b""", _strip_comment(ln))
+        ]
+
+    def test_fires_on_quoted_and_bare_write_grants(self):
+        for line in (
+            '  packages: "write"',
+            "  packages: 'write'",
+            "  packages: write",
+            '  id-token: "write"',
+        ):
+            with self.subTest(line=line.strip()):
+                self.assertTrue(
+                    self._write_grants(line),
+                    "Mutation FAILED: a quoted write grant was invisible to the "
+                    "write-grant scan — a least-privilege regression would be "
+                    "reported as no violation.",
+                )
+
+    def test_quiet_on_read_grants_and_comments(self):
+        for line in ("  contents: read", '  contents: "read"', "  # packages: write"):
+            with self.subTest(line=line.strip()):
+                self.assertEqual(
+                    self._write_grants(line),
+                    [],
+                    "False positive: a read grant or a commented-out grant was "
+                    "reported as a live write grant.",
+                )
 
 
 if __name__ == "__main__":

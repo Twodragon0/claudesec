@@ -28,11 +28,15 @@ No network, no subprocess. Passes under pytest (the CI runner) and
 import re
 import sys
 import unittest
-from glob import glob
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_inline_comment as _strip_comment  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    explicit_key_lines,
+    strip_inline_comment as _strip_comment,
+    workflow_and_action_files,
+    yaml_key_pattern,
+)
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -40,8 +44,12 @@ WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 
 # CodeQL *analysis* sub-actions that constitute a repo-level model. `upload-sarif`
 # is deliberately excluded — it only publishes third-party SARIF.
+# The `uses:` key is read bare OR quoted — `"uses": github/codeql-action/init@…`
+# resolves identically and slipped past the bare-only regex, letting a second
+# CodeQL model in with this guard green (2026-08-06 sweep). See yaml_key_pattern.
 ANALYSIS_ACTION_RE = re.compile(
-    r"uses:\s*github/codeql-action/(init|analyze)(?:[/@]|\s|$)"
+    rf"{yaml_key_pattern('uses')}:\s*[\"']?github/codeql-action/(init|analyze)"
+    r"(?:[/@]|\s|$)"
 )
 
 
@@ -53,7 +61,10 @@ class TestCodeqlSingleModel(unittest.TestCase):
         )
 
     def test_no_repo_level_codeql_analysis(self):
-        workflow_files = sorted(glob(str(WORKFLOW_DIR / "*.yml")))
+        # Workflows in BOTH extensions plus composite actions: a `codeql.yaml`
+        # or a composite `action.yml` invoking `codeql-action/init` is just as
+        # much a second model, and neither was enumerated before.
+        workflow_files = workflow_and_action_files()
         self.assertTrue(
             workflow_files,
             f"No workflow files found under {WORKFLOW_DIR} — path assumption broke",
@@ -73,6 +84,56 @@ class TestCodeqlSingleModel(unittest.TestCase):
             "model only). Remove the workflow, or if intentionally switching to a "
             "workflow-based model, delete this guard in the same PR:\n  "
             + "\n  ".join(violations),
+        )
+
+
+class TestCodeqlMatcherMutation(unittest.TestCase):
+    """Non-vacuity for the 2026-08-06 sweep fix: a quoted `uses:` key and the
+    explicit-key form must not smuggle a second CodeQL model past this guard."""
+
+    def test_fires_on_quoted_uses_key(self):
+        sha = "0" * 40
+        for line in (
+            f'      - "uses": github/codeql-action/init@{sha}',
+            f"      - 'uses': github/codeql-action/analyze@{sha}",
+            f"      - uses: github/codeql-action/init@{sha}",
+        ):
+            with self.subTest(line=line.strip()):
+                self.assertTrue(
+                    ANALYSIS_ACTION_RE.search(_strip_comment(line)),
+                    "Mutation FAILED: a quoted `uses` key hid a CodeQL analysis "
+                    "action, so a duplicate repo-level model would pass.",
+                )
+
+    def test_quiet_on_upload_sarif_and_comments(self):
+        sha = "0" * 40
+        for line in (
+            f"      - uses: github/codeql-action/upload-sarif@{sha}",
+            f"      # - uses: github/codeql-action/init@{sha}",
+        ):
+            with self.subTest(line=line.strip()):
+                self.assertFalse(
+                    ANALYSIS_ACTION_RE.search(_strip_comment(line)),
+                    "False positive: `upload-sarif` (third-party SARIF publishing, "
+                    "not analysis) or a commented-out line was flagged.",
+                )
+
+    def test_enumeration_covers_yaml_and_composite_actions(self):
+        found = workflow_and_action_files()
+        self.assertTrue(
+            [p for p in found if "/actions/" in p],
+            "Mutation FAILED: composite actions are not enumerated, so a "
+            "`codeql-action/init` inside one would be invisible here.",
+        )
+
+    def test_tripwire_flags_explicit_uses_key(self):
+        wf = "\n".join(
+            ["jobs:", "  j:", "    steps:", "      - ? uses", "        : github/codeql-action/init@x"]
+        )
+        self.assertTrue(
+            explicit_key_lines(wf, "uses"),
+            "tripwire FAILED: `? uses` / `: codeql-action/init` was not flagged, and "
+            "the analysis-action scan cannot read that value.",
         )
 
 
