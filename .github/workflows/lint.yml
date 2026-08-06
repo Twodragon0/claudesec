@@ -132,6 +132,15 @@ jobs:
         run: |
           # Upgrade pip first to clear CVE-2026-6357 (fix in pip 26.1)
           python3 -m pip install --upgrade 'pip>=26.1'
+          # setuptools from the runner's tool cache (79.0.1) carries
+          # PYSEC-2026-3447 — MANIFEST.in exclusions match without Unicode
+          # normalization, so an NFD filename can slip into a published sdist.
+          # Not reachable here (this repo builds no sdist), but `--strict` fails on
+          # any known vuln in the audited environment and a fix version exists, so
+          # upgrade rather than suppress. This surfaced only when the audit's
+          # `requirements.*\.txt` path gate finally fired: pip-audit was `skipped`
+          # on every recent run, so the environment had drifted unnoticed.
+          python3 -m pip install --upgrade 'setuptools>=83.0.0'
           python3 -m pip install --upgrade pip-audit
           python3 -m pip install -r requirements-ci.txt
           # Bring the workflow-fork-guard job's pinned PyYAML into the audited
