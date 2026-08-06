@@ -11,8 +11,24 @@
 #   fine-grained PAT stored as the REPO_ADMIN_TOKEN secret (Administration:read).
 #
 # FAIL-SAFE / GRACEFUL DEGRADATION
-#   - If REPO_ADMIN_TOKEN is absent, the job logs a warning and exits 0 (no-op),
-#     so merging this workflow never breaks CI before the secret is created.
+#   - If REPO_ADMIN_TOKEN is absent the job still exits 0 (merging this workflow
+#     must not break CI before the secret exists) but it no longer stays SILENT:
+#     it opens/updates a 'protection-drift' issue saying the watch is not running,
+#     and writes the same statement to the run summary.
+#
+#     WHY AN ISSUE AND NOT A "NEUTRAL" STATUS: GitHub Actions has no neutral
+#     conclusion for a regular job — the only conclusions are success, failure,
+#     cancelled and skipped (the Docker-action exit-code-78 neutral was removed in
+#     2019). So a no-op job reports SUCCESS, and that is exactly how this watch
+#     went dark: for weeks every scheduled run took the no-op branch, logged a
+#     ::warning:: nobody reads, and reported green. A green check for work that
+#     never happened is worse than no check.
+#
+#     WHY NOT exit 1: this is a notifier, not a gate. Failing daily forever until
+#     someone creates a PAT trains the owner to ignore the workflow, and the repo
+#     convention for notifier workflows (see lychee-redirect-sweep.yml, #298) is a
+#     single self-healing issue. The issue is closed automatically by the existing
+#     'settings back in sync' step once the token exists and a run comes back clean.
 #   - exit 1 from the script is AMBIGUOUS (drift OR an auth/network/read error).
 #     We treat it as real drift ONLY when the output contains 'DRIFT DETECTED';
 #     any other non-zero exit is reported as a tooling error (job fails, but no
@@ -55,10 +71,19 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${REPO_ADMIN_TOKEN:-}" ]; then
-            echo "::warning::REPO_ADMIN_TOKEN secret is not configured — skipping drift check."
+            echo "::warning::REPO_ADMIN_TOKEN secret is not configured — the drift check did NOT run."
             echo "Create a fine-grained PAT with 'Administration: read' on this repo"
             echo "and store it as the REPO_ADMIN_TOKEN repository secret to enable this watch."
             echo "token_present=false" >> "${GITHUB_OUTPUT}"
+            # The job conclusion will still be `success` (Actions has no neutral for
+            # a regular job), so say so where a human actually looks.
+            {
+              echo "### :warning: Drift check did NOT run"
+              echo
+              echo "\`REPO_ADMIN_TOKEN\` is not configured, so branch protection was"
+              echo "never read. This run's green status means the workflow completed,"
+              echo "NOT that the settings are in sync."
+            } >> "${GITHUB_STEP_SUMMARY}"
           else
             echo "token_present=true" >> "${GITHUB_OUTPUT}"
           fi
@@ -88,7 +113,7 @@ jobs:
           fi
 
       - name: Ensure protection-drift label exists
-        if: steps.drift.outputs.result == 'drift'
+        if: steps.drift.outputs.result == 'drift' || steps.token_check.outputs.token_present == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -110,7 +135,13 @@ jobs:
 
       - name: Find existing open drift issue
         id: existing
-        if: steps.drift.outputs.result == 'drift' || steps.drift.outputs.result == 'clean'
+        # Also needed when the token is missing (to update rather than duplicate the
+        # "not running" issue) — the label is shared so the existing
+        # close-when-clean step self-heals it once the watch starts working.
+        if: >-
+          steps.drift.outputs.result == 'drift'
+          || steps.drift.outputs.result == 'clean'
+          || steps.token_check.outputs.token_present == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -128,6 +159,56 @@ jobs:
             echo "issue_number=" >> "${GITHUB_OUTPUT}"
           fi
           echo "Existing open protection-drift issue: '${number:-none}'"
+
+      - name: Surface missing admin token as an issue
+        if: steps.token_check.outputs.token_present == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXISTING_ISSUE: ${{ steps.existing.outputs.issue_number }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Branch-protection drift watch is NOT running"
+            echo
+            echo "The scheduled \`Branch-Protection Drift Watch\` workflow completed"
+            echo "successfully but did **no work**: the \`REPO_ADMIN_TOKEN\` secret is"
+            echo "not configured, so \`repos/${GITHUB_REPOSITORY}/branches/main/protection\`"
+            echo "was never read. Branch-protection drift has therefore been unmonitored"
+            echo "for as long as this issue has been open."
+            echo
+            echo "GitHub Actions has no \`neutral\` conclusion for a regular job, so those"
+            echo "runs report **green**. This issue exists because a green check for work"
+            echo "that never happened is worse than no check."
+            echo
+            echo "### Fix"
+            echo
+            echo "1. Create a fine-grained PAT scoped to this repository with"
+            echo "   **Administration: read**."
+            echo "2. Store it as the \`REPO_ADMIN_TOKEN\` repository secret."
+            echo
+            echo "The next clean run closes this issue automatically."
+            echo
+            echo "_Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}_"
+          } > /tmp/no-token-body.md
+
+          title="ci: branch-protection drift watch is not running (REPO_ADMIN_TOKEN missing)"
+          if [ -n "${EXISTING_ISSUE}" ]; then
+            echo "Updating existing protection-drift issue #${EXISTING_ISSUE}"
+            # --title too: the same label/issue is reused for real drift, so the
+            # title must always describe the CURRENT state rather than whichever
+            # condition happened to open it first.
+            gh issue edit "${EXISTING_ISSUE}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --body-file /tmp/no-token-body.md
+          else
+            echo "Opening new 'watch not running' issue"
+            gh issue create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --label "protection-drift" \
+              --body-file /tmp/no-token-body.md
+          fi
 
       - name: Build issue body from drift report
         if: steps.drift.outputs.result == 'drift'
@@ -173,6 +254,7 @@ jobs:
             echo "Updating existing drift issue #${EXISTING_ISSUE}"
             gh issue edit "${EXISTING_ISSUE}" \
               --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
               --body-file /tmp/issue-body.md
             gh issue comment "${EXISTING_ISSUE}" \
               --repo "${GITHUB_REPOSITORY}" \
