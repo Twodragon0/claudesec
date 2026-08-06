@@ -29,10 +29,14 @@ WHAT IT CHECKS / DOES NOT
   plain/quoted scalar continuation lines — and block scalars `run: |` / `run: >`).
   Interpolation in `if:`, `with:`, `name:`, or an `env:` mapping is a
   GitHub-expression / assignment context, NOT shell injection, and is ignored.
-- A `${{ }}` that a line scanner cannot reassemble (split across two physical
-  lines) is not scanned but is **flagged as an unscannable shape** — see the two
-  tripwires (`unscannable_flow_runs`, `unscannable_block_runs`), which fail closed
-  so an injection cannot hide where the scanner is blind.
+- The `run` key is matched plain OR quoted (`"run":` / `'run':` — same key to any
+  YAML parser, and a real authoring style since GitHub's docs normalize `"on":`).
+- Whatever a line scanner cannot reassemble is not scanned but is **flagged as an
+  unscannable shape**, so an injection cannot hide where the scanner is blind.
+  Three tripwires fail closed: `unscannable_flow_runs` (multi-line flow scalar),
+  `unscannable_block_runs` (a `${{ }}` split across physical lines), and
+  `unscannable_run_keys` (YAML explicit-key `? run` / `: cmd`, where the literal
+  `run:` never appears at all). Each has a trivial, always-available remediation.
 - Flags only the **documented-untrusted** contexts (free-text fields an external
   actor controls), not every `${{ }}` — `github.sha`, `github.ref`,
   `needs.*.outputs.*`, etc. are safe and not flagged. This keeps the guard
@@ -49,6 +53,7 @@ measured coverage gate.
 """
 
 import re
+import tempfile
 import unittest
 from glob import glob
 from pathlib import Path
@@ -96,7 +101,18 @@ _EXPR_RE = re.compile(r"\$\{\{(.*?)\}\}")
 # marker) so the block-scalar body threshold is the COLUMN of `run:` itself — a
 # sibling step key (e.g. `name:`) aligns with `run:` and must end the body, while
 # the body is indented deeper.
-_RUN_RE = re.compile(r"^(\s*(?:-\s+)?)run:\s?(.*)$")
+# The mapping key itself may be quoted — `"run": cmd` resolves to the same `run`
+# key (verified against PyYAML), and a quoted key is not exotic in this ecosystem:
+# GitHub's own docs normalize `"on":` to dodge the YAML-1.1 boolean collision, so
+# `"run":` is a plausible authoring style, not a contrived evasion. An adversarial
+# review pass proved both the block and flow matchers were blind to it.
+_RUN_KEY = r"""(?:run|"run"|'run')"""
+_RUN_RE = re.compile(rf"^(\s*(?:-\s+)?){_RUN_KEY}:\s?(.*)$")
+# YAML's explicit-key form (`? run` on one line, `: cmd` on the next) yields the
+# same `run` key with the substring `run:` never appearing — so no line matcher can
+# see it. Reassembling it needs a real parser, so it joins the unscannable SHAPES
+# that fail closed (see `unscannable_run_keys`).
+_EXPLICIT_RUN_KEY_RE = re.compile(rf"""^\s*(?:-\s+)?\?\s*{_RUN_KEY}\s*(?::|$|#)""")
 # Flow-style step mapping — `steps: [{name: x, run: "cmd"}]` — puts `run:`
 # mid-line after a `{`/`,`, so the line-anchored block scan above never sees it.
 # Match each flow-style run value (double/single-quoted or bare) so its `${{ }}`
@@ -111,7 +127,7 @@ _RUN_RE = re.compile(r"^(\s*(?:-\s+)?)run:\s?(.*)$")
 # author writes) and is tracked rather than half-closed with a fragile
 # bracket-depth heuristic that could false-positive on block-scalar shell bodies.
 _FLOW_RUN_RE = re.compile(
-    r"""[{,]\s*run:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^,}\]]+)"""
+    rf"""[{{,]\s*{_RUN_KEY}:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^,}}\]]+)"""
 )
 # A flow-style `run:` whose quoted value is NOT closed on its physical line — a
 # multi-line flow scalar. A stdlib/no-PyYAML line scanner cannot reassemble it
@@ -121,7 +137,7 @@ _FLOW_RUN_RE = re.compile(
 # in an unscannable shape (see `unscannable_flow_runs`). The value is unterminated
 # when, after the opening quote, no matching close appears before end-of-line.
 _FLOW_RUN_UNTERMINATED_RE = re.compile(
-    r"""[{,]\s*run:\s*(?:"(?:[^"\\]|\\.)*|'(?:[^'\\]|\\.)*)$"""
+    rf"""[{{,]\s*{_RUN_KEY}:\s*(?:"(?:[^"\\]|\\.)*|'(?:[^'\\]|\\.)*)$"""
 )
 
 
@@ -179,7 +195,8 @@ def run_block_lines(text: str) -> list:
         # shell. Any other non-empty value is an inline command. This first-char
         # rule is complete by the YAML grammar, unlike a header-enumerating regex
         # (which missed `|2-` and `| # comment` across two reviews).
-        if rest and rest[0] not in "|>":
+        inline = bool(rest) and rest[0] not in "|>"
+        if inline:
             out.append(rest)  # inline `run: <cmd>` (first physical line)
         # Fall through to the SAME deeper-indented collection loop for both cases.
         # For a block scalar those lines are the body. For an inline value they are
@@ -198,6 +215,16 @@ def run_block_lines(text: str) -> list:
                 out.append(ln)
                 i += 1
                 continue
+            # A comment-only line ENDS an inline (plain/quoted) scalar: PyYAML
+            # rejects `run: echo` / `# c` / `hi` as a parse error, so a plain
+            # scalar cannot resume after a comment — anything below is not part of
+            # the command. Stopping here is exact, not conservative, and it removes
+            # a false positive (a `# never do: ${{ github.event.issue.title }}`
+            # warning comment beside the step used to be scanned as shell). In a
+            # BLOCK scalar the same line is literal body text, so it is still
+            # collected there.
+            if inline and ln.lstrip().startswith("#"):
+                break
             if _lead_width(ln) > indent:
                 out.append(ln)
                 i += 1
@@ -263,8 +290,27 @@ def unscannable_block_runs(text: str) -> list:
     return [ln.strip() for ln in run_block_lines(text) if _expr_unterminated(ln)]
 
 
+def unscannable_run_keys(text: str) -> list:
+    """Lines declaring a `run` step with YAML's explicit-key form (`? run` /
+    `: cmd` — see `_EXPLICIT_RUN_KEY_RE`).
+
+    The third unscannable SHAPE, and the one with no substring to match at all:
+    the key and its value sit on different lines, so the literal `run:` never
+    appears and every line matcher here is blind by construction (confirmed
+    against PyYAML: `- ? run` / `  : echo '${{ github.event.issue.title }}'`
+    resolves to a real `run` command). Fails closed rather than pretending to
+    scan it — the fix is the ordinary `run: cmd` form. Dormant on this repo."""
+    return [ln.strip() for ln in text.splitlines() if _EXPLICIT_RUN_KEY_RE.match(ln)]
+
+
 def _workflow_files():
-    return sorted(glob(str(WORKFLOW_DIR / "*.yml")))
+    # BOTH extensions: GitHub Actions runs `.yaml` workflows too, so globbing only
+    # `*.yml` would leave a whole file silently unscanned (found by adversarial
+    # review; the repo has no `.yaml` workflow today, so this adds coverage
+    # without changing today's result).
+    return sorted(
+        glob(str(WORKFLOW_DIR / "*.yml")) + glob(str(WORKFLOW_DIR / "*.yaml"))
+    )
 
 
 class TestNoInjectionSurface(unittest.TestCase):
@@ -322,6 +368,22 @@ class TestNoInjectionSurface(unittest.TestCase):
             "cannot be checked for untrusted-context injection (stdlib/no-PyYAML). "
             "Keep each `${{ ... }}` on one line (and prefer moving the value into "
             "an `env:` block):\n  " + "\n  ".join(offenders),
+        )
+
+    def test_no_explicit_key_run_step(self):
+        # `? run` / `: cmd` declares a run step with no `run:` substring anywhere,
+        # so no line matcher here can see its body. Forbid the shape.
+        offenders = []
+        for path in _workflow_files():
+            for ln in unscannable_run_keys(Path(path).read_text(encoding="utf-8")):
+                offenders.append(f"{Path(path).name}:  {ln}")
+        self.assertEqual(
+            offenders,
+            [],
+            "A `run` step declared with YAML's explicit-key form (`? run` on one "
+            "line, `: cmd` on the next). The literal `run:` never appears, so this "
+            "guard cannot scan the command for injection. Use the ordinary "
+            "`run: cmd` / `run: |` form:\n  " + "\n  ".join(offenders),
         )
 
 
@@ -636,6 +698,12 @@ class TestInjectionDetectorMutation(unittest.TestCase):
         # The continuation collection must not slurp a sibling step key that
         # aligns with the `run:` column (the inline-value analog of
         # `test_block_body_stops_at_sibling_key`).
+        #
+        # Paired with a POSITIVE control so the test is not vacuous: an
+        # absence-only assertion would also pass if continuation collection were
+        # deleted outright (nothing collected -> nothing slurped -> green), which
+        # is exactly the inert shape ADR-001 warns about. Asserting that a real
+        # continuation IS still collected pins both directions in one test.
         for sibling in ("env:", "with:"):
             wf = "\n".join(
                 [
@@ -652,6 +720,139 @@ class TestInjectionDetectorMutation(unittest.TestCase):
                     f"False positive: a `{sibling}` sibling key after an inline "
                     "`run:` was slurped into the run body as a scalar continuation.",
                 )
+                # Positive control: same step, but the deeper line is a genuine
+                # scalar continuation rather than a sibling key.
+                live = wf.replace(
+                    f"        {sibling}\n          title: ", "          "
+                )
+                self.assertTrue(
+                    any(
+                        "github.event.issue.title" in c
+                        for _, c in injection_violations(live)
+                    ),
+                    "Vacuous: the sibling-key boundary passed only because inline "
+                    "continuation collection is not running at all.",
+                )
+
+    _COMMENT_BESIDE_INLINE_RUN = "\n".join(
+        [
+            "jobs:",
+            "  j:",
+            "    steps:",
+            "      - run: echo hi",
+            "          # never do this: echo '${{ github.event.issue.title }}'",
+        ]
+    )
+
+    def test_quiet_on_comment_line_after_inline_run(self):
+        # PyYAML resolves this step's command to exactly `echo hi` — the comment is
+        # not part of the scalar (and a plain scalar cannot even resume after a
+        # comment line: `run: echo` / `# c` / `hi` is a parse error). Scanning it
+        # as shell would fail CI on a maintainer documenting the unsafe pattern.
+        self.assertEqual(
+            injection_violations(self._COMMENT_BESIDE_INLINE_RUN),
+            [],
+            "False positive: a YAML comment beside an inline `run:` was collected "
+            "as a scalar continuation and scanned as shell.",
+        )
+
+    def test_fires_on_quoted_run_key(self):
+        # `"run": cmd` resolves to the same `run` key (verified with PyYAML). A
+        # quoted key is a real authoring style in this ecosystem — GitHub's docs
+        # normalize `"on":` for the YAML-1.1 boolean collision — and BOTH the block
+        # and flow matchers were blind to it before this fix.
+        for wf in (
+            "jobs:\n  j:\n    steps:\n      - \"run\": echo '${{ github.event.issue.title }}'\n",
+            "jobs:\n  j:\n    steps:\n      - 'run': echo '${{ github.event.issue.title }}'\n",
+            "jobs:\n  j:\n    steps: [{name: x, \"run\": \"echo '${{ github.event.issue.title }}'\"}]\n",
+            "jobs:\n  j:\n    steps:\n      - \"run\": |\n          echo '${{ github.event.issue.title }}'\n",
+        ):
+            with self.subTest(wf=wf.splitlines()[-1].strip()):
+                self.assertTrue(
+                    any(
+                        "github.event.issue.title" in c
+                        for _, c in injection_violations(wf)
+                    ),
+                    "Mutation FAILED: a quoted `run` key hid the command from the "
+                    "scan — guard evasion via standard YAML key quoting.",
+                )
+
+    def test_quoted_run_key_does_not_match_other_keys(self):
+        # The quoted-key alternation must not widen into unrelated keys: `runs-on`
+        # and a `"name"` value mentioning an untrusted context are not shell.
+        wf = "\n".join(
+            [
+                "jobs:", "  j:",
+                "    runs-on: ubuntu-latest",
+                "    steps:",
+                "      - \"name\": check ${{ github.event.issue.title }}",
+                "        run: echo safe",
+            ]
+        )
+        self.assertEqual(
+            injection_violations(wf),
+            [],
+            "False positive: the quoted-run-key pattern matched a non-`run` key.",
+        )
+
+    def test_tripwire_flags_explicit_key_run_step(self):
+        # `? run` / `: cmd` — the key and value are on different lines, so the
+        # literal `run:` never appears and nothing here can scan the body.
+        for wf in (
+            "jobs:\n  j:\n    steps:\n      - ? run\n        : echo '${{ github.event.issue.title }}'\n",
+            "jobs:\n  j:\n    steps:\n      - ? \"run\"\n        : echo hi\n",
+            "jobs:\n  j:\n    steps:\n      - ? run  # explicit\n        : echo hi\n",
+        ):
+            with self.subTest(wf=wf.splitlines()[3].strip()):
+                self.assertEqual(
+                    injection_violations(wf),
+                    [],
+                    "Precondition changed: the explicit-key form is now scanned "
+                    "directly — re-derive whether the shape tripwire is still the "
+                    "load-bearing check.",
+                )
+                self.assertTrue(
+                    unscannable_run_keys(wf),
+                    "tripwire FAILED: an explicit-key (`? run`) step was not "
+                    "flagged, and its body is unscannable.",
+                )
+
+    def test_explicit_key_tripwire_quiet_on_normal_steps(self):
+        for wf in (self._UNSAFE_INLINE, self._UNSAFE_BLOCK, self._SAFE_ENV,
+                   "jobs:\n  j:\n    steps:\n      - run: echo '? run'\n",
+                   "jobs:\n  j:\n    steps:\n      - ? runner\n        : x\n"):
+            with self.subTest(wf=wf.splitlines()[-1].strip()):
+                self.assertEqual(
+                    unscannable_run_keys(wf),
+                    [],
+                    "tripwire false-positive: a normal step (or a non-`run` "
+                    "explicit key) was reported as an explicit-key run step.",
+                )
+
+    def test_workflow_glob_covers_yaml_extension(self):
+        # GitHub Actions runs `.yaml` workflows too; globbing only `*.yml` would
+        # leave such a file entirely unscanned. Asserted BEHAVIOURALLY (redirect
+        # the scanned directory at a fixture), not by reading this file's own
+        # source — a source-text assertion is the inert shape
+        # `test_ci_guard_assertion_scoping.py` exists to reject.
+        global WORKFLOW_DIR
+        original = WORKFLOW_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "a.yml").write_text("jobs: {}\n", encoding="utf-8")
+            Path(tmp, "b.yaml").write_text("jobs: {}\n", encoding="utf-8")
+            Path(tmp, "notes.txt").write_text("ignored\n", encoding="utf-8")
+            try:
+                WORKFLOW_DIR = Path(tmp)
+                found = sorted(Path(p).name for p in _workflow_files())
+            finally:
+                WORKFLOW_DIR = original
+        self.assertEqual(
+            found,
+            ["a.yml", "b.yaml"],
+            "`_workflow_files()` must find both `*.yml` and `*.yaml` (and nothing "
+            "else) — GitHub Actions honours both extensions, so a `.yaml` workflow "
+            f"would go entirely unscanned. Found: {found}",
+        )
 
     def test_fires_on_tab_indented_body(self):
         # Finding 7: a tab-indented block body must still be measured as deeper
