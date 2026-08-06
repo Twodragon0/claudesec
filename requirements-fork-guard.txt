@@ -1,0 +1,27 @@
+# Sole dependency of scripts/check-pull-request-target-guard.py, installed by the
+# `workflow-fork-guard` job in .github/workflows/lint.yml.
+#
+# WHY A SEPARATE FILE (do not merge into requirements-ci.txt)
+#   Every `scanner/tests/test_ci_*.py` guard is deliberately stdlib-only and
+#   documents "no PyYAML — absent from requirements-ci.txt" as the reason. Adding
+#   PyYAML there would make that premise false and let a guard silently start
+#   parsing YAML with a library the CI test job is not supposed to have.
+#
+# WHY PINNED EXACTLY
+#   This was `pip install 'pyyaml>=6.0,<7'` — a floating range resolved at job
+#   time, so a new release entered CI with no review and no audit. An exact pin
+#   makes the version a reviewable diff, and Dependabot's `pip` ecosystem already
+#   watches `/` (see .github/dependabot.yml), so upgrades arrive as PRs.
+#
+# WHY NOT --require-hashes
+#   PyYAML ships per-interpreter binary wheels, so a hash set pins the file to one
+#   runner Python. `workflow-fork-guard` runs 3.13 and `pip-audit` runs 3.11 —
+#   a single hash list cannot satisfy both, and the sdist fallback needs a Cython
+#   build. The exploitable gap here was version drift, which the pin closes;
+#   file-level immutability is provided by PyPI itself.
+#
+# AUDIT COVERAGE
+#   The `pip-audit` job installs this file alongside requirements-ci.txt so the
+#   pinned version is covered by `pip-audit --strict`. That job is path-gated on
+#   `requirements.*\.txt`, so editing this file re-runs the audit.
+pyyaml==6.0.3
