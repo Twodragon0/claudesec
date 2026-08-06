@@ -134,6 +134,10 @@ jobs:
           python3 -m pip install --upgrade 'pip>=26.1'
           python3 -m pip install --upgrade pip-audit
           python3 -m pip install -r requirements-ci.txt
+          # Bring the workflow-fork-guard job's pinned PyYAML into the audited
+          # environment — it used to be installed only in that job, where nothing
+          # ever audited it.
+          python3 -m pip install -r requirements-fork-guard.txt
       - name: Run pip-audit
         # CVE-2026-4539: pygments <=2.19.2 local ReDoS — no fix available yet
         # CVE-2026-3219: pip 26.0.1 tar+ZIP confusion — no fix version published yet
@@ -604,7 +608,11 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install PyYAML
-        run: pip install --no-deps 'pyyaml>=6.0,<7'
+        # Exact pin lives in requirements-fork-guard.txt (kept out of
+        # requirements-ci.txt on purpose — see that file's header) so the version
+        # is a reviewable diff, Dependabot tracks it, and the `pip-audit` job
+        # covers it. Was `'pyyaml>=6.0,<7'`: a floating range resolved at job time.
+        run: python3 -m pip install --no-deps -r requirements-fork-guard.txt
       - name: Audit pull_request_target workflows for fork-guard
         run: python3 scripts/check-pull-request-target-guard.py
 
