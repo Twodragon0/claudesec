@@ -294,6 +294,74 @@ def unscannable_block_runs(text: str) -> list:
     return [ln.strip() for ln in run_block_lines(text) if _expr_unterminated(ln)]
 
 
+# An INLINE `run:` whose quoted scalar is not closed on its own physical line —
+# `run: "echo` continued on the following lines. YAML folds those lines into one
+# command and a `#` inside the quotes is literal content, NOT a comment (verified
+# with PyYAML: `run: "echo` / `# c` / `hi"` -> `echo # c hi`), while a PLAIN
+# scalar genuinely cannot resume after a comment line (same check: ParserError).
+# `run_block_lines` breaks at the comment line for BOTH styles, so for the quoted
+# style everything below it — the natural place for the payload — silently left
+# the haystack. Single-quoted YAML escapes a quote by doubling it (`''`).
+_INLINE_QUOTED_RUN_UNTERMINATED = {
+    '"': re.compile(r'"(?:[^"\\]|\\.)*"'),
+    "'": re.compile(r"'(?:[^']|'')*'"),
+}
+
+
+def _only_yaml_comment_after(tail: str) -> bool:
+    """Whether `tail` (the text after a closed quoted scalar) is nothing but
+    optional whitespace and a YAML `#` comment — i.e. the scalar really did end
+    on this physical line."""
+    tail = tail.strip()
+    return tail == "" or tail.startswith("#")
+
+
+def unscannable_inline_runs(text: str) -> list:
+    """Lines with an inline `run:` whose QUOTED scalar spans multiple physical
+    lines (see `_INLINE_QUOTED_RUN_UNTERMINATED`).
+
+    The block-style twin of `unscannable_flow_runs`, and the last of the four
+    unscannable SHAPES. Found by the 2026-08-07 stripper/haystack audit with a
+    runnable PoC: PyYAML resolves
+
+        - run: "echo
+            # not a comment, this is scalar content
+            ${{ github.event.pull_request.title }}"
+
+    to a single command carrying the untrusted context, while
+    `injection_violations` reported nothing and no tripwire fired — the exact
+    CICD-SEC-4 RCE this guard exists to prevent, hidden in the scanner's blind
+    spot. Reassembling a folded multi-line quoted scalar (escapes, `''`, folding
+    rules) needs a real YAML parser, so this fails CLOSED on the shape instead
+    (ADR-001 §4). Remediation is trivial and always available: a block scalar
+    (`run: |`, fully scanned) or a single-line value (already scanned). Zero hits
+    across all 18 scanned files today, so it is false-positive-free."""
+    out = []
+    for ln in text.splitlines():
+        m = _RUN_RE.match(ln)
+        if not m:
+            continue
+        rest = m.group(2).strip()
+        pat = _INLINE_QUOTED_RUN_UNTERMINATED.get(rest[:1])
+        if pat is None:
+            continue
+        # fullmatch, NOT match. `.match()` is a PREFIX match, so on
+        # `'echo don''t forget to review` the engine backtracks and matches the
+        # prefix `'echo don'` — the tripwire concluded the scalar was closed and
+        # the folded continuation carrying `${{ github.event.pull_request.title }}`
+        # never entered the haystack. 555 bypassing shapes were found by fuzzing
+        # first-line shape x continuation indent against PyYAML, all single-quote;
+        # planted in `og-meta-verify.yml` (a `pull_request` + `pull-requests:write`
+        # workflow) the whole suite stayed green on a live CICD-SEC-4 RCE.
+        # Adversarial review of this PR: the tripwire was the right idea and
+        # `.match` was the bug.
+        m2 = pat.match(rest)
+        closed = m2 is not None and _only_yaml_comment_after(rest[m2.end():])
+        if not closed:
+            out.append(ln.strip())
+    return out
+
+
 def unscannable_run_keys(text: str) -> list:
     """Lines declaring a `run` step with YAML's explicit-key form (`? run` /
     `: cmd` — see `_EXPLICIT_RUN_KEY_RE`).
@@ -402,6 +470,25 @@ class TestNoInjectionSurface(unittest.TestCase):
             "cannot be checked for untrusted-context injection (stdlib/no-PyYAML). "
             "Keep each `${{ ... }}` on one line (and prefer moving the value into "
             "an `env:` block):\n  " + "\n  ".join(offenders),
+        )
+
+    def test_no_unscannable_multiline_inline_run(self):
+        # An inline `run:` with a quoted scalar continued on later lines folds a
+        # `#` line into the command as literal content, so `run_block_lines`
+        # stopped scanning exactly where a payload would sit. Forbid the shape.
+        offenders = []
+        for path in _scanned_files():
+            for ln in unscannable_inline_runs(Path(path).read_text(encoding="utf-8")):
+                offenders.append(f"{Path(path).name}:  {ln}")
+        self.assertEqual(
+            offenders,
+            [],
+            "An inline `run:` whose QUOTED value is not closed on the same "
+            "physical line. YAML folds the continuation lines into one command "
+            "and a `#` inside the quotes is content, not a comment, so this "
+            "guard cannot scan the command for `${{ }}` injection "
+            "(stdlib/no-PyYAML). Use a block scalar (`run: |`) or keep the "
+            "value on one line:\n  " + "\n  ".join(offenders),
         )
 
     def test_no_explicit_key_run_step(self):
@@ -863,6 +950,58 @@ class TestInjectionDetectorMutation(unittest.TestCase):
                     "explicit key) was reported as an explicit-key run step.",
                 )
 
+    def test_tripwire_flags_multiline_quoted_inline_run(self):
+        # 2026-08-07 audit finding. PyYAML resolves each of these to ONE command
+        # carrying the untrusted context (`echo # … ${{ … }}`), because a `#`
+        # inside a quoted scalar is content — but `run_block_lines` breaks at the
+        # comment line, so the payload never reaches `injection_violations`.
+        for wf in (
+            'jobs:\n  j:\n    steps:\n      - run: "echo\n'
+            "          # not a comment\n"
+            "          ${{ github.event.pull_request.title }}\"\n",
+            "jobs:\n  j:\n    steps:\n      - run: 'echo\n"
+            "          # not a comment\n"
+            "          ${{ github.event.issue.title }}'\n",
+        ):
+            with self.subTest(wf=wf.splitlines()[3].strip()):
+                self.assertEqual(
+                    injection_violations(wf),
+                    [],
+                    "Precondition changed: the folded quoted scalar is now scanned "
+                    "directly — re-derive whether the shape tripwire is still the "
+                    "load-bearing check.",
+                )
+                self.assertTrue(
+                    unscannable_inline_runs(wf),
+                    "tripwire FAILED: an inline `run:` with a multi-line quoted "
+                    "scalar was not flagged, and its command is unscannable — a "
+                    "live `${{ github.event.* }}` interpolation hides there.",
+                )
+
+    def test_inline_run_tripwire_quiet_on_normal_steps(self):
+        for wf in (
+            self._UNSAFE_INLINE,
+            self._UNSAFE_BLOCK,
+            self._SAFE_ENV,
+            # Closed on the same line, in both quote styles.
+            "jobs:\n  j:\n    steps:\n      - run: \"echo hi\"\n",
+            "jobs:\n  j:\n    steps:\n      - run: 'echo hi'\n",
+            # An escaped/doubled quote inside a value that IS closed.
+            'jobs:\n  j:\n    steps:\n      - run: "echo \\"hi\\""\n',
+            "jobs:\n  j:\n    steps:\n      - run: 'echo ''hi'''\n",
+            # A plain scalar starting with a quote-free word, and a block scalar.
+            "jobs:\n  j:\n    steps:\n      - run: echo \"unbalanced\n",
+            "jobs:\n  j:\n    steps:\n      - run: |\n          echo hi\n",
+        ):
+            with self.subTest(wf=wf.splitlines()[3].strip()):
+                self.assertEqual(
+                    unscannable_inline_runs(wf),
+                    [],
+                    "tripwire false-positive: a `run:` value that is closed on its "
+                    "own line (or is not a quoted scalar at all) was reported as "
+                    "unscannable.",
+                )
+
     def test_scanned_files_covers_yaml_extension_and_composite_actions(self):
         # GitHub Actions runs `.yaml` workflows too, and a composite action's
         # `steps[].run` is shell all the same — globbing only
@@ -922,6 +1061,41 @@ class TestInjectionDetectorMutation(unittest.TestCase):
                 "(see TestNoInjectionSurface for the remediation).",
             )
 
+
+
+class TestInlineQuotedScalarPrefixBypass(unittest.TestCase):
+    """PoC from the adversarial review of #402: `.match()` is a PREFIX match, so
+    `'echo don''t forget to review` backtracked to the closed prefix `'echo don'`
+    and the tripwire declared the scalar terminated. PyYAML folds the
+    continuation into one command carrying the untrusted context."""
+
+    _POC = (
+        "      - name: Greet\n"
+        "        run: 'echo don''t forget to review\n"
+        "        ${{ github.event.pull_request.title }}'\n"
+    )
+
+    def test_doubled_quote_continuation_is_caught(self):
+        self.assertTrue(
+            unscannable_inline_runs(self._POC),
+            "a single-quoted scalar closed only as a PREFIX was read as "
+            "terminated — the folded payload never entered the haystack",
+        )
+
+    def test_closed_scalars_are_not_reported(self):
+        for ok in (
+            "        run: 'echo hello'\n",
+            "        run: 'echo hello'  # trailing comment\n",
+            "        run: 'it''s fine'\n",
+            '        run: "echo hi"\n',
+            '        run: "escaped \\" quote"\n',
+        ):
+            self.assertEqual(unscannable_inline_runs(ok), [], ok)
+
+    def test_real_workflows_have_no_hits(self):
+        for wf in _scanned_files():
+            text = Path(wf).read_text(encoding="utf-8")
+            self.assertEqual(unscannable_inline_runs(text), [], wf)
 
 if __name__ == "__main__":
     unittest.main()

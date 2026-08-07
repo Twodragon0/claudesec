@@ -110,15 +110,16 @@ single author pass misses.
    hardening primitive. Record the review date and any backlog in the catalog's
    "Unguarded invariants backlog" section.
 
-7. **The meta-guards are in audit scope, and are audited FIRST.** Four guards now
+7. **The meta-guards are in audit scope, and are audited FIRST.** Five guards now
    guard the guard suite itself. An inert meta-guard is the worst case in this
    design — every invariant it is supposed to protect silently loses its
-   backstop — so each audit pass starts here, and each of the four must carry its
+   backstop — so each audit pass starts here, and each of the five must carry its
    own mutation self-test:
 
    | Meta-guard | Protects |
    |---|---|
    | `test_ci_guard_assertion_scoping.py` | no guard makes a positive presence assertion against raw whole-file text (Decision 2), pinned by set equality against an **empty** baseline |
+   | `test_ci_strip_before_match.py` | a guard comment-strips BEFORE it matches — including when the match is a block BOUNDARY, and inside its own helpers (Decision 1 applied one layer down); empty baseline. It does **not** detect over-stripping in general: "a stripper must never remove a line containing the asserted token" is false by design, since removing a commented copy or another block's token is precisely what scoping does. Over-stripping stays a Decision-3 review obligation |
    | `test_ci_pr_trigger_scope.py` | the two REQUIRED workflows keep an unscoped `pull_request:` trigger — no `branches:` (hides the check from stacked PRs) and no `paths:`/`paths-ignore:` (the #186 permanent merge-block) |
    | `test_ci_catalog_completeness.py` | every guard file has a catalog row (HTML-comment-stripped, so a row hidden in `<!-- -->` does not count) |
    | `test_ci_catalog_no_ghost_rows.py` | every catalog-cited guard path exists on disk |

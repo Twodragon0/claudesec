@@ -59,9 +59,27 @@ def _strip_comments(text: str) -> str:
     return "\n".join(out)
 
 
+# A sibling service key: exactly 2-space indent, bare OR quoted. A quoted key
+# (`"redis":`) is the same mapping key to any YAML parser, and one that failed to
+# match here would not TERMINATE the dashboard block — the sibling's directives
+# would then satisfy the dashboard's requirements.
+_SIBLING_SERVICE_RE = re.compile(r"""^  (?:[A-Za-z0-9_.-]+|"[^"]*"|'[^']*'):\s*$""")
+
+
 def _dashboard_block(text: str) -> str:
     """Extract the `dashboard:` service block (until the next 2-space top-level
-    key at the same indent, or EOF)."""
+    key at the same indent, or EOF).
+
+    Callers MUST pass comment-stripped text (`missing_directives` does). The
+    terminator has to match a bare `  redis:` line exactly, so a trailing comment
+    on a sibling key — `  redis:  # cache sidecar` — used to slip past it and
+    merge the sibling INTO the dashboard block. Verified by mutation on the real
+    `docker-compose.yml` (2026-08-07 audit): with every hardening directive
+    deleted from the dashboard service and such a sibling added,
+    `missing_directives` returned `[]` — the guard certified an unhardened
+    service. With the sibling key written plainly it correctly reported all six.
+    Stripping first is the fix; ADR-001 §2 (strip, THEN match) applies to a block
+    boundary exactly as it does to a token."""
     lines = text.splitlines()
     start = None
     for i, line in enumerate(lines):
@@ -72,15 +90,17 @@ def _dashboard_block(text: str) -> str:
         return ""
     block = [lines[start]]
     for line in lines[start + 1:]:
-        # A sibling service starts at exactly 2-space indent + `name:`.
-        if re.match(r"^  [A-Za-z0-9_-]+:\s*$", line):
+        if _SIBLING_SERVICE_RE.match(line):
             break
         block.append(line)
     return "\n".join(block)
 
 
 def missing_directives(text: str) -> list:
-    block = _strip_comments(_dashboard_block(text))
+    # Strip BEFORE extracting: a comment must not be able to move the block
+    # boundary (see `_dashboard_block`). `_strip_comments` is idempotent, so the
+    # block needs no second pass.
+    block = _dashboard_block(_strip_comments(text))
     if not block.strip():
         return ["<no dashboard service block found>"]
     return [name for name, rx in REQUIRED.items() if not rx.search(block)]
@@ -150,6 +170,75 @@ class TestHardeningGuardSelfTest(unittest.TestCase):
         )
         self.assertNotEqual(missing_directives(leaky), [])
 
+    _LEAKY_TEMPLATE = (
+        "services:\n"
+        "  dashboard:\n"
+        "    image: x\n"
+        "{sibling}"
+        "    read_only: true\n"
+        '    cap_drop: ["ALL"]\n'
+        '    security_opt: ["no-new-privileges:true"]\n'
+        "    tmpfs:\n"
+        "      - /run\n"
+        "    mem_limit: 1m\n"
+        "    pids_limit: 1\n"
+    )
+
+    def test_commented_sibling_key_still_terminates_the_block(self):
+        # 2026-08-07 audit: the extractor ran BEFORE comment stripping, so a
+        # trailing comment on a sibling service key stopped terminating the
+        # dashboard block and the sibling's directives satisfied the dashboard's
+        # requirements. Reproduced on the real docker-compose.yml.
+        for sibling in ("  other:  # cache sidecar\n", '  "other":\n', "  'other':\n"):
+            with self.subTest(sibling=sibling.strip()):
+                leaky = self._LEAKY_TEMPLATE.format(sibling=sibling)
+                self.assertNotEqual(
+                    missing_directives(leaky),
+                    [],
+                    f"sibling key {sibling.strip()!r} failed to terminate the "
+                    "dashboard block — another service's hardening satisfied it.",
+                )
+
+
+
+class TestSiblingServiceNameGrammar(unittest.TestCase):
+    """Pin for the sibling-key terminator's character class.
+
+    Adversarial review of #402 found the widening shipped with no test: reverting
+    the `.` from the class left all 6 tests passing, so the change was worthless
+    by this suite's own bar. Compose service names are `[A-Za-z0-9._-]+`, and a
+    sibling the terminator does not recognise merges into the dashboard block —
+    its directives then satisfy the dashboard's and a fully gutted service reports
+    `missing_directives == []`."""
+
+    _GUTTED = (
+        "services:\n"
+        "  dashboard:\n"
+        "    image: nginx\n"
+        "  {sibling}\n"
+        "    read_only: true\n"
+        "    cap_drop: [ALL]\n"
+        "    security_opt: [no-new-privileges:true]\n"
+        "    mem_limit: 256m\n"
+        "    pids_limit: 100\n"
+        "    tmpfs: [/tmp]\n"
+    )
+
+    def test_sibling_names_all_terminate_the_block(self):
+        for sibling in ("redis:", '"redis":', "my.cache:", "my-cache:", "my_cache:",
+                        "redis:  # cache sidecar"):
+            missing = missing_directives(self._GUTTED.format(sibling=sibling))
+            # EXACT set, not merely non-empty. A first draft asserted truthiness
+            # and was vacuous: with the narrow class an unrecognised `my.cache:`
+            # still left ONE directive unmatched, so the weak assertion passed
+            # while five of six were silently satisfied by the sibling.
+            self.assertEqual(
+                set(missing),
+                set(REQUIRED),
+                f"sibling {sibling!r} did not terminate the dashboard block — its "
+                "hardening satisfied the dashboard's, so a gutted service reported "
+                f"only {sorted(missing)} as missing",
+            )
 
 if __name__ == "__main__":
     unittest.main()

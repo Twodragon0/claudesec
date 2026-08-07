@@ -24,6 +24,8 @@ from _ci_guard_util import (  # noqa: E402
     top_level_jobs,
 )
 
+CRITS_ANCHOR = r'\[\s*"\$CRITS"\s+-gt\s+0\s*\]\s*;\s*then'
+
 
 class TestStripInlineComment(unittest.TestCase):
     def test_strips_trailing_comment(self):
@@ -168,6 +170,7 @@ class TestStripHtmlComments(unittest.TestCase):
 
     def test_text_without_comments_is_unchanged(self):
         self.assertEqual(strip_html_comments("plain text"), "plain text")
+
 
 
 if __name__ == "__main__":

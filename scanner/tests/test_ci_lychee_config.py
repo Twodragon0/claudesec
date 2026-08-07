@@ -124,9 +124,15 @@ class TestCiLycheeConfig(unittest.TestCase):
         cls.lint_text = LINT_YML.read_text(encoding="utf-8") if LINT_YML.is_file() else ""
         cls.toml_text = LYCHEE_TOML.read_text(encoding="utf-8") if LYCHEE_TOML.is_file() else ""
         # Comments stripped so the explanatory "# ... exclude allowlist ..."
-        # comment in the job cannot satisfy/trip a token check.
-        cls.link_check_block = strip_comment_lines(
-            _extract_job_block(cls.lint_text, "link-check")
+        # comment in the job cannot satisfy/trip a token check. Stripped BEFORE
+        # the job block is cut out, not after: a comment must never be able to
+        # move a block boundary (ADR-001 §2). Inert here — this extractor's
+        # sibling-job terminator already tolerates a trailing `#` comment — but
+        # the ordering is the invariant, and `test_ci_strip_before_match.py`
+        # pins it for the whole suite after the compose extractor, which had the
+        # same shape, proved exploitable.
+        cls.link_check_block = _extract_job_block(
+            strip_comment_lines(cls.lint_text), "link-check"
         )
 
     def test_lint_yml_exists(self):

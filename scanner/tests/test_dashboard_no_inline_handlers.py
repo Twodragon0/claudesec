@@ -74,29 +74,187 @@ _SOURCE_FILES = [
 ]
 
 
+# The two elements whose bodies leave the haystack. These are the ONLY spans
+# `_strip_scripts_styles` deletes, which is what bounds its blast radius.
+_STRIPPED_ELEMENTS = ("script", "style")
+
+# Elements whose content HTML does NOT parse as markup (RCDATA / raw text), so a
+# literal `<script` inside one is text, not a tag. Listed only to SKIP — never to
+# delete — because the two directions are asymmetric: omitting an element risks
+# opening a strip region a browser would not (over-strip -> a silent miss), while
+# including one at worst leaves a real script body in the haystack (over-report ->
+# a false alarm). Obsolete `<plaintext>` is not modelled: it has no end tag, and
+# no scanned source has one.
+_TEXT_ONLY_ELEMENTS = (
+    "title",
+    "textarea",
+    "iframe",
+    "xmp",
+    "noembed",
+    "noframes",
+    "noscript",
+)
+
+# Elements whose content is scanned for an end tag rather than for markup.
+_TEXT_MODE_ELEMENTS = _STRIPPED_ELEMENTS + _TEXT_ONLY_ELEMENTS
+
+# HTML's whitespace set, plus the two other characters that terminate a tag name.
+_HTML_SPACE = " \t\n\r\f"
+_TAG_NAME_RE = re.compile(r"[a-zA-Z][^ \t\n\r\f/>]*")
+# The "appropriate end tag" rule from the HTML tokenizer's raw-text/RCDATA end
+# tag name state: the name must be followed by whitespace, `/`, or `>`.
+_END_TAG_RE = {
+    name: re.compile(r"</" + name + r"(?=[ \t\n\r\f/>])", re.IGNORECASE)
+    for name in _TEXT_MODE_ELEMENTS
+}
+
+
+class _Unparseable(Exception):
+    """Markup this tokenizer will not guess at (EOF inside a tag, an
+    unterminated attribute value). Stripping stops at that point and everything
+    from there on is kept verbatim — the over-report direction."""
+
+
+def _scan_markup_decl(text: str, i: int) -> int:
+    """Index just past the `<!`/`<?` construct at `i` (comment, doctype, bogus
+    comment). An unterminated construct runs to EOF, exactly as a browser reads
+    it. Nothing here is ever deleted, only skipped."""
+    n = len(text)
+    if text.startswith("<!--", i):
+        j = i + 4
+        if text.startswith(">", j):  # `<!-->` — abrupt-closing comment
+            return j + 1
+        if text.startswith("->", j):  # `<!--->`
+            return j + 2
+        k = text.find("-->", j)
+        return n if k < 0 else k + 3
+    k = text.find(">", i)
+    return n if k < 0 else k + 1
+
+
+def _scan_tag(text: str, i: int):
+    """Tokenize the tag starting at `text[i] == '<'`.
+
+    Returns `(end, name, is_end_tag)` with `end` just past the tag's `>`, or
+    None when `i` does not start a tag at all (a bare `<`, as in `if a < b`).
+    Raises `_Unparseable` for a tag that starts but never validly closes.
+
+    Attribute values are consumed with their quoting, which is the whole point:
+    a literal `<script` inside `title="<script>"` is a value, not a tag."""
+    n = len(text)
+    j = i + 1
+    is_end = text.startswith("/", j)
+    if is_end:
+        j += 1
+    m = _TAG_NAME_RE.match(text, j)
+    if not m:
+        return None
+    name, j = m.group(0).lower(), m.end()
+    while j < n:
+        c = text[j]
+        if c == ">":
+            return j + 1, name, is_end
+        if c in _HTML_SPACE or c == "/":
+            j += 1
+            continue
+        while j < n and text[j] not in _HTML_SPACE + "/>=":  # attribute name
+            j += 1
+        while j < n and text[j] in _HTML_SPACE:
+            j += 1
+        if j < n and text[j] == "=":
+            j += 1
+            while j < n and text[j] in _HTML_SPACE:
+                j += 1
+            if j < n and text[j] in "\"'":
+                quote, j = text[j], j + 1
+                k = text.find(quote, j)
+                if k < 0:
+                    raise _Unparseable(f"unterminated attribute value at {i}")
+                j = k + 1
+            else:
+                while j < n and text[j] not in _HTML_SPACE + ">":
+                    j += 1
+    raise _Unparseable(f"unterminated tag at {i}")
+
+
+def _element_end(text: str, start: int, name: str):
+    """Index just past the end tag of the raw-text/RCDATA element `name` whose
+    content begins at `start`, or None when it has no end tag at all.
+
+    None means "strip nothing": an unterminated `<script>` leaves its body in the
+    haystack (over-report) rather than swallowing the rest of the file, which is
+    what a browser does but is the miss direction for this guard."""
+    m = _END_TAG_RE[name].search(text, start)
+    if m is None:
+        return None
+    return _scan_tag(text, m.start())[0]
+
+
 def _strip_scripts_styles(text: str) -> str:
-    """Remove <script>/<style> blocks so JS/CSS bodies aren't scanned as attrs.
+    """Remove <script>/<style> ELEMENTS so JS/CSS bodies aren't scanned as attrs.
 
-    The end tag is matched as `</script\\b[^>]*>`, not `</script>`. HTML lets a
-    closing tag carry whitespace, a solidus, or attributes (`</script >`,
-    `</script/>`, `</script foo="a">` — browsers accept all three), and with
-    `.*?` under DOTALL a `</script>`-only pattern does not stop at any of them:
-    it runs on to the NEXT `</script>` in the document and deletes everything in
-    between. That is an over-strip, i.e. a false NEGATIVE in a guard whose whole
+    Tokenizer-based, deliberately NOT a regex. Two over-strip bugs came out of
+    the regex form, and both are silent false NEGATIVES in a guard whose whole
     job is to fail on an inline handler — markup that should have been scanned
-    silently leaves the haystack. CodeQL flags the same shape as
-    py/bad-tag-filter. No scanned source carries such an end tag today, so this
-    closed a latent gap rather than a live miss.
+    just leaves the haystack:
 
-    Residual limit, direction FALSE POSITIVE (safe): a literal `<script` inside
-    an attribute value or an HTML comment still opens a strip region here where a
-    real parser would not. That can only remove MORE text than intended, and only
-    in a file that also has a later end tag; every scanned source has at most one
-    script block today. Closing it properly needs a tokenizer — do that rather
-    than add a fourth alternation if a real case appears."""
-    text = re.sub(r"(?is)<script\b.*?</script\b[^>]*>", "", text)
-    text = re.sub(r"(?is)<style\b.*?</style\b[^>]*>", "", text)
-    return text
+      1. `<script\\b.*?</script>` under DOTALL does not stop at `</script >`,
+         `</script/>` or `</script foo="a">` (browsers accept all three as end
+         tags), so it ran on to the NEXT end tag and deleted everything between.
+         Fixed by regex in the same pass; CodeQL calls the shape py/bad-tag-filter.
+      2. A literal `<script` inside an ATTRIBUTE VALUE (`title="<script>"`) or an
+         HTML COMMENT (`<!-- <script> -->`) opened a strip region where no real
+         parser would, again deleting everything up to the next end tag. The
+         previous docstring filed this under "direction FALSE POSITIVE (safe)"
+         while describing it as removing MORE text than intended — those are
+         opposite directions, and the second one is the bypass. Only a tokenizer
+         closes it, so this is a tokenizer.
+
+    Deletion is bounded by construction: the ONLY spans removed are `<script>` /
+    `<style>` elements entered from a genuine start tag. Comments, doctypes,
+    other tags and RCDATA elements are skipped, never deleted, so a
+    mis-classification there can only leave text IN the haystack.
+
+    Failure direction is over-report everywhere:
+    - unparseable markup (EOF inside a tag, an unterminated attribute value) ->
+      stop stripping, keep the remainder verbatim;
+    - a `<script>` with no end tag -> strip nothing;
+    - script-data double-escaping (`<script>var s = "<!--<script>"; </script>`)
+      ends the span at the first `</script`, earlier than a browser would.
+    Each removes LESS than intended, which can only raise a false alarm."""
+    out, keep, i, n = [], 0, 0, len(text)
+    while i < n:
+        if text[i] != "<":
+            i += 1
+            continue
+        if text.startswith("<!", i) or text.startswith("<?", i):
+            i = _scan_markup_decl(text, i)
+            continue
+        try:
+            tag = _scan_tag(text, i)
+        except _Unparseable:
+            break
+        if tag is None:  # a bare `<`, e.g. `if a < b`
+            i += 1
+            continue
+        end, name, is_end = tag
+        if is_end or name not in _TEXT_MODE_ELEMENTS:
+            i = end
+            continue
+        try:
+            elem_end = _element_end(text, end, name)
+        except _Unparseable:
+            break
+        if elem_end is None:
+            # Unterminated: the rest of the document is this element's content,
+            # so there is nothing left to tokenize. Stop and keep it verbatim.
+            break
+        if name in _STRIPPED_ELEMENTS:
+            out.append(text[keep:i])
+            keep = elem_end
+        i = elem_end
+    out.append(text[keep:])
+    return "".join(out)
 
 
 def _strip_py_comments(text: str) -> str:
@@ -251,9 +409,136 @@ class TestStripScriptsStyles(unittest.TestCase):
             )
 
     def test_similar_tag_name_is_not_an_end_tag(self):
-        # `\b` must keep `</scriptx>` from closing a `<script>` block.
+        # `</scriptx>` must not close a `<script>` block.
         html = "<script>x=1</scriptx><button onclick='b()'>b</button></script>tail"
         self.assertEqual(_strip_scripts_styles(html), "tail")
+
+
+class TestStripScriptsStylesFalseStripRegions(unittest.TestCase):
+    """A `<script`/`<style` that is NOT a start tag must not open a strip region.
+
+    These are the shapes the regex form got wrong. Each deleted a live inline
+    handler from the haystack, so the guard reported green on a real regression —
+    an over-strip, i.e. a false NEGATIVE, not the "false positive" the old
+    docstring claimed. Verified against a real HTML tokenizer
+    (`html.parser.HTMLParser`), which reports the `<button>` as a start tag
+    carrying an `onclick` attribute in every case below.
+    """
+
+    def _assert_handler_survives(self, html, msg):
+        stripped = _strip_scripts_styles(html)
+        self.assertIsNotNone(INLINE_HANDLER_RE.search(stripped), f"{msg}: {stripped!r}")
+
+    def test_script_inside_an_attribute_value_is_not_a_tag(self):
+        self._assert_handler_survives(
+            '<div title="<script>">'
+            '<button onclick="boom()">b</button>'
+            "<script>y=2</script>",
+            "a `<script` inside a double-quoted attribute value opened a strip region",
+        )
+
+    def test_style_inside_an_attribute_value_is_not_a_tag(self):
+        self._assert_handler_survives(
+            "<div data-x='<style>'>"
+            "<button onclick='boom()'>b</button>"
+            "<style>p{}</style>",
+            "a `<style` inside a single-quoted attribute value opened a strip region",
+        )
+
+    def test_script_inside_an_html_comment_is_not_a_tag(self):
+        self._assert_handler_survives(
+            "<!-- <script> -->"
+            '<button onclick="boom()">b</button>'
+            "<script>y=2</script>",
+            "a `<script` inside an HTML comment opened a strip region",
+        )
+
+    def test_script_inside_rcdata_content_is_not_a_tag(self):
+        # `<title>`/`<textarea>` content is text, not markup, so the `<script`
+        # here never starts an element. Modelling the RCDATA elements is the safe
+        # side: omitting one risks a strip region, including one at worst leaves a
+        # real script body in the haystack.
+        self._assert_handler_survives(
+            "<title><script></title>"
+            '<button onclick="boom()">b</button>'
+            "<script>y=2</script>",
+            "a `<script` inside RCDATA content opened a strip region",
+        )
+
+    def test_attribute_value_containing_gt_does_not_end_the_tag(self):
+        # `>` inside a quoted value is data; the `<script>` after it is still the
+        # only thing removed.
+        html = '<div title="a>b"><script>x=1</script>tail'
+        self.assertEqual(_strip_scripts_styles(html), '<div title="a>b">tail')
+
+
+class TestStripScriptsStylesFailureDirection(unittest.TestCase):
+    """Re-attack on the tokenizer's OWN terms (ADR-001: a fix to this class can
+    create the class). Every residual must remove LESS than intended — an
+    over-report, i.e. a false alarm — never more."""
+
+    def test_bare_less_than_is_data_not_a_tag(self):
+        # Python sources are scanned too, and `if a < b:` is not markup.
+        html = 'if a < b:<button onclick="boom()">b</button><script>y=2</script>'
+        self.assertEqual(
+            _strip_scripts_styles(html),
+            'if a < b:<button onclick="boom()">b</button>',
+        )
+
+    def test_unterminated_script_strips_nothing(self):
+        # A browser would read the rest of the file as script body; doing that
+        # here would DELETE it, so the stripper stops instead.
+        html = '<script>x=1<button onclick="boom()">b</button>'
+        self.assertEqual(_strip_scripts_styles(html), html)
+
+    def test_unterminated_attribute_value_stops_stripping(self):
+        # Unparseable markup -> keep the remainder verbatim.
+        html = '<div title="oops><script>x=1</script><button onclick="b()">x</button>'
+        self.assertEqual(_strip_scripts_styles(html), html)
+
+    def test_abrupt_closing_comment_ends_at_the_first_gt(self):
+        # `<!-->` is a complete comment; the markup after it stays scannable.
+        html = '<!--><button onclick="boom()">b</button><script>y=2</script>'
+        self.assertEqual(_strip_scripts_styles(html), '<!--><button onclick="boom()">b</button>')
+
+    def test_cdata_marker_does_not_swallow_following_markup(self):
+        # `<![CDATA[..]]>` is a bogus comment in HTML: it ends at the first `>`.
+        html = '<![CDATA[x]]><button onclick="boom()">b</button><script>y=2</script>'
+        stripped = _strip_scripts_styles(html)
+        self.assertIsNotNone(INLINE_HANDLER_RE.search(stripped), stripped)
+
+    def test_script_data_double_escape_ends_the_span_early(self):
+        # Documented residual: after `<!--<script`, a browser does NOT end the
+        # element at the next `</script>`. Ending early removes LESS text, so the
+        # trailing markup stays scannable — an over-report, never a miss.
+        html = '<script>var s="<!--<script>";</script><button onclick="boom()">b</button>'
+        stripped = _strip_scripts_styles(html)
+        self.assertIsNotNone(INLINE_HANDLER_RE.search(stripped), stripped)
+
+    def test_uppercase_tags_are_stripped(self):
+        self.assertEqual(_strip_scripts_styles("a<SCRIPT>x=1</SCRIPT>b"), "ab")
+
+    def test_solidus_start_tag_still_opens_a_script_element(self):
+        # `<script/>` is NOT self-closing in HTML: the `/` is ignored and the
+        # element still takes raw text.
+        self.assertEqual(_strip_scripts_styles("a<script/>x=1</script>b"), "ab")
+
+    def test_real_template_script_and_style_bodies_are_removed(self):
+        # Non-vacuity canary on the REAL file. Every failure path above falls back
+        # to "strip less"; without this, a stripper that silently stopped working
+        # on dashboard-template.html would still leave this guard green.
+        text = (LIB_DIR / "dashboard-template.html").read_text(encoding="utf-8")
+        self.assertIn("addEventListener", text)  # lives only inside <script>
+        self.assertIn("font-family", text)  # lives only inside <style>
+        stripped = _strip_scripts_styles(text)
+        self.assertNotIn(
+            "addEventListener",
+            stripped,
+            "the <script> body survived stripping — the tokenizer bailed out on "
+            "the real template and the haystack is no longer what this guard thinks",
+        )
+        self.assertNotIn("font-family", stripped, "the <style> body survived stripping")
+        self.assertIn("<title>", stripped, "non-script markup must survive")
 
 
 class TestStripPyComments(unittest.TestCase):
