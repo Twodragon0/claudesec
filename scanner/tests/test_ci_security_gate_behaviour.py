@@ -80,22 +80,68 @@ _SHELL_WORDS = frozenset(
 # extractor over-captured, which is exactly how the prototype ran a web server.
 _MAX_BLOCK_LINES = 40
 
-_CRITICAL_FIXTURE = "✗ CRITICAL: hardcoded secret in examples/app/config.yml\n"
+# Taken from the shape scanner/lib/output.sh actually emits, not invented. The
+# first version used `✗ CRITICAL: …`, which matched only via the gate's
+# `✗.*critical` arm — so if the emitter ever dropped the glyph the gate would go
+# dead in production while this test stayed green (review of #404, F6).
+# `test_fixture_matches_the_real_emitter` pins the two together.
+_CRITICAL_FIXTURE = "✗ FAIL  [SEC-001] hardcoded secret in config (CRITICAL)\n"
 _CLEAN_FIXTURE = "✓ All checks passed\n"
 
 
-def extract_run_block(text: str, step_name: str):
-    """The dedented body of `step_name`'s `run: |` block, or None.
+def find_step_blocks(text: str, step_name: str) -> list:
+    """Every step block whose `- name:` value EQUALS `step_name`.
 
-    Indentation-bounded: collection stops at the first non-blank line indented at
-    or below the `run:` key's own column. A regex like `((?:[ \\t]+.*\\n|\\n)+)`
-    keeps matching past the end of the step and swallows the rest of the file.
+    Equality on the parsed value, not `in`. The first version used a substring
+    test and took the first hit, so a PRECEDING step named
+    `Check for critical/high failures (advisory preview)` shadowed the real one
+    and the suite validated the decoy while the real gate echoed a notice
+    (adversarial review of #404, F2). Duplicates are returned rather than
+    silently resolved, so the caller can refuse to guess.
     """
     lines = text.splitlines()
-    try:
-        start = next(i for i, l in enumerate(lines) if f"- name: {step_name}" in l)
-        run_i = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
-    except StopIteration:
+    out = []
+    for i, line in enumerate(lines):
+        m = re.match(r"^(\s*)-\s+name:\s*(.+?)\s*$", line)
+        if not m or m.group(2).strip("\"'") != step_name:
+            continue
+        col = line.index("- name:")
+        block = [line]
+        for nxt in lines[i + 1:]:
+            if nxt.strip() and (len(nxt) - len(nxt.lstrip())) <= col:
+                break
+            block.append(nxt)
+        out.append("\n".join(block))
+    return out
+
+
+# Literal block scalars only. A FOLDED scalar (`>`) joins lines with spaces,
+# which changes shell meaning, and any other form is unrecognised — both fail
+# closed rather than being guessed at.
+_RUN_LITERAL_RE = re.compile(r"^(\s*)run:\s*\|[+-]?\s*$")
+
+
+def extract_run_block(text: str, step_name: str):
+    """The dedented body of `step_name`'s literal `run: |` block, or None.
+
+    Scoped to the step, twice over. The first version searched FORWARD from the
+    step name for the next line equal to `run: |`, which walks straight out of
+    the step when the gate uses any other spelling. `run: |-` — semantically
+    identical for a shell step, and a one-character edit — made this return the
+    `lighthouse` job's `Serve and audit` body, so the suite really did execute
+    `python3 -m http.server 8080 &` and `npx lighthouse`: the exact prototype
+    disaster the docstring claimed was fixed (adversarial review of #404, F4).
+
+    Now: locate the step block (indentation-bounded), require exactly one, and
+    take the `run:` key from INSIDE that block. An unrecognised scalar form
+    returns None, which trips the `test_step_is_found` canary loudly.
+    """
+    blocks = find_step_blocks(text, step_name)
+    if len(blocks) != 1:
+        return None
+    lines = blocks[0].splitlines()
+    run_i = next((i for i, l in enumerate(lines) if _RUN_LITERAL_RE.match(l)), None)
+    if run_i is None:
         return None
     run_col = len(lines[run_i]) - len(lines[run_i].lstrip())
     body = []
@@ -105,10 +151,9 @@ def extract_run_block(text: str, step_name: str):
         body.append(line)
     if not body:
         return None
-    indent = min(
-        (len(l) - len(l.lstrip())) for l in body if l.strip()
-    )
+    indent = min((len(l) - len(l.lstrip())) for l in body if l.strip())
     return "\n".join(l[indent:] if l.strip() else "" for l in body).rstrip() + "\n"
+
 
 
 def step_block(text: str, step_name: str):
@@ -136,6 +181,14 @@ def step_block(text: str, step_name: str):
 
 # A step-level `if:` key. Matched bare or quoted, per the repo's YAML-shape rule.
 _STEP_IF_RE = re.compile(r"""(?m)^\s{8}(?:if|"if"|'if')\s*:""")
+
+# `continue-on-error: true` makes the step's exit code irrelevant — the job
+# concludes success anyway. Zero enforcement of this key exists anywhere in the
+# repo today and it is already used in dast-full-scan.yml, dast-baseline.yml and
+# lint.yml, so adding it to the gate would read as routine (review of #404, F1).
+_STEP_COE_RE = re.compile(
+    r"""(?m)^\s{8}(?:continue-on-error|"continue-on-error"|'continue-on-error')\s*:\s*(\S+)"""
+)
 
 
 def _split_statements(script: str) -> list:
@@ -199,11 +252,33 @@ def unexpected_commands(script: str) -> list:
     return sorted(set(found))
 
 
+class UnvettedCommand(RuntimeError):
+    """Raised INSTEAD of executing a script containing a non-allowlisted word."""
+
+
 def run_gate(script: str, scan_output: str):
-    """Execute `script` in a throwaway cwd holding `scan-output.txt`."""
+    """Execute `script` in a throwaway cwd holding `scan-output.txt`.
+
+    The allowlist is enforced HERE, as a precondition. It used to be only a
+    separate assertion (`test_only_allowlisted_commands`), so it stopped nothing:
+    under `python3 -m unittest` the alphabetically earlier
+    `test_critical_finding_fails_the_build` ran first and executed whatever had
+    been extracted. Combined with the extraction hijack that meant a foreign
+    `run:` body really did execute — the PR body called this guardrail
+    "aborts before running anything" while the code did not (adversarial review
+    of #404, F4). Now it does."""
+    bad = unexpected_commands(script)
+    if bad:
+        raise UnvettedCommand(
+            f"refusing to execute: {bad} not in _ALLOWED_COMMANDS. "
+            "Review the command, then add it to the allowlist."
+        )
     with tempfile.TemporaryDirectory() as d:
         Path(d, "scan-output.txt").write_text(scan_output, encoding="utf-8")
         Path(d, "gate.sh").write_text(script, encoding="utf-8")
+        # Minimal env: the gate needs none of the parent's ~850 chars of
+        # HOME/PATH/etc, and a leaked credential in the environment has no
+        # business inside a script read out of a workflow file.
         return subprocess.run(
             ["bash", "gate.sh"],
             cwd=d,
@@ -211,6 +286,7 @@ def run_gate(script: str, scan_output: str):
             text=True,
             stdin=subprocess.DEVNULL,
             timeout=30,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C.UTF-8"},
         )
 
 
@@ -277,6 +353,22 @@ class TestSecurityGateBehaviour(unittest.TestCase):
             + block[m.start():m.start() + 60].strip() if m else "",
         )
 
+    def test_gate_step_does_not_swallow_its_exit_code(self):
+        """`continue-on-error: true` would make the gate's `exit 1` irrelevant.
+
+        Invisible to an executor — the exit code is discarded by the RUNNER, not
+        by the script — so this needs its own workflow-level assertion, exactly
+        like the step-level `if:` above."""
+        block = step_block(self.text, STEP_NAME)
+        self.assertIsNotNone(block, f"step {STEP_NAME!r} not found or ambiguous")
+        m = _STEP_COE_RE.search(block)
+        self.assertIsNone(
+            m,
+            "the severity-gate step now sets `continue-on-error` — its `exit 1` "
+            "would be discarded and the job would conclude success on a CRITICAL, "
+            "while this suite stays green because the script itself is unchanged.",
+        )
+
     def test_critical_finding_fails_the_build(self):
         r = run_gate(self.script, _CRITICAL_FIXTURE)
         self.assertNotEqual(
@@ -285,6 +377,30 @@ class TestSecurityGateBehaviour(unittest.TestCase):
             "the severity gate exited 0 on a CRITICAL finding — a critical no "
             "longer blocks the merge.\n"
             f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}",
+        )
+
+    def test_fixture_matches_the_real_emitter(self):
+        """The fixture must look like what the scanner really prints.
+
+        Without this the gate's grep pattern and the emitter can drift apart:
+        the gate stops matching real output (dead in production) while the
+        synthetic fixture keeps it green."""
+        emitter = REPO_ROOT / "scanner" / "lib" / "output.sh"
+        self.assertTrue(emitter.is_file(), f"{emitter} not found")
+        # Comment-stripped, line-anchored: a `#`-commented mention of the shape
+        # must not satisfy this. Caught by the repo's own
+        # test_ci_guard_assertion_scoping meta-guard on the first draft, which
+        # asserted against the raw file text — the inert-assertion class.
+        active = "\n".join(
+            l for l in emitter.read_text(encoding="utf-8").splitlines()
+            if not l.lstrip().startswith("#")
+        )
+        self.assertRegex(
+            active,
+            r"(?m)^.*✗ FAIL",
+            "scanner/lib/output.sh no longer emits the `✗ FAIL` shape this "
+            "fixture imitates — re-derive _CRITICAL_FIXTURE from the emitter and "
+            "confirm the gate's grep pattern still matches it.",
         )
 
     def test_clean_scan_passes(self):
@@ -310,6 +426,13 @@ class TestGateBehaviourDetector(unittest.TestCase):
     _GATE_RE = r'if \[ "\$CRITS" -gt 0 \]; then\n(?:.*\n)*?fi\n'
 
     def _assert_caught(self, mutant, why):
+        # No-op guard on EVERY mutation, not just the first. Without it a
+        # `str.replace` that silently matches nothing asserts on the UNMUTATED
+        # script, which is vacuously green whenever the gate is already dead
+        # (review of #404, F7).
+        self.assertNotEqual(
+            mutant, self.script, "mutation did not apply — the test is vacuous: " + why
+        )
         self.assertEqual(
             run_gate(mutant, _CRITICAL_FIXTURE).returncode, 0,
             "the mutation was supposed to disable the gate but did not: " + why,
