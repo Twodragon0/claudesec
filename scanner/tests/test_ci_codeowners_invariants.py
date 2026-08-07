@@ -34,6 +34,13 @@ strings and verifies:
 
 stdlib-only (no PyYAML, no third-party deps). No network, no subprocess.
 Runs under pytest (the CI runner) and `python3 -m unittest`.
+
+NOTE (branch-protection change): `require_code_owner_reviews` is now FALSE,
+so an unowned path no longer BLOCKS a merge — CODEOWNERS drives reviewer
+AUTO-REQUEST only. This guard is still worth keeping: an owner-less pattern
+means nobody is even notified, and the setting is expected to go back to
+true the moment a second person gets write access. See
+scripts/sync-repo-protection.sh for the rationale and the revisit trigger.
 """
 
 import re

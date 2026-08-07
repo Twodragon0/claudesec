@@ -43,12 +43,36 @@ DESIRED_STRICT="true"
 DESIRED_CONTEXTS='["Lint","Security Scan Gate"]'
 
 # Required pull-request reviews ──────────────────────────────────────────────
-# require_code_owner_reviews=true: any path touched needs a CODEOWNERS match.
-# required_approving_review_count=0: bot-only PRs (Dependabot, auto-merge) can
-#   merge without a human approval count, relying solely on CODEOWNERS gating.
+# require_code_owner_reviews=FALSE, and this is the deliberate value.
+#
+# With required_approving_review_count=0, the ONLY thing code-owner review
+# enforced was a manual approval on PRs not authored by the sole code owner —
+# i.e. Dependabot's. Measured across all 16 Dependabot PRs: every merged one
+# carries a `Twodragon0` APPROVED review, and #388 (the one without) sat
+# `BLOCKED` with 22/22 checks green, zero conflicts and `mergeable: MERGEABLE`
+# until it was closed and reapplied by hand as #400. Meanwhile the owner's own
+# PRs merge with no review at all (#398, #400 — `reviewDecision` is empty on
+# both, because the count is 0), so the setting bought no review that was not
+# already optional.
+#
+# What still gates a merge, unchanged: the two required contexts below (Lint,
+# Security Scan Gate), strict up-to-date-branch, enforce_admins, and the
+# `test_ci_*` config-regression guard suite.
+#
+# What this does NOT open up: an outside contributor's PR comes from a fork and
+# nobody but a write-holder can merge it, and `dependabot-auto-merge.yml`'s fork
+# guard (`head.repo.full_name == github.repository`) keeps a fork PR from ever
+# being auto-armed. CODEOWNERS itself stays in place and still auto-requests the
+# owner as a reviewer — it just no longer BLOCKS.
+#
+# Revisit trigger: the moment a second person gets write access, this should go
+# back to "true" with a non-zero approving count. A lone maintainer approving
+# their own work is theatre; two people reviewing each other is not.
+#
+# required_approving_review_count=0: no numeric approval requirement.
 # dismiss_stale_reviews=false: avoids blocking auto-merge on trivial rebases.
-# require_last_push_approval=false: last-push rule unnecessary given CODEOWNERS.
-DESIRED_CODE_OWNER_REVIEWS="true"
+# require_last_push_approval=false: no approval to dismiss, so the rule is moot.
+DESIRED_CODE_OWNER_REVIEWS="false"
 DESIRED_APPROVING_COUNT="0"
 DESIRED_DISMISS_STALE="false"
 DESIRED_LAST_PUSH_APPROVAL="false"
