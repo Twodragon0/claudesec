@@ -123,8 +123,16 @@ KNOWN_STRIP_ORDER_EXCEPTIONS = frozenset(
         # `run:` block and EXECUTE it against a fixture containing a CRITICAL,
         # asserting a non-zero exit. A prototype closes all of the above AND the
         # three reachability shapes no line scanner can reach (`if false; then`,
-        # an unreachable `elif`, `case … never) exit 1`). Remove this entry when
-        # that lands.
+        # an unreachable `elif`, `case … never) exit 1`).
+        #
+        # STATUS: the behavioural replacement HAS landed —
+        # `test_ci_security_gate_behaviour.py` extracts the gate's `run:` block and
+        # EXECUTES it against a CRITICAL fixture, so the INVARIANT (a critical
+        # blocks the merge) is now proven by a check with nothing to evade. This
+        # entry stays because the strip-order defect in `conditional_body_from`
+        # itself is still there — its `exit 1` assertion is now belt-and-braces,
+        # no longer the only proof. Remove this entry (and probably that
+        # assertion) when the text guard is trimmed to what it uniquely covers.
         "test_ci_security_gate.py:53:match-on-raw-param",
     }
 )
