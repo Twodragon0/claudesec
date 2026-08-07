@@ -1,5 +1,25 @@
-defusedxml>=0.7.1
-pytest>=9.1.1
-pytest-cov>=7.1.0
-requests>=2.34.2
-Pillow>=12.3.0
+# Dependencies for the CI test jobs (`scanner-unit-tests`, `pip-audit`, kcov).
+#
+# WHY EXACT PINS (`==`, not `>=`)
+#   A `>=` floor is resolved at job time, so a release published between two runs
+#   enters CI with no review — the same defect already documented for the
+#   `pyyaml>=6.0,<7` range in requirements-fork-guard.txt.
+#
+#   It also leaves GitHub's dependency graph unable to record a version. Before
+#   this file was pinned the repository SBOM carried bare `pkg:pypi/pytest`,
+#   `pkg:pypi/requests`, `pkg:pypi/pillow` ... entries with no `@version`, while
+#   the one pinned dependency in the repo appeared as `pkg:pypi/pyyaml@6.0.3`.
+#   An entry with no version has nothing for a security advisory to match on.
+#
+#   Upgrades still arrive automatically: `.github/dependabot.yml` runs the `pip`
+#   ecosystem on `/` weekly and groups them into one PR, so a pin is a reviewable
+#   diff rather than a maintenance burden.
+#
+# GUARD
+#   scanner/tests/test_ci_requirements_pinned.py fails if any requirement here
+#   loses its `==` pin.
+defusedxml==0.7.1
+pytest==9.1.1
+pytest-cov==7.1.0
+requests==2.34.2
+Pillow==12.3.0

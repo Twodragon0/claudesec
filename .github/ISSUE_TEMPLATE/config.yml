@@ -1,0 +1,28 @@
+# Issue template chooser.
+#
+# The load-bearing entry is the first contact link. SECURITY.md says "do not open
+# a public GitHub issue for security vulnerabilities", but until this file
+# existed the chooser offered no alternative at the point of decision. Surfacing
+# the private advisory form here is what makes that policy actionable (private
+# vulnerability reporting is enabled on this repository, so the link resolves for
+# any signed-in GitHub user).
+#
+# blank_issues_enabled stays TRUE deliberately. Disabling it was tried and
+# reverted: the two templates hardcode `labels: bug` / `labels: enhancement`, so
+# with the blank button gone there is no route left for the low-severity
+# `security`-labelled issue that SECURITY.md explicitly invites, nor for a plain
+# question — Discussions are off, and all three contact links below are read-only
+# destinations. Removing paths is not a community-standards improvement.
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/Twodragon0/claudesec/security/advisories/new
+    about: >-
+      Do NOT open a public issue for a vulnerability. Use GitHub's private
+      advisory form; see SECURITY.md for the disclosure policy and SLAs.
+  - name: Documentation
+    url: https://twodragon0.github.io/claudesec/
+    about: Guides, compliance mappings, and scanner reference before filing.
+  - name: Contributing guide
+    url: https://github.com/Twodragon0/claudesec/blob/main/CONTRIBUTING.md
+    about: Setup, local validation commands, and the PR workflow.
