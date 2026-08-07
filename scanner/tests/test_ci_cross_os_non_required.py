@@ -27,8 +27,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
+    explicit_key_lines,
     strip_comment_lines,
     strip_inline_comment,
+    yaml_key_pattern,
 )
 
 # scanner/tests/this_file -> parents[2] == repo root
@@ -55,7 +57,12 @@ _OS_RUNNER_RE = re.compile(r"\b(?:macos|windows)-[a-z0-9.]+\b", re.IGNORECASE)
 # context is the only way to exclude them without also dropping real `<os>-<ver>`
 # labels, since a charset like `windows-1252` is indistinguishable by shape from a
 # version like `windows-2022` (ADR-001 §2 false-positive finding).
-_RUNNER_KEY_RE = re.compile(r"^(\s*)(?:runs-on|os)\s*:(.*)$")
+# The `runs-on:`/`os:` key is read bare OR quoted: `"runs-on": macos-14` selects
+# the same runner, and the bare-only regex let it become a REQUIRED merge gate
+# with this guard green (2026-08-06 sweep). See yaml_key_pattern.
+_RUNNER_KEY_RE = re.compile(
+    rf"^(\s*)(?:{yaml_key_pattern('runs-on')}|{yaml_key_pattern('os')})\s*:(.*)$"
+)
 _LIST_ITEM_RE = re.compile(r"^(\s*)-\s*(.+)$")
 
 # Required branch-protection contexts a cross-OS job name must NOT collide with.
@@ -157,11 +164,20 @@ class TestCrossOsWorkflowNonRequired(unittest.TestCase):
         # ("Lint" or "Security Scan Gate") would let it masquerade as a required
         # check — both must be checked (the audit found "Lint" was omitted).
         for ctx in REQUIRED_CONTEXTS:
+            # Key AND value may be quoted — `"name": "Lint"` is the same display
+            # name, so a bare-only pattern let the masquerade through.
             self.assertNotRegex(
                 self.cross,
-                rf"(?m)^\s*name:\s*{re.escape(ctx)}\s*$",
+                rf"""(?m)^\s*{yaml_key_pattern('name')}\s*:\s*["']?{re.escape(ctx)}["']?\s*$""",
                 f"A cross-OS job is named '{ctx}', colliding with a required "
                 "branch-protection context. Rename it.",
+            )
+            self.assertEqual(
+                explicit_key_lines(self.cross, "name", "runs-on"),
+                [],
+                "A `name:`/`runs-on:` key in cross-os-checks.yml uses YAML's "
+                "explicit-key form (`? key` / `: value`), which no matcher here "
+                "can read. Use the ordinary `key: value` form.",
             )
 
 

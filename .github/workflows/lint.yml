@@ -11,6 +11,28 @@ on:
   # targeting `main` are unaffected, so the required contexts always
   # report. Pinned by scanner/tests/test_ci_pr_trigger_scope.py.
   pull_request:
+  # Weekly revalidation. SEVEN jobs below carry
+  # `|| github.event_name == 'schedule'` as their escape hatch from the `changes`
+  # path gate — and that arm could never evaluate true, because this workflow had
+  # no `schedule:` trigger at all (verified: 1118 historical runs, 654
+  # pull_request + 464 push, zero schedule). The consequence was measured:
+  # `npm-audit` had ZERO real executions for ~7 weeks / 117 main commits (its
+  # bucket, `package*.json`/`.nvmrc`, was last touched in e5b9bbb), and
+  # `pip-audit` was likewise dark until a requirements edit finally fired it and
+  # it failed immediately on accumulated tool-cache drift (setuptools
+  # PYSEC-2026-3447). A path gate is not a schedule: without this trigger, an
+  # advisory disclosed against a locked dependency tree is caught only when
+  # someone happens to edit that tree.
+  #
+  # Wednesday 05:00 UTC — off the existing cron slots (06:00 Mon cross-os,
+  # 09:00 Mon security-scan, 06:00/06:30 daily lighthouse/provenance) so the
+  # weekly full run does not pile onto another job's window.
+  #
+  # Merge safety: adding a trigger cannot block a merge. Required contexts are
+  # evaluated per-commit on pull requests, which are unaffected; this only adds
+  # runs on a schedule. Pinned by scanner/tests/test_ci_dead_schedule_arm.py.
+  schedule:
+    - cron: '0 5 * * 3'
 
 permissions:
   contents: read
@@ -132,8 +154,21 @@ jobs:
         run: |
           # Upgrade pip first to clear CVE-2026-6357 (fix in pip 26.1)
           python3 -m pip install --upgrade 'pip>=26.1'
+          # setuptools from the runner's tool cache (79.0.1) carries
+          # PYSEC-2026-3447 — MANIFEST.in exclusions match without Unicode
+          # normalization, so an NFD filename can slip into a published sdist.
+          # Not reachable here (this repo builds no sdist), but `--strict` fails on
+          # any known vuln in the audited environment and a fix version exists, so
+          # upgrade rather than suppress. This surfaced only when the audit's
+          # `requirements.*\.txt` path gate finally fired: pip-audit was `skipped`
+          # on every recent run, so the environment had drifted unnoticed.
+          python3 -m pip install --upgrade 'setuptools>=83.0.0'
           python3 -m pip install --upgrade pip-audit
           python3 -m pip install -r requirements-ci.txt
+          # Bring the workflow-fork-guard job's pinned PyYAML into the audited
+          # environment — it used to be installed only in that job, where nothing
+          # ever audited it.
+          python3 -m pip install -r requirements-fork-guard.txt
       - name: Run pip-audit
         # CVE-2026-4539: pygments <=2.19.2 local ReDoS — no fix available yet
         # CVE-2026-3219: pip 26.0.1 tar+ZIP confusion — no fix version published yet
@@ -604,7 +639,11 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install PyYAML
-        run: pip install --no-deps 'pyyaml>=6.0,<7'
+        # Exact pin lives in requirements-fork-guard.txt (kept out of
+        # requirements-ci.txt on purpose — see that file's header) so the version
+        # is a reviewable diff, Dependabot tracks it, and the `pip-audit` job
+        # covers it. Was `'pyyaml>=6.0,<7'`: a floating range resolved at job time.
+        run: python3 -m pip install --no-deps -r requirements-fork-guard.txt
       - name: Audit pull_request_target workflows for fork-guard
         run: python3 scripts/check-pull-request-target-guard.py
 

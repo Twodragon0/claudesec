@@ -37,9 +37,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
+    explicit_key_lines,
     extract_on_block,
     non_comment_lines,
     strip_inline_comment as _strip_comment,
+    yaml_key_pattern,
 )
 
 # scanner/tests/this_file -> parents[2] == repo root
@@ -99,11 +101,22 @@ class TestProvenanceVerifyWorkflow(unittest.TestCase):
         )
 
     def test_no_pull_request_trigger(self):
+        # The key is matched bare OR quoted: `"pull_request_target":` resolves to
+        # the same trigger, and an adversarial sweep proved the bare-only regex let
+        # it back in with this guard green — on a workflow whose whole point is
+        # release-attestation integrity.
+        pr_key = yaml_key_pattern("pull_request")
+        prt_key = yaml_key_pattern("pull_request_target")
         offenders = [
             ln.strip()
             for ln in self.text.splitlines()
-            if re.match(r"\s*pull_request(_target)?:", _strip_comment(ln))
+            if re.match(rf"\s*(?:{pr_key}|{prt_key}):", _strip_comment(ln))
         ]
+        # ...and fail closed on the explicit-key form, where the literal
+        # `pull_request_target:` never appears for any matcher to find.
+        offenders += explicit_key_lines(
+            self.text, "pull_request", "pull_request_target"
+        )
         self.assertEqual(
             offenders,
             [],
@@ -202,6 +215,43 @@ class TestAuditSignaturesInvocationScoping(unittest.TestCase):
             audit_signatures_invoked(gutted),
             "Inert-guard regression: a workflow that only MENTIONS the command "
             "must not satisfy the invocation check.",
+        )
+
+
+class TestTriggerKeyQuotingMutation(unittest.TestCase):
+    """Non-vacuity for the 2026-08-06 sweep fix: a quoted or explicit-key
+    `pull_request_target:` must be caught. Before it, both forms re-added a
+    write-token PR trigger to the release-attestation workflow, guard green."""
+
+    def _offenders(self, text):
+        pr_key = yaml_key_pattern("pull_request")
+        prt_key = yaml_key_pattern("pull_request_target")
+        found = [
+            ln.strip()
+            for ln in text.splitlines()
+            if re.match(rf"\s*(?:{pr_key}|{prt_key}):", _strip_comment(ln))
+        ]
+        return found + explicit_key_lines(text, "pull_request", "pull_request_target")
+
+    def test_fires_on_quoted_and_explicit_pr_triggers(self):
+        for body in (
+            '  "pull_request_target":\n    types: [opened]',
+            "  'pull_request':\n    branches: [main]",
+            "  ? pull_request_target\n  : {types: [opened]}",
+            "  pull_request_target:\n    types: [opened]",
+        ):
+            with self.subTest(body=body.splitlines()[0].strip()):
+                self.assertTrue(
+                    self._offenders("on:\n" + body + "\njobs: {}"),
+                    "Mutation FAILED: a quoted/explicit `pull_request(_target)` "
+                    "trigger evaded the scan on the provenance workflow.",
+                )
+
+    def test_quiet_on_the_real_workflow_and_on_comments(self):
+        self.assertEqual(
+            self._offenders("on:\n  # pull_request_target: not a real trigger\n  push:\n"),
+            [],
+            "False positive: a commented-out trigger was reported as live.",
         )
 
 

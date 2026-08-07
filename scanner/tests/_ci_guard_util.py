@@ -38,6 +38,87 @@ root):
 """
 
 import re
+from glob import glob
+from pathlib import Path
+
+# scanner/tests/this_file -> parents[2] == repo root
+REPO_ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
+ACTION_DIR = REPO_ROOT / ".github" / "actions"
+
+
+def yaml_key_pattern(key: str) -> str:
+    """A regex FRAGMENT matching a YAML mapping key `key` bare OR quoted.
+
+    `"uses": x` and `'uses': x` resolve to the identical document as `uses: x`
+    (verified against PyYAML), so a matcher that hard-requires the bare form is
+    bypassable by a *standard* authoring style — not a contrived evasion. The
+    ecosystem proves it: bare `on:` resolves to the YAML-1.1 boolean `True`, which
+    is exactly why GitHub's own docs normalize `"on":`.
+
+    A guard-wide sweep (2026-08-06) found EIGHT guards blind to this in matchers
+    for `uses:`, `branches:`, `pull_request_target:`, `runs-on:`, `name:` and job
+    keys — each verified green while its control was gone. Compose this fragment
+    instead of writing `key\\s*:` so the ninth guard cannot repeat it.
+
+    Returns a non-capturing group, safe to embed in a larger pattern."""
+    k = re.escape(key)
+    return rf'(?:{k}|"{k}"|\'{k}\')'
+
+
+_EXPLICIT_KEY_RE_CACHE = {}
+
+
+def explicit_key_lines(text: str, *keys: str) -> list:
+    """Stripped lines where one of `keys` is declared with YAML's EXPLICIT-key
+    form (`? key` on one line, `: value` on the next).
+
+    That form yields the same mapping key while the substring `key:` never appears
+    anywhere, so no line matcher can reach the value — it is *unscannable*, not
+    merely unmatched. Guards therefore FAIL CLOSED on the shape (the tripwire
+    pattern established by `unscannable_run_keys` in
+    `test_ci_injection_surface.py`, ADR-001 §4: prefer a rule complete by
+    construction over an incomplete reassembler). Remediation is always available
+    and trivial — write the ordinary `key: value` form.
+
+    Matches `? key`, `? "key"`, `? key  # comment`, and the single-line
+    `? key : value`."""
+    out = []
+    for key in keys:
+        pat = _EXPLICIT_KEY_RE_CACHE.get(key)
+        if pat is None:
+            pat = re.compile(
+                rf"^\s*(?:-\s+)?\?\s*{yaml_key_pattern(key)}\s*(?::|$|#)"
+            )
+            _EXPLICIT_KEY_RE_CACHE[key] = pat
+        out += [ln.strip() for ln in text.splitlines() if pat.match(ln)]
+    return out
+
+
+def workflow_and_action_files() -> list:
+    """Every file whose contents GitHub Actions executes as a workflow or a
+    composite action, sorted.
+
+    Two enumeration gaps, both SILENT (a whole file simply never scanned, so the
+    guard passed vacuously over it) and both found by adversarial review:
+
+    - Actions honours `.yaml` as well as `.yml`, so an `evil.yaml` workflow was
+      invisible to every guard globbing `*.yml`.
+    - `.github/actions/<name>/action.yml` (`runs.using: composite`) carries
+      `steps[].uses` and `steps[].run` exactly like a workflow, and required
+      workflows call them — yet no guard globbed that directory at all. A
+      tag-pinned `uses:` planted there defeated the SHA-pin check with the suite
+      green.
+
+    Composite actions are matched by their two canonical entrypoint names only
+    (the names Actions resolves), so an unrelated helper YAML in that directory is
+    not mistaken for executable workflow content."""
+    out = []
+    for name in ("*.yml", "*.yaml"):
+        out += glob(str(WORKFLOW_DIR / name))
+    for name in ("action.yml", "action.yaml"):
+        out += glob(str(ACTION_DIR / "**" / name), recursive=True)
+    return sorted(out)
 
 
 def non_comment_lines(text: str) -> list:
@@ -180,22 +261,36 @@ def strip_html_comments(text: str) -> str:
     return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
 
 
+_JOB_KEY_RE = re.compile(r"""^  (?:"([A-Za-z0-9_-]+)"|'([A-Za-z0-9_-]+)'|([A-Za-z0-9_-]+)):\s*$""")
+
+
 def top_level_jobs(text: str) -> list:
     """The job keys under a workflow's top-level `jobs:` map (2-space-indented
     `name:` lines), in document order. Stops at the dedent to the next top-level
     key, and strips trailing inline comments so `build:  # x` still matches.
-    Returns a list; callers wrap in `set()` where set semantics are needed."""
+    Returns a list; callers wrap in `set()` where set semantics are needed.
+
+    The job key is read bare OR quoted (`"rogue":`). A quoted key used to be
+    invisible here, which mattered because the consumer
+    (`test_ci_gate_topology.test_every_job_is_gated_or_allowlisted`) asserts every
+    job is in `lint-gate.needs` — so a quoted job was hidden from BOTH branch
+    protection and the guard meant to notice that. Verified: the guard read green
+    with an ungated `"rogue":` job present.
+
+    Also reads the `jobs:` header bare or quoted, since a quoted `"jobs":` would
+    otherwise skip the whole scan and return [] — an empty job list satisfies an
+    "every job is gated" check vacuously."""
     jobs, in_jobs = [], False
     for raw in text.splitlines():
-        if re.match(r"^jobs:\s*$", raw):
+        if re.match(rf"^{yaml_key_pattern('jobs')}:\s*$", raw):
             in_jobs = True
             continue
         if in_jobs:
             if re.match(r"^\S", raw):  # dedent back to a top-level key
                 break
-            m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", strip_inline_comment(raw))
+            m = _JOB_KEY_RE.match(strip_inline_comment(raw))
             if m:
-                jobs.append(m.group(1))
+                jobs.append(m.group(1) or m.group(2) or m.group(3))
     return jobs
 
 
