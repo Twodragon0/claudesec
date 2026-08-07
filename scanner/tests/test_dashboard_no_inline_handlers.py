@@ -9,9 +9,27 @@ through the document-level event-delegation dispatchers in
 `dashboard-template.html`, keyed on `data-action` / `data-change` / `data-input`.
 This guard fails loudly if an inline handler is reintroduced, in either:
 
-  1. the builder SOURCE (`scanner/lib/dashboard*.{py,html}`), or
+  1. the builder SOURCE (`scanner/lib/dashboard*.{py,html}` plus the repo-root
+     `claudesec-asset-dashboard.html`), or
   2. the rendered markup of the builders that previously carried handlers
      (audit-points / MS+SaaS sources / OWASP expanders).
+
+`claudesec-asset-dashboard.html` is the ISMS asset dashboard: a checked-in
+TEMPLATE that `scripts/build-dashboard.py` reads and injects data into (it is not
+generated output). It ships the SAME strict meta-CSP and the same `data-action`
+delegation model, so an inline handler in it is just as dead — but it lives at the
+repo ROOT, not under `scanner/lib/`, and was outside this scan entirely. Sources
+are therefore carried as repo-relative paths rather than bare `scanner/lib/` names.
+
+SCOPE BOUNDARY, stated so nobody over-trusts this file: `_strip_scripts_styles`
+removes `<script>` bodies, so for the two `.html` sources this guard only sees
+STATIC markup. The asset dashboard builds nearly all of its markup as JS strings
+INSIDE its one script block, which this scan therefore cannot see. Regexing a JS
+body for `on…="` needs a comment/string-aware tokenizer to avoid false positives
+(its own source comment mentions `<img onerror>` in prose), so that half is
+covered empirically instead: `scanner/tests/asset-dashboard-assertions.js` walks
+the fully-rendered DOM in headless Chrome and fails on ANY element carrying an
+`on*` attribute — which catches runtime-generated handlers this scan cannot.
 
 stdlib-only. No network. Passes under pytest and `python3 -m unittest`.
 
@@ -37,18 +55,22 @@ sys.path.insert(0, str(LIB_DIR))
 # no `=` after the handler name so it never matches either.
 INLINE_HANDLER_RE = re.compile(r"""\son[a-z]+\s*=\s*["']""", re.IGNORECASE)
 
-# Every builder source that emits dashboard markup.
+# Every source that emits dashboard markup, as a REPO-RELATIVE path. Repo-relative
+# (not bare names resolved under LIB_DIR) so the repo-root asset dashboard can be
+# scanned by the same rule instead of needing a `../..` escape hatch.
 _SOURCE_FILES = [
-    "dashboard-template.html",
-    "dashboard-gen.py",
-    "dashboard_html_overview.py",
-    "dashboard_html_arch.py",
-    "dashboard_html_owasp.py",
-    "dashboard_html_compliance.py",
-    "dashboard_html_builders.py",
-    "dashboard_html_sections.py",
-    "dashboard_html_audit_points.py",
-    "dashboard_html_audit_sources.py",
+    "scanner/lib/dashboard-template.html",
+    "scanner/lib/dashboard-gen.py",
+    "scanner/lib/dashboard_html_overview.py",
+    "scanner/lib/dashboard_html_arch.py",
+    "scanner/lib/dashboard_html_owasp.py",
+    "scanner/lib/dashboard_html_compliance.py",
+    "scanner/lib/dashboard_html_builders.py",
+    "scanner/lib/dashboard_html_sections.py",
+    "scanner/lib/dashboard_html_audit_points.py",
+    "scanner/lib/dashboard_html_audit_sources.py",
+    # ISMS asset dashboard: repo-root template, same CSP, same delegation model.
+    "claudesec-asset-dashboard.html",
 ]
 
 
@@ -273,7 +295,7 @@ class TestStripPyComments(unittest.TestCase):
         for name in _SOURCE_FILES:
             if not name.endswith(".py"):
                 continue
-            scan = _scannable(name, (LIB_DIR / name).read_text(encoding="utf-8"))
+            scan = _scannable(name, (REPO_ROOT / name).read_text(encoding="utf-8"))
             seen += scan.count('href="#"')
         self.assertGreater(
             seen,
@@ -287,7 +309,7 @@ class TestNoInlineHandlersInSource(unittest.TestCase):
     def test_no_inline_handlers_in_builder_sources(self):
         offenders = []
         for name in _SOURCE_FILES:
-            path = LIB_DIR / name
+            path = REPO_ROOT / name
             self.assertTrue(path.is_file(), f"builder source missing: {path}")
             scan = _scannable(name, path.read_text(encoding="utf-8"))
             for m in INLINE_HANDLER_RE.finditer(scan):
@@ -344,7 +366,7 @@ class TestNoInlineHandlersInRenderedMarkup(unittest.TestCase):
 # Bare test_* functions so pytest function-collection also runs the core checks.
 def test_source_has_no_inline_handlers():
     for name in _SOURCE_FILES:
-        scan = _scannable(name, (LIB_DIR / name).read_text(encoding="utf-8"))
+        scan = _scannable(name, (REPO_ROOT / name).read_text(encoding="utf-8"))
         assert not INLINE_HANDLER_RE.search(scan), f"inline handler in {name}"
 
 
