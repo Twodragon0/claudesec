@@ -333,35 +333,50 @@
     rec("sortKeyPins", failures.length === 0, failures.length ? failures.join(" | ") : "10 key shapes pinned");
   })();
 
-  /* ── sortKey inertness: the DOMParser document must run no script and fetch no
-        subresource. `must-not-load` is the runner's forbidden-request sentinel —
-        dashboard-control-liveness.mjs fails the run if that URL is ever requested,
-        which covers the half of the claim a page-side flag cannot see (an <img>
-        that issues a request but never runs script). ───────────────────────── */
+  /* ── sortKey inertness: the DOMParser document must fetch no subresource.
+        This assertion feeds sortKey() an <img> whose URL carries the runner's
+        `must-not-load` sentinel; dashboard-control-liveness.mjs watches every
+        Network.requestWillBeSent and fails the run if it is ever requested.
+
+        NO page-side flag here, deliberately. The first version also set
+        `window.__sortKeyPwned` from an `onerror` handler and asserted it was
+        false — which it always is: `onerror` fires asynchronously and the
+        assertion reads it on the very next synchronous line. Reverting sortKey()
+        to a live `div.innerHTML` container still printed
+        `PASS: sortKeyInert — onerror fired=false` while the Network sentinel
+        correctly reported `LEAKED REQUEST` (adversarial review of #401, F1).
+        A check that cannot fail is worse than no check, so it is gone; the
+        sentinel is the real detector and the runner now fails closed if this
+        file stops embedding it.
+
+        `key === "hostile"` stays: it is a genuine assertion that the markup was
+        reduced to its text. Script EXECUTION is not asserted here — DOMParser
+        never runs scripts even in a live document, so it could not discriminate;
+        that shape is pinned in sortKeyPins instead. ───────────────────────── */
   (function () {
     if (typeof sortKey !== "function") {
       rec("sortKeyInert", false, "sortKey is not a global function");
       return;
     }
-    window.__sortKeyPwned = false;
     var TH = "<!--T-->";
-    /* An <img> carries BOTH halves of the inertness claim: `onerror` fires only if
-       the parsed document runs script, and `src` is requested only if the document
-       loads subresources. `must-not-load` is the runner's sentinel for the second
-       half — a request that 404s runs no script, so a page-side flag alone would
-       miss it. No <script> tag here: its text would leak into the key and muddy
-       what this assertion is about (that case is pinned in sortKeyPins instead). */
+    /* Declared back to the runner via `probes` below, so the coupling between
+       this URL and the runner's sentinel is checked on the VALUE, not by
+       sniffing this file's text (a text scan is satisfied by any prose mention
+       of the sentinel — including the paragraph above). */
+    window.__forbiddenProbes = (window.__forbiddenProbes || []);
+    var probeUrl = "sortkey-probe-must-not-load.png";
+    window.__forbiddenProbes.push(probeUrl);
     var hostile =
       TH +
       '<span class="ch ch-r">' +
-      '<img src="sortkey-probe-must-not-load.png" onerror="window.__sortKeyPwned=true">' +
+      '<img src="' + probeUrl + '">' +
       "hostile</span>";
     var key = sortKey(hostile);
     rec(
       "sortKeyInert",
-      window.__sortKeyPwned === false && key === "hostile",
-      "onerror fired=" + window.__sortKeyPwned + ", key=" + JSON.stringify(key) +
-        " (the no-request half is asserted by the runner's sentinel)"
+      key === "hostile",
+      "key=" + JSON.stringify(key) +
+        " (the no-request claim is asserted ONLY by the runner's sentinel)"
     );
   })();
 
@@ -420,5 +435,9 @@
      id ('p-sig') that does not exist in this template, so it can never run. */
   rec("toggle-audit", true, "SKIP: only emitted by renderSig(), which is unregistered and targets a non-existent #p-sig panel — dead code, no element to click", true);
 
-  return { results: results, violations: window.__cspViolations || [] };
+  return {
+    results: results,
+    violations: window.__cspViolations || [],
+    probes: window.__forbiddenProbes || [],
+  };
 })();

@@ -497,6 +497,32 @@ try {
   }
   const { results, violations } = evalRes.result.value;
 
+  // Sentinel coupling, checked on the VALUE the page actually used.
+  //
+  // The forbidden-request sentinel is the ONLY detector that can tell an inert
+  // parse from a live one: a page-side flag cannot, because `onerror` fires
+  // asynchronously and any assertion reads it synchronously. Renaming the probe
+  // URL therefore deleted the whole guard while the run stayed green
+  // (adversarial review of #401, F1). A text scan of the assertion file does NOT
+  // close that — the first attempt at this check was satisfied by the sentinel
+  // appearing in a prose comment, the same comment-satisfies-presence class the
+  // repo's CI guards are built against. So the suite declares the probe URLs it
+  // fed to the inert path and the runner verifies THOSE carry the sentinel.
+  if (assertFile) {
+    const probes = evalRes.result.value.probes || [];
+    const coupled = probes.filter((u) => String(u).indexOf(FORBIDDEN_REQUEST_SENTINEL) >= 0);
+    if (coupled.length === 0) {
+      throw new Error(
+        `assertion suite declared no probe URL carrying the forbidden-request ` +
+          `sentinel "${FORBIDDEN_REQUEST_SENTINEL}" (probes=${JSON.stringify(probes)}) ` +
+          `— the inert-parse detector would be a silent no-op. Push the probe URL ` +
+          `onto window.__forbiddenProbes, or change FORBIDDEN_REQUEST_SENTINEL and ` +
+          `the probe together.`
+      );
+    }
+  }
+
+
   // ── report ────────────────────────────────────────────────────────────────
   console.log("=== dashboard control-liveness ===");
   let dead = 0;

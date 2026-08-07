@@ -56,28 +56,45 @@ LINT_YML = WORKFLOWS_DIR / "lint.yml"
 # The PR three-dot diff whose PRESENCE makes a workflow in scope. Discovery beats
 # an allowlist here: the bug spread by copy-paste, so any workflow that grows this
 # shape is checked automatically.
-_IN_SCOPE_MARKER = '"$BASE_SHA"..."$HEAD_SHA"'
+#
+# Matched by SHAPE, not by variable name. The first version keyed on the literal
+# `"$BASE_SHA"..."$HEAD_SHA"`, so the identical bug written as
+# `git diff --name-only "$BASE"..."$HEAD"` was invisible while the docstring
+# claimed to cover "every workflow whose run: body contains the PR three-dot
+# diff" (adversarial review of #401, F4).
+_IN_SCOPE_RE = re.compile(r'git diff --name-only\s+"\$\w+"\.\.\."\$\w+"')
 
 # Workflows that MUST be found in scope. A rewrite that drops the three-dot diff
 # from one of these would otherwise remove it from the guard's reach silently.
 _REQUIRED_IN_SCOPE = ("lint.yml", "security-scan.yml", "dashboard-control-smoke.yml")
 
 
-def in_scope_workflows():
-    """(name, text) for every workflow carrying the PR three-dot base/head diff."""
-    found = []
-    for path in sorted(WORKFLOWS_DIR.glob("*.yml")) + sorted(WORKFLOWS_DIR.glob("*.yaml")):
-        text = path.read_text(encoding="utf-8")
-        if _IN_SCOPE_MARKER in text:
-            found.append((path.name, text))
-    return found
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     join_continuations,
     strip_comment_lines,
     strip_inline_comment_sh,
+    workflow_and_action_files,
 )
+
+
+def in_scope_workflows():
+    """(name, text) for every workflow carrying the PR three-dot base/head diff.
+
+    Enumeration goes through the shared `workflow_and_action_files()` (#393),
+    which covers `.yml` AND `.yaml` AND composite `.github/actions/**/action.yml`.
+    The hand-rolled `WORKFLOWS_DIR.glob` this replaces was blind to composite
+    actions — and this repo HAS two with `run:` blocks (`datadog-ci-collect`,
+    `token-expiry-gate`), so the identical bad shape planted in one of them was
+    never scanned (adversarial review of #401, F3). That is the ninth repetition
+    of the gap the primitive's docstring warns about; never hand-roll the glob.
+    """
+    found = []
+    for path in (Path(p) for p in workflow_and_action_files()):
+        text = path.read_text(encoding="utf-8")
+        if _IN_SCOPE_RE.search(text):
+            found.append((path.name, text))
+    return found
 
 # The PR-event three-dot diff, with backslash-continuations joined onto one line.
 _PR_DIFF_RE = re.compile(
