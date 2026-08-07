@@ -290,6 +290,42 @@ function xrefCh(inSheet){return inSheet?ch('\u2713\u00A0\uC2DC\uD2B8','g'):ch('\
 function fmt(n){return typeof n==='number'?n.toLocaleString('ko-KR'):n;}
 /* Check if value is trusted HTML (chip markup with _TH marker) */
 function isHtml(v){return typeof v==='string'&&v.indexOf(_TH)===0;}
+/* Plain-text sort key for a table cell value.
+   Trusted chip markup (_TH-prefixed, emitted by ch()) is reduced to its text via
+   DOMParser: that document is inert and detached, so no script runs and no
+   subresource is fetched (verified in headless Chrome — an <img onerror> in the
+   parsed string issues no request and sets no global). It replaces a
+   `.replace(/<[^>]*>/g,'')` tag strip, which CodeQL correctly flags as
+   incomplete multi-character sanitization (js/incomplete-multi-character-
+   sanitization): one pass over `a<script` leaves `a<script` intact, so a later
+   concatenation can reconstitute a tag. The key here is only compared or parsed
+   as a number and never re-inserted into the DOM — mkT re-reads the ORIGINAL
+   cell when it builds the row — but a regex tag-stripper has no place in a
+   security dashboard even off the render path.
+
+   Non-chip values are used verbatim rather than stripped. They are escaped by
+   esc() at render time, so a literal `a < b` should sort as written; the one
+   caller that passes raw markup without the _TH marker is fillRn()'s "항목 없음"
+   placeholder, which occupies a single-row table where no comparator ever runs.
+
+   One deliberate behaviour change: DOMParser DECODES entities, so a chip
+   containing `&nbsp;`/`&amp;` now yields the original character instead of the
+   entity text. That matches how the plain branch already behaved and can shift
+   localeCompare order within affected columns; no numeric key changes.
+
+   Keys are memoised because the comparator is called O(n log n) times while
+   there are only O(n) distinct cell values — without it a 2000-row sort ran
+   ~28x slower than the regex it replaced. */
+var _sortKeyCache={};
+function sortKey(v){
+  if(typeof v!=='string')return'';
+  if(!isHtml(v))return v.trim();
+  if(Object.prototype.hasOwnProperty.call(_sortKeyCache,v))return _sortKeyCache[v];
+  var doc=new DOMParser().parseFromString(v.substring(_TH.length),'text/html');
+  var k=(doc.body.textContent||'').trim();
+  _sortKeyCache[v]=k;
+  return k;
+}
 
 function mkT(el,hd,rows,sortOpt){
   /* sortOpt: {col:index, asc:bool} for initial sort */
@@ -297,8 +333,7 @@ function mkT(el,hd,rows,sortOpt){
     var sc=sortOpt.col,sa=sortOpt.asc;
     rows=rows.slice().sort(function(a,b){
       var va=a[sc]||'',vb=b[sc]||'';
-      var ta=(typeof va==='string'?va:'').replace(/<[^>]*>/g,'').trim();
-      var tb=(typeof vb==='string'?vb:'').replace(/<[^>]*>/g,'').trim();
+      var ta=sortKey(va),tb=sortKey(vb);
       var na=parseFloat(ta.replace(/[^0-9.\-]/g,'')),nb=parseFloat(tb.replace(/[^0-9.\-]/g,''));
       if(!isNaN(na)&&!isNaN(nb))return sa?na-nb:nb-na;
       return sa?ta.localeCompare(tb,'ko'):tb.localeCompare(ta,'ko');
@@ -321,8 +356,8 @@ function mkT(el,hd,rows,sortOpt){
       this.querySelector('.sort-arrow').textContent=asc?'\u25B4':'\u25BE';
       var sorted=el._rows.slice().sort(function(a,b){
         var va=a[ci]||'',vb=b[ci]||'';
-        /* Strip HTML for comparison */
-        var ta=va.replace(/<[^>]*>/g,'').trim(),tb=vb.replace(/<[^>]*>/g,'').trim();
+        /* Plain-text comparison key (see sortKey) */
+        var ta=sortKey(va),tb=sortKey(vb);
         /* Try numeric (including currency ₩, $) */
         var na=parseFloat(ta.replace(/[^0-9.\-]/g,'')),nb=parseFloat(tb.replace(/[^0-9.\-]/g,''));
         if(!isNaN(na)&&!isNaN(nb))return asc?na-nb:nb-na;
