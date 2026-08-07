@@ -31,8 +31,15 @@ Configuration; NIST SSDF SP 800-218 PO.3/PW.4):
   2. **enforce_admins=true** — admins (including the owner) are NOT exempt from
      branch protection. Flipping to false would let an admin force-push to main.
   3. **strict=true** — PRs must be up to date with main before merge.
-  4. **require_code_owner_reviews=true** — every touched path needs a CODEOWNERS
-     match; this is what makes `require_code_owner_reviews` actually gate.
+  4. **require_code_owner_reviews=false** — pinned to FALSE deliberately, and
+     pinned exactly so a change in EITHER direction is a reviewable diff. With
+     `required_approving_review_count=0` the setting's only effect was to block
+     PRs not authored by the sole code owner — measured across all 16 Dependabot
+     PRs, every merged one carries a manual `Twodragon0` approval and #388 sat
+     `BLOCKED` at 22/22 green until it was closed and reapplied by hand as #400,
+     while the owner's own PRs merge unreviewed. Re-enabling it is the right move
+     the moment a second person gets write access; until then it gates nothing a
+     human actually reads. The real controls are invariants 1-3 below.
   5. **Safe-by-default dry-run** — the script must `set -euo pipefail` and the
      no-flag / `--dry-run` invocation must NOT write (only `--apply` mutates).
   6. **Drift marker contract** — the script emits the literal `DRIFT DETECTED`
@@ -100,7 +107,7 @@ REQUIRED_SCRIPT_TOKENS = {
     # 3. Up-to-date-before-merge.
     "strict_true": 'DESIRED_STRICT="true"',
     # 4. CODEOWNERS review required.
-    "code_owner_reviews_true": 'DESIRED_CODE_OWNER_REVIEWS="true"',
+    "code_owner_reviews_false": 'DESIRED_CODE_OWNER_REVIEWS="false"',
     # 5. Safe-by-default: strict bash mode + default dry-run arm.
     "strict_bash_mode": "set -euo pipefail",
     "default_is_dry_run": '--dry-run|"") MODE="dry-run"',
@@ -124,7 +131,7 @@ REQUIRED_WATCH_TOKENS = {
 BOOLEAN_DESIRED = {
     "DESIRED_ENFORCE_ADMINS": "true",
     "DESIRED_STRICT": "true",
-    "DESIRED_CODE_OWNER_REVIEWS": "true",
+    "DESIRED_CODE_OWNER_REVIEWS": "false",
 }
 _ASSIGN_RE = re.compile(r'^\s*(DESIRED_\w+)=["\']?([^"\'\s#]+)')
 
@@ -290,7 +297,7 @@ class TestBranchProtectionCodifiedMutation(unittest.TestCase):
             "set -euo pipefail",
             'DESIRED_STRICT="true"',
             'DESIRED_CONTEXTS=\'["Lint","Security Scan Gate"]\'',
-            'DESIRED_CODE_OWNER_REVIEWS="true"',
+            'DESIRED_CODE_OWNER_REVIEWS="false"',
             'DESIRED_ENFORCE_ADMINS="true"',
             '  --dry-run|"") MODE="dry-run" ;;',
             '    lines.append(f"  DRIFT DETECTED in: {x}")',

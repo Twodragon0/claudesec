@@ -27,7 +27,7 @@ Control / CICD-SEC-4 Poisoned Pipeline Execution; NIST SSDF PW.4/PO.3):
      `npm` here is a policy change that must be reviewed, not slipped in.
   5. **No bypass** — the arm must stay `gh pr merge --auto` (server-side, still
      gated by branch protection + the human code-owner review). `--admin` must
-     never appear (it would bypass `require_code_owner_reviews`), and the broken
+     never appear (an admin bypass of branch protection is wrong regardless; `require_code_owner_reviews` is now false, but `enforce_admins` and the two required contexts still gate every merge), and the broken
      `gh pr review --approve` bot self-approve removed in #249 must not return
      (it approves as `github-actions[bot]`, which is NOT a code owner, giving a
      false-green signal — empirically proven on PR #235).
@@ -91,7 +91,8 @@ REQUIRED_TOKENS = {
 
 # Tokens that MUST NOT appear — re-introducing any is a regression.
 FORBIDDEN_TOKENS = {
-    # --admin would bypass require_code_owner_reviews (org policy + #250).
+    # --admin bypasses branch protection wholesale — still forbidden even
+    # though require_code_owner_reviews is now false (org policy + #250).
     "admin_bypass": "--admin",
     # The broken bot self-approve removed in #249 (approves as a non-code-owner).
     "bot_self_approve": "pr review --approve",
