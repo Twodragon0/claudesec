@@ -227,6 +227,45 @@ class TestDastFullScanSchedule(unittest.TestCase):
             "failure (parallels the dast-baseline pull_request guard).",
         )
 
+    def test_unset_target_is_surfaced_not_silently_skipped(self):
+        # Keeping the `schedule:` trigger is NOT enough: the scan job is gated on
+        # `vars.DAST_TARGET_URL != ''`, so with the variable unset the job is
+        # SKIPPED and the workflow conclusion is a clean `skipped`. Measured
+        # 2026-08-06: 42 consecutive nightly runs reported `skipped` after the
+        # variable was unset around 2026-06-25 — six weeks of ZERO automated DAST,
+        # with no red build anywhere, while the workflow name still promised
+        # nightly coverage. Actions has no `neutral` conclusion for a regular job,
+        # so the only honest signal is an artifact.
+        #
+        # Direction: PRESENCE of the escalation path. Scanned comment-stripped so a
+        # `#`-parked notice job cannot satisfy it (inert-guard class, ADR-001 §2).
+        active = "\n".join(
+            strip_inline_comment(ln)
+            for ln in self.text.splitlines()
+            if not ln.lstrip().startswith("#")
+        )
+        self.assertRegex(
+            active,
+            r"(?m)^\s*coverage-notice\s*:",
+            "dast-full-scan.yml lost its `coverage-notice` job. Without it, an unset "
+            "DAST_TARGET_URL makes the nightly scan skip SILENTLY (clean `skipped`, "
+            "no red build) while the workflow still advertises nightly coverage. If "
+            "nightly DAST is intentionally paused, rename the workflow and drop the "
+            "claim in the same change — then update this guard.",
+        )
+        self.assertIn(
+            "issues.create",
+            active,
+            "the `coverage-notice` job no longer opens an issue — a `core.warning` "
+            "alone is invisible, which is exactly the failure mode this guards.",
+        )
+        self.assertIn(
+            "DAST_TARGET_URL",
+            active,
+            "the notice job must read DAST_TARGET_URL to know whether coverage is "
+            "live; without it the notice cannot self-heal when the target returns.",
+        )
+
 
 class TestScanCriticalSeverityBlock(unittest.TestCase):
     """The `scan` job must FAIL the build on any CRITICAL finding (exit 1), and
