@@ -893,7 +893,15 @@ function renderAsset(d){
   /* ── Intune (Windows PC) ── */
   var intunePcs=d.intune_pcs||[];
   if(intunePcs.length){
-    el.innerHTML+='<div class="cd"><h3>\uD83D\uDDA5 Windows PC (Intune) <span class="bg" id="intune-c"></span></h3><div style="padding:4px 16px 8px"><input id="intune-search" class="search-input" placeholder="Windows 검색 (기기명, 사용자)..." aria-label="Windows PC 검색"></div><div class="stbl"><table id="t-intune"></table></div></div>';
+    /* insertAdjacentHTML, NOT `el.innerHTML+=`: the += form READS the panel's
+       markup back and re-writes it, which re-parses every node above it and
+       silently drops the listeners already attached to them. By this point mkT()
+       has bound the Apple table's sort headers (#t-pc th) and mkSearch() has bound
+       the Apple search box (#pc-search) — both went DEAD here whenever intune_pcs
+       was non-empty (i.e. in production). Delegated data-action controls survived
+       because they live on `document`; these direct listeners did not. Found by
+       scanner/tests/test_asset_dashboard_control_liveness.sh. */
+    el.insertAdjacentHTML('beforeend','<div class="cd"><h3>\uD83D\uDDA5 Windows PC (Intune) <span class="bg" id="intune-c"></span></h3><div style="padding:4px 16px 8px"><input id="intune-search" class="search-input" placeholder="Windows 검색 (기기명, 사용자)..." aria-label="Windows PC 검색"></div><div class="stbl"><table id="t-intune"></table></div></div>');
     mkT($('t-intune'),['기기명','사용자','모델','EDR','컴플라이언스','체크인'],intunePcs.map(function(p){
       var c=p.last_checkin||'';var old=c&&(new Date()-new Date(c))>7*86400e3;
       var comp=p.compliance==='Compliant'?ch('준수','g'):(p.compliance==='Noncompliant'?ch('미준수','r'):ch(p.compliance||'-','m'));

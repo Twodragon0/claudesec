@@ -1,7 +1,7 @@
 """
-Regression guard: the `changes` (Detect changed paths) job in `lint.yml` must
-compute the PR's changed files in a way that CANNOT hard-fail with
-"fatal: no merge base".
+Regression guard: EVERY `changes` (Detect changed paths) job that diffs a PR base
+against its head must compute the changed files in a way that CANNOT hard-fail
+with "fatal: no merge base".
 
 Background
 ----------
@@ -27,6 +27,18 @@ Invariants asserted (PR-event branch only):
 A legitimate rewrite that keeps a fallback / deepened fetch stays green; removing
 the fallback or reverting to a shallow-only base fetch trips the guard.
 
+SCOPE: originally `lint.yml` only, which is exactly how the bug survived. The
+identical shallow-only shape was still live in `security-scan.yml` and
+`dashboard-control-smoke.yml` and both hard-failed on the first PR branched from
+a `main` that then moved (observed 2026-08-07, run 31150981399 / 31150982066:
+`fatal: c8a89c8...e52f07e: no merge base`). The consequences differ and both are
+bad: `security-scan.yml`'s failure cascades to the REQUIRED `Security Scan Gate`
+and blocks the merge loudly, while `dashboard-control-smoke.yml`'s makes the smoke
+job report `skipping` — coverage silently lost, job reads green. The guard is now
+discovery-based: every workflow whose `run:` body contains the PR three-dot
+`"$BASE_SHA"..."$HEAD_SHA"` diff is checked, so a NEW workflow copying the buggy
+shape is caught rather than needing to be remembered.
+
 stdlib-only. No `scanner/lib` import (does not touch the 99% coverage gate).
 No network, no subprocess. Runs under pytest and `python3 -m unittest`.
 """
@@ -38,14 +50,51 @@ from pathlib import Path
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
-LINT_YML = REPO_ROOT / ".github" / "workflows" / "lint.yml"
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+LINT_YML = WORKFLOWS_DIR / "lint.yml"
+
+# The PR three-dot diff whose PRESENCE makes a workflow in scope. Discovery beats
+# an allowlist here: the bug spread by copy-paste, so any workflow that grows this
+# shape is checked automatically.
+#
+# Matched by SHAPE, not by variable name. The first version keyed on the literal
+# `"$BASE_SHA"..."$HEAD_SHA"`, so the identical bug written as
+# `git diff --name-only "$BASE"..."$HEAD"` was invisible while the docstring
+# claimed to cover "every workflow whose run: body contains the PR three-dot
+# diff" (adversarial review of #401, F4).
+_IN_SCOPE_RE = re.compile(r'git diff --name-only\s+"\$\w+"\.\.\."\$\w+"')
+
+# Workflows that MUST be found in scope. A rewrite that drops the three-dot diff
+# from one of these would otherwise remove it from the guard's reach silently.
+_REQUIRED_IN_SCOPE = ("lint.yml", "security-scan.yml", "dashboard-control-smoke.yml")
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     join_continuations,
     strip_comment_lines,
     strip_inline_comment_sh,
+    workflow_and_action_files,
 )
+
+
+def in_scope_workflows():
+    """(name, text) for every workflow carrying the PR three-dot base/head diff.
+
+    Enumeration goes through the shared `workflow_and_action_files()` (#393),
+    which covers `.yml` AND `.yaml` AND composite `.github/actions/**/action.yml`.
+    The hand-rolled `WORKFLOWS_DIR.glob` this replaces was blind to composite
+    actions — and this repo HAS two with `run:` blocks (`datadog-ci-collect`,
+    `token-expiry-gate`), so the identical bad shape planted in one of them was
+    never scanned (adversarial review of #401, F3). That is the ninth repetition
+    of the gap the primitive's docstring warns about; never hand-roll the glob.
+    """
+    found = []
+    for path in (Path(p) for p in workflow_and_action_files()):
+        text = path.read_text(encoding="utf-8")
+        if _IN_SCOPE_RE.search(text):
+            found.append((path.name, text))
+    return found
 
 # The PR-event three-dot diff, with backslash-continuations joined onto one line.
 _PR_DIFF_RE = re.compile(
@@ -91,27 +140,47 @@ def violations(text: str) -> list:
 class TestChangesJobMergeBase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.text = LINT_YML.read_text(encoding="utf-8") if LINT_YML.is_file() else ""
+        cls.workflows = in_scope_workflows()
 
     def test_lint_yml_exists(self):
         self.assertTrue(LINT_YML.is_file(), f"{LINT_YML} not found")
 
+    def test_expected_workflows_are_in_scope(self):
+        # Canary: if discovery finds nothing (or loses a known workflow), every
+        # per-workflow assertion below would pass vacuously.
+        names = {name for name, _ in self.workflows}
+        for required in _REQUIRED_IN_SCOPE:
+            with self.subTest(workflow=required):
+                self.assertIn(
+                    required,
+                    names,
+                    f"{required} no longer carries the PR three-dot base/head diff "
+                    "— either it was rewritten (update _REQUIRED_IN_SCOPE) or "
+                    "discovery broke and this guard has gone vacuous",
+                )
+
     def test_pr_diff_has_fallback(self):
-        self.assertRegex(
-            _joined(self.text), _PR_DIFF_RE,
-            'The PR-event base/head diff must have a `|| git diff` fallback so a '
-            '"no merge base" cannot fail the changes job.',
-        )
+        for name, text in self.workflows:
+            with self.subTest(workflow=name):
+                self.assertRegex(
+                    _joined(text), _PR_DIFF_RE,
+                    f"{name}: the PR-event base/head diff must have a `|| git diff` "
+                    'fallback so a "no merge base" cannot fail the changes job.',
+                )
 
     def test_base_fetch_is_deepened(self):
-        self.assertRegex(
-            _joined(self.text), _BASE_FETCH_RE,
-            'The base must be fetched with ancestry (a `git fetch origin '
-            '"$BASE_SHA"` without --depth=1), not only shallow.',
-        )
+        for name, text in self.workflows:
+            with self.subTest(workflow=name):
+                self.assertRegex(
+                    _joined(text), _BASE_FETCH_RE,
+                    f"{name}: the base must be fetched with ancestry (a `git fetch "
+                    'origin "$BASE_SHA"` without --depth=1), not only shallow.',
+                )
 
     def test_all_invariants_hold(self):
-        self.assertEqual(violations(self.text), [])
+        for name, text in self.workflows:
+            with self.subTest(workflow=name):
+                self.assertEqual(violations(text), [], f"{name} regressed")
 
 
 class TestChangesJobMergeBaseMutation(unittest.TestCase):

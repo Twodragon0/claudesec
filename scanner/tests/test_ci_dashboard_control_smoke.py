@@ -18,10 +18,21 @@ that a well-meaning edit could silently strip while leaving the workflow "green"
    NON-required check (a simple path-gate, no `always()` aggregator — that
    pattern is reserved for required checks, per the paths-ignore/#186 incident).
 
-3. **Bounded + actually runs the harness.** The browser step must carry a
+3. **Bounded + actually runs the harness.** EACH browser step must carry a
    per-step `timeout-minutes` (a hung headless Chrome must not burn the full job
-   budget) and must invoke the real harness wrapper. Both harness files must
-   exist on disk (a workflow pointing at a deleted script is a silent no-op).
+   budget) and must invoke a real harness wrapper. Every harness file must exist
+   on disk (a workflow pointing at a deleted script is a silent no-op).
+
+4. **The path-gate actually fires for the files it claims to cover.** A
+   path-gated job that never runs reads green, which is exactly how this repo lost
+   npm-audit and the nightly DAST for weeks (#396/#397). So the gate is not merely
+   asserted to *mention* the paths: this guard EXTRACTS the `grep -E` regex from
+   the workflow and RUNS it against each covered path (and against control paths
+   that must NOT match). A gate that stops matching `claudesec-asset-dashboard.html`
+   fails a test instead of silently skipping the smoke.
+
+TWO dashboards are driven (scan + ISMS asset), each in its own bounded step, so
+the step-scoping helper is parameterised by invocation rather than assuming one.
 
 Direction is PRESENCE of each load-bearing token in the comment-stripped YAML,
 so a token surviving only in a `#` comment cannot satisfy an invariant.
@@ -45,20 +56,61 @@ from _ci_guard_util import strip_comment_lines  # noqa: E402
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "dashboard-control-smoke.yml"
-HARNESS_MJS = REPO_ROOT / "scanner" / "tests" / "dashboard-control-liveness.mjs"
-HARNESS_SH = REPO_ROOT / "scanner" / "tests" / "test_dashboard_control_liveness.sh"
+TESTS_DIR = REPO_ROOT / "scanner" / "tests"
 
-HARNESS_INVOCATION = "bash scanner/tests/test_dashboard_control_liveness.sh"
+# Shared browser runner + both suites' wrappers and inputs. A workflow step
+# pointing at any deleted file here is a silent no-op, so all of them are pinned.
+HARNESS_FILES = [
+    TESTS_DIR / "dashboard-control-liveness.mjs",
+    TESTS_DIR / "test_dashboard_control_liveness.sh",
+    TESTS_DIR / "asset-dashboard-assertions.js",
+    TESTS_DIR / "test_asset_dashboard_control_liveness.sh",
+    TESTS_DIR / "fixtures" / "asset-dashboard-data.json",
+]
+
+# Every wrapper the workflow must invoke, one bounded step each.
+HARNESS_INVOCATIONS = [
+    "bash scanner/tests/test_dashboard_control_liveness.sh",
+    "bash scanner/tests/test_asset_dashboard_control_liveness.sh",
+]
+
+# Repo paths the `changes` path-gate MUST match (a miss silently skips the smoke)…
+GATED_PATHS = [
+    "scanner/lib/dashboard-template.html",
+    "scanner/lib/dashboard-gen.py",
+    "claudesec-asset-dashboard.html",
+    "scanner/tests/dashboard-control-liveness.mjs",
+    "scanner/tests/asset-dashboard-assertions.js",
+    "scanner/tests/fixtures/asset-dashboard-data.json",
+    "scanner/tests/test_dashboard_control_liveness.sh",
+    "scanner/tests/test_asset_dashboard_control_liveness.sh",
+    ".github/workflows/dashboard-control-smoke.yml",
+]
+
+# …and paths it must NOT match, so the gate is a real filter and not `.*`.
+UNGATED_PATHS = [
+    "README.md",
+    "docs/guides/hourly-operations.md",
+    "scanner/tests/test_check_access_control.sh",
+    ".github/workflows/lint.yml",
+    "claudesec-asset-dashboard-live.html",  # generated output, not the template
+]
 
 
-def harness_step_block(text):
-    """The single `- name:` step block that invokes the harness, or None.
+def harness_step_block(text, invocation):
+    """The single `- name:` step block that runs `invocation`, or None.
 
     Scoping is load-bearing for the per-step `timeout-minutes` assertion: this
     workflow also carries JOB-level `timeout-minutes` keys, so an unscoped search
     is satisfied by those and cannot detect removal of the per-step cap it claims
     to guard (inert-guard class — the same defect as the unscoped `exit 1` in
     test_ci_docker_image_size_gate.py).
+
+    Matching is on the full `run:` line, not a substring: the scan wrapper's path
+    (`test_dashboard_control_liveness.sh`) is a proper SUFFIX of the asset one
+    (`test_asset_dashboard_control_liveness.sh`) only in the other direction, but
+    a future rename could make one contain the other and silently fold two steps
+    into one "found 2, return None" — so each candidate line is compared exactly.
     """
     blocks, cur = [], None
     for line in text.splitlines():
@@ -70,8 +122,33 @@ def harness_step_block(text):
             cur.append(line)
     if cur is not None:
         blocks.append("\n".join(cur))
-    hits = [b for b in blocks if HARNESS_INVOCATION in b]
+    hits = [
+        b
+        for b in blocks
+        if any(
+            ln.strip() == "run: " + invocation
+            for ln in b.splitlines()
+        )
+    ]
     return hits[0] if len(hits) == 1 else None
+
+
+def path_gate_regex(text):
+    """The ERE the `changes` job feeds to `grep -E`, or None.
+
+    Extracted rather than hand-copied so the guard can EXECUTE the real gate. The
+    literal is a single-quoted YAML scalar on its own continuation line inside the
+    `run:` block, e.g.
+
+        match=$(printf '%s\\n' "$FILES" | grep -E \\
+          '^(scanner/lib/|claudesec-asset-dashboard\\.html$|...)' \\
+          || true)
+    """
+    for line in text.splitlines():
+        stripped = line.strip().rstrip("\\").strip()
+        if stripped.startswith("'^(") and stripped.endswith("'"):
+            return stripped[1:-1]
+    return None
 
 
 class TestDashboardControlSmoke(unittest.TestCase):
@@ -96,14 +173,19 @@ class TestDashboardControlSmoke(unittest.TestCase):
         )
 
     def test_harness_self_exports_offline(self):
-        # Belt-and-suspenders: the wrapper must not depend on the CI env alone.
-        sh = HARNESS_SH.read_text(encoding="utf-8") if HARNESS_SH.is_file() else ""
-        self.assertRegex(
-            strip_comment_lines(sh),
-            r"export\s+CLAUDESEC_DASHBOARD_OFFLINE=1",
-            "test_dashboard_control_liveness.sh no longer self-exports "
-            "CLAUDESEC_DASHBOARD_OFFLINE=1",
-        )
+        # Belt-and-suspenders: neither wrapper may depend on the CI env alone.
+        for wrapper in (
+            TESTS_DIR / "test_dashboard_control_liveness.sh",
+            TESTS_DIR / "test_asset_dashboard_control_liveness.sh",
+        ):
+            with self.subTest(wrapper=wrapper.name):
+                sh = wrapper.read_text(encoding="utf-8") if wrapper.is_file() else ""
+                self.assertRegex(
+                    strip_comment_lines(sh),
+                    r"export\s+CLAUDESEC_DASHBOARD_OFFLINE=1",
+                    f"{wrapper.name} no longer self-exports "
+                    "CLAUDESEC_DASHBOARD_OFFLINE=1",
+                )
 
     def test_smoke_is_path_gated(self):
         # A `changes` job emits a `dashboard` output; `smoke` gates on it.
@@ -119,36 +201,84 @@ class TestDashboardControlSmoke(unittest.TestCase):
             "dashboard — docs-only PRs would run the browser smoke unnecessarily",
         )
 
-    def test_browser_step_is_bounded_and_runs_harness(self):
-        # The workflow must invoke the real harness wrapper.
-        self.assertIn(
-            HARNESS_INVOCATION,
-            self.text,
-            "the smoke job no longer invokes the control-liveness harness wrapper",
-        )
-        # Per-step timeout so a hung headless Chrome can't burn the job budget.
-        # Scoped to the harness STEP: unscoped, the workflow's job-level
-        # `timeout-minutes` keys satisfy it and removing the per-step cap goes
-        # undetected.
-        step = harness_step_block(self.text)
-        self.assertIsNotNone(
-            step,
-            "could not isolate exactly one `- name:` step invoking "
-            f"`{HARNESS_INVOCATION}` — step parsing broke, or the invocation moved",
-        )
-        self.assertRegex(
-            step,
-            r"timeout-minutes:\s*\d+",
-            "no per-step timeout-minutes on the harness step — a hung Chrome would "
-            "run to the job cap (a job-level timeout elsewhere does not count)",
-        )
+    def test_browser_steps_are_bounded_and_run_harnesses(self):
+        # BOTH dashboards must be driven, each from its own bounded step.
+        for invocation in HARNESS_INVOCATIONS:
+            with self.subTest(invocation=invocation):
+                self.assertIn(
+                    invocation,
+                    self.text,
+                    f"the smoke job no longer invokes `{invocation}` — that "
+                    "dashboard would lose its control-liveness coverage",
+                )
+                # Per-step timeout so a hung headless Chrome can't burn the job
+                # budget. Scoped to THIS step: unscoped, the workflow's job-level
+                # `timeout-minutes` keys satisfy it and removing the per-step cap
+                # goes undetected.
+                step = harness_step_block(self.text, invocation)
+                self.assertIsNotNone(
+                    step,
+                    "could not isolate exactly one `- name:` step invoking "
+                    f"`{invocation}` — step parsing broke, or the invocation moved",
+                )
+                self.assertRegex(
+                    step,
+                    r"timeout-minutes:\s*\d+",
+                    f"no per-step timeout-minutes on the `{invocation}` step — a "
+                    "hung Chrome would run to the job cap (a job-level timeout "
+                    "elsewhere does not count)",
+                )
 
     def test_harness_files_exist(self):
-        for p in (HARNESS_MJS, HARNESS_SH):
+        for p in HARNESS_FILES:
             with self.subTest(path=p.name):
                 self.assertTrue(
                     p.is_file(),
                     f"{p} missing — the smoke workflow would be a silent no-op",
+                )
+
+
+class TestPathGateActuallyFires(unittest.TestCase):
+    """The path-gate is EXECUTED, not just read.
+
+    A path-gated job that never runs reads green — the exact failure mode that
+    left npm-audit dark for ~7 weeks and the nightly DAST skipped for ~42 nights
+    (#396/#397). Asserting that the workflow *mentions* a path proves nothing:
+    the regex could mention it in a branch that never matches. So the real ERE is
+    extracted from the workflow and run against each path it must cover.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        raw = WORKFLOW.read_text(encoding="utf-8") if WORKFLOW.is_file() else ""
+        cls.pattern = path_gate_regex(strip_comment_lines(raw))
+
+    def test_gate_regex_is_extractable(self):
+        self.assertIsNotNone(
+            self.pattern,
+            "could not extract the `changes` job's grep -E path-gate regex — the "
+            "extractor's shape assumption broke, so every gate test below would "
+            "be vacuous",
+        )
+
+    def test_gate_matches_every_covered_path(self):
+        for path in GATED_PATHS:
+            with self.subTest(path=path):
+                self.assertIsNotNone(
+                    re.search(self.pattern, path),
+                    f"the path-gate does NOT match {path!r} — a change to it would "
+                    "skip the browser smoke and the job would report green",
+                )
+
+    def test_gate_rejects_unrelated_paths(self):
+        # Canary against a gate degraded to `.*` (which would make the matches
+        # above pass while gating nothing).
+        for path in UNGATED_PATHS:
+            with self.subTest(path=path):
+                self.assertIsNone(
+                    re.search(self.pattern, path),
+                    f"the path-gate matches unrelated path {path!r} — the gate has "
+                    "become a no-op filter",
                 )
 
 
@@ -160,31 +290,42 @@ class TestHarnessStepScoping(unittest.TestCase):
     carries job-level `timeout-minutes` keys that satisfied the pattern.
     """
 
+    _SCAN = HARNESS_INVOCATIONS[0]
+    _ASSET = HARNESS_INVOCATIONS[1]
     _JOB_LEVEL = "jobs:\n  smoke:\n    timeout-minutes: 8\n    steps:\n"
     _GOOD = (
         _JOB_LEVEL + "      - name: Run smoke\n"
         "        timeout-minutes: 5\n"
-        f"        run: {HARNESS_INVOCATION}\n"
+        f"        run: {_SCAN}\n"
     )
     # Per-step cap gone; the JOB-level one remains — the exact shape the old
     # unscoped check called green.
-    _NO_STEP_CAP = (
-        _JOB_LEVEL + "      - name: Run smoke\n" f"        run: {HARNESS_INVOCATION}\n"
-    )
+    _NO_STEP_CAP = _JOB_LEVEL + "      - name: Run smoke\n" f"        run: {_SCAN}\n"
     # A LATER step has a cap; the harness step does not.
     _CAP_ON_WRONG_STEP = (
         _JOB_LEVEL + "      - name: Run smoke\n"
-        f"        run: {HARNESS_INVOCATION}\n"
+        f"        run: {_SCAN}\n"
         "      - name: Upload artifact\n"
         "        timeout-minutes: 5\n"
         "        run: echo up\n"
     )
+    # Both wrappers present; only the ASSET step lost its cap. An invocation-blind
+    # helper would return the scan step (which has one) and call this green.
+    _ASSET_CAP_MISSING = (
+        _JOB_LEVEL + "      - name: Run scan smoke\n"
+        "        timeout-minutes: 5\n"
+        f"        run: {_SCAN}\n"
+        "      - name: Run asset smoke\n"
+        f"        run: {_ASSET}\n"
+    )
 
     def test_good_step_has_cap(self):
-        self.assertRegex(harness_step_block(self._GOOD), r"timeout-minutes:\s*\d+")
+        self.assertRegex(
+            harness_step_block(self._GOOD, self._SCAN), r"timeout-minutes:\s*\d+"
+        )
 
     def test_job_level_cap_does_not_satisfy(self):
-        step = harness_step_block(self._NO_STEP_CAP)
+        step = harness_step_block(self._NO_STEP_CAP, self._SCAN)
         self.assertIsNotNone(step)
         self.assertNotRegex(
             step,
@@ -194,18 +335,36 @@ class TestHarnessStepScoping(unittest.TestCase):
         )
 
     def test_later_step_cap_does_not_satisfy(self):
-        step = harness_step_block(self._CAP_ON_WRONG_STEP)
+        step = harness_step_block(self._CAP_ON_WRONG_STEP, self._SCAN)
         self.assertIsNotNone(step)
         self.assertNotRegex(step, r"timeout-minutes:\s*\d+")
 
-    def test_missing_invocation_returns_none(self):
-        self.assertIsNone(harness_step_block(self._JOB_LEVEL))
+    def test_each_invocation_isolates_its_own_step(self):
+        scan = harness_step_block(self._ASSET_CAP_MISSING, self._SCAN)
+        asset = harness_step_block(self._ASSET_CAP_MISSING, self._ASSET)
+        self.assertIsNotNone(scan)
+        self.assertIsNotNone(asset)
+        self.assertRegex(scan, r"timeout-minutes:\s*\d+")
+        self.assertNotRegex(
+            asset,
+            r"timeout-minutes:\s*\d+",
+            "Scoping failure: the asset step picked up the scan step's cap, so a "
+            "missing per-step timeout on the asset smoke would go undetected.",
+        )
 
-    def test_real_workflow_isolates_one_step(self):
+    def test_missing_invocation_returns_none(self):
+        self.assertIsNone(harness_step_block(self._JOB_LEVEL, self._SCAN))
+
+    def test_real_workflow_isolates_one_step_per_invocation(self):
         raw = WORKFLOW.read_text(encoding="utf-8") if WORKFLOW.is_file() else ""
-        step = harness_step_block(strip_comment_lines(raw))
-        self.assertIsNotNone(step, "harness step not isolated in the real workflow")
-        self.assertIn(HARNESS_INVOCATION, step)
+        text = strip_comment_lines(raw)
+        for invocation in HARNESS_INVOCATIONS:
+            with self.subTest(invocation=invocation):
+                step = harness_step_block(text, invocation)
+                self.assertIsNotNone(
+                    step, f"step for `{invocation}` not isolated in the real workflow"
+                )
+                self.assertIn(invocation, step)
 
 
 if __name__ == "__main__":

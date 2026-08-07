@@ -1,0 +1,341 @@
+{
+  "_comment": "Synthetic fixture for the asset-dashboard control-liveness smoke. PLACEHOLDER data only — no real hostnames, accounts, PII or vendor contracts (repo no-sensitive-data rule). Every field exists to make one control class RENDER so the harness can drive it; see scanner/tests/asset-dashboard-assertions.js for the mapping.",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "timestamps": {
+    "datadog": "2026-01-01 00:00 UTC",
+    "prowler": "2026-01-01 00:00 UTC",
+    "claudesec_scan": "2026-01-01 00:00 UTC",
+    "google_sheets": "2026-01-01 00:00 UTC",
+    "aws_ec2": "2026-01-01 00:00 UTC",
+    "notion": "2026-01-01 00:00 UTC",
+    "sheet_xref": "2026-01-01 00:00 UTC"
+  },
+  "asset_counts": {
+    "PC": 3,
+    "서버": 2,
+    "정보보호시스템": 1,
+    "개인정보": 1
+  },
+  "claudesec": {
+    "score": 66,
+    "grade": "D",
+    "passed": 8,
+    "failed": 3,
+    "warnings": 1,
+    "total": 12,
+    "findings": [
+      {
+        "id": "IAM-001",
+        "title": "Sample root key exposed",
+        "severity": "critical",
+        "category": "access-control",
+        "details": "Rotate the key",
+        "location": "/path/to/.env"
+      },
+      {
+        "id": "NET-010",
+        "title": "Sample legacy TLS enabled",
+        "severity": "high",
+        "category": "network",
+        "details": "Disable TLS 1.0"
+      },
+      {
+        "id": "CICD-020",
+        "title": "Sample missing branch protection",
+        "severity": "medium",
+        "category": "cicd",
+        "details": "Enable protection"
+      },
+      {
+        "id": "DOC-030",
+        "title": "Sample policy doc missing",
+        "severity": "warning",
+        "category": "docs",
+        "details": "Add a policy"
+      }
+    ]
+  },
+  "prowler": {
+    "total": 20,
+    "pass": 14,
+    "fail": 6,
+    "fail_by_severity": {
+      "Critical": 1,
+      "High": 2,
+      "Medium": 3,
+      "Low": 0
+    },
+    "by_provider": {
+      "aws": {
+        "pass": 8,
+        "fail": 4,
+        "critical_fails": [
+          {
+            "check": "prowler-aws-sample_public_bucket-EXAMPLECHECKID",
+            "provider": "aws",
+            "severity": "Critical",
+            "message": "Sample bucket allows public access"
+          }
+        ]
+      },
+      "kubernetes": {
+        "pass": 6,
+        "fail": 2
+      }
+    },
+    "critical_fails_sample": [
+      {
+        "check": "prowler-aws-sample_public_bucket-EXAMPLECHECKID",
+        "provider": "aws",
+        "severity": "Critical",
+        "message": "Sample bucket allows public access"
+      },
+      {
+        "check": "prowler-aws-sample_root_mfa-EXAMPLECHECKID",
+        "provider": "aws",
+        "severity": "High",
+        "message": "Sample root account without MFA"
+      }
+    ],
+    "medium_fails_sample": [
+      {
+        "check": "prowler-kubernetes-sample_apiserver_flag-EXAMPLECHECKID",
+        "provider": "kubernetes",
+        "severity": "Medium",
+        "message": "Sample apiserver flag not set"
+      }
+    ]
+  },
+  "datadog": {
+    "hosts": [
+      {
+        "name": "sample-web-01",
+        "instance_type": "t3.medium",
+        "region": "sample-region-1",
+        "aws_alias": "sandbox",
+        "up": true,
+        "agent_version": "7.0.0"
+      }
+    ],
+    "signals": [
+      {
+        "timestamp": "2026-01-01T00:00:00Z",
+        "severity": "medium",
+        "status": "open",
+        "title": "Sample suspicious login",
+        "tags": ["source:sample"]
+      }
+    ]
+  },
+  "aws_live": {
+    "ec2": [
+      {
+        "InstanceId": "i-EXAMPLEINSTANCE",
+        "Name": "sample-web-01",
+        "Type": "t3.medium",
+        "PrivateIp": "198.51.100.10",
+        "AZ": "sample-region-1a",
+        "_profile": "sandbox",
+        "LaunchTime": "2025-06-01T00:00:00Z"
+      }
+    ],
+    "rds": [],
+    "elasticache": [],
+    "s3": [],
+    "eks": []
+  },
+  "infra": {
+    "servers": [
+      {
+        "instance_id": "i-EXAMPLEINSTANCE",
+        "name": "sample-web-01",
+        "instance_type": "t3.medium",
+        "region": "sample-region-1",
+        "account": "sandbox"
+      }
+    ],
+    "sec_systems": [
+      {
+        "category": "EDR",
+        "name": "Sample EDR",
+        "description": "Endpoint protection",
+        "type": "SaaS",
+        "provider": "Sample Vendor",
+        "auth": "Okta SSO"
+      }
+    ]
+  },
+  "saas": [
+    {
+      "no": 1,
+      "name": "Sample CRM",
+      "category": "Sales",
+      "provider": "Sample Inc",
+      "auth": "Okta SSO",
+      "sso": true,
+      "start_date": "2025-01-01",
+      "end_date": "2026-01-01",
+      "expiry_days": 30,
+      "notify_deadline": "2025-12-01",
+      "renewal_status": "WATCH",
+      "in_sheet": true
+    },
+    {
+      "no": 2,
+      "name": "Sample Chat",
+      "category": "Collab",
+      "provider": "Sample Inc",
+      "auth": "ID/PW",
+      "start_date": "2025-01-01",
+      "end_date": "2026-06-01",
+      "expiry_days": 150,
+      "notify_deadline": "2026-05-01",
+      "renewal_status": "OK",
+      "in_sheet": false
+    }
+  ],
+  "license": [
+    {
+      "name": "Sample IDE",
+      "description": "Editor licence",
+      "status": "사용 중",
+      "department": "Dev",
+      "accounts": "10",
+      "active_accounts": "7",
+      "cost": "1000000",
+      "cycle": "Yearly",
+      "start_date": "2025-01-01",
+      "end_date": "2026-01-01",
+      "expiry_days": 30,
+      "notify_deadline": "2025-12-01",
+      "renewal_status": "WATCH",
+      "in_sheet": true
+    }
+  ],
+  "ai": [
+    {
+      "name": "Sample AI",
+      "description": "LLM assistant",
+      "quantity": "5",
+      "department": "Dev"
+    }
+  ],
+  "saas_cost": {
+    "summary": [
+      {"software": "Sample CRM", "jan": 100000, "feb": 120000, "total": 220000},
+      {"software": "Sample Chat", "jan": 50000, "feb": 50000, "total": 100000}
+    ],
+    "details": {
+      "2026-01": [
+        {
+          "software": "Sample CRM",
+          "user": "user-a",
+          "department": "Sales",
+          "amount": 100000,
+          "date": "2026-01-05",
+          "vendor": "Sample Inc",
+          "memo": ""
+        }
+      ],
+      "2026-02": [
+        {
+          "software": "Sample CRM",
+          "user": "user-a",
+          "department": "Sales",
+          "amount": 120000,
+          "date": "2026-02-05",
+          "vendor": "Sample Inc",
+          "memo": ""
+        }
+      ]
+    },
+    "by_department": [
+      {"department": "Sales", "jan": 100000, "feb": 120000, "total": 220000}
+    ],
+    "by_user": [
+      {"user": "user-a", "jan": 100000, "feb": 120000, "total": 220000}
+    ]
+  },
+  "renewals": {
+    "urgent": [
+      {
+        "name": "Sample CRM",
+        "provider": "Sample Inc",
+        "end_date": "2026-01-01",
+        "expiry_days": 5,
+        "notify_deadline": "2025-12-01",
+        "year_krw": 220000,
+        "renew_type": "auto"
+      }
+    ],
+    "watch": [],
+    "expired": [],
+    "counts": {"urgent": 1, "watch": 0, "expired": 0}
+  },
+  "jamf_pcs": [
+    {
+      "name": "sample-mac-01",
+      "display_name": "Sample Mac",
+      "user": "user-a",
+      "model": "MacBook Pro 14",
+      "last_checkin": "2026-01-01T00:00:00Z",
+      "okta_active": true
+    }
+  ],
+  "jamf_mobiles": [
+    {
+      "name": "sample-phone-01",
+      "model": "Sample Phone",
+      "last_checkin": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "intune_pcs": [
+    {
+      "name": "sample-win-01",
+      "user_display": "user-b",
+      "model": "Sample Laptop",
+      "compliance": "Compliant",
+      "last_checkin": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "sentinelone": [
+    {
+      "name": "sample-mac-01",
+      "threats": 1,
+      "group": "default",
+      "last_seen": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "s1_threats": [{"name": "Sample threat", "severity": "high"}],
+  "policies": [
+    {
+      "name": "Sample Access Control Policy",
+      "url": "",
+      "total_chapters": 2,
+      "total_articles": 3,
+      "isms_controls": ["2.5.1"],
+      "compliance_pct": 66,
+      "compliance_summary": {"done": 2, "partial": 1, "todo": 0},
+      "articles": [
+        {"chapter": "Chapter 1", "num": "Article 1", "title": "Purpose", "status": "done"},
+        {"chapter": "Chapter 1", "num": "Article 2", "title": "Scope", "status": "partial"},
+        {"chapter": "Chapter 2", "num": "Article 3", "title": "Access review", "status": "done"}
+      ]
+    }
+  ],
+  "notion_audits": [
+    {
+      "date": "2026-01-01",
+      "title": "Sample periodic audit",
+      "impact": "8",
+      "priority": "높음",
+      "status": "완료",
+      "summary": "Sample summary text",
+      "tags": ["security"],
+      "url": ""
+    }
+  ],
+  "cross_verify": {"karpenter_count": 2},
+  "endpoint_crossverify": {"jamf_only_count": 1},
+  "sheet_xref": {"available": true}
+}
