@@ -251,6 +251,46 @@ _IF_OPENER_RE = re.compile(r"(?m)(?:^|[;&|(){}]|\b(?:then|else|do)\b)\s*(?P<kw>i
 _FI_CLOSER_RE = re.compile(r"\bfi\b")
 
 
+# Heredoc redirection opener: `<<EOF`, `<<-EOF`, `<<'EOF'`, `<<"EOF"`.
+_HEREDOC_OPEN_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def blank_heredoc_bodies(text: str) -> str:
+    """`text` with heredoc BODIES blanked out, so a shell-looking line inside one
+    can never be read as a command. Line count is preserved.
+
+    Comment-stripping alone was not enough. After #402 closed the `#`-comment
+    anchor evasion, three decoys re-opened it verbatim — each anchored the scan
+    inside itself and yielded a body containing `exit 1` while the real gate was
+    deleted and bash exited 0:
+
+        echo 'legacy policy was: if [ "$CRITS" -gt 0 ]; then exit 1; fi'
+        cat <<'NOTE' … if [ "$CRITS" -gt 0 ]; then exit 1; fi … NOTE
+        - name: legacy if [ "$CRITS" -gt 0 ]; then exit 1; fi     (a YAML scalar)
+
+    The first and third are killed by requiring the anchor at the start of a line
+    (they begin `echo` / `- name:`); only the heredoc genuinely starts a line with
+    `if`, so this handles that one. Blanking quoted CONTENTS was tried and
+    reverted: the anchor itself legitimately contains `"$CRITS"`, so it destroyed
+    the control case.
+
+    Direction is OVER-blank -> false alarm: an unterminated heredoc blanks to end
+    of text, which can only hide a token from a presence check, never satisfy
+    one."""
+    out, term = [], None
+    for line in text.splitlines():
+        if term is not None:
+            out.append("")
+            if line.strip() == term:
+                term = None
+            continue
+        out.append(line)
+        h = _HEREDOC_OPEN_RE.search(line)
+        if h:
+            term = h.group(2)
+    return "\n".join(out)
+
+
 def shell_if_body(text: str, anchor: str):
     """The body of the shell `if <anchor> … ; then … fi` in `text`, or None.
 
@@ -277,12 +317,46 @@ def shell_if_body(text: str, anchor: str):
        which is what unbalanced the count in (2). With (2) failing closed, a
        liberal `if` rule would also turn any such message edit into a false alarm.
 
-    Residual direction is over-strip -> FALSE ALARM only: an `if` written outside
-    command position (`cmd && if …`, or one inside a quoted string) is not counted
-    while its `fi` is, so the body ends EARLY and a real control can be missed —
-    loud, never silent. A `fi` inside a word (`wi-fi`) ends it early too."""
-    active = "\n".join(strip_inline_comment_sh(ln) for ln in text.splitlines())
-    m = re.search(anchor, active)
+    4. **The anchor must be in shell COMMAND position.** Property 1 only removed
+       `#` comments, so the identical evasion worked with a quoted string, a
+       heredoc body, or a YAML scalar (all three proven green-while-defeated in
+       the adversarial review of #402). The haystack now also blanks heredoc
+       bodies (`blank_heredoc_bodies`), and the anchor must be
+       preceded on its line by nothing but whitespace and `if`.
+
+    KNOWN GAP — direction UNDER-report, i.e. a real BYPASS, deliberately not
+    closed. A syntactically present but non-executing control still satisfies the
+    scan, because deciding reachability is interpretation, not scanning:
+
+        if false; then  <the real gate>  fi
+        elif [ "$CRITS" -gt 999 ]; then exit 1
+        case "$MODE" in never) exit 1 ;; esac
+
+    Each yields bash `exit=0` on a CRITICAL finding with the guard GREEN. The cost
+    argument for shipping it: the only line-scanner rule that would catch these —
+    reject any `if`/`case` between the anchor and the control — would fire on
+    every legitimately nested conditional, and all three shapes are a glaring,
+    reviewable edit adjacent to the severity gate rather than a plausible
+    accidental regression. Revisit trigger: if any of them ever lands in a real
+    workflow, this needs a bash parser, not another regex. Do NOT record finding
+    #1 as fully closed while this stands.
+
+    Residual direction on the `if`/`fi` COUNT is over-count -> the body ends LATE,
+    which is the SILENT direction, not the false-alarm one the previous revision
+    claimed. `_IF_OPENER_RE` has no YAML awareness, so `if: always()` and a Python
+    `if bad:` inside the gate's own heredoc are counted as openers — 5 spurious in
+    `security-scan.yml`, 13 in `lint.yml`. Blanking heredocs above removes most of
+    them; the YAML `if:` keys remain. On today's files the surplus fails closed
+    (verified by sweeping 1..6 injected openers), but the balance changes with the
+    next workflow edit."""
+    active = blank_heredoc_bodies(
+        "\n".join(strip_inline_comment_sh(ln) for ln in text.splitlines())
+    )
+    # `if` is OPTIONAL because callers differ: the size-gate anchor already
+    # includes it, the severity-gate anchor does not. Line-anchoring is what
+    # blocks the decoys (they begin `echo` / `- name:`), not the `if` itself,
+    # and a bare `[ … ]; then` with no `if` is not valid shell anyway.
+    m = re.search(r"(?m)^[ \t]*(?:if[ \t]+)?(?:" + anchor + ")", active)
     if not m:
         return None
     rest = active[m.end():]

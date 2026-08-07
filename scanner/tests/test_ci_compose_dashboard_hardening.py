@@ -63,7 +63,7 @@ def _strip_comments(text: str) -> str:
 # (`"redis":`) is the same mapping key to any YAML parser, and one that failed to
 # match here would not TERMINATE the dashboard block — the sibling's directives
 # would then satisfy the dashboard's requirements.
-_SIBLING_SERVICE_RE = re.compile(r"""^  (?:[A-Za-z0-9_-]+|"[^"]*"|'[^']*'):\s*$""")
+_SIBLING_SERVICE_RE = re.compile(r"""^  (?:[A-Za-z0-9_.-]+|"[^"]*"|'[^']*'):\s*$""")
 
 
 def _dashboard_block(text: str) -> str:

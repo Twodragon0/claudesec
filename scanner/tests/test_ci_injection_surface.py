@@ -308,6 +308,14 @@ _INLINE_QUOTED_RUN_UNTERMINATED = {
 }
 
 
+def _only_yaml_comment_after(tail: str) -> bool:
+    """Whether `tail` (the text after a closed quoted scalar) is nothing but
+    optional whitespace and a YAML `#` comment — i.e. the scalar really did end
+    on this physical line."""
+    tail = tail.strip()
+    return tail == "" or tail.startswith("#")
+
+
 def unscannable_inline_runs(text: str) -> list:
     """Lines with an inline `run:` whose QUOTED scalar spans multiple physical
     lines (see `_INLINE_QUOTED_RUN_UNTERMINATED`).
@@ -335,7 +343,21 @@ def unscannable_inline_runs(text: str) -> list:
             continue
         rest = m.group(2).strip()
         pat = _INLINE_QUOTED_RUN_UNTERMINATED.get(rest[:1])
-        if pat is not None and not pat.match(rest):
+        if pat is None:
+            continue
+        # fullmatch, NOT match. `.match()` is a PREFIX match, so on
+        # `'echo don''t forget to review` the engine backtracks and matches the
+        # prefix `'echo don'` — the tripwire concluded the scalar was closed and
+        # the folded continuation carrying `${{ github.event.pull_request.title }}`
+        # never entered the haystack. 555 bypassing shapes were found by fuzzing
+        # first-line shape x continuation indent against PyYAML, all single-quote;
+        # planted in `og-meta-verify.yml` (a `pull_request` + `pull-requests:write`
+        # workflow) the whole suite stayed green on a live CICD-SEC-4 RCE.
+        # Adversarial review of this PR: the tripwire was the right idea and
+        # `.match` was the bug.
+        m2 = pat.match(rest)
+        closed = m2 is not None and _only_yaml_comment_after(rest[m2.end():])
+        if not closed:
             out.append(ln.strip())
     return out
 
@@ -1039,6 +1061,41 @@ class TestInjectionDetectorMutation(unittest.TestCase):
                 "(see TestNoInjectionSurface for the remediation).",
             )
 
+
+
+class TestInlineQuotedScalarPrefixBypass(unittest.TestCase):
+    """PoC from the adversarial review of #402: `.match()` is a PREFIX match, so
+    `'echo don''t forget to review` backtracked to the closed prefix `'echo don'`
+    and the tripwire declared the scalar terminated. PyYAML folds the
+    continuation into one command carrying the untrusted context."""
+
+    _POC = (
+        "      - name: Greet\n"
+        "        run: 'echo don''t forget to review\n"
+        "        ${{ github.event.pull_request.title }}'\n"
+    )
+
+    def test_doubled_quote_continuation_is_caught(self):
+        self.assertTrue(
+            unscannable_inline_runs(self._POC),
+            "a single-quoted scalar closed only as a PREFIX was read as "
+            "terminated — the folded payload never entered the haystack",
+        )
+
+    def test_closed_scalars_are_not_reported(self):
+        for ok in (
+            "        run: 'echo hello'\n",
+            "        run: 'echo hello'  # trailing comment\n",
+            "        run: 'it''s fine'\n",
+            '        run: "echo hi"\n',
+            '        run: "escaped \\" quote"\n',
+        ):
+            self.assertEqual(unscannable_inline_runs(ok), [], ok)
+
+    def test_real_workflows_have_no_hits(self):
+        for wf in _scanned_files():
+            text = Path(wf).read_text(encoding="utf-8")
+            self.assertEqual(unscannable_inline_runs(text), [], wf)
 
 if __name__ == "__main__":
     unittest.main()
