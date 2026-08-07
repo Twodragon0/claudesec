@@ -20,10 +20,15 @@ third patch to an enumeration a redesign signal. The root cause is structural:
 "the anchor starts a line" is a NECESSARY condition for "the anchor is in shell
 command position", never a sufficient one, and no line scanner reaches the
 reachability shapes at all — `if false; then <gate> fi`, an `elif` that cannot be
-true, `case … never) exit 1 ;;`, or a step-level `if: false`.
+true, or `case … never) exit 1 ;;`.
 
 Executing the block collapses all of that. There is nothing to evade: either the
 process exits non-zero on a CRITICAL or it does not.
+
+It collapses the SHELL-level class only. A WORKFLOW-level disable — a step-level
+`if: false` — is invisible to the executed body, and the first draft of this file
+wrongly listed it as covered. `test_gate_step_has_no_if_condition` closes that
+half separately.
 
 SEMANTICS
 ---------
@@ -104,6 +109,33 @@ def extract_run_block(text: str, step_name: str):
         (len(l) - len(l.lstrip())) for l in body if l.strip()
     )
     return "\n".join(l[indent:] if l.strip() else "" for l in body).rstrip() + "\n"
+
+
+def step_block(text: str, step_name: str):
+    """The whole `- name: <step_name>` step block (to the next step at the same
+    indent), or None. Used to check the step's own YAML keys, which the executed
+    `run:` body cannot see."""
+    lines = text.splitlines()
+    try:
+        start = next(i for i, l in enumerate(lines) if f"- name: {step_name}" in l)
+    except StopIteration:
+        return None
+    col = lines[start].index("- name:")
+    out = [lines[start]]
+    for line in lines[start + 1:]:
+        # Bound by INDENTATION, not by "the next `- `". This step is the LAST in
+        # its job, so a next-list-item rule ran on into the following job and
+        # captured 27 lines instead of 13 — the control only stayed green because
+        # that job's `if:` happens to sit at 4 spaces, not 8. A sibling STEP's
+        # `if:` would have false-tripped it.
+        if line.strip() and (len(line) - len(line.lstrip())) <= col:
+            break
+        out.append(line)
+    return "\n".join(out)
+
+
+# A step-level `if:` key. Matched bare or quoted, per the repo's YAML-shape rule.
+_STEP_IF_RE = re.compile(r"""(?m)^\s{8}(?:if|"if"|'if')\s*:""")
 
 
 def _split_statements(script: str) -> list:
@@ -217,6 +249,32 @@ class TestSecurityGateBehaviour(unittest.TestCase):
             f"the gate now invokes {unexpected}, which is not in "
             "_ALLOWED_COMMANDS. Review the command, then add it — this test "
             "refuses to execute an unvetted command out of a workflow file.",
+        )
+
+    def test_gate_step_has_no_if_condition(self):
+        """Executing the `run:` body cannot see the step's own `if:` key.
+
+        Found by self-review AFTER the first draft of this file claimed the
+        behavioural test caught "a step-level `if: false`". It does not: adding
+        `if: false` to the step leaves the extracted script exiting 1 on the
+        CRITICAL fixture — green — while in CI the step never runs at all and a
+        critical stops blocking. Verified by mutating the real workflow.
+
+        So the workflow-level half is asserted here, separately: the gate step
+        must carry NO `if:` at all. Direction is presence — adding any condition,
+        even a legitimate one, fails this and demands the reasoning be reviewed
+        and this test updated. Job-level `if:` is NOT forbidden: the `scan` job is
+        legitimately path-gated and `Security Scan Gate` treats `skipped` as
+        passing."""
+        block = step_block(self.text, STEP_NAME)
+        self.assertIsNotNone(block, f"step {STEP_NAME!r} not found")
+        m = _STEP_IF_RE.search(block)
+        self.assertIsNone(
+            m,
+            "the severity-gate step now carries a step-level `if:` — the executed "
+            "`run:` body cannot see it, so this suite would stay green while the "
+            "step never runs in CI:\n  "
+            + block[m.start():m.start() + 60].strip() if m else "",
         )
 
     def test_critical_finding_fails_the_build(self):
