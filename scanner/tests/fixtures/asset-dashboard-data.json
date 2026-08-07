@@ -71,7 +71,7 @@
         "fail": 4,
         "critical_fails": [
           {
-            "check": "prowler-aws-sample_public_bucket-000000000000",
+            "check": "prowler-aws-sample_public_bucket-EXAMPLECHECKID",
             "provider": "aws",
             "severity": "Critical",
             "message": "Sample bucket allows public access"
@@ -85,13 +85,13 @@
     },
     "critical_fails_sample": [
       {
-        "check": "prowler-aws-sample_public_bucket-000000000000",
+        "check": "prowler-aws-sample_public_bucket-EXAMPLECHECKID",
         "provider": "aws",
         "severity": "Critical",
         "message": "Sample bucket allows public access"
       },
       {
-        "check": "prowler-aws-sample_root_mfa-000000000000",
+        "check": "prowler-aws-sample_root_mfa-EXAMPLECHECKID",
         "provider": "aws",
         "severity": "High",
         "message": "Sample root account without MFA"
@@ -99,7 +99,7 @@
     ],
     "medium_fails_sample": [
       {
-        "check": "prowler-kubernetes-sample_apiserver_flag-000000000000",
+        "check": "prowler-kubernetes-sample_apiserver_flag-EXAMPLECHECKID",
         "provider": "kubernetes",
         "severity": "Medium",
         "message": "Sample apiserver flag not set"
@@ -130,10 +130,10 @@
   "aws_live": {
     "ec2": [
       {
-        "InstanceId": "i-0000000000example",
+        "InstanceId": "i-EXAMPLEINSTANCE",
         "Name": "sample-web-01",
         "Type": "t3.medium",
-        "PrivateIp": "10.0.0.10",
+        "PrivateIp": "198.51.100.10",
         "AZ": "sample-region-1a",
         "_profile": "sandbox",
         "LaunchTime": "2025-06-01T00:00:00Z"
@@ -147,7 +147,7 @@
   "infra": {
     "servers": [
       {
-        "instance_id": "i-0000000000example",
+        "instance_id": "i-EXAMPLEINSTANCE",
         "name": "sample-web-01",
         "instance_type": "t3.medium",
         "region": "sample-region-1",
