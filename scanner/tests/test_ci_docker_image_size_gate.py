@@ -28,7 +28,11 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_comment_lines, strip_inline_comment_sh  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    shell_if_body,
+    strip_comment_lines,
+    strip_inline_comment_sh,
+)
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -57,9 +61,8 @@ def active_text(text):
     )
 
 
-_BREACH_IF_RE = re.compile(
-    r'if\s*\[\s*"?\$?\{?size_mb\}?"?\s+-gt\s+"?\$?\{?max_mb\}?"?\s*\]\s*;\s*then'
-)
+_BREACH_IF = r'if\s*\[\s*"?\$?\{?size_mb\}?"?\s+-gt\s+"?\$?\{?max_mb\}?"?\s*\]\s*;\s*then'
+_BREACH_IF_RE = re.compile(_BREACH_IF)
 
 
 def breach_block(text):
@@ -68,21 +71,17 @@ def breach_block(text):
     Bounding the `exit 1` assertion to THIS block is load-bearing. `lint.yml`
     holds a dozen unrelated `exit 1` lines, so an unscoped presence check is
     satisfied by any of them and cannot detect removal of the size gate's own
-    exit — the guard passes while the cap only echoes (inert-guard class). The
-    closing `fi` is found by BALANCED if/fi depth, not the first `fi`, so a
-    nested `if … fi` cannot end the capture early and hide a trailing `exit 1`.
-    """
-    m = _BREACH_IF_RE.search(text)
-    if not m:
-        return None
-    rest = text[m.end() :]
-    depth, end = 1, len(rest)
-    for tk in re.finditer(r"\bif\b|\bfi\b", rest):
-        depth += 1 if tk.group(0) == "if" else -1
-        if depth == 0:
-            end = tk.start()
-            break
-    return rest[:end]
+    exit — the guard passes while the cap only echoes (inert-guard class).
+
+    Delegates to the shared `shell_if_body` primitive. The local copy this
+    replaced counted `\\bif\\b` anywhere and fell back to "the rest of the file"
+    when the count never balanced, which was a LIVE false negative: adding the
+    English word "if" to the breach message ("… check the base image if this is
+    unexpected") and deleting the `exit 1` returned a 9546-char body carrying an
+    unrelated prowler `exit 1`, so bash let a 900 MB image through while this
+    guard reported the gate intact. Now fails closed (None -> the consumer's
+    `assertIsNotNone` fires)."""
+    return shell_if_body(text, _BREACH_IF)
 
 
 class TestCiDockerImageSizeGate(unittest.TestCase):
@@ -240,6 +239,52 @@ class TestBreachBlockScoping(unittest.TestCase):
 
     def test_nested_if_does_not_truncate(self):
         self.assertRegex(breach_block(self._NESTED), r"\bexit\s+1\b")
+
+    # The 2026-08-07 stripper/haystack audit finding, reproduced on the REAL
+    # lint.yml: the word "if" in the breach message unbalanced the depth count,
+    # the old body fell back to the rest of the file, and an unrelated prowler
+    # `exit 1` certified a gate that bash had stopped enforcing (verified: a
+    # 900 MB image against a 600 MB cap exited 0).
+    _GUTTED_WITH_IF_IN_MESSAGE = (
+        '          if [ "$size_mb" -gt "$max_mb" ]; then\n'
+        '            echo "::error::Image is ${size_mb}MB — check the base image'
+        ' if this is unexpected"\n'
+        "          fi\n"
+        "      - name: some other step\n"
+        "        run: |\n"
+        '          if [ -z "$X" ]; then\n'
+        "            exit 1\n"
+        "          fi\n"
+    )
+
+    def test_if_in_a_message_does_not_leak_a_later_exit(self):
+        body = breach_block(active_text(self._GUTTED_WITH_IF_IN_MESSAGE))
+        self.assertIsNotNone(
+            body,
+            "the word `if` in the breach message must not break the depth count",
+        )
+        self.assertNotRegex(
+            body,
+            r"\bexit\s+1\b",
+            "an `exit 1` from a LATER step leaked in because the English word "
+            "`if` was counted as a bash `if` — the size gate could be gutted "
+            "while this guard stayed green.",
+        )
+
+    def test_unbalanced_block_fails_closed(self):
+        # No closing `fi` at all: returning the remainder of lint.yml would hand
+        # the consumer a dozen unrelated `exit 1` lines.
+        mutant = (
+            '          if [ "$size_mb" -gt "$max_mb" ]; then\n'
+            "            echo error\n"
+            "      - name: other\n"
+            "        run: exit 1\n"
+        )
+        self.assertIsNone(
+            breach_block(active_text(mutant)),
+            "an unbalanced breach block must fail CLOSED, not return the rest "
+            "of the file.",
+        )
 
     def test_missing_breach_check_returns_none(self):
         self.assertIsNone(breach_block("          echo 'no gate here'\n"))

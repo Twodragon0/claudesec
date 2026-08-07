@@ -112,13 +112,25 @@ def harness_step_block(text, invocation):
     a future rename could make one contain the other and silently fold two steps
     into one "found 2, return None" — so each candidate line is compared exactly.
     """
-    blocks, cur = [], None
+    blocks, cur, marker_indent = [], None, 0
     for line in text.splitlines():
-        if re.match(r"^\s*-\s+name:", line):
+        m = re.match(r"^(\s*)-\s+name:", line)
+        if m:
             if cur is not None:
                 blocks.append("\n".join(cur))
-            cur = [line]
+            cur, marker_indent = [line], len(m.group(1))
         elif cur is not None:
+            # A non-blank line indented at or above the `-` marker's column ends
+            # the step: it belongs to the job (or to the next job) instead. The
+            # LAST step used to run to EOF, so a later job's job-level
+            # `timeout-minutes:` satisfied the per-step-cap assertion below — the
+            # exact leak this scoping exists to prevent, just from the other
+            # side (verified 2026-08-07 by deleting the real per-step cap and
+            # appending an ordinary `publish:` job: the guard stayed green).
+            if line.strip() and (len(line) - len(line.lstrip())) <= marker_indent:
+                blocks.append("\n".join(cur))
+                cur = None
+                continue
             cur.append(line)
     if cur is not None:
         blocks.append("\n".join(cur))
@@ -354,6 +366,24 @@ class TestHarnessStepScoping(unittest.TestCase):
 
     def test_missing_invocation_returns_none(self):
         self.assertIsNone(harness_step_block(self._JOB_LEVEL, self._SCAN))
+
+    def test_later_job_level_cap_does_not_leak_into_the_last_step(self):
+        # The harness step is the LAST step of its job, so its block used to run
+        # to EOF and absorb the NEXT job's job-level keys — a later
+        # `timeout-minutes` then satisfied the per-step assertion and removing the
+        # real cap went undetected (stripper/haystack audit, finding 7).
+        wf = (
+            self._NO_STEP_CAP
+            + "  publish:\n    timeout-minutes: 10\n    runs-on: ubuntu-latest\n"
+        )
+        step = harness_step_block(wf, self._SCAN)
+        self.assertIsNotNone(step)
+        self.assertNotRegex(
+            step,
+            r"timeout-minutes:\s*\d+",
+            "Scoping failure: a LATER job's job-level timeout leaked into the "
+            "harness step block, so removing the per-step cap would go undetected.",
+        )
 
     def test_real_workflow_isolates_one_step_per_invocation(self):
         raw = WORKFLOW.read_text(encoding="utf-8") if WORKFLOW.is_file() else ""

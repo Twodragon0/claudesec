@@ -17,12 +17,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     extract_on_block,
+    shell_if_body,
     strip_comment_lines,
     strip_html_comments,
     strip_inline_comment,
     strip_inline_comment_sh,
     top_level_jobs,
 )
+
+CRITS_ANCHOR = r'\[\s*"\$CRITS"\s+-gt\s+0\s*\]\s*;\s*then'
 
 
 class TestStripInlineComment(unittest.TestCase):
@@ -168,6 +171,94 @@ class TestStripHtmlComments(unittest.TestCase):
 
     def test_text_without_comments_is_unchanged(self):
         self.assertEqual(strip_html_comments("plain text"), "plain text")
+
+
+class TestShellIfBody(unittest.TestCase):
+    """`shell_if_body` bounds an `exit 1` assertion to one `if` block. Both
+    consumers protect a merge-blocking control, so every case here is the
+    difference between a guard that fires and one that certifies a dead gate."""
+
+    def test_body_is_the_block_only(self):
+        body = shell_if_body(
+            'if [ "$CRITS" -gt 0 ]; then\n  exit 1\nfi\necho after\n', CRITS_ANCHOR
+        )
+        self.assertRegex(body, r"\bexit\s+1\b")
+        self.assertNotIn("after", body)
+
+    def test_missing_anchor_returns_none(self):
+        self.assertIsNone(shell_if_body("echo hi\n", CRITS_ANCHOR))
+
+    def test_comment_stripped_before_the_anchor_is_searched(self):
+        # The anchor is part of the haystack: a `#`-commented copy of the whole
+        # block must not anchor the scan (bash exits 0 here — gate dead).
+        self.assertIsNone(
+            shell_if_body(
+                '# was: if [ "$CRITS" -gt 0 ]; then exit 1; fi\necho no gate\n',
+                CRITS_ANCHOR,
+            ),
+            "a commented-out block anchored the scan inside itself",
+        )
+
+    def test_commented_exit_does_not_survive_in_the_body(self):
+        body = shell_if_body(
+            'if [ "$CRITS" -gt 0 ]; then\n  echo warn  # exit 1\nfi\n', CRITS_ANCHOR
+        )
+        self.assertNotRegex(body, r"\bexit\s+1\b")
+
+    def test_metachar_commented_exit_does_not_survive(self):
+        # `;#exit 1` is a real bash comment with no preceding space.
+        body = shell_if_body(
+            'if [ "$CRITS" -gt 0 ]; then\n  echo warn;#exit 1\nfi\n', CRITS_ANCHOR
+        )
+        self.assertNotRegex(body, r"\bexit\s+1\b")
+
+    def test_nested_if_does_not_end_the_body_early(self):
+        body = shell_if_body(
+            'if [ "$CRITS" -gt 0 ]; then\n'
+            '  if [ -n "$CI" ]; then\n    echo ci\n  fi\n'
+            "  exit 1\n"
+            "fi\n",
+            CRITS_ANCHOR,
+        )
+        self.assertRegex(body, r"\bexit\s+1\b")
+
+    def test_unbalanced_block_fails_closed(self):
+        # Fail CLOSED: returning the remainder would hand the consumer every
+        # later `exit 1` in the file.
+        self.assertIsNone(
+            shell_if_body(
+                'if [ "$CRITS" -gt 0 ]; then\n  echo warn\nsteps:\n  - run: exit 1\n',
+                CRITS_ANCHOR,
+            )
+        )
+
+    def test_if_as_an_english_word_is_not_a_nesting_level(self):
+        body = shell_if_body(
+            'if [ "$CRITS" -gt 0 ]; then\n'
+            '  echo "failing the build if any critical is found"\n'
+            "  exit 1\n"
+            "fi\n"
+            "echo after\n",
+            CRITS_ANCHOR,
+        )
+        self.assertIsNotNone(body, "an English `if` unbalanced the depth count")
+        self.assertNotIn("after", body)
+        self.assertRegex(body, r"\bexit\s+1\b")
+
+    def test_inline_nested_if_fi_on_one_line_is_balanced(self):
+        # `fi` is counted wherever it is a word, so a one-line nested block nets
+        # out even though its `if` is at command position on the same line.
+        body = shell_if_body(
+            'if [ "$CRITS" -gt 0 ]; then\n'
+            '  if [ -n "$CI" ]; then echo ci; fi\n'
+            "  exit 1\n"
+            "fi\n"
+            "echo after\n",
+            CRITS_ANCHOR,
+        )
+        self.assertIsNotNone(body)
+        self.assertRegex(body, r"\bexit\s+1\b")
+        self.assertNotIn("after", body)
 
 
 if __name__ == "__main__":

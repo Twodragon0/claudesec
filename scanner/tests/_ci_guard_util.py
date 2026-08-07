@@ -243,6 +243,61 @@ def strip_inline_comment_sh(line: str) -> str:
     return line
 
 
+# `if` is counted ONLY where bash reads it as the reserved word opening a
+# compound command (start of line, or after `;`/`&`/`|`/`(`/`)`/`{`/`}`/`then`/
+# `else`/`do`); `fi` is counted wherever it is a word. The asymmetry is the whole
+# safety argument — see `shell_if_body`.
+_IF_OPENER_RE = re.compile(r"(?m)(?:^|[;&|(){}]|\b(?:then|else|do)\b)\s*(?P<kw>if)\b")
+_FI_CLOSER_RE = re.compile(r"\bfi\b")
+
+
+def shell_if_body(text: str, anchor: str):
+    """The body of the shell `if <anchor> … ; then … fi` in `text`, or None.
+
+    `anchor` is a regex matching the condition through its `then`. Used by guards
+    that must bound an `exit 1` (or another control) to ONE `if` block: the files
+    they scan hold a dozen unrelated `exit 1` lines, so an unscoped presence check
+    is inert (ADR-001 §2).
+
+    Three properties, each of which was a demonstrated bypass before the
+    2026-08-07 stripper audit; all PoCs ran bash AND the consumer guard:
+
+    1. **Comment-stripped BEFORE the anchor is searched.** `conditional_body_from`
+       used to search the raw text and only strip the body, so one comment line —
+       `# was: if [ "$CRITS" -gt 0 ]; then exit 1; fi` — anchored the scan inside
+       itself and yielded ` exit 1; ` as the body while bash exited 0 on a
+       CRITICAL finding. Strip, THEN match; the anchor is part of the haystack.
+    2. **Fails CLOSED on an unbalanced count.** Returning "the rest of the text"
+       when no closing `fi` is reached hands the consumer every later `exit 1` in
+       the file. Verified against the real `lint.yml`: one extra `if` token made
+       the returned body 9546 chars instead of 110 and an `exit 1` from an
+       unrelated prowler step certified the gutted image-size gate.
+    3. **Only command-position `if` opens a nesting level.** `\\bif\\b` matched the
+       English word in `echo "… check the base image if this is unexpected"`,
+       which is what unbalanced the count in (2). With (2) failing closed, a
+       liberal `if` rule would also turn any such message edit into a false alarm.
+
+    Residual direction is over-strip -> FALSE ALARM only: an `if` written outside
+    command position (`cmd && if …`, or one inside a quoted string) is not counted
+    while its `fi` is, so the body ends EARLY and a real control can be missed —
+    loud, never silent. A `fi` inside a word (`wi-fi`) ends it early too."""
+    active = "\n".join(strip_inline_comment_sh(ln) for ln in text.splitlines())
+    m = re.search(anchor, active)
+    if not m:
+        return None
+    rest = active[m.end():]
+    tokens = sorted(
+        [(t.start("kw"), 1) for t in _IF_OPENER_RE.finditer(rest)]
+        + [(t.start(), -1) for t in _FI_CLOSER_RE.finditer(rest)]
+    )
+    depth = 1
+    for pos, delta in tokens:
+        depth += delta
+        if depth == 0:
+            return rest[:pos]
+    return None
+
+
 def strip_html_comments(text: str) -> str:
     """`text` with HTML/Markdown comments (`<!-- ... -->`, possibly multi-line)
     removed.
