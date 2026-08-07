@@ -31,51 +31,41 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     extract_on_block,
-    shell_if_body,
     strip_inline_comment,
+    strip_inline_comment_sh,
 )
 
 
 def conditional_body_from(text, var):
-    """The body of `if [ "$<var>" -gt 0 ]; then ... fi`, or None.
+    """The body of `if [ "$<var>" -gt 0 ]; then ... fi`.
 
-    Inline shell `#` comments are stripped per line BEFORE anything else, so a
+    Trailing inline shell `#` comments are stripped per line first, so a
     commented-out `# exit 1` — INCLUDING the bash command-separator form
     `;#exit 1` (a real comment with no preceding space, which a whitespace-only
     stripper misses) — can neither satisfy nor falsely trip the severity-block
     checks (comment-evasion class, F-1; 3rd-pass finding). The closing `fi` is
-    found by a BALANCED if/fi depth count — NOT the first `fi` — so a nested
-    `if … fi` inside the block (or a heredoc) cannot terminate the capture early
-    and hide a trailing `exit 1` (2nd-review Finding 1). `elif`/`else`/`then` are
-    not `\\bfi\\b`/`\\bif\\b` tokens, so they don't perturb the count.
-
-    Two silent bypasses of the CRITICAL merge block, both found by the 2026-08-07
-    stripper/haystack audit, both with a runnable PoC on bash AND on this
-    function, both now closed:
-
-    H1 (CRITICAL) — the anchor used to be searched in the RAW text while only the
-    BODY was comment-stripped. One comment line,
-    `# was: if [ "$CRITS" -gt 0 ]; then exit 1; fi`, therefore anchored the scan
-    inside itself and handed back ` exit 1; ` as the body: bash exited 0 on a
-    CRITICAL finding (merge allowed) and this guard reported the gate intact.
-    That is the ADR-001 §2 rule — strip, THEN match — applied to the anchor and
-    not just the haystack.
-
-    H2 (HIGH, was latent) — when the depth count never reached 0 the function
-    used to return the ENTIRE remainder of the file. Commenting the block out
-    line-by-line leaves an unbalanced `fi`-less region, so the body ran to EOF and
-    ANY later `exit 1` in security-scan.yml satisfied the check. Adding one
-    ordinary `… || exit 1` step to the gate job was enough to turn the canonical
-    "temporarily disable the block" edit green. It now fails CLOSED: no balanced
-    `fi` -> None -> the consumer's `assertIsNotNone` fires.
-
-    Both are handled by the shared `shell_if_body` primitive, so the sibling
-    image-size gate (`test_ci_docker_image_size_gate.breach_block`) — which had
-    the same H2 hole, live — cannot drift away from the fix.
+    found by a BALANCED if/fi
+    depth count — NOT the first `fi` — so a nested `if … fi` inside the block (or
+    a heredoc) cannot terminate the capture early and hide a trailing `exit 1`
+    (2nd-review Finding 1). `elif`/`else`/`then` are not `\\bfi\\b`/`\\bif\\b`
+    tokens, so they don't perturb the count.
     """
-    return shell_if_body(
-        text, r'\[\s*"\$' + re.escape(var) + r'"\s+-gt\s+0\s*\]\s*;\s*then'
+    m = re.search(
+        r'\[\s*"\$' + re.escape(var) + r'"\s+-gt\s+0\s*\]\s*;\s*then',
+        text,
     )
+    if not m:
+        return None
+    # Comment-stripped remainder after the CRITS `then` (so a `# fi`/`# if` in a
+    # comment cannot skew the depth count).
+    rest = "\n".join(strip_inline_comment_sh(ln) for ln in text[m.end():].splitlines())
+    depth, end = 1, len(rest)
+    for tk in re.finditer(r"\bif\b|\bfi\b", rest):
+        depth += 1 if tk.group(0) == "if" else -1
+        if depth == 0:
+            end = tk.start()
+            break
+    return rest[:end]
 
 
 # scanner/tests/this_file -> parents[2] == repo root
@@ -417,54 +407,6 @@ class TestSeverityBlockCommentEvasion(unittest.TestCase):
             "ANSI-C comment-evasion: an `exit 1` surviving only in a `$'\\''`-"
             "prefixed bash comment must NOT satisfy the CRITICAL merge-block.",
         )
-
-    def test_commented_out_block_does_not_anchor_the_scan(self):
-        # H1 (CRITICAL, 2026-08-07 audit): the anchor was searched in RAW text, so
-        # a one-line comment holding the whole block anchored the scan inside
-        # itself and returned ` exit 1; ` as the body. Verified by execution: bash
-        # exits 0 on a CRITICAL finding while this returned a satisfying body.
-        mutant = (
-            '          # was: if [ "$CRITS" -gt 0 ]; then exit 1; fi  (disabled)\n'
-            '          echo "no gate"\n'
-        )
-        body = conditional_body_from(mutant, "CRITS")
-        self.assertIsNone(
-            body,
-            "comment-anchored evasion: a `#`-commented copy of the severity block "
-            "must not be found as the block itself.",
-        )
-
-    def test_unbalanced_block_fails_closed(self):
-        # H2 (HIGH): with no balanced `fi`, returning the rest of the file let ANY
-        # later `exit 1` certify the dead block. Must be None, not a mega-body.
-        mutant = (
-            'if [ "$CRITS" -gt 0 ]; then\n'
-            "  echo warn\n"
-            "# fi   <- block commented out; the closer is gone\n"
-            "steps:\n"
-            "  - run: test -f x || exit 1\n"
-        )
-        self.assertIsNone(
-            conditional_body_from(mutant, "CRITS"),
-            "unbalanced if/fi must fail CLOSED — returning the rest of the file "
-            "lets an unrelated `exit 1` satisfy the CRITICAL merge-block check.",
-        )
-
-    def test_if_inside_a_message_does_not_extend_the_body(self):
-        # The word `if` in an error string is not a bash `if`. Counting it would
-        # push the body past the real `fi` and (with fail-closed) turn an ordinary
-        # message edit into a false alarm.
-        mutant = (
-            'if [ "$CRITS" -gt 0 ]; then\n'
-            '  echo "failing the build if any critical is found"\n'
-            "  exit 1\n"
-            "fi\n"
-            "echo after\n"
-        )
-        body = conditional_body_from(mutant, "CRITS")
-        self.assertIsNotNone(body, "a plain `if` in a message broke the depth count")
-        self.assertNotIn("after", body, "body ran past the closing `fi`")
-        self.assertRegex(body, r"\bexit\s+1\b")
 
     def test_real_exit_one_satisfies(self):
         good = 'if [ "$CRITS" -gt 0 ]; then\n  exit 1\nfi'

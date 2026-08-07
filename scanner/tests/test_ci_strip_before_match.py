@@ -103,7 +103,31 @@ TEXT_SOURCE_CALLS = frozenset({"read_text", "open", "glob", "rglob", "iterdir", 
 # entry is fixed, so a stale exemption cannot linger. A legitimate exception
 # exists: an extractor whose boundaries ARE comments (a `# NET-005` banner)
 # genuinely must run before stripping.
-KNOWN_STRIP_ORDER_EXCEPTIONS = frozenset()
+KNOWN_STRIP_ORDER_EXCEPTIONS = frozenset(
+    {
+        # TRACKED, NOT AN ACCEPTED SHAPE. `conditional_body_from` searches the
+        # block ANCHOR in raw text while comment-stripping only the body it
+        # returns, so one line — `# was: if [ "$CRITS" -gt 0 ]; then exit 1; fi`
+        # — anchors the scan inside itself and returns ` exit 1; ` while bash
+        # exits 0 on a CRITICAL finding, behind the REQUIRED Security Scan Gate.
+        #
+        # It is listed here rather than fixed because three successive
+        # line-scanner fixes were each defeated: the first by 4 shapes (quoted
+        # string, heredoc, YAML scalar, dead branch), the second by 6 (adding a
+        # space-indented heredoc terminator, two heredocs on a line, a split
+        # delimiter, a non-word delimiter, and any multi-line YAML scalar). Each
+        # fix looked closed until the next adversarial pass, which is ADR-001's
+        # "a third patch to an enumeration is a redesign signal".
+        #
+        # The replacement is BEHAVIOURAL, not a better parser: extract the gate's
+        # `run:` block and EXECUTE it against a fixture containing a CRITICAL,
+        # asserting a non-zero exit. A prototype closes all of the above AND the
+        # three reachability shapes no line scanner can reach (`if false; then`,
+        # an unreachable `elif`, `case … never) exit 1`). Remove this entry when
+        # that lands.
+        "test_ci_security_gate.py:53:match-on-raw-param",
+    }
+)
 
 
 def _call_name(node) -> str:

@@ -200,6 +200,46 @@ class TestHardeningGuardSelfTest(unittest.TestCase):
                 )
 
 
+
+class TestSiblingServiceNameGrammar(unittest.TestCase):
+    """Pin for the sibling-key terminator's character class.
+
+    Adversarial review of #402 found the widening shipped with no test: reverting
+    the `.` from the class left all 6 tests passing, so the change was worthless
+    by this suite's own bar. Compose service names are `[A-Za-z0-9._-]+`, and a
+    sibling the terminator does not recognise merges into the dashboard block —
+    its directives then satisfy the dashboard's and a fully gutted service reports
+    `missing_directives == []`."""
+
+    _GUTTED = (
+        "services:\n"
+        "  dashboard:\n"
+        "    image: nginx\n"
+        "  {sibling}\n"
+        "    read_only: true\n"
+        "    cap_drop: [ALL]\n"
+        "    security_opt: [no-new-privileges:true]\n"
+        "    mem_limit: 256m\n"
+        "    pids_limit: 100\n"
+        "    tmpfs: [/tmp]\n"
+    )
+
+    def test_sibling_names_all_terminate_the_block(self):
+        for sibling in ("redis:", '"redis":', "my.cache:", "my-cache:", "my_cache:",
+                        "redis:  # cache sidecar"):
+            missing = missing_directives(self._GUTTED.format(sibling=sibling))
+            # EXACT set, not merely non-empty. A first draft asserted truthiness
+            # and was vacuous: with the narrow class an unrecognised `my.cache:`
+            # still left ONE directive unmatched, so the weak assertion passed
+            # while five of six were silently satisfied by the sibling.
+            self.assertEqual(
+                set(missing),
+                set(REQUIRED),
+                f"sibling {sibling!r} did not terminate the dashboard block — its "
+                "hardening satisfied the dashboard's, so a gutted service reported "
+                f"only {sorted(missing)} as missing",
+            )
+
 if __name__ == "__main__":
     unittest.main()
     sys.exit(0)
