@@ -41,12 +41,27 @@ step level. For a gating job there is no legitimate use: the key exists precisel
 to make failure not count. Legitimate uses are ALLOWLISTED by
 `(workflow, job, step)` so each one is a reviewed decision, not a blanket hole.
 
-NOT forbidden — a step-level `if:`. Conditional steps are ordinary and there are
-hundreds; forbidding them across twenty jobs would be a false-alarm generator
-that gets the guard disabled within a week. #404 forbids `if:` on the ONE step
-where the condition is never legitimate (the severity gate). That asymmetry is
-deliberate: this guard covers the key with no legitimate use across a wide
-surface, #404 covers a narrow surface exhaustively.
+FORBIDDEN — a step-level `if:`, unless it is bare `always()` or is allowlisted.
+
+The first version of this file did NOT check that, arguing conditional steps are
+ordinary and a ban would be a false-alarm generator. That argument was wrong, and
+wrong in a way that was measurable rather than debatable: it was sized against
+every workflow in the repo, while the required graph holds 105 steps of which
+exactly SEVEN carry an `if:` — five bare `always()`, two legitimate conditions.
+At that size an allowlist is trivial, and the gap it left was real: `if: false`
+on the sole step of a job that can fail (`Run gitleaks`, `Dependency Review`,
+`pii-check`'s only step) leaves the job with nothing to fail on, so it concludes
+`success` by DEFAULT — no job-level key needed. Measured on the real `lint.yml`:
+step `continue-on-error` on `Run gitleaks` failed this guard; step `if: false` on
+the same step passed it 14/14.
+
+The direction is an ALLOWLIST of legitimate conditions, never a blocklist of
+disable shapes. Enumerating ways to spell "false" is precisely what got defeated
+three times over in #402/#404; `test_step_if_is_not_an_enumeration_of_false_spellings`
+pins six conditions that are not literally `false` and must still be caught.
+`always()` is exempt by MEANING (it forces the step to run even after a prior
+failure, so it cannot disable) and only in its bare form — `always() && <expr>`
+can disable, and is caught.
 
 NOT forbidden — a JOB-level `if:`. Path gating is the repo's normal posture and
 both aggregators treat `skipped` as passing by design.
@@ -101,6 +116,50 @@ DISABLING_KEY = "continue-on-error"
 ALLOWED_STEP_EXCEPTIONS = frozenset(
     {
         ("lint.yml", "scanner-unit-tests", "Upload coverage to Codecov"),
+    }
+)
+
+# `if:` on a step in the required graph.
+#
+# The first version of this guard did NOT check this key, on the reasoning that
+# conditional steps are ordinary and forbidding them would be a false-alarm
+# generator. That reasoning was WRONG, and wrong in a measurable way: it was
+# sized against every workflow in the repo, but the required graph has 105 steps
+# of which exactly SEVEN carry an `if:`. At that size an allowlist is trivial.
+#
+# It mattered, because the gap was real. `if: false` on the sole enforcement step
+# of a job (`Run gitleaks`, `Dependency Review`, `pii-check`'s only step, ...)
+# leaves the job with nothing that can fail, so it concludes `success` by
+# default — no job-level key needed — and the aggregator accepts `success`.
+# Measured on the real `lint.yml`: step-level `continue-on-error` on `Run
+# gitleaks` FAILED this guard (4 tests); step-level `if: false` on the same step
+# passed it 14/14 (2026-08-08 audit).
+#
+# Direction is an ALLOWLIST of legitimate conditions, not a blocklist of disable
+# shapes. That is deliberate — ADR-001 §4: an enumeration of ways to write
+# "false" (`false`, `${{ false }}`, `1 == 2`, `github.event_name == 'never'`, ...)
+# is exactly the shape that got defeated three times over in #402/#404. Any new
+# condition, however it is spelled, fails until a human reviews it.
+#
+# `always()` is exempt by MEANING rather than by listing: it forces the step to
+# run even after a prior failure, so it cannot be a disable. Only the bare form
+# is exempt — `always() && <expr>` can absolutely disable, so the one compound
+# use is allowlisted explicitly below.
+_IF_ALWAYS_RE = re.compile(r"""^\s*(?:\$\{\{\s*)?always\(\)\s*(?:\}\})?\s*$""")
+
+ALLOWED_STEP_IF = frozenset(
+    {
+        # Build kcov only on a cache miss. Skipping it on a HIT is the point; the
+        # coverage floor is enforced by a later unconditional step either way.
+        ("lint.yml", "scanner-shell-coverage", "Build kcov v42 from source"),
+        # The enforcement step itself. `always()` so it runs after the swallowed
+        # pytest step (`set +e`), and the `!= '0'` arm is what makes it fail —
+        # an unset output is also `!= '0'`, so it fails closed.
+        (
+            "lint.yml",
+            "scanner-unit-tests",
+            "Fail workflow on scanner unittest / coverage failure",
+        ),
     }
 )
 
@@ -279,6 +338,20 @@ def _declares(block: str, col: int, key: str) -> bool:
     return key in keys_at_column(block, col) or bool(explicit_key_lines(block, key))
 
 
+def _key_value(block: str, col: int, key: str):
+    """The scalar value of `key` at `col`, or None if absent/unreadable.
+
+    None means "present but not readable as a plain scalar" is NOT distinguished
+    from absent here — callers pair this with `_declares`, so an unreadable value
+    on a declared key is reported rather than skipped."""
+    pat = re.compile(rf"^ {{{col}}}{yaml_key_pattern(key)}\s*:\s*(.+?)\s*$")
+    for raw in block.splitlines():
+        m = pat.match(strip_inline_comment(raw))
+        if m:
+            return m.group(1).strip("\"'")
+    return None
+
+
 def graph_violations(texts: dict = None):
     """Every way a required check can be neutered by a runner-consumed key.
 
@@ -302,14 +375,31 @@ def graph_violations(texts: dict = None):
                 "aggregator accepts `success`, so this required check stops blocking"
             )
         for step_name, key_col, chunk in _steps_of(block):
-            if not _declares(chunk, key_col, DISABLING_KEY):
+            if _declares(chunk, key_col, DISABLING_KEY) and (
+                fname,
+                key,
+                step_name,
+            ) not in ALLOWED_STEP_EXCEPTIONS:
+                out.append(
+                    f"{fname}: job {key!r} step {step_name!r} sets `{DISABLING_KEY}` — "
+                    "the runner discards its exit code. If the step genuinely must not "
+                    "fail the build, add it to ALLOWED_STEP_EXCEPTIONS with a rationale"
+                )
+            if not _declares(chunk, key_col, "if"):
                 continue
-            if (fname, key, step_name) in ALLOWED_STEP_EXCEPTIONS:
+            if (fname, key, step_name) in ALLOWED_STEP_IF:
                 continue
+            value = _key_value(chunk, key_col, "if")
+            if value is not None and _IF_ALWAYS_RE.match(value):
+                continue  # `always()` forces the step to run; it cannot disable
             out.append(
-                f"{fname}: job {key!r} step {step_name!r} sets `{DISABLING_KEY}` — "
-                "the runner discards its exit code. If the step genuinely must not "
-                "fail the build, add it to ALLOWED_STEP_EXCEPTIONS with a rationale"
+                f"{fname}: job {key!r} step {step_name!r} is conditional "
+                f"(`if: {value}`). A condition on a step in a REQUIRED check's "
+                "graph can stop it running, and a job whose only failing step is "
+                "skipped concludes `success` by default. If this condition is "
+                "legitimate, add it to ALLOWED_STEP_IF with a rationale — the "
+                "allowlist is the review moment, and is deliberately not a list "
+                "of ways to spell `false`"
             )
     return sorted(out)
 
@@ -345,23 +435,27 @@ class TestRequiredGraphNotDisabled(unittest.TestCase):
 
     def test_allowlist_has_no_stale_entries(self):
         """A stale exception is an unexplained hole. Fails once the step stops
-        setting the key, so the allowlist keeps meaning what it says."""
+        setting the key, so each allowlist keeps meaning what it says."""
         stale = []
-        for fname, job, step_name in sorted(ALLOWED_STEP_EXCEPTIONS):
-            text = (WORKFLOW_DIR / fname).read_text(encoding="utf-8")
-            block = job_block(text, job)
-            if block is None:
-                stale.append(f"{fname}:{job} (job not found)")
-                continue
-            hit = [
-                chunk
-                for name, col, chunk in _steps_of(block)
-                if name == step_name and _declares(chunk, col, DISABLING_KEY)
-            ]
-            if not hit:
-                stale.append(f"{fname}:{job}:{step_name}")
+        for label, entries, key in (
+            ("ALLOWED_STEP_EXCEPTIONS", ALLOWED_STEP_EXCEPTIONS, DISABLING_KEY),
+            ("ALLOWED_STEP_IF", ALLOWED_STEP_IF, "if"),
+        ):
+            for fname, job, step_name in sorted(entries):
+                text = (WORKFLOW_DIR / fname).read_text(encoding="utf-8")
+                block = job_block(text, job)
+                if block is None:
+                    stale.append(f"{label}: {fname}:{job} (job not found)")
+                    continue
+                hit = [
+                    chunk
+                    for name, col, chunk in _steps_of(block)
+                    if name == step_name and _declares(chunk, col, key)
+                ]
+                if not hit:
+                    stale.append(f"{label}: {fname}:{job}:{step_name}")
         self.assertEqual(
-            stale, [], "stale ALLOWED_STEP_EXCEPTIONS entries (step fixed or moved): " + str(stale)
+            stale, [], "stale allowlist entries (step fixed or moved): " + str(stale)
         )
 
 
@@ -430,6 +524,78 @@ class TestGraphViolationDetector(unittest.TestCase):
         )
         hits = self._violations_with("lint.yml", m)
         self.assertTrue([h for h in hits if "dependency-review" in h], f"not caught: {hits}")
+
+    def _gitleaks_step_with(self, key_line):
+        """The real lint.yml with `key_line` added to the `Run gitleaks` step —
+        the sole step in that job that can fail."""
+        return re.sub(
+            r"(?m)^(( *)- name: Run gitleaks)$",
+            lambda m: f"{m.group(1)}\n{m.group(2)}  {key_line}",
+            self.lint,
+            count=1,
+        )
+
+    def test_step_if_false_on_the_sole_enforcement_step_is_caught(self):
+        """The gap the first version of this guard had, measured on the real file.
+
+        Skipping the only step that can fail leaves the job with zero failures,
+        so it concludes `success` by default — no job-level key needed — and the
+        aggregator accepts `success`."""
+        # The mutant is bound to a local before being scanned, rather than nested
+        # as `scan(build(text))`. `test_ci_strip_before_match`'s detector B reads
+        # that nesting as `strip_x(extract_y(text))` — a real defect shape when
+        # the inner call NARROWS a haystack. It does not here (this builder ADDS
+        # text, and the scanner strips comments per line internally), but the
+        # detector cannot tell a builder from an extractor, and un-nesting is
+        # cheaper and safer than teaching it a new category or spending an
+        # allowlist entry on a false positive. Do not re-nest these.
+        mutant = self._gitleaks_step_with("if: false")
+        hits = self._violations_with("lint.yml", mutant)
+        self.assertTrue([h for h in hits if "Run gitleaks" in h], f"not caught: {hits}")
+
+    def test_step_if_is_not_an_enumeration_of_false_spellings(self):
+        """The allowlist direction is the whole point (ADR-001 §4).
+
+        A blocklist of ways to write "false" is the shape that got defeated three
+        times over in #402/#404. None of these are `false` literally, and every
+        one must still be caught, because the rule is "not on the allowlist", not
+        "looks disabled"."""
+        for cond in (
+            "${{ false }}",
+            "github.event_name == 'never'",
+            "${{ 1 == 2 }}",
+            "${{ !always() }}",
+            "always() && false",  # the `always()` exemption is BARE-form only
+            "${{ github.actor == 'nobody-at-all' }}",
+        ):
+            with self.subTest(cond=cond):
+                mutant = self._gitleaks_step_with(f"if: {cond}")
+                hits = self._violations_with("lint.yml", mutant)
+                self.assertTrue(
+                    [h for h in hits if "Run gitleaks" in h], f"not caught: {cond} -> {hits}"
+                )
+
+    def test_step_if_explicit_key_form_is_caught(self):
+        m = re.sub(
+            r"(?m)^(( *)- name: Run gitleaks)$",
+            lambda m: f"{m.group(1)}\n{m.group(2)}  ? if\n{m.group(2)}  : false",
+            self.lint,
+            count=1,
+        )
+        hits = self._violations_with("lint.yml", m)
+        self.assertTrue([h for h in hits if "Run gitleaks" in h], f"not caught: {hits}")
+
+    def test_bare_always_is_not_a_false_alarm(self):
+        """`always()` forces the step to run even after a prior failure, so it
+        cannot be a disable. Exempt by MEANING, not by being on a list."""
+        for cond in ("always()", "${{ always() }}"):
+            with self.subTest(cond=cond):
+                mutant = self._gitleaks_step_with(f"if: {cond}")
+                self.assertEqual(
+                    self._violations_with("lint.yml", mutant),
+                    [],
+                    f"{cond} was wrongly reported as a disable",
+                )
 
     def test_dedented_steps_are_still_checked(self):
         """A block sequence may sit at its parent key's own indent, so dedenting
