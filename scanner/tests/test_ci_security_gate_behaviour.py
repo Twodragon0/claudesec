@@ -107,6 +107,13 @@ _MAX_BLOCK_LINES = 40
 _CRITICAL_FIXTURE = "✗ FAIL  [SEC-001] hardcoded secret in config (CRITICAL)\n"
 _CLEAN_FIXTURE = "✓ All checks passed\n"
 
+# Same emitter shape, HIGH severity. The gate must WARN on this and exit 0 —
+# only CRITICAL blocks a merge (#206). Carried over from
+# `test_ci_security_gate.TestScanCriticalSeverityBlock.test_high_block_stays_nonblocking`,
+# which asserted it by text; proving it by execution is what let that text guard
+# (and the strip-order defect underneath it) be deleted outright.
+_HIGH_FIXTURE = "✗ FAIL  [SEC-014] permissive CORS policy (HIGH)\n"
+
 
 _STEP_NAME_RE = re.compile(r"^(\s*-\s+)name:\s*(.+?)\s*$")
 
@@ -672,6 +679,34 @@ class TestSecurityGateBehaviour(unittest.TestCase):
             r.returncode, 0, f"clean scan failed the build.\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}"
         )
 
+    def test_high_finding_warns_but_does_not_fail_the_build(self):
+        """Only CRITICAL blocks a merge; HIGH warns (#206).
+
+        The third direction, and the one that kept the old text guard alive: a
+        gate that failed on HIGH too would pass both `test_critical…` and
+        `test_clean…` while breaking every ordinary build, and a gate rewritten
+        to escalate HIGH silently changes the merge policy. Executing it proves
+        the policy rather than pattern-matching the `HIGHS` branch, which is what
+        `test_ci_security_gate.TestScanCriticalSeverityBlock` used to do through
+        `conditional_body_from` — the function carrying the strip-order defect.
+        """
+        r = run_gate(self.script, _HIGH_FIXTURE)
+        self.assertEqual(
+            r.returncode,
+            0,
+            "a HIGH finding failed the build — only CRITICAL is supposed to block "
+            "the merge (#206). If escalating HIGH is intended, change the policy "
+            "deliberately and update this test.\n"
+            f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}",
+        )
+        self.assertIn(
+            "::warning::",
+            r.stdout,
+            "the gate no longer WARNS on a HIGH finding — exiting 0 silently is "
+            "not the same as reporting it, and the warning is the only signal a "
+            "HIGH produces.",
+        )
+
 
 class TestGateBehaviourDetector(unittest.TestCase):
     """Mutation self-tests. Each case is a shape that defeated the line-scanning
@@ -725,6 +760,27 @@ class TestGateBehaviourDetector(unittest.TestCase):
     def test_exit_moved_into_a_dead_case_arm(self):
         m = self.script.replace("  exit 1\n", '  case "${MODE:-run}" in never) exit 1 ;; esac\n')
         self._assert_caught(m, "`exit 1` moved into an unreachable case arm")
+
+    def test_escalating_high_to_a_merge_block_is_caught(self):
+        """Non-vacuity for `test_high_finding_warns_but_does_not_fail_the_build`.
+
+        Opposite direction to every other case here: the mutation makes the gate
+        MORE aggressive, not less. Without this the HIGH test would pass on a
+        gate that had been quietly rewritten to block on HIGH, since it never
+        proves the assertion can fail."""
+        m = self.script.replace(
+            'echo "::warning::$HIGHS high finding(s) detected"',
+            'echo "::warning::$HIGHS high finding(s) detected"\n  exit 1',
+        )
+        self.assertNotEqual(
+            m, self.script, "mutation did not apply — the test is vacuous"
+        )
+        self.assertNotEqual(
+            run_gate(m, _HIGH_FIXTURE).returncode,
+            0,
+            "the gate was mutated to block on HIGH and the guard did not notice — "
+            "`test_high_finding_warns_but_does_not_fail_the_build` cannot fail",
+        )
 
 
 class TestEmitterLinkageDetector(unittest.TestCase):

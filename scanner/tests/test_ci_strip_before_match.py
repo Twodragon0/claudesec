@@ -103,39 +103,17 @@ TEXT_SOURCE_CALLS = frozenset({"read_text", "open", "glob", "rglob", "iterdir", 
 # entry is fixed, so a stale exemption cannot linger. A legitimate exception
 # exists: an extractor whose boundaries ARE comments (a `# NET-005` banner)
 # genuinely must run before stripping.
-KNOWN_STRIP_ORDER_EXCEPTIONS = frozenset(
-    {
-        # TRACKED, NOT AN ACCEPTED SHAPE. `conditional_body_from` searches the
-        # block ANCHOR in raw text while comment-stripping only the body it
-        # returns, so one line — `# was: if [ "$CRITS" -gt 0 ]; then exit 1; fi`
-        # — anchors the scan inside itself and returns ` exit 1; ` while bash
-        # exits 0 on a CRITICAL finding, behind the REQUIRED Security Scan Gate.
-        #
-        # It is listed here rather than fixed because three successive
-        # line-scanner fixes were each defeated: the first by 4 shapes (quoted
-        # string, heredoc, YAML scalar, dead branch), the second by 6 (adding a
-        # space-indented heredoc terminator, two heredocs on a line, a split
-        # delimiter, a non-word delimiter, and any multi-line YAML scalar). Each
-        # fix looked closed until the next adversarial pass, which is ADR-001's
-        # "a third patch to an enumeration is a redesign signal".
-        #
-        # The replacement is BEHAVIOURAL, not a better parser: extract the gate's
-        # `run:` block and EXECUTE it against a fixture containing a CRITICAL,
-        # asserting a non-zero exit. A prototype closes all of the above AND the
-        # three reachability shapes no line scanner can reach (`if false; then`,
-        # an unreachable `elif`, `case … never) exit 1`).
-        #
-        # STATUS: the behavioural replacement HAS landed —
-        # `test_ci_security_gate_behaviour.py` extracts the gate's `run:` block and
-        # EXECUTES it against a CRITICAL fixture, so the INVARIANT (a critical
-        # blocks the merge) is now proven by a check with nothing to evade. This
-        # entry stays because the strip-order defect in `conditional_body_from`
-        # itself is still there — its `exit 1` assertion is now belt-and-braces,
-        # no longer the only proof. Remove this entry (and probably that
-        # assertion) when the text guard is trimmed to what it uniquely covers.
-        "test_ci_security_gate.py:53:match-on-raw-param",
-    }
-)
+#
+# CLEARED 2026-08-08. The single entry this ever held —
+# `test_ci_security_gate.py:53:match-on-raw-param`, `conditional_body_from`
+# searching the block ANCHOR in raw text while comment-stripping only the body it
+# returned — is gone because the FUNCTION is gone, not because it was patched.
+# Three successive line-scanner fixes were each defeated (1 shape, then 4, then
+# 6), so the invariant moved to a behavioural check that executes the gate
+# (`test_ci_security_gate_behaviour.py`), and the text version was deleted rather
+# than kept as a second, weaker proof. Deleting the defective consumer is a valid
+# way to clear an entry here — arguably the only one that scales.
+KNOWN_STRIP_ORDER_EXCEPTIONS = frozenset()
 
 
 def _call_name(node) -> str:

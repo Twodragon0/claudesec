@@ -18,6 +18,21 @@ Also guards both DAST triggers:
 Scope note: action SHA-pinning for these files is already covered by
 test_ci_gate_topology.py (it globs all workflows) — NOT duplicated here.
 
+Scope note 2 — the severity block is NOT guarded here any more. Whether the scan
+job actually fails on a CRITICAL (and keeps HIGH non-blocking) is proven by
+EXECUTING the gate in test_ci_security_gate_behaviour.py. This file used to
+assert it by text through `conditional_body_from`, which searched the block
+anchor in RAW text while comment-stripping only the body it returned — so a
+single `# was: if [ "$CRITS" -gt 0 ]; then exit 1; fi` anchored the scan inside
+itself and certified a DELETED gate. Three successive line-scanner fixes were
+each defeated (1 shape, then 4, then 6), which is ADR-001 §4's redesign signal.
+The function and its seven comment-evasion self-tests are deleted rather than
+kept as belt-and-braces: a second, weaker proof of an invariant that already has
+a behavioural one is not redundancy, it is a defect with a maintenance cost and
+a standing entry in `test_ci_strip_before_match.KNOWN_STRIP_ORDER_EXCEPTIONS`
+(now empty again). What remains below is what text scanning uniquely covers —
+the enforcement TOPOLOGY, which has no runtime to execute.
+
 stdlib-only (regex/line scanning, no PyYAML — absent from requirements-ci.txt).
 No network, no subprocess. Runs under pytest (CI) and `python3 -m unittest`.
 Does not import scanner/lib, so it does not affect the measured coverage gate.
@@ -32,40 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     extract_on_block,
     strip_inline_comment,
-    strip_inline_comment_sh,
 )
-
-
-def conditional_body_from(text, var):
-    """The body of `if [ "$<var>" -gt 0 ]; then ... fi`.
-
-    Trailing inline shell `#` comments are stripped per line first, so a
-    commented-out `# exit 1` — INCLUDING the bash command-separator form
-    `;#exit 1` (a real comment with no preceding space, which a whitespace-only
-    stripper misses) — can neither satisfy nor falsely trip the severity-block
-    checks (comment-evasion class, F-1; 3rd-pass finding). The closing `fi` is
-    found by a BALANCED if/fi
-    depth count — NOT the first `fi` — so a nested `if … fi` inside the block (or
-    a heredoc) cannot terminate the capture early and hide a trailing `exit 1`
-    (2nd-review Finding 1). `elif`/`else`/`then` are not `\\bfi\\b`/`\\bif\\b`
-    tokens, so they don't perturb the count.
-    """
-    m = re.search(
-        r'\[\s*"\$' + re.escape(var) + r'"\s+-gt\s+0\s*\]\s*;\s*then',
-        text,
-    )
-    if not m:
-        return None
-    # Comment-stripped remainder after the CRITS `then` (so a `# fi`/`# if` in a
-    # comment cannot skew the depth count).
-    rest = "\n".join(strip_inline_comment_sh(ln) for ln in text[m.end():].splitlines())
-    depth, end = 1, len(rest)
-    for tk in re.finditer(r"\bif\b|\bfi\b", rest):
-        depth += 1 if tk.group(0) == "if" else -1
-        if depth == 0:
-            end = tk.start()
-            break
-    return rest[:end]
 
 
 # scanner/tests/this_file -> parents[2] == repo root
@@ -267,47 +249,6 @@ class TestDastFullScanSchedule(unittest.TestCase):
         )
 
 
-class TestScanCriticalSeverityBlock(unittest.TestCase):
-    """The `scan` job must FAIL the build on any CRITICAL finding (exit 1), and
-    keep HIGH findings non-blocking (warning only) — the documented gate that was
-    previously warn-only-despite-the-comment (resolved in #206). Reverting it to
-    warn-only would silently disable the CRITICAL merge block."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.text = (
-            SECURITY_SCAN.read_text(encoding="utf-8")
-            if SECURITY_SCAN.is_file()
-            else ""
-        )
-
-    def _conditional_body(self, var):
-        return conditional_body_from(self.text, var)
-
-    def test_critical_block_exits_nonzero(self):
-        body = self._conditional_body("CRITS")
-        self.assertIsNotNone(
-            body, "Could not find the `[ \"$CRITS\" -gt 0 ]` severity gate block"
-        )
-        self.assertRegex(
-            body,
-            r"\bexit\s+1\b",
-            "The scan job must `exit 1` on CRITICAL findings so the Security Scan "
-            "Gate blocks the merge — do not revert it to warning-only (#206).",
-        )
-
-    def test_high_block_stays_nonblocking(self):
-        body = self._conditional_body("HIGHS")
-        # HIGH handling may exist (warning) or not; if present it must NOT exit 1.
-        if body is not None:
-            self.assertNotRegex(
-                body,
-                r"\bexit\s+1\b",
-                "HIGH findings must remain non-blocking (warning only); only "
-                "CRITICAL blocks the merge.",
-            )
-
-
 class TestGateNeedsScopingAndPassset(unittest.TestCase):
     """F-5: needs aggregation is scoped to the `needs:` sub-block, and the pass-set
     check ignores comments."""
@@ -347,85 +288,6 @@ class TestGateNeedsScopingAndPassset(unittest.TestCase):
             r"""not\s+in\s*\(\s*["']success["']\s*,\s*["']skipped["']\s*\)""",
             "F-5b: the pass-set surviving only in a `#` comment must not satisfy "
             "the gate's not-loosened check.",
-        )
-
-
-class TestSeverityBlockCommentEvasion(unittest.TestCase):
-    """F-1 (CRITICAL): a commented-out `exit 1` must not satisfy the merge block."""
-
-    def test_commented_exit_one_does_not_satisfy(self):
-        mutant = 'if [ "$CRITS" -gt 0 ]; then\n  echo warn  # exit 1\nfi'
-        body = conditional_body_from(mutant, "CRITS") or ""
-        self.assertNotRegex(
-            body,
-            r"\bexit\s+1\b",
-            "comment-evasion: a `# exit 1` surviving only in a comment must NOT "
-            "satisfy the CRITICAL merge-block check.",
-        )
-
-    def test_metachar_commented_exit_one_does_not_satisfy(self):
-        # `;#exit 1` is a REAL bash comment (verified: the exit never runs) with
-        # no space before `#` — a whitespace-only stripper misses it (3rd-pass
-        # CRITICAL finding). The gate would falsely certify the merge-block intact.
-        mutant = 'if [ "$CRITS" -gt 0 ]; then\n  echo "no longer blocking";#exit 1\nfi'
-        body = conditional_body_from(mutant, "CRITS") or ""
-        self.assertNotRegex(
-            body,
-            r"\bexit\s+1\b",
-            "metachar comment-evasion: a `;#exit 1` (real bash comment, no space) "
-            "surviving only in a comment must NOT satisfy the CRITICAL merge-block.",
-        )
-
-    def test_backtick_commented_exit_one_does_not_satisfy(self):
-        # `` `#exit 1` `` — a `#` right after an opening backtick is also a real
-        # bash comment (4th-pass finding).
-        mutant = 'if [ "$CRITS" -gt 0 ]; then\n  echo "downgraded"`#exit 1`\nfi'
-        body = conditional_body_from(mutant, "CRITS") or ""
-        self.assertNotRegex(
-            body,
-            r"\bexit\s+1\b",
-            "backtick comment-evasion: a `` `#exit 1` `` surviving only in a "
-            "comment must NOT satisfy the CRITICAL merge-block.",
-        )
-
-    def test_ansi_c_commented_exit_one_does_not_satisfy(self):
-        # 5th-pass finding (ADR-001 §2): `$'\''` is ONE ANSI-C string (the `\'` is
-        # an escaped literal quote), so ` #exit 1` is a real bash comment — verified
-        # by execution: the exit never runs, the gate does NOT block. A single-quote
-        # stripper with no escape awareness re-opens the quote at the trailing `'`,
-        # runs off the line "in a quote", never strips the `#`, and lets the dead
-        # `exit 1` satisfy the merge-block. Regression direction: presence.
-        mutant = (
-            'if [ "$CRITS" -gt 0 ]; then\n'
-            + r"""  : $'\'' #exit 1"""
-            + "\nfi"
-        )
-        body = conditional_body_from(mutant, "CRITS") or ""
-        self.assertNotRegex(
-            body,
-            r"\bexit\s+1\b",
-            "ANSI-C comment-evasion: an `exit 1` surviving only in a `$'\\''`-"
-            "prefixed bash comment must NOT satisfy the CRITICAL merge-block.",
-        )
-
-    def test_real_exit_one_satisfies(self):
-        good = 'if [ "$CRITS" -gt 0 ]; then\n  exit 1\nfi'
-        self.assertRegex(conditional_body_from(good, "CRITS"), r"\bexit\s+1\b")
-
-    def test_exit_one_after_nested_fi_is_captured(self):
-        # 2nd-review Finding 1: a nested `if … fi` must not terminate the capture
-        # before the outer `exit 1` (balanced fi-counter, not first-fi).
-        nested = (
-            'if [ "$CRITS" -gt 0 ]; then\n'
-            '  if [ "$X" -ge 1 ]; then\n    echo inner\n  fi\n'
-            "  exit 1\n"
-            "fi"
-        )
-        self.assertRegex(
-            conditional_body_from(nested, "CRITS"),
-            r"\bexit\s+1\b",
-            "Balanced-fi FAILED: `exit 1` after a nested `fi` was not captured — "
-            "a nested-if restructuring could silently disable the merge block.",
         )
 
 
