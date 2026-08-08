@@ -344,3 +344,106 @@ def extract_on_block(text: str) -> str:
             break
         body.append(strip_inline_comment(line))
     return "\n".join(body)
+
+
+# A mapping key at the start of a line, bare or quoted, capturing the key NAME.
+#
+# Deliberately generic rather than composed from `yaml_key_pattern`: that
+# fragment takes one KNOWN key and matches its three spellings, whereas this
+# reads whichever key is there and unquotes it, so comparison happens once on the
+# parsed name and no call site can forget a spelling. That is the blindness that
+# hit eight guards in #391/#393/#394.
+_KEY_LINE_RE = re.compile(
+    r"""^\s*(?:"(?P<dq>[^"]+)"|'(?P<sq>[^']+)'|(?P<bare>[^\s:#]+))\s*:(?:\s|$)"""
+)
+
+
+def keys_at_column(block: str, col: int) -> list:
+    """The mapping keys declared at EXACTLY `col` spaces of indent in `block`.
+
+    Column equality, not `^\\s{N}` and not "anywhere in the block". A key nested
+    one level deeper belongs to some other mapping (a step's `env:` may legally
+    hold a variable named `if`), and a key higher up belongs to the parent. Both
+    directions matter: the first is a false alarm, the second is the silent miss
+    that lets a disable hide inside the block.
+
+    Never hardcode the column — DERIVE it from the construct you are inspecting.
+    Dedenting a whole `steps:` list by 2 is valid YAML (a block sequence may sit
+    at its parent key's indent) and a cosmetic diff, and it walks every step key
+    out from under a fixed `^\\s{8}` anchor with the suite green.
+
+    Introduced for #404's `workflow_level_disables`; shared here so the
+    required-graph guard does not re-derive it."""
+    out = []
+    for raw in block.splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        if (len(raw) - len(raw.lstrip())) != col:
+            continue
+        m = _KEY_LINE_RE.match(raw)
+        if m:
+            out.append(m.group("dq") or m.group("sq") or m.group("bare"))
+    return out
+
+
+def job_block(text: str, job_key: str):
+    """The block of the top-level job `job_key`, or None if not found uniquely.
+
+    Bounded by INDENTATION (the first later line at 2 columns or less ends it),
+    not by "the next `  <key>:`" — a bound that reads correct and breaks on the
+    last job in a file. The header is matched bare or quoted, and comment lines
+    cannot open a block, so a `#  scan:` decoy neither shadows the real job nor
+    invents one.
+
+    Returns None rather than guessing when the key appears zero or many times, so
+    callers can fail CLOSED."""
+    lines = text.splitlines()
+    pat = re.compile(rf"^  {yaml_key_pattern(job_key)}\s*:\s*(?:#.*)?$")
+    starts = [i for i, ln in enumerate(lines) if pat.match(strip_inline_comment(ln))]
+    if len(starts) != 1:
+        return None
+    start = starts[0]
+    out = [lines[start]]
+    for line in lines[start + 1:]:
+        if line.strip() and (len(line) - len(line.lstrip())) <= 2:
+            break
+        out.append(line)
+    return "\n".join(out)
+
+
+def job_needs(block: str) -> list:
+    """The jobs listed under a job block's own `needs:` key, block- or flow-style.
+
+    Scoped to the `needs:` sub-block at the job's key column, so a `- name` list
+    item elsewhere in the job (a matrix entry, a step input) cannot masquerade as
+    a dependency — nor mask one that was dropped."""
+    lines = block.splitlines()
+    if len(lines) < 2:
+        return []
+    body = [ln for ln in lines[1:] if ln.strip()]
+    if not body:
+        return []
+    col = min(len(ln) - len(ln.lstrip()) for ln in body)
+    needs, in_needs = [], False
+    key_re = re.compile(rf"^ {{{col}}}{yaml_key_pattern('needs')}\s*:\s*(.*)$")
+    for raw in lines[1:]:
+        line = strip_inline_comment(raw)
+        m = key_re.match(line)
+        if m:
+            rest = m.group(1).strip()
+            if rest.startswith("["):
+                needs += re.findall(r"[A-Za-z0-9_.-]+", rest)
+                in_needs = False
+            elif rest:
+                needs.append(rest.strip("\"'"))
+                in_needs = False
+            else:
+                in_needs = True
+            continue
+        if in_needs:
+            item = re.match(r"^\s+-\s*(.+?)\s*$", line)
+            if item:
+                needs.append(item.group(1).strip("\"'"))
+            elif line.strip():
+                in_needs = False
+    return needs
