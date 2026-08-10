@@ -152,7 +152,11 @@ single author pass misses.
   not catch this class on their own.
 - **Cost:** new guards take longer (two review passes + mutation tests); the
   shared helpers are a small coupling point (changes there must keep all
-  consumers green — covered by `scanner/tests/test__ci_guard_util.py`).
+  consumers green — covered by `scanner/tests/test__ci_guard_util.py`, which is
+  the SINGLE direct-unit-test file for the shared module; a second one had grown
+  up beside it and was folded back in on 2026-08-10, since two test files for one
+  module means "is this primitive tested?" has two answers and neither is
+  authoritative).
 - **Constraints preserved:** guards stay stdlib-only (no PyYAML), do not import
   `scanner/lib` (so they never move the 99% coverage floor), and pass under both
   `pytest` and `python3 -m unittest`.
