@@ -89,8 +89,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     WORKFLOW_DIR,
+    desired_contexts,
     explicit_key_lines,
     job_block,
+    job_display_name as _job_display_name,
     job_needs,
     keys_at_column,
     strip_inline_comment,
@@ -214,43 +216,6 @@ ALLOWED_STEP_IF = frozenset(
 EXPECTED_ROOTS = {("lint.yml", "lint-gate"), ("security-scan.yml", "security-scan-gate")}
 
 
-def desired_contexts(script_text: str):
-    """The required status-check names codified in `sync-repo-protection.sh`.
-
-    That script is the repo's source of truth for branch protection and is itself
-    pinned against live drift by `test_ci_branch_protection_codified.py`, so
-    reading it here keeps one source rather than a second hand-maintained list
-    that could disagree with the real gate.
-    """
-    m = re.search(
-        r"""^\s*DESIRED_CONTEXTS=(['"])(?P<json>\[.*?\])\1""",
-        script_text,
-        re.M,
-    )
-    if not m:
-        return None
-    try:
-        value = json.loads(m.group("json"))
-    except json.JSONDecodeError:
-        return None
-    return value if isinstance(value, list) else None
-
-
-def _job_display_name(block: str, job_key: str) -> str:
-    """A job's rendered check name: its `name:` value, else the job key itself —
-    which is what GitHub uses, and what branch protection matches on."""
-    body = [ln for ln in block.splitlines()[1:] if ln.strip()]
-    if not body:
-        return job_key
-    col = min(len(ln) - len(ln.lstrip()) for ln in body)
-    pat = re.compile(rf"^ {{{col}}}{yaml_key_pattern('name')}\s*:\s*(.+?)\s*$")
-    for raw in block.splitlines()[1:]:
-        m = pat.match(strip_inline_comment(raw))
-        if m:
-            return m.group(1).strip("\"'")
-    return job_key
-
-
 def _workflow_files():
     """Workflow files only — composite actions have no `jobs:` map."""
     return [Path(p) for p in workflow_and_action_files() if Path(p).parent == WORKFLOW_DIR]
@@ -275,7 +240,7 @@ def required_graph(texts: dict):
     problems = []
     if not PROTECTION_SCRIPT.is_file():
         return set(), [f"{PROTECTION_SCRIPT} not found — cannot resolve required checks"]
-    contexts = desired_contexts(PROTECTION_SCRIPT.read_text(encoding="utf-8"))
+    contexts = desired_contexts()
     if not contexts:
         return set(), ["could not parse DESIRED_CONTEXTS from the protection script"]
 

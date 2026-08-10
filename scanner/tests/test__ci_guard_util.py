@@ -27,6 +27,11 @@ no direct test in either file (`yaml_key_pattern`, `explicit_key_lines`,
 specific incident it was written to prevent. Those incidents are now pinned here
 rather than only in the consumer guards that happened to hit them.
 
+Three more primitives moved INTO the shared module later the same day —
+`desired_contexts`, `job_display_name`, `required_aggregators` — when a second
+guard needed to resolve the required status checks and was about to grow its own
+copy. They are tested here for the same reason as the other five.
+
 stdlib-only; passes under pytest and `python3 -m unittest`. No network/subprocess.
 Imports nothing from `scanner/lib`, so it does not touch the 99% coverage gate.
 """
@@ -40,14 +45,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _ci_guard_util  # noqa: E402  (module handle: the enumeration test patches its dirs)
 from _ci_guard_util import (  # noqa: E402
+    desired_contexts,
     explicit_key_lines,
     extract_on_block,
     job_block,
+    job_display_name,
     job_needs,
     join_continuations,
     keys_at_column,
     non_comment_lines,
     on_key_inline,
+    required_aggregators,
     strip_comment_lines,
     strip_html_comments,
     strip_inline_comment,
@@ -511,6 +519,99 @@ class TestJobNeeds(unittest.TestCase):
     def test_empty_block(self):
         self.assertEqual(job_needs(""), [])
         self.assertEqual(job_needs("  gate:\n"), [])
+
+
+class TestDesiredContexts(unittest.TestCase):
+    """Moved here 2026-08-10 from `test_ci_required_graph_not_disabled.py`, because
+    a second guard (`test_ci_gate_topology.py`) needed to know the required checks
+    and a second copy is where two guards drift apart."""
+
+    def test_reads_the_real_protection_script(self):
+        self.assertEqual(
+            desired_contexts(), ["Lint", "Security Scan Gate"],
+            "the codified required contexts changed — acknowledge, do not absorb",
+        )
+
+    def test_parses_single_and_double_quoted_assignment(self):
+        for q in ('"', "'"):
+            with self.subTest(quote=q):
+                self.assertEqual(
+                    desired_contexts(f'DESIRED_CONTEXTS={q}["A", "B"]{q}\n'), ["A", "B"]
+                )
+
+    def test_returns_none_when_absent_or_malformed(self):
+        # Fail CLOSED: callers treat None as "cannot resolve" and report a
+        # problem. Returning [] instead would make every consumer pass vacuously.
+        self.assertIsNone(desired_contexts("nothing here\n"))
+        self.assertIsNone(desired_contexts('DESIRED_CONTEXTS="[not json"\n'))
+        self.assertIsNone(desired_contexts('DESIRED_CONTEXTS="{}"\n'))
+
+    def test_commented_assignment_still_parses_by_design(self):
+        # Documented: the regex allows leading whitespace but not a `#`, so a
+        # commented-out line does NOT satisfy it.
+        self.assertIsNone(desired_contexts('# DESIRED_CONTEXTS="[\\"A\\"]"\n'))
+
+
+class TestJobDisplayName(unittest.TestCase):
+    def test_name_key_wins(self):
+        self.assertEqual(
+            job_display_name("  gate:\n    name: Security Scan Gate\n", "gate"),
+            "Security Scan Gate",
+        )
+
+    def test_falls_back_to_the_job_key(self):
+        self.assertEqual(job_display_name("  gate:\n    runs-on: x\n", "gate"), "gate")
+
+    def test_quoted_name_key_and_value(self):
+        self.assertEqual(
+            job_display_name('  gate:\n    "name": "Lint"\n', "gate"), "Lint"
+        )
+
+    def test_a_step_name_is_not_the_job_name(self):
+        # The step `name:` is deeper than the job's own key column. Reading it
+        # would rename the job to whatever its first step is called, and branch
+        # protection matches on the JOB's display name.
+        block = "  gate:\n    runs-on: x\n    steps:\n      - name: Check stuff\n"
+        self.assertEqual(job_display_name(block, "gate"), "gate")
+
+    def test_empty_block_falls_back(self):
+        self.assertEqual(job_display_name("  gate:\n", "gate"), "gate")
+
+
+class TestRequiredAggregators(unittest.TestCase):
+    LINT = "jobs:\n  lint-gate:\n    name: Lint\n    needs:\n      - a\n"
+    SCAN = "jobs:\n  security-scan-gate:\n    name: Security Scan Gate\n    needs:\n      - b\n"
+
+    def test_maps_each_required_context_to_its_workflow(self):
+        got, problems = required_aggregators({"lint.yml": self.LINT, "scan.yml": self.SCAN})
+        self.assertEqual(problems, [])
+        self.assertEqual(
+            got, {"lint.yml": "lint-gate", "scan.yml": "security-scan-gate"}
+        )
+
+    def test_a_context_resolving_to_zero_jobs_is_a_problem(self):
+        # Fail CLOSED. Silently skipping would leave the consumer scanning fewer
+        # workflows than branch protection actually requires.
+        got, problems = required_aggregators({"lint.yml": self.LINT})
+        self.assertTrue(any("Security Scan Gate" in p for p in problems))
+        self.assertNotIn("scan.yml", got)
+
+    def test_a_context_resolving_to_many_jobs_is_a_problem(self):
+        dup = self.SCAN + "  impostor:\n    name: Security Scan Gate\n"
+        _, problems = required_aggregators({"lint.yml": self.LINT, "scan.yml": dup})
+        self.assertTrue(any("resolves to 2 jobs" in p for p in problems))
+
+    def test_resolves_the_real_repo_to_the_two_known_aggregators(self):
+        texts = {
+            Path(p).name: Path(p).read_text(encoding="utf-8")
+            for p in workflow_and_action_files()
+            if "/workflows/" in p
+        }
+        got, problems = required_aggregators(texts)
+        self.assertEqual(problems, [])
+        self.assertEqual(
+            got, {"lint.yml": "lint-gate", "security-scan.yml": "security-scan-gate"}
+        )
 
 
 class TestWorkflowAndActionFiles(unittest.TestCase):
