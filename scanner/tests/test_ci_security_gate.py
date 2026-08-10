@@ -46,6 +46,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     extract_on_block,
+    job_block,
+    job_needs,
     strip_inline_comment,
 )
 
@@ -63,43 +65,48 @@ GATE_REQUIRED_NEEDS = {"changes", "scan", "lighthouse"}
 
 
 def gate_block_from(text):
-    """The `security-scan-gate:` job block (its 2-space header to the next
-    2-space top-level key, or EOF), with trailing inline `#` comments stripped
-    per line so a commented token can't satisfy the gate checks (F-5b)."""
-    out, in_gate = [], False
-    for raw in text.splitlines():
-        if re.match(r"^  security-scan-gate:\s*$", raw):
-            in_gate = True
-            out.append(strip_inline_comment(raw))
-            continue
-        if in_gate:
-            if re.match(r"^  [A-Za-z0-9_-]+:", raw):  # next top-level job
-                break
-            out.append(strip_inline_comment(raw))
-    return "\n".join(out)
+    """The `security-scan-gate:` job block, via the shared `job_block`.
+
+    Was a local parser until 2026-08-10. It was BYPASSABLE, proven on a mutated
+    copy of the real workflow: its header matched `^  security-scan-gate:` bare
+    only, and its terminator `^  [A-Za-z0-9_-]+:` did not match a QUOTED sibling
+    job key — so a job written `  "post-gate-notify":` below the gate did not end
+    the block, and the gate could lose its own `if: always()` while
+    `test_gate_runs_always` still found one, borrowed from that sibling. The
+    shared `job_block` reads the header bare or quoted, bounds the block by
+    INDENTATION (so a top-level key ends it too), and returns None rather than
+    guessing when the key appears zero or many times.
+
+    Kept as a named indirection because this guard's tests assert on it, and it
+    carries the two things `job_block` deliberately does not: normalising None to
+    "" for the `assertTrue(block)` canary, and F-5b inline-comment stripping.
+
+    F-5b IS LOAD-BEARING and nearly lost in this swap. The old parser stripped a
+    trailing `#` comment from every line it kept, so a token surviving only in a
+    comment cannot satisfy a gate check; `job_block` returns raw lines. Swapping
+    the parser without re-adding the strip broke
+    `test_passset_surviving_only_in_comment_does_not_satisfy` immediately — a
+    reminder that "equal on the happy path" is not equivalence. The first
+    equivalence check here compared only the parsed `needs:` set, which is
+    identical either way, and would have shipped the regression.
+    """
+    block = job_block(text, "security-scan-gate")
+    if block is None:
+        return ""
+    return "\n".join(strip_inline_comment(ln) for ln in block.splitlines())
 
 
 def gate_needs_from(text):
-    """The set of jobs under the gate job's `needs:` key ONLY (block- or
-    flow-style). Scoping to the `needs:` sub-block (not a findall over the whole
-    job block) prevents a `- foo` list item elsewhere — a matrix entry, a step
-    input — from masking a dependency dropped from `needs:` (F-5a)."""
-    needs, in_needs = [], False
-    for raw in gate_block_from(text).splitlines():
-        flow = re.match(r"^    needs:\s*\[(.*)\]\s*$", raw)
-        if flow:
-            needs += re.findall(r"[A-Za-z0-9_-]+", flow.group(1))
-            continue
-        if re.match(r"^    needs:\s*$", raw):
-            in_needs = True
-            continue
-        if in_needs:
-            m = re.match(r"^      -\s*([A-Za-z0-9_-]+)\s*$", raw)
-            if m:
-                needs.append(m.group(1))
-            elif re.match(r"^    [A-Za-z]", raw):  # next 4-space key under the job
-                in_needs = False
-    return set(needs)
+    """The set of jobs under the gate's `needs:` key ONLY, via the shared
+    `job_needs`.
+
+    The scoping this used to hand-roll — read the `needs:` sub-block, not a
+    findall over the whole job — is the shared helper's documented contract, so a
+    `- foo` list item elsewhere still cannot mask a dropped dependency. Verified
+    equal on the real workflow before the swap: both return
+    {changes, lighthouse, scan}.
+    """
+    return set(job_needs(gate_block_from(text)))
 
 
 class TestSecurityScanGate(unittest.TestCase):
@@ -157,6 +164,71 @@ class TestSecurityScanGate(unittest.TestCase):
             "Security Scan Gate pass-set changed — it must fail when any "
             "dependency result is not exactly success/skipped.",
         )
+
+
+class TestGateBlockBoundaryMutation(unittest.TestCase):
+    """The block boundary is as load-bearing as the assertions over it: a block
+    that runs past the job lets a NEIGHBOURING job satisfy a gate check."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.real = SECURITY_SCAN.read_text(encoding="utf-8")
+
+    def _gate_without_always(self):
+        # Drop every `if: always()` — including the three COMMENT lines above the
+        # real one that quote it verbatim. Missing those is what made the first
+        # version of this probe report a bypass that was not there: the guard's
+        # own comment-evasion class, biting the fixture instead of the guard.
+        return "\n".join(
+            ln for ln in self.real.splitlines() if "if: always()" not in ln
+        ) + "\n"
+
+    def test_quoted_sibling_job_does_not_lend_the_gate_its_always(self):
+        mutant = self._gate_without_always() + (
+            '  "post-gate-notify":\n'
+            "    if: always()\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - run: echo notify\n"
+        )
+        self.assertNotRegex(
+            gate_block_from(mutant),
+            r"if:\s*always\(\)",
+            "the gate block ran past its own job into a QUOTED sibling and "
+            "borrowed that job's `if: always()`. Proven bypassable before "
+            "2026-08-10: the old terminator `^  [A-Za-z0-9_-]+:` did not match a "
+            "quoted job key, so `test_gate_runs_always` passed while the gate had "
+            "lost the key it exists to protect.",
+        )
+
+    def test_bare_sibling_job_also_terminates_the_block(self):
+        mutant = self._gate_without_always() + (
+            "  post-gate-notify:\n    if: always()\n    runs-on: ubuntu-latest\n"
+        )
+        self.assertNotRegex(gate_block_from(mutant), r"if:\s*always\(\)")
+
+    def test_quoted_gate_header_is_still_found(self):
+        # The other direction of the same class: a quoted `"security-scan-gate":`
+        # used to yield an EMPTY block, which fails every positive assertion at
+        # once — a false alarm rather than a bypass, but still a guard broken by
+        # an ordinary authoring style.
+        mutant = self.real.replace(
+            "  security-scan-gate:\n", '  "security-scan-gate":\n', 1
+        )
+        self.assertNotEqual(mutant, self.real, "fixture did not apply")
+        self.assertEqual(
+            gate_needs_from(mutant),
+            GATE_REQUIRED_NEEDS,
+            "a quoted gate job key made the block unreadable",
+        )
+
+    def test_real_file_block_is_scoped_to_the_gate(self):
+        # Vacuity canary in the other direction: the block must not be empty, and
+        # must not contain a marker from the preceding job.
+        blk = gate_block_from(self.real)
+        self.assertTrue(blk)
+        self.assertIn("name: Security Scan Gate", blk)
+        self.assertNotIn("name: Lighthouse Audit", blk)
 
 
 class TestDastBaselinePrTrigger(unittest.TestCase):
