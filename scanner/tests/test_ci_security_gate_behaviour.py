@@ -71,6 +71,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     explicit_key_lines,
+    keys_at_column,
     strip_inline_comment_sh,
 )
 
@@ -208,38 +209,13 @@ def extract_run_block(text: str, step_name: str):
 
 
 
-# A mapping key at the start of a line, bare or quoted, capturing the key NAME.
-#
-# Deliberately NOT built from the shared `yaml_key_pattern`: that fragment takes
-# one known key and matches its three spellings, whereas this reads whichever key
-# is there and unquotes it, so comparison happens once on the parsed name and no
-# call site can forget a spelling — the blindness that hit eight guards in
-# #391/#393/#394. That makes the quoted forms this file's own invariant rather
-# than the shared helper's, so `TestWorkflowLevelDisableDetector` pins each
-# spelling with a mutation test instead of trusting this comment.
-_KEY_LINE_RE = re.compile(
-    r"""^\s*(?:"(?P<dq>[^"]+)"|'(?P<sq>[^']+)'|(?P<bare>[^\s:#]+))\s*:(?:\s|$)"""
-)
-
-
-def keys_at_column(block: str, col: int) -> list:
-    """The mapping keys declared at EXACTLY `col` spaces of indent in `block`.
-
-    Column equality, not `^\\s{N}` and not "anywhere in the block": a key nested
-    one level deeper belongs to some other mapping (a step's `env:` may legally
-    hold a variable named `if`), and a key higher up belongs to the parent. Both
-    directions matter — the first is a false alarm, the second is the silent
-    miss that lets a disable hide inside the block."""
-    out = []
-    for raw in block.splitlines():
-        if not raw.strip() or raw.lstrip().startswith("#"):
-            continue
-        if (len(raw) - len(raw.lstrip())) != col:
-            continue
-        m = _KEY_LINE_RE.match(raw)
-        if m:
-            out.append(m.group("dq") or m.group("sq") or m.group("bare"))
-    return out
+# `keys_at_column` now lives in `_ci_guard_util` (imported above). It was defined
+# here first, for #404; `test_ci_required_graph_not_disabled.py` needed the same
+# primitive, and two copies of a matcher this repo has already had to fix eight
+# times is how the next fix reaches only one of them. The quoted spellings stay
+# pinned by `TestWorkflowLevelDisableDetector` below — this file's consumers are
+# what those mutations exercise, so moving the implementation does not move the
+# evidence.
 
 
 # A top-level job key: exactly 2-space indent under `jobs:`, bare or quoted.

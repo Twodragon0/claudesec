@@ -53,7 +53,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_comment_lines  # noqa: E402
+from _ci_guard_util import extract_on_block, strip_comment_lines  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWEEP_YML = REPO_ROOT / ".github" / "workflows" / "lychee-redirect-sweep.yml"
@@ -101,23 +101,19 @@ class TestCiLycheeRedirectSweep(unittest.TestCase):
         cls.args_block = _extract_args_block(cls.text)
         # `on:` block, comment-stripped, so a token in a comment can't satisfy
         # (or trip) a trigger check.
-        cls.on_block = cls._extract_on_block(strip_comment_lines(cls.text))
-
-    @staticmethod
-    def _extract_on_block(text):
-        """Lines of the top-level `on:` block (col-0 `on:` up to the next col-0
-        key). Local + comment-tolerant; avoids depending on flow-style parsing
-        we don't need here."""
-        out, in_on = [], False
-        for line in text.splitlines():
-            if not in_on:
-                if re.match(r"^on:\s*(#.*)?$", line):
-                    in_on = True
-                continue
-            if line and not line[0].isspace():
-                break
-            out.append(line)
-        return "\n".join(out)
+        # The SHARED extractor, not a local one. The local version matched
+        # `^on:\s*(#.*)?$` — bare `on:` ONLY — so a quoted `"on":` (the spelling
+        # GitHub's own docs recommend, because bare `on` resolves to the YAML-1.1
+        # boolean `True`) made `on_block` empty and
+        # `test_not_a_pull_request_check`, which this file's docstring calls its
+        # single most important invariant, passed VACUOUSLY. Verified by
+        # execution: with `"on":` and an added `pull_request:` trigger the local
+        # extractor returned `''`; `extract_on_block` returns the block with the
+        # trigger in it. Dormant when found (the real workflow uses bare `on:`),
+        # but one cosmetic normalisation away from live — the exact
+        # bypassable-by-YAML-shape class of #391/#393/#394, reintroduced by not
+        # reusing the primitive that exists to close it (2026-08-08 audit).
+        cls.on_block = extract_on_block(strip_comment_lines(cls.text))
 
     def test_workflow_exists(self):
         self.assertTrue(
@@ -157,6 +153,47 @@ class TestCiLycheeRedirectSweep(unittest.TestCase):
             "would flake and, if made required, block merges. Use the PR-time "
             "`link-check` job in lint.yml for per-PR link validation instead.",
         )
+
+    def test_on_block_extraction_survives_a_quoted_on_key(self):
+        """Non-vacuity for `test_not_a_pull_request_check`.
+
+        That check asserts a token is ABSENT, so an extractor returning `''`
+        satisfies it perfectly while having looked at nothing. The local
+        extractor this file used to carry matched bare `on:` only, so the quoted
+        `"on":` spelling — which GitHub's own docs recommend, since bare `on`
+        resolves to the YAML-1.1 boolean `True` — emptied the block and the
+        invariant passed vacuously (2026-08-08 audit). Both spellings must yield
+        a block that still contains the triggers, or the absence assertion above
+        proves nothing.
+        """
+        base = (
+            "on:\n"
+            "  schedule:\n"
+            "    - cron: '0 3 1 * *'\n"
+            "  workflow_dispatch:\n"
+            "jobs:\n"
+            "  sweep:\n"
+            "    runs-on: ubuntu-latest\n"
+        )
+        for spelling in ("on:", '"on":', "'on':"):
+            with self.subTest(spelling=spelling):
+                block = extract_on_block(base.replace("on:", spelling, 1))
+                self.assertIn(
+                    "workflow_dispatch",
+                    block,
+                    f"the `on:` block came back without its triggers for {spelling} — "
+                    "an empty block makes test_not_a_pull_request_check vacuous",
+                )
+                self.assertIn(
+                    "pull_request",
+                    extract_on_block(
+                        base.replace("on:", spelling, 1).replace(
+                            "  workflow_dispatch:\n", "  workflow_dispatch:\n  pull_request:\n"
+                        )
+                    ),
+                    f"a `pull_request` trigger was INVISIBLE under {spelling} — the "
+                    "guard's most important check would pass while the trigger was live",
+                )
 
     def test_can_write_issues(self):
         self.assertRegex(
