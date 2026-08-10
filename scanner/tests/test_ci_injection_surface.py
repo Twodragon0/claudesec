@@ -58,6 +58,7 @@ import re
 import sys
 import tempfile
 import unittest
+from glob import glob
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -378,17 +379,41 @@ def unscannable_run_keys(text: str) -> list:
     return explicit_key_lines(text, "run")
 
 
-def _scanned_files():
-    """Every file in this repo whose `run:` bodies GitHub Actions executes.
+# Shipped workflow templates. `scripts/setup.sh` copies `templates/codeql.yml`
+# and `templates/dependency-review.yml` straight into a target repo's
+# `.github/workflows/`, and the rest are documented copy-me examples — so an
+# injection here executes in SOMEONE ELSE'S repo, with their token. Higher blast
+# radius than this repo's own CI, and until 2026-08-10 no guard looked at the
+# directory at all (verified: `workflow_and_action_files()` returned 18 files,
+# none under `templates/`).
+TEMPLATE_DIR = REPO_ROOT / "templates"
 
-    Delegates to the shared `workflow_and_action_files()`, which carries the two
-    enumeration gaps this guard originally found — `*.yaml` workflows, and
+
+def _scanned_files():
+    """Every file whose `run:` bodies GitHub Actions executes — this repo's own,
+    plus the templates it ships to other people's repos.
+
+    The shared `workflow_and_action_files()` carries the two enumeration gaps
+    this guard originally found — `*.yaml` workflows, and
     `.github/actions/**/action.yml` composite steps (a live
     `${{ github.event.pull_request.title }}` planted in one left this guard
-    green, the exact CICD-SEC-4 RCE it exists to prevent). Kept as a named
-    indirection because the canary and mutation tests below assert on THIS
-    guard's file set."""
-    return workflow_and_action_files()
+    green, the exact CICD-SEC-4 RCE it exists to prevent).
+
+    `templates/*.yml` is added HERE rather than to the shared enumerator on
+    purpose. Widening the shared list would silently enrol the templates in every
+    other consumer — including `test_ci_gate_topology.test_every_uses_is_sha_pinned`,
+    which they would fail on ~30 tag-pinned `uses:` refs. Whether a shipped
+    example should carry 40-hex SHA pins is a PRODUCT decision with a real
+    maintenance cost, not something a scanning guard gets to settle as a side
+    effect. Injection is not a policy question, so it is closed now and the pin
+    question is left open and visible.
+
+    Baseline when added: zero injection hits, zero unscannable shapes across all
+    13 templates — a pure ratchet."""
+    out = list(workflow_and_action_files())
+    for name in ("*.yml", "*.yaml"):
+        out += glob(str(TEMPLATE_DIR / name))
+    return sorted(out)
 
 
 class TestNoInjectionSurface(unittest.TestCase):
@@ -1004,8 +1029,13 @@ class TestInjectionDetectorMutation(unittest.TestCase):
         # enumeration actually reads them. Patching a local copy would have gone
         # green against a helper that never saw the fixture — so this now covers
         # the enumeration EVERY guard uses, not one guard's private glob.
+        # TEMPLATE_DIR is redirected too: this module adds it on top of the
+        # shared enumerator, so leaving it pointed at the real `templates/` let
+        # 13 live files leak into the fixture's expected set.
+        global TEMPLATE_DIR
         original_wf = _ci_guard_util.WORKFLOW_DIR
         original_act = _ci_guard_util.ACTION_DIR
+        original_tpl = TEMPLATE_DIR
         with tempfile.TemporaryDirectory() as tmp:
             wf = Path(tmp, "workflows")
             wf.mkdir()
@@ -1024,10 +1054,12 @@ class TestInjectionDetectorMutation(unittest.TestCase):
             try:
                 _ci_guard_util.WORKFLOW_DIR = wf
                 _ci_guard_util.ACTION_DIR = act
+                TEMPLATE_DIR = Path(tmp, "no-templates")
                 found = sorted(Path(p).name for p in _scanned_files())
             finally:
                 _ci_guard_util.WORKFLOW_DIR = original_wf
                 _ci_guard_util.ACTION_DIR = original_act
+                TEMPLATE_DIR = original_tpl
         self.assertEqual(
             found,
             ["a.yml", "action.yaml", "action.yml", "b.yaml"],
@@ -1046,6 +1078,39 @@ class TestInjectionDetectorMutation(unittest.TestCase):
         self.assertTrue(
             any("github.event.comment.body" in c for _, c in injection_violations(wf)),
             "Mutation FAILED: tab-indented block body bypassed the indent check.",
+        )
+
+    def test_shipped_templates_are_scanned(self):
+        # Canary. `templates/` ships to other repos via scripts/setup.sh; if the
+        # glob breaks, the higher-blast-radius half of this scan goes silently
+        # vacuous while the internal half keeps it green.
+        found = [p for p in _scanned_files() if "/templates/" in p]
+        self.assertTrue(
+            found,
+            "No shipped template scanned — `scripts/setup.sh` copies "
+            "templates/codeql.yml and templates/dependency-review.yml into a "
+            "target repo's .github/workflows/, so an injection there runs with "
+            "SOMEONE ELSE'S token.",
+        )
+
+    def test_injection_planted_in_a_template_is_caught(self):
+        # Mutation self-test for the new surface, on a real template file.
+        tpl = TEMPLATE_DIR / "codeql.yml"
+        self.assertTrue(tpl.is_file(), f"{tpl} not found")
+        mutant = tpl.read_text(encoding="utf-8").replace(
+            "jobs:\n",
+            'jobs:\n  evil:\n    steps:\n      - run: echo "${{ github.event.issue.title }}"\n',
+            1,
+        )
+        hits = [
+            ln
+            for ln in run_block_lines(mutant)
+            for e in _EXPR_RE.findall(ln)
+            if _UNTRUSTED_RE.search(e)
+        ]
+        self.assertTrue(
+            hits, "an untrusted-context interpolation planted in a shipped template "
+            "was not detected"
         )
 
     def test_real_workflows_clean(self):

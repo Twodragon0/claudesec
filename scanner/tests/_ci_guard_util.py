@@ -107,8 +107,11 @@ def workflow_and_action_files() -> list:
     - Actions honours `.yaml` as well as `.yml`, so an `evil.yaml` workflow was
       invisible to every guard globbing `*.yml`.
     - `.github/actions/<name>/action.yml` (`runs.using: composite`) carries
-      `steps[].uses` and `steps[].run` exactly like a workflow, and required
-      workflows call them — yet no guard globbed that directory at all. A
+      `steps[].uses` and `steps[].run` exactly like a workflow — yet no guard
+      globbed that directory at all. (They are called from `templates/`, which
+      ships to user repos, NOT from this repo's own workflows; an earlier version
+      of this docstring claimed the latter and was wrong — verified 2026-08-10:
+      no `uses: ./` appears anywhere under `.github/workflows/`.) A
       tag-pinned `uses:` planted there defeated the SHA-pin check with the suite
       green.
 
@@ -529,3 +532,65 @@ def job_needs(block: str) -> list:
             elif line.strip():
                 in_needs = False
     return needs
+
+
+def apply_mutation(text: str, old: str, new: str, *, count: int = 1) -> str:
+    """`text` with `old` replaced by `new`, REFUSING to return an unchanged copy.
+
+    Every mutation self-test rests on a fixture that must genuinely disable the
+    control, and a fixture that quietly fails to apply turns the test into a
+    tautology: the guard passes, the author reads "not caught", and either a real
+    gap is missed or a correct guard gets "fixed".
+
+    That is not hypothetical. The 2026-08-10 audit produced FIVE wrong probes,
+    all of this one shape:
+
+    1. a bash `case` arm moved to just BEFORE the `*)` catch-all — still
+       perfectly reachable, so the guard was right to stay green;
+    2. a section HEADER edited instead of the entry beneath it;
+    3. a `job_block` case written only for end-of-file, where the discriminating
+       shape is a following TOP-LEVEL key;
+    4. `if: always()` deleted from a gate whose explanatory COMMENTS quote it
+       verbatim — the repo's own comment-evasion class, biting the fixture
+       instead of the guard;
+    5. text injected onto a TestCase class that `setUpClass` then overwrote from
+       disk, so the assertion ran against the unmutated real file.
+
+    This helper closes shapes 2 and 5 mechanically (the substring must be present
+    and the result must differ). Shapes 1, 3 and 4 are semantic — whether the
+    edit disables the CONTROL, not merely whether it changed bytes — and no
+    helper can decide them; use `assert_disables` for those, and state in the
+    test why the mutant is really broken.
+
+    Raises AssertionError rather than returning, so a stale fixture fails at the
+    point of the mistake instead of surfacing as a confusing downstream pass."""
+    if old not in text:
+        raise AssertionError(
+            f"mutation fixture is stale: {old!r} not found in the target text — "
+            "the file changed under the test, so this case proves nothing"
+        )
+    out = text.replace(old, new, count)
+    if out == text:
+        raise AssertionError(f"mutation {old!r} -> {new!r} left the text unchanged")
+    return out
+
+
+def assert_disables(detector, clean_text: str, mutant_text: str, label: str = ""):
+    """Assert `detector` is quiet on `clean_text` and fires on `mutant_text`.
+
+    Pins BOTH directions in one place, because either alone is satisfiable by a
+    broken detector: one that always fires passes the mutant half, and one that
+    never fires passes the clean half. Returns the mutant findings so a caller
+    can assert on their content."""
+    where = f" [{label}]" if label else ""
+    clean = detector(clean_text)
+    if clean:
+        raise AssertionError(f"detector fired on the CLEAN text{where}: {clean!r}")
+    found = detector(mutant_text)
+    if not found:
+        raise AssertionError(
+            f"detector did NOT fire on the mutant{where} — either the guard has a "
+            "gap, or the mutation does not actually disable the control. Check the "
+            "SECOND possibility first (see apply_mutation)."
+        )
+    return found

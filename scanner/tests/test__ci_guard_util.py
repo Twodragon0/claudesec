@@ -45,6 +45,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _ci_guard_util  # noqa: E402  (module handle: the enumeration test patches its dirs)
 from _ci_guard_util import (  # noqa: E402
+    apply_mutation,
+    assert_disables,
     desired_contexts,
     explicit_key_lines,
     extract_on_block,
@@ -650,6 +652,49 @@ class TestWorkflowAndActionFiles(unittest.TestCase):
         found = workflow_and_action_files()
         self.assertTrue([p for p in found if "/workflows/" in p])
         self.assertTrue([p for p in found if "/actions/" in p])
+
+
+class TestApplyMutation(unittest.TestCase):
+    """The helper exists because five probes in one audit failed the same way —
+    the fixture did not actually change the thing it claimed to."""
+
+    def test_applies_and_returns_the_mutant(self):
+        self.assertEqual(apply_mutation("a b c", "b", "X"), "a X c")
+
+    def test_missing_substring_raises_rather_than_no_ops(self):
+        with self.assertRaises(AssertionError) as cm:
+            apply_mutation("a b c", "zzz", "X")
+        self.assertIn("stale", str(cm.exception))
+
+    def test_replacement_equal_to_the_original_raises(self):
+        # The shape that produced wrong probe #2: an edit that changes nothing.
+        with self.assertRaises(AssertionError) as cm:
+            apply_mutation("a b c", "b", "b")
+        self.assertIn("unchanged", str(cm.exception))
+
+    def test_count_limits_the_replacement(self):
+        self.assertEqual(apply_mutation("x x x", "x", "y", count=2), "y y x")
+
+
+class TestAssertDisables(unittest.TestCase):
+    @staticmethod
+    def _detector(text):
+        return ["hit"] if "BROKEN" in text else []
+
+    def test_passes_when_clean_is_quiet_and_mutant_fires(self):
+        self.assertEqual(assert_disables(self._detector, "fine", "BROKEN"), ["hit"])
+
+    def test_fails_when_the_detector_fires_on_clean_text(self):
+        with self.assertRaises(AssertionError) as cm:
+            assert_disables(lambda t: ["always"], "fine", "BROKEN")
+        self.assertIn("CLEAN", str(cm.exception))
+
+    def test_fails_when_the_mutant_is_not_detected(self):
+        # And the message points at the likelier cause first: a mutation that
+        # does not really disable the control.
+        with self.assertRaises(AssertionError) as cm:
+            assert_disables(self._detector, "fine", "also fine")
+        self.assertIn("does not actually disable", str(cm.exception))
 
 
 if __name__ == "__main__":
