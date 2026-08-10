@@ -105,6 +105,51 @@ PROTECTION_SCRIPT = REPO_ROOT / "scripts" / "sync-repo-protection.sh"
 # The key with no legitimate use in a gating job.
 DISABLING_KEY = "continue-on-error"
 
+# Runner-consumed keys that REDIRECT a step rather than skip it. A skipped step
+# is what `if:`/`continue-on-error` produce; these produce a step that runs, and
+# reports success, while doing something other than the check.
+#
+# Found 2026-08-10 by the audit rule this class's own retrospective added ("list
+# the text an executed proof cannot see"), and proven on the real
+# `security-scan.yml`: adding ONE line, `working-directory: docs`, to the
+# `Check for critical/high failures` step left the ENTIRE suite green — 1945
+# passed — while the required `Security Scan Gate` stopped blocking a CRITICAL.
+# The mechanism is arithmetic, not exotic: the gate greps `scan-output.txt`
+# relative to the cwd, `grep` on a missing file is swallowed by `|| true`, `CRITS`
+# becomes the empty string, and `[ "" -gt 0 ]` errors out — but a failing `[` is a
+# CONDITION, which `bash -e` deliberately does not treat as fatal. So the `exit 1`
+# never runs and the step exits 0. Verified by execution:
+#
+#     cwd = repo root -> "Critical: 1" -> exit 1   (blocks)
+#     cwd = docs/     -> "Critical: "  -> exit 0   (passes, silently)
+#
+# `shell:` is here for the same reason and is strictly worse: the custom-shell
+# form is `shell: <command> ... {0}`, so `shell: cat {0}` PRINTS the gate script
+# instead of running it and exits 0.
+#
+# #404's executed proof cannot see either key — it runs the `run:` body directly,
+# in the test's own cwd, under its own interpreter. That is the whole point of
+# the rule: execution moved the boundary of the proof, it did not remove one.
+#
+# Population, counted inside the guarded graph rather than across the repo (the
+# ADR-001 "name the population" rule, which #407 itself got wrong): of 105 steps
+# and 20 jobs in the required graph, `working-directory` appears 0 times,
+# `shell` 0 times, and `defaults` 0 times at job OR workflow level. The feared
+# false-alarm cost of forbidding them is an empty allowlist.
+REDIRECT_KEYS = ("working-directory", "shell")
+
+REDIRECT_KEYS_NOTE = (
+    "`working-directory:` and `shell:` are consumed by the RUNNER, so a test that "
+    "executes the `run:` body cannot observe them: the step still runs and still "
+    "reports success while checking something else (a relocated cwd makes the "
+    "gate's grep find no file, `CRITS` empty, and `[ \"\" -gt 0 ]` false, so its "
+    "`exit 1` never fires)."
+)
+
+# Reviewed exceptions for REDIRECT_KEYS, `(workflow, job, step, key)`. Empty:
+# no step in the required graph declares either key today.
+ALLOWED_STEP_REDIRECT: frozenset = frozenset()
+
 # Reviewed exceptions, `(workflow file, job key, step name)`. Each one is a step
 # whose failure genuinely must not fail the build.
 #
@@ -361,6 +406,16 @@ def graph_violations(texts: dict = None):
         texts = workflow_texts()
     jobs, problems = required_graph(texts)
     out = list(problems)
+    for fname in sorted({f for f, _ in jobs}):
+        # WORKFLOW-level `defaults:` reaches every job in the file at once — the
+        # quietest form of the redirect class, and one no job- or step-level scan
+        # would ever look at.
+        if _declares(texts[fname], 0, "defaults"):
+            out.append(
+                f"{fname}: workflow-level `defaults:` — `defaults.run.working-directory` "
+                "and `defaults.run.shell` change how EVERY step in this file runs, "
+                f"including the required check's. See {REDIRECT_KEYS_NOTE}"
+            )
     for fname, key in sorted(jobs):
         block = job_block(texts[fname], key)
         if block is None:
@@ -368,6 +423,18 @@ def graph_violations(texts: dict = None):
             continue
         body = [ln for ln in block.splitlines()[1:] if ln.strip()]
         job_col = min((len(ln) - len(ln.lstrip()) for ln in body), default=4)
+        if _declares(block, job_col, "defaults"):
+            out.append(
+                f"{fname}: job {key!r} sets job-level `defaults:` — "
+                f"`defaults.run.working-directory`/`shell` redirect every step in the "
+                f"job. See {REDIRECT_KEYS_NOTE}"
+            )
+        for rkey in REDIRECT_KEYS:
+            if _declares(block, job_col, rkey):
+                out.append(
+                    f"{fname}: job {key!r} sets job-level `{rkey}`. "
+                    f"See {REDIRECT_KEYS_NOTE}"
+                )
         if _declares(block, job_col, DISABLING_KEY):
             out.append(
                 f"{fname}: job {key!r} sets job-level `{DISABLING_KEY}` — the whole "
@@ -385,6 +452,18 @@ def graph_violations(texts: dict = None):
                     "the runner discards its exit code. If the step genuinely must not "
                     "fail the build, add it to ALLOWED_STEP_EXCEPTIONS with a rationale"
                 )
+            for rkey in REDIRECT_KEYS:
+                if _declares(chunk, key_col, rkey) and (
+                    fname,
+                    key,
+                    step_name,
+                    rkey,
+                ) not in ALLOWED_STEP_REDIRECT:
+                    out.append(
+                        f"{fname}: job {key!r} step {step_name!r} sets `{rkey}`. "
+                        f"See {REDIRECT_KEYS_NOTE} If this step genuinely needs it, "
+                        "add it to ALLOWED_STEP_REDIRECT with a rationale"
+                    )
             if not _declares(chunk, key_col, "if"):
                 continue
             if (fname, key, step_name) in ALLOWED_STEP_IF:
@@ -508,6 +587,100 @@ class TestGraphViolationDetector(unittest.TestCase):
         )
         hits = self._violations_with("lint.yml", m)
         self.assertTrue([h for h in hits if "Dependency Review" in h], f"not caught: {hits}")
+
+    # --- REDIRECT keys: the step RUNS and reports success, checking something
+    # --- else. The 2026-08-10 finding; see REDIRECT_KEYS for the executed proof.
+
+    def test_step_working_directory_on_the_gate_is_caught(self):
+        # THE finding, on the real gate step: one line, whole suite green (1945
+        # passed), required check no longer blocks a CRITICAL.
+        m = self.scan.replace(
+            "      - name: Check for critical/high failures\n        run: |\n",
+            "      - name: Check for critical/high failures\n"
+            "        working-directory: docs\n        run: |\n",
+            1,
+        )
+        hits = self._violations_with("security-scan.yml", m)
+        self.assertTrue(
+            [h for h in hits if "working-directory" in h and "critical/high" in h],
+            f"not caught: {hits}",
+        )
+
+    def test_step_shell_on_the_gate_is_caught(self):
+        # `shell: cat {0}` prints the script instead of running it and exits 0 —
+        # strictly worse than the cwd redirect, and equally invisible to a test
+        # that executes the `run:` body itself.
+        m = self.scan.replace(
+            "      - name: Check for critical/high failures\n        run: |\n",
+            "      - name: Check for critical/high failures\n"
+            "        shell: cat {0}\n        run: |\n",
+            1,
+        )
+        hits = self._violations_with("security-scan.yml", m)
+        self.assertTrue([h for h in hits if "shell" in h], f"not caught: {hits}")
+
+    def test_step_redirect_on_a_dependency_is_caught(self):
+        m = re.sub(
+            r"(?m)^(( *)- name: Dependency Review)$",
+            r"\1\n\2  working-directory: docs",
+            self.lint,
+            count=1,
+        )
+        hits = self._violations_with("lint.yml", m)
+        self.assertTrue(
+            [h for h in hits if "Dependency Review" in h and "working-directory" in h],
+            f"not caught: {hits}",
+        )
+
+    def test_job_level_defaults_is_caught(self):
+        # `defaults.run.working-directory` at JOB level redirects every step in
+        # the job at once — no per-step edit to notice in review.
+        m = self.scan.replace(
+            "  security-scan-gate:\n",
+            "  security-scan-gate:\n    defaults:\n      run:\n"
+            "        working-directory: docs\n",
+            1,
+        )
+        hits = self._violations_with("security-scan.yml", m)
+        self.assertTrue([h for h in hits if "defaults" in h], f"not caught: {hits}")
+
+    def test_workflow_level_defaults_is_caught(self):
+        # The quietest form: one top-level block redirects EVERY job in the file,
+        # and neither a job scan nor a step scan would ever look at column 0.
+        m = self.scan.replace(
+            "jobs:\n", "defaults:\n  run:\n    working-directory: docs\njobs:\n", 1
+        )
+        hits = self._violations_with("security-scan.yml", m)
+        self.assertTrue(
+            [h for h in hits if "workflow-level `defaults:`" in h], f"not caught: {hits}"
+        )
+
+    def test_quoted_and_explicit_redirect_spellings_are_caught(self):
+        # `"working-directory":` is the same key to any YAML parser, and the
+        # `? working-directory` explicit form makes the substring vanish entirely
+        # — the shapes that defeated eight guards in #391/#393/#394.
+        for inject in (
+            '        "working-directory": docs\n',
+            "        ? working-directory\n        : docs\n",
+        ):
+            with self.subTest(spelling=inject.strip()):
+                m = self.scan.replace(
+                    "      - name: Check for critical/high failures\n        run: |\n",
+                    "      - name: Check for critical/high failures\n"
+                    + inject
+                    + "        run: |\n",
+                    1,
+                )
+                hits = self._violations_with("security-scan.yml", m)
+                self.assertTrue(
+                    [h for h in hits if "working-directory" in h], f"not caught: {hits}"
+                )
+
+    def test_redirect_keys_quiet_on_the_real_workflows(self):
+        # No-false-alarm direction, and the reason ALLOWED_STEP_REDIRECT is
+        # empty: nothing in the required graph declares either key today.
+        hits = [h for h in graph_violations() if "working-directory" in h or "shell" in h]
+        self.assertEqual(hits, [])
 
     def test_quoted_key_spelling_is_caught(self):
         m = self.lint.replace(
