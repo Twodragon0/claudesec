@@ -161,6 +161,8 @@ single author pass misses.
 
 - [CI Config Regression Guards catalog](./ci-config-regression-guards.md)
 - [ADR-001 Q3 audit retrospective (#297)](../reports/adr-001-q3-audit-retrospective.md)
+- [Runner-key audit retrospective (#404 → #408)](../reports/runner-key-audit-retrospective.md)
+  — what execution-based proof closes, and the boundary it cannot cross
 - OWASP Top 10 CI/CD Security Risks — CICD-SEC-1 (Insufficient Flow Control):
   <https://owasp.org/www-project-top-10-ci-cd-security-risks/>
 - OWASP Top 10 CI/CD — CICD-SEC-4 (Poisoned Pipeline Execution):
