@@ -722,6 +722,38 @@ tier than `protection-drift-watch.yml`. The check that found it is worth
 repeating each audit and takes one command: diff `ls .github/workflows/` against
 the workflow names appearing in this file.
 
+**Follow-up (same date).** Three items that came out of the sweep rather than
+being on its list:
+
+- **The shared-helper test file was itself duplicated.**
+  `scanner/tests/test_guard_util.py` had grown up independently beside
+  `test__ci_guard_util.py`, both direct-unit-testing `_ci_guard_util`, with
+  `TestStripCommentLines` and the `extract_on_block` cases present in both at
+  different coverage. That is the module's own defect class turned on its tests:
+  "is this primitive covered?" had two answers and neither file was
+  authoritative. Merged into `test__ci_guard_util.py` (the name the reminder
+  workflow, ADR-001 and the `ci-config-guard-claudesec` skill already point at);
+  all 47 distinct cases preserved, verified by diffing test-method names.
+- **Five primitives had no direct test in either file** — `yaml_key_pattern`,
+  `explicit_key_lines`, `keys_at_column`, `job_block`, `job_needs` — despite each
+  docstring naming a specific incident it exists to prevent. Those incidents are
+  now pinned directly rather than only wherever a consumer guard happened to hit
+  them, and each new case was proven by mutating the primitive and watching it
+  fail. One mutation (`job_block` bounded on "the next two-space `<key>:`"
+  instead of on indentation) initially did NOT fail, exposing a gap in the test:
+  the
+  discriminating case is a job followed by a TOP-LEVEL key, where a job-column
+  bound never fires and the block runs to EOF. Added. One mutation is documented
+  as non-discriminating on purpose: `keys_at_column`'s explicit comment skip is
+  redundant today because the key regex's `[^\s:#]+` already cannot start at `#`,
+  so the test pins the behaviour rather than that line.
+- **The quarterly reminder now carries the rules, not just the ritual.**
+  `guard-audit-reminder.yml`'s checklist gained the execution-proof boundary
+  question, the transitive-`needs:` scoping rule, the name-the-population rule,
+  the workflow-set-vs-doc diff above, and "record the CLASS a guard is clean
+  for". Rationale lives in
+  [the retrospective](../reports/runner-key-audit-retrospective.md).
+
 ### Verified already-guarded during this review (not backlog)
 
 lychee `v0.23.0` pin (`test_ci_gate_topology.py`), the `Security Scan Gate`
