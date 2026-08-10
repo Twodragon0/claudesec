@@ -658,16 +658,43 @@ mentioning both demands a trigger — a false alarm, never a bypass).
 deliberate, unusual edit rather than a comment-out, so lower natural-regression
 risk — triaged as follow-up, not blocking):**
 
-- `test_ci_no_ere_pipe_regression.py` — misses the `--extended-regexp` long-flag
-  form and cross-line variable-indirection of the `\|` ERE bug.
-- `test_ci_npm_files.py` — `files[]` glob match is not grammar-complete (`docs/**`
-  ships the tree; order-blind to a positive pattern re-added after its negation).
-- `test_ci_plugin_skills_cli_parity.py` / `test_ci_provider_labels_sync.py` —
-  parse `case` arms into an unordered `set()`, so moving the `*)` catch-all ahead
-  of a real arm (runtime-unreachable) still satisfies the presence check.
-- `test_ci_cross_os_non_required.py` — `FORBIDDEN_IN_LINT` is a fixed 4-string
-  enumeration (bypassed by `macos-14`/`windows-2022` labels); collision check
-  omits the `"Lint"` required context.
+> **RE-TRIAGED 2026-08-10 — seven of these eight sub-items were already CLOSED
+> and this list had gone stale.** Each was re-checked by applying the bypass to
+> the REAL file and running the guard, not by re-reading the code. A backlog
+> that lists solved problems as open costs a cycle to rediscover, and worse,
+> invites "that's a known gap" when it is not. Evidence below; only the last
+> entry survives.
+
+| claimed gap | verdict | how it was checked |
+|---|---|---|
+| `no_ere_pipe`: `--extended-regexp` long flag | **CLOSED** | added `grep --extended-regexp 'foo\|bar'` to `checks.sh` → guard failed (it also carries a dedicated mutation test) |
+| `npm_files`: glob not grammar-complete | **CLOSED** | appended `docs/**` to `files[]` → guard failed |
+| `npm_files`: order-blind to a re-added positive | **CLOSED** | re-appended a `!scripts/…`-negated path after its negation → guard failed |
+| `plugin_skills_cli_parity`: `*)` ordering | **CLOSED** | moved the top-level catch-all above the `scan)` arm → 3 tests failed |
+| `provider_labels_sync`: `*)` ordering | **CLOSED** | moved `aws)` below `*)` → guard failed |
+| `cross_os_non_required`: fixed 4-string enumeration | **CLOSED** | switched a `lint.yml` job to `macos-14` → guard failed (the matcher is now shape-based and version/case-agnostic, #394) |
+| `cross_os_non_required`: omits the `"Lint"` context | **CLOSED** | added a rogue job with `"name": "Lint"` → guard failed (`REQUIRED_CONTEXTS` covers both) |
+
+A note on the method, because it nearly produced a false finding: the
+`provider_labels_sync` probe first reported a GAP. The mutation was wrong — it
+moved `aws)` to sit immediately *before* `*)`, where the arm is still perfectly
+reachable, so the guard was right to stay green. Attack the harness before
+believing its verdict (the stripper-false-negative lesson, applied to a mutation
+fixture instead of a stripper).
+
+**Still open — the only survivor:**
+
+- `test_ci_no_ere_pipe_regression.py` — cross-line variable indirection:
+  `PATTERN="foo\|bar"` on one line, `grep -E "$PATTERN"` on another. Confirmed
+  undetected by probe. **Decision (2026-08-10): stays deferred, now with a
+  measurement rather than an assertion of difficulty.** The true fix needs
+  cross-line dataflow. The only tractable approximation — flag every `\|` inside
+  a string assignment — false-fires on this repo's own CORRECT usage: four live
+  sites in `checks_credentials.sh` write `grep -q 'sso_start_url\|sso_session'`,
+  where `\|` is GNU **BRE** alternation and entirely right, and they become
+  indistinguishable from the bug the moment anyone extracts the pattern into a
+  variable. Live instances of the indirection shape: **zero**. Revisit if one
+  lands.
 
 Both `test_ci_injection_surface.py` rows that were listed here are now **closed**
 by shape tripwires rather than deferred — see "split-expression gap closed by
