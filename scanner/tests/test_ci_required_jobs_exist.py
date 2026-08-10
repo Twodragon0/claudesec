@@ -27,6 +27,18 @@ intentionally renamed/retired, update REQUIRED_LINT_JOBS here in the same PR and
 justify it. (Whether each present job is merge-blocking is the separate concern
 of test_ci_gate_topology.py — NOT duplicated here.)
 
+MUTATION SELF-TESTS
+-------------------
+A presence guard is the easiest kind to hold vacuously: `REQUIRED - jobs` is
+empty both when every job is there and when the parser silently returns
+everything. `test_parser_canary` covers only the second half, and only for one
+key. `TestRequiredJobsDetectorMutation` therefore deletes each required job from
+the REAL `lint.yml` text, one at a time, and asserts THAT job is the one
+reported — so the check is proven to bite on the exact file it protects, not on
+a synthetic fixture whose indentation might not match. It also pins the two
+no-false-alarm directions (an unrelated extra job, a required job written with a
+quoted key) that a stricter parser would break.
+
 stdlib-only (regex/line scanning, no PyYAML — absent from requirements-ci.txt).
 No network, no subprocess. Passes under pytest (the CI runner) and
 `python3 -m unittest`. Does not import scanner/lib, so it never moves the
@@ -38,7 +50,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import top_level_jobs  # noqa: E402
+from _ci_guard_util import job_block, top_level_jobs  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -57,6 +69,11 @@ REQUIRED_LINT_JOBS = frozenset(
         "scanner-shell-coverage",
     }
 )
+
+
+def missing_required_jobs(text: str) -> set:
+    """The required `lint.yml` jobs absent from `text`; empty when all present."""
+    return REQUIRED_LINT_JOBS - set(top_level_jobs(text))
 
 
 class TestRequiredLintJobsExist(unittest.TestCase):
@@ -79,8 +96,7 @@ class TestRequiredLintJobsExist(unittest.TestCase):
         )
 
     def test_required_security_jobs_present(self):
-        jobs = set(top_level_jobs(self.text))
-        missing = REQUIRED_LINT_JOBS - jobs
+        missing = missing_required_jobs(self.text)
         self.assertEqual(
             missing,
             set(),
@@ -90,6 +106,59 @@ class TestRequiredLintJobsExist(unittest.TestCase):
             + "\nRestore the job(s), or (if intentionally retired) update "
             "REQUIRED_LINT_JOBS in this test with a justification.",
         )
+
+
+class TestRequiredJobsDetectorMutation(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.text = LINT_YML.read_text(encoding="utf-8")
+
+    def _without(self, job: str) -> str:
+        """The real `lint.yml` with `job`'s whole block deleted — the shape a
+        botched merge-conflict resolution leaves behind."""
+        block = job_block(self.text, job)
+        self.assertIsNotNone(
+            block, f"could not isolate the `{job}` job block in the real lint.yml"
+        )
+        mutated = self.text.replace(block, "", 1)
+        self.assertNotEqual(mutated, self.text, f"deleting `{job}` changed nothing")
+        return mutated
+
+    def test_each_required_job_is_individually_detected(self):
+        # One job at a time: deleting `gitleaks` must report `gitleaks` and
+        # nothing else. A detector keyed on the wrong job — or one that reports
+        # the whole required set whenever anything is off — fails here.
+        for job in sorted(REQUIRED_LINT_JOBS):
+            with self.subTest(deleted=job):
+                self.assertEqual(missing_required_jobs(self._without(job)), {job})
+
+    def test_quiet_on_the_real_file(self):
+        self.assertEqual(missing_required_jobs(self.text), set())
+
+    def test_quiet_when_an_unrelated_job_is_added(self):
+        # No-false-alarm: the direction is PRESENCE of a required set, never an
+        # equality against the full job list, so adding a job is fine.
+        mutated = self.text.replace(
+            "jobs:\n", "jobs:\n  brand-new-helper:\n    runs-on: ubuntu-latest\n", 1
+        )
+        self.assertEqual(missing_required_jobs(mutated), set())
+
+    def test_quiet_on_a_quoted_job_key(self):
+        # `"gitleaks":` is the same key to any YAML parser. A bare-only job
+        # matcher would report the job missing and send someone chasing a
+        # control that is actually there — the false-alarm twin of the quoted-key
+        # blindness that hit eight guards in #391/#393/#394.
+        mutated = self.text.replace("\n  gitleaks:\n", '\n  "gitleaks":\n', 1)
+        self.assertNotEqual(mutated, self.text, "quoted-key fixture did not apply")
+        self.assertEqual(missing_required_jobs(mutated), set())
+
+    def test_fires_on_a_job_demoted_to_a_comment(self):
+        # Commenting a job out disables it exactly as deleting it does, and the
+        # substring `gitleaks:` still appears in the file — so a raw-text
+        # presence check would read green here.
+        mutated = self.text.replace("\n  gitleaks:\n", "\n  # gitleaks:\n", 1)
+        self.assertNotEqual(mutated, self.text, "comment fixture did not apply")
+        self.assertEqual(missing_required_jobs(mutated), {"gitleaks"})
 
 
 if __name__ == "__main__":
