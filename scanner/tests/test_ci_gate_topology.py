@@ -29,6 +29,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     explicit_key_lines,
+    job_block,
+    job_needs,
+    required_aggregators,
     strip_inline_comment as _strip_comment,
     top_level_jobs,
     workflow_and_action_files,
@@ -49,7 +52,19 @@ LINT_YML = WORKFLOW_DIR / "lint.yml"
 # (workflow-fork-guard was previously allowlisted, but is now wired into
 # lint-gate.needs so its OWASP A08 fork-guard audit is merge-blocking — it is
 # therefore correctly NO LONGER allowlisted.)
-UNGATED_JOBS_ALLOWLIST = {"lint-gate"}
+# Jobs deliberately not wired into their workflow's aggregator `needs:`, keyed by
+# `(workflow file, job key)`.
+#
+# Keyed by FILE as well as name since 2026-08-10. A flat name set was fine while
+# this guard only ever read `lint.yml`, but the moment it covers both required
+# workflows a bare `"lint-gate"` would also exempt a same-named job in
+# `security-scan.yml` — an allowlist that silently widens as files are added.
+#
+# Each aggregator exempts itself: a job cannot be in its own `needs:`.
+UNGATED_JOBS_ALLOWLIST = {
+    ("lint.yml", "lint-gate"),
+    ("security-scan.yml", "security-scan-gate"),
+}
 
 
 # `uses:` bare OR quoted. A quoted key resolves identically for any YAML parser,
@@ -115,74 +130,92 @@ class TestActionShaPinning(unittest.TestCase):
         )
 
 
-class TestLintGateNeedsCompleteness(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.text = LINT_YML.read_text(encoding="utf-8") if LINT_YML.is_file() else ""
+def required_workflow_texts():
+    """`{filename: text}` for every workflow file (both extensions)."""
+    return {
+        Path(p).name: Path(p).read_text(encoding="utf-8")
+        for p in workflow_and_action_files()
+        if "/workflows/" in p
+    }
 
-    def _lint_gate_needs(self):
-        needs, in_gate, in_needs = [], False, False
-        for raw in self.text.splitlines():
-            if re.match(rf"^  {yaml_key_pattern('lint-gate')}:\s*$", raw):
-                in_gate = True
+
+def ungated_jobs():
+    """`(violations, aggregators)` — jobs in a REQUIRED workflow that no required
+    aggregator depends on, so they can fail without blocking a merge.
+
+    Scoped to EVERY workflow that hosts a required aggregator, resolved from the
+    codified `DESIRED_CONTEXTS`, not to a hardcoded `lint.yml`. That hardcoding
+    was a real gap, measured 2026-08-10: a job added to `security-scan.yml` and
+    left out of `security-scan-gate.needs` was invisible to the whole suite
+    (1952 passed) even though this document claims the topology guards catch
+    exactly that class. `lint.yml` was covered; the second required workflow
+    never was.
+
+    Same lesson as #407 and fixed the same way — derive the scope from the
+    required contexts instead of naming one file, so a third required workflow
+    is covered on the day it appears rather than after the next audit."""
+    texts = required_workflow_texts()
+    aggregators, problems = required_aggregators(texts)
+    out = list(problems)
+    for fname, gate in sorted(aggregators.items()):
+        block = job_block(texts[fname], gate)
+        if block is None:
+            out.append(f"{fname}: aggregator {gate!r} does not resolve to one block")
+            continue
+        needs = set(job_needs(block))
+        if not needs:
+            out.append(f"{fname}: {gate}.needs parsed empty — the scan below is vacuous")
+            continue
+        for job in set(top_level_jobs(texts[fname])) - needs:
+            if (fname, job) in UNGATED_JOBS_ALLOWLIST:
                 continue
-            if in_gate:
-                # Leaving the lint-gate block (next top-level job) ends the scan.
-                # The sibling job key is matched bare OR quoted: a quoted
-                # `"other-job":` would not terminate the scan, so that job's
-                # `needs:` items would be slurped into lint-gate's list and could
-                # satisfy the completeness check for jobs lint-gate does not
-                # actually depend on.
-                if re.match(
-                    r"""^  (?:"[^"]+"|'[^']+'|[A-Za-z0-9_-]+):\s*$""", raw
-                ) and not re.match(r"^    ", raw):
-                    break
-                if re.match(r"^    needs:\s*$", raw):
-                    in_needs = True
-                    continue
-                if in_needs:
-                    item = re.match(r"^      -\s*([A-Za-z0-9_-]+)\s*$", raw)
-                    if item:
-                        needs.append(item.group(1))
-                    elif re.match(r"^    [A-Za-z]", raw):  # next key under lint-gate
-                        in_needs = False
-        return needs
+            out.append(
+                f"{fname}: job {job!r} is not in {gate}.needs and is not "
+                "allowlisted — it would NOT block a merge if it fails. Wire it "
+                "into the aggregator, or (if intentionally ungated) add "
+                f"('{fname}', '{job}') to UNGATED_JOBS_ALLOWLIST with a rationale"
+            )
+    return sorted(out), aggregators
 
+
+class TestRequiredWorkflowGateCompleteness(unittest.TestCase):
     def test_lint_yml_exists(self):
         self.assertTrue(LINT_YML.is_file(), f"{LINT_YML} not found")
 
-    def test_every_job_is_gated_or_allowlisted(self):
-        jobs = set(top_level_jobs(self.text))
-        needs = set(self._lint_gate_needs())
-        self.assertIn("changes", jobs, "job parsing broke — 'changes' not found")
-        self.assertTrue(needs, "lint-gate.needs parsing broke — empty needs list")
-
-        ungated = jobs - needs - UNGATED_JOBS_ALLOWLIST
+    def test_aggregators_resolve(self):
+        # Vacuity canary. An empty aggregator map makes every check below pass
+        # for free — the shape a guard dies in without anyone noticing.
+        _, aggregators = ungated_jobs()
         self.assertEqual(
-            ungated,
-            set(),
-            "Job(s) not wired into lint-gate.needs and not allowlisted — they "
-            "would NOT block a merge if they fail:\n  "
-            + ", ".join(sorted(ungated))
-            + "\nAdd each to lint-gate.needs, or (if intentionally ungated) to "
-            "UNGATED_JOBS_ALLOWLIST in this test with a justification.",
+            aggregators,
+            {"lint.yml": "lint-gate", "security-scan.yml": "security-scan-gate"},
+            "the codified required contexts no longer resolve to the two known "
+            "aggregators. If branch protection changed, acknowledge it here.",
         )
+
+    def test_every_job_is_gated_or_allowlisted(self):
+        violations, _ = ungated_jobs()
+        self.assertEqual(violations, [], "\n  " + "\n  ".join(violations))
 
     def test_allowlist_has_no_stale_entries(self):
         # An allowlist entry that no longer names a real job (or that has since
         # been added to needs) is dead config — fail so it gets cleaned up.
-        jobs = set(top_level_jobs(self.text))
-        needs = set(self._lint_gate_needs())
-        stale = {
-            j
-            for j in UNGATED_JOBS_ALLOWLIST
-            if j not in jobs or (j in needs and j != "lint-gate")
-        }
+        texts = required_workflow_texts()
+        aggregators, _ = required_aggregators(texts)
+        stale = []
+        for fname, job in sorted(UNGATED_JOBS_ALLOWLIST):
+            if fname not in texts or job not in set(top_level_jobs(texts[fname])):
+                stale.append(f"{fname}:{job} (no such job)")
+                continue
+            gate = aggregators.get(fname)
+            if gate and job != gate:
+                block = job_block(texts[fname], gate)
+                if block is not None and job in set(job_needs(block)):
+                    stale.append(f"{fname}:{job} (now in {gate}.needs)")
         self.assertEqual(
             stale,
-            set(),
-            "Stale UNGATED_JOBS_ALLOWLIST entries (job removed, or now in "
-            "lint-gate.needs): " + ", ".join(sorted(stale)),
+            [],
+            "Stale UNGATED_JOBS_ALLOWLIST entries: " + ", ".join(stale),
         )
 
 
@@ -294,12 +327,17 @@ class TestKeyQuotingAndEnumerationMutation(unittest.TestCase):
             "an ungated job is hidden from BOTH branch protection and this guard.",
         )
 
-    def test_quoted_sibling_job_terminates_lint_gate_needs(self):
-        # A quoted sibling job key must still end the lint-gate block, or that
-        # job's `needs:` items get slurped into lint-gate's list and satisfy the
-        # completeness check for dependencies lint-gate does not have.
-        case = TestLintGateNeedsCompleteness("test_lint_yml_exists")
-        case.text = "\n".join(
+    def test_quoted_sibling_job_terminates_the_aggregator_needs(self):
+        # A quoted sibling job key must still end the aggregator's block, or that
+        # job's `needs:` items get slurped into the aggregator's list and satisfy
+        # the completeness check for dependencies it does not have.
+        #
+        # Kept after the hand-rolled `_lint_gate_needs` was replaced by the shared
+        # `job_block`/`job_needs`: the point of a replacement is that the hardening
+        # survives it, and the only way to know is to re-run the case that proved
+        # it. Verified equal on the real lint.yml (15 identical entries) before the
+        # swap.
+        wf = "\n".join(
             [
                 "jobs:",
                 "  lint-gate:",
@@ -311,11 +349,55 @@ class TestKeyQuotingAndEnumerationMutation(unittest.TestCase):
             ]
         )
         self.assertEqual(
-            case._lint_gate_needs(),
+            job_needs(job_block(wf, "lint-gate")),
             ["changes"],
             "Mutation FAILED: a quoted sibling job key did not terminate the "
-            "lint-gate scan, so a foreign `needs:` entry was attributed to it.",
+            "aggregator scan, so a foreign `needs:` entry was attributed to it.",
         )
+
+    def test_ungated_job_in_each_required_workflow_is_caught(self):
+        # THE 2026-08-10 finding, both halves. Before this fix the security-scan
+        # half was invisible: a rogue job there left the whole suite green
+        # (1952 passed) while it could fail forever without blocking a merge.
+        texts = required_workflow_texts()
+        rogue = (
+            "  rogue-enforcement:\n"
+            "    name: Rogue enforcement job\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - name: x\n"
+            "        run: exit 1\n"
+        )
+        for fname in ("lint.yml", "security-scan.yml"):
+            with self.subTest(workflow=fname):
+                mutated = dict(texts)
+                mutated[fname] = texts[fname].replace("jobs:\n", "jobs:\n" + rogue, 1)
+                self.assertNotEqual(
+                    mutated[fname], texts[fname], "mutation did not apply"
+                )
+                aggregators, _ = required_aggregators(mutated)
+                gate = aggregators[fname]
+                needs = set(job_needs(job_block(mutated[fname], gate)))
+                self.assertNotIn(
+                    "rogue-enforcement",
+                    needs,
+                    "fixture error: the rogue job must NOT be in the aggregator's "
+                    "needs, or this proves nothing",
+                )
+                self.assertIn(
+                    "rogue-enforcement",
+                    set(top_level_jobs(mutated[fname])) - needs,
+                    f"not caught: an ungated job in {fname} was not detected",
+                )
+
+    def test_allowlist_is_file_scoped(self):
+        # A flat name allowlist would let `lint-gate` exempt a same-named job in
+        # any other required workflow. Keyed by file, it cannot.
+        self.assertTrue(
+            all(isinstance(e, tuple) and len(e) == 2 for e in UNGATED_JOBS_ALLOWLIST),
+            "UNGATED_JOBS_ALLOWLIST entries must be (workflow, job) pairs",
+        )
+        self.assertNotIn(("security-scan.yml", "lint-gate"), UNGATED_JOBS_ALLOWLIST)
 
 
 if __name__ == "__main__":

@@ -37,6 +37,7 @@ root):
     from _ci_guard_util import strip_comment_lines, extract_on_block
 """
 
+import json
 import re
 from glob import glob
 from pathlib import Path
@@ -45,6 +46,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 ACTION_DIR = REPO_ROOT / ".github" / "actions"
+PROTECTION_SCRIPT = REPO_ROOT / "scripts" / "sync-repo-protection.sh"
 
 
 def yaml_key_pattern(key: str) -> str:
@@ -409,6 +411,86 @@ def job_block(text: str, job_key: str):
             break
         out.append(line)
     return "\n".join(out)
+
+
+def desired_contexts(script_text: str = None):
+    """The required status-check names codified in `sync-repo-protection.sh`.
+
+    That script is the repo's source of truth for branch protection and is itself
+    pinned against live drift by `test_ci_branch_protection_codified.py`, so
+    reading it keeps ONE source rather than a second hand-maintained list that
+    could disagree with the real gate. Returns None when it cannot be parsed, so
+    callers fail closed instead of proceeding on an empty set.
+
+    Lives here rather than in one guard because more than one guard needs to know
+    what the required checks are, and the second copy is where they drift apart —
+    the class this module exists to end (#391/#393/#394). Reads the real script
+    by default; pass `script_text` to test against a mutated copy."""
+    if script_text is None:
+        if not PROTECTION_SCRIPT.is_file():
+            return None
+        script_text = PROTECTION_SCRIPT.read_text(encoding="utf-8")
+    m = re.search(
+        r"""^\s*DESIRED_CONTEXTS=(['"])(?P<json>\[.*?\])\1""", script_text, re.M
+    )
+    if not m:
+        return None
+    try:
+        value = json.loads(m.group("json"))
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, list) else None
+
+
+def job_display_name(block: str, job_key: str) -> str:
+    """A job's rendered check name: its `name:` value, else the job key itself —
+    which is what GitHub uses, and what branch protection matches on.
+
+    The `name:` key is read at the job's own indent column so a step's `name:`
+    (deeper) cannot be mistaken for the job's."""
+    body = [ln for ln in block.splitlines()[1:] if ln.strip()]
+    if not body:
+        return job_key
+    col = min(len(ln) - len(ln.lstrip()) for ln in body)
+    pat = re.compile(rf"^ {{{col}}}{yaml_key_pattern('name')}\s*:\s*(.+?)\s*$")
+    for raw in block.splitlines()[1:]:
+        m = pat.match(strip_inline_comment(raw))
+        if m:
+            return m.group(1).strip("\"'")
+    return job_key
+
+
+def required_aggregators(texts: dict):
+    """`{filename: job_key}` for every job whose DISPLAY NAME is a codified
+    required status check, plus fail-closed problems.
+
+    Returns `(mapping, problems)`. A required context that resolves to zero or
+    many jobs is a problem, not a silent skip: a guard walking an empty set of
+    aggregators passes vacuously, which is exactly how one goes quietly dead."""
+    contexts = desired_contexts()
+    if not contexts:
+        return {}, ["could not parse DESIRED_CONTEXTS from the protection script"]
+    index = {}
+    problems = []
+    for fname, text in sorted(texts.items()):
+        for key in top_level_jobs(text):
+            block = job_block(text, key)
+            if block is None:
+                continue
+            index.setdefault(job_display_name(block, key), []).append((fname, key))
+    out = {}
+    for ctx in contexts:
+        hits = index.get(ctx, [])
+        if len(hits) != 1:
+            problems.append(
+                f"required check {ctx!r} resolves to {len(hits)} jobs {hits} — "
+                "a guard scoped by this mapping would run on the wrong file or "
+                "on nothing at all"
+            )
+            continue
+        fname, key = hits[0]
+        out[fname] = key
+    return out, problems
 
 
 def job_needs(block: str) -> list:
