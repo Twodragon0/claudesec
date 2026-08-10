@@ -40,7 +40,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_comment_lines  # noqa: E402
+from _ci_guard_util import job_block, strip_comment_lines  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LINT_YML = REPO_ROOT / ".github" / "workflows" / "lint.yml"
@@ -68,26 +68,21 @@ INTENTIONAL_REDIRECT_EXCLUDES = (
 
 
 def _extract_job_block(text, job_name):
-    """Return the lines of a single 2-space-indented job block from a workflow,
-    from `  <job_name>:` up to (not including) the next `  <name>:` job key or a
-    dedent to a top-level key. Returns "" if the job is absent."""
-    lines = text.splitlines()
-    out, in_job = [], False
-    job_re = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(#.*)?$")
-    start_re = re.compile(r"^  " + re.escape(job_name) + r":\s*(#.*)?$")
-    for line in lines:
-        if not in_job:
-            if start_re.match(line):
-                in_job = True
-                out.append(line)
-            continue
-        # A new top-level key (col 0) or a sibling job key ends the block.
-        if line and not line[0].isspace():
-            break
-        if job_re.match(line) and not start_re.match(line):
-            break
-        out.append(line)
-    return "\n".join(out)
+    """A single 2-space-indented job block, via the shared `job_block`.
+
+    Was a local parser until 2026-08-10. Its header regex
+    `^  ([A-Za-z0-9_-]+):` matched the BARE form only, so a quoted
+    `  "link-check":` yielded "" — and every check below is a positive assertion
+    over this block, so an empty block fails them all loudly rather than passing
+    vacuously. A false alarm, not a bypass; replaced anyway because a guard that
+    an ordinary authoring style breaks gets weakened, not fixed, and because the
+    shared helper is where this class is maintained.
+
+    Verified byte-identical to the old parser on the real `lint.yml` for
+    `link-check`, `changes` and `lint-gate` (34/65/41 lines) before the swap.
+    Returns "" (not None) for absent, which the callers' `assertTrue` canary
+    depends on."""
+    return job_block(text, job_name) or ""
 
 
 def _extract_redirect_section_entries(toml_text):
