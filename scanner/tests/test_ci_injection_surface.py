@@ -55,16 +55,24 @@ measured coverage gate.
 """
 
 import re
+import sys
 import tempfile
 import unittest
-from glob import glob
 from pathlib import Path
 
-# scanner/tests/this_file -> parents[2] == repo root
-REPO_ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
-# Composite actions: `runs.using: composite` steps run shell too (see `_scanned_files`).
-ACTION_DIR = REPO_ROOT / ".github" / "actions"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _ci_guard_util  # noqa: E402  (module handle: the enumeration self-test patches its dirs)
+from _ci_guard_util import (  # noqa: E402
+    explicit_key_lines,
+    workflow_and_action_files,
+    yaml_key_pattern,
+)
+
+# Directories are read from the shared module so this guard and every other one
+# enumerate the SAME file set (see `_scanned_files`); re-deriving them here is
+# what let the `*.yaml` / composite-action gaps open independently in the first
+# place.
+REPO_ROOT = _ci_guard_util.REPO_ROOT
 
 # GitHub-documented untrusted-input contexts (the free-text fields an external
 # actor controls). Each is a regex searched INSIDE a `${{ ... }}` expression that
@@ -110,13 +118,8 @@ _EXPR_RE = re.compile(r"\$\{\{(.*?)\}\}")
 # GitHub's own docs normalize `"on":` to dodge the YAML-1.1 boolean collision, so
 # `"run":` is a plausible authoring style, not a contrived evasion. An adversarial
 # review pass proved both the block and flow matchers were blind to it.
-_RUN_KEY = r"""(?:run|"run"|'run')"""
+_RUN_KEY = yaml_key_pattern("run")
 _RUN_RE = re.compile(rf"^(\s*(?:-\s+)?){_RUN_KEY}:\s?(.*)$")
-# YAML's explicit-key form (`? run` on one line, `: cmd` on the next) yields the
-# same `run` key with the substring `run:` never appearing — so no line matcher can
-# see it. Reassembling it needs a real parser, so it joins the unscannable SHAPES
-# that fail closed (see `unscannable_run_keys`).
-_EXPLICIT_RUN_KEY_RE = re.compile(rf"""^\s*(?:-\s+)?\?\s*{_RUN_KEY}\s*(?::|$|#)""")
 # Flow-style step mapping — `steps: [{name: x, run: "cmd"}]` — puts `run:`
 # mid-line after a `{`/`,`, so the line-anchored block scan above never sees it.
 # Match each flow-style run value (double/single-quoted or bare) so its `${{ }}`
@@ -364,7 +367,7 @@ def unscannable_inline_runs(text: str) -> list:
 
 def unscannable_run_keys(text: str) -> list:
     """Lines declaring a `run` step with YAML's explicit-key form (`? run` /
-    `: cmd` — see `_EXPLICIT_RUN_KEY_RE`).
+    `: cmd` — see the shared `explicit_key_lines`).
 
     The third unscannable SHAPE, and the one with no substring to match at all:
     the key and its value sit on different lines, so the literal `run:` never
@@ -372,33 +375,20 @@ def unscannable_run_keys(text: str) -> list:
     against PyYAML: `- ? run` / `  : echo '${{ github.event.issue.title }}'`
     resolves to a real `run` command). Fails closed rather than pretending to
     scan it — the fix is the ordinary `run: cmd` form. Dormant on this repo."""
-    return [ln.strip() for ln in text.splitlines() if _EXPLICIT_RUN_KEY_RE.match(ln)]
+    return explicit_key_lines(text, "run")
 
 
 def _scanned_files():
     """Every file in this repo whose `run:` bodies GitHub Actions executes.
 
-    Two enumeration gaps were found by adversarial review, both silent (a whole
-    file simply never scanned, so the guard passed vacuously over it):
-
-    - BOTH extensions: Actions honours `.yaml` as well as `.yml`, so a
-      `evil.yaml` workflow was invisible.
-    - COMPOSITE ACTIONS: `.github/actions/<name>/action.yml` declares
-      `runs.using: composite` with `steps[].run` shell bodies that interpolate
-      `${{ }}` exactly like a workflow step, and required workflows call them.
-      Two already exist here (`datadog-ci-collect`, `token-expiry-gate`), and a
-      live `${{ github.event.pull_request.title }}` planted in one of them left
-      this guard green — the same CICD-SEC-4 RCE it exists to prevent.
-
-    Composite actions are matched by their canonical filenames only (`action.yml`
-    /`action.yaml` — the two names Actions resolves), not by every `*.yml` under
-    the directory, so an unrelated helper YAML there is not treated as shell."""
-    out = []
-    for name in ("*.yml", "*.yaml"):
-        out += glob(str(WORKFLOW_DIR / name))
-    for name in ("action.yml", "action.yaml"):
-        out += glob(str(ACTION_DIR / "**" / name), recursive=True)
-    return sorted(out)
+    Delegates to the shared `workflow_and_action_files()`, which carries the two
+    enumeration gaps this guard originally found — `*.yaml` workflows, and
+    `.github/actions/**/action.yml` composite steps (a live
+    `${{ github.event.pull_request.title }}` planted in one left this guard
+    green, the exact CICD-SEC-4 RCE it exists to prevent). Kept as a named
+    indirection because the canary and mutation tests below assert on THIS
+    guard's file set."""
+    return workflow_and_action_files()
 
 
 class TestNoInjectionSurface(unittest.TestCase):
@@ -408,18 +398,18 @@ class TestNoInjectionSurface(unittest.TestCase):
         found = _scanned_files()
         self.assertTrue(
             found,
-            f"No workflow files found under {WORKFLOW_DIR} — path assumption broke",
+            f"No workflow files found under {_ci_guard_util.WORKFLOW_DIR} — path assumption broke",
         )
         # Per-file-set canaries: a broken ACTION_DIR path (or a workflows-only
         # regression) would otherwise be masked by the other set still matching,
         # and the whole composite-action scan would go vacuously green.
         self.assertTrue(
             [p for p in found if "/workflows/" in p],
-            f"No files matched under {WORKFLOW_DIR} — path assumption broke",
+            f"No files matched under {_ci_guard_util.WORKFLOW_DIR} — path assumption broke",
         )
         self.assertTrue(
             [p for p in found if "/actions/" in p],
-            f"No composite `action.yml` matched under {ACTION_DIR}. This repo has "
+            f"No composite `action.yml` matched under {_ci_guard_util.ACTION_DIR}. This repo has "
             "two; if they were intentionally removed, delete this canary in the "
             "same commit rather than leaving the scan silently empty.",
         )
@@ -1009,8 +999,13 @@ class TestInjectionDetectorMutation(unittest.TestCase):
         # BEHAVIOURALLY (redirect the scanned dirs at a fixture), not by reading
         # this file's own source — a source-text assertion is the inert shape
         # `test_ci_guard_assertion_scoping.py` exists to reject.
-        global WORKFLOW_DIR, ACTION_DIR
-        original_wf, original_act = WORKFLOW_DIR, ACTION_DIR
+        #
+        # The dirs are patched on `_ci_guard_util`, which is where the shared
+        # enumeration actually reads them. Patching a local copy would have gone
+        # green against a helper that never saw the fixture — so this now covers
+        # the enumeration EVERY guard uses, not one guard's private glob.
+        original_wf = _ci_guard_util.WORKFLOW_DIR
+        original_act = _ci_guard_util.ACTION_DIR
         with tempfile.TemporaryDirectory() as tmp:
             wf = Path(tmp, "workflows")
             wf.mkdir()
@@ -1027,10 +1022,12 @@ class TestInjectionDetectorMutation(unittest.TestCase):
             # `action.yml`/`action.yaml`, so a helper YAML here is not shell.
             Path(act, "c", "helper.yml").write_text("x: 1\n", encoding="utf-8")
             try:
-                WORKFLOW_DIR, ACTION_DIR = wf, act
+                _ci_guard_util.WORKFLOW_DIR = wf
+                _ci_guard_util.ACTION_DIR = act
                 found = sorted(Path(p).name for p in _scanned_files())
             finally:
-                WORKFLOW_DIR, ACTION_DIR = original_wf, original_act
+                _ci_guard_util.WORKFLOW_DIR = original_wf
+                _ci_guard_util.ACTION_DIR = original_act
         self.assertEqual(
             found,
             ["a.yml", "action.yaml", "action.yml", "b.yaml"],
