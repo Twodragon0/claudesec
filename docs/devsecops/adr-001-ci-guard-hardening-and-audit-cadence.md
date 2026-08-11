@@ -175,7 +175,7 @@ single author pass misses.
 ### On citing this ADR
 
 Cite decisions by **title**, not only by number, and **never renumber** this list:
-62 references to `ADR-001 §N` exist across `scanner/`, `docs/` and `.claude/`, so an
+67 references to `ADR-001 §N` exist across `scanner/`, `docs/` and `.claude/`, so an
 inserted item silently re-points all of them. This decision is appended as §9 for
 that reason rather than filed next to Decision 2 where it belongs topically.
 
@@ -193,6 +193,15 @@ touched; a blanket rewrite would have broken those two.
 inserting or renumbering fails the build with a message pointing here. Appending is
 a one-line guard update — deliberately, so it is a review moment rather than a
 silent re-pointing of 60-odd citations.
+
+**Still open, measured but not touched:** `§2` and `§3` citations show signs of the
+same class. Some `ADR-001 §2` references quote *"strip, THEN match"*, which is §1;
+several others ("§2 adversarial pass", "§2 review chain", "§2 5th-pass finding")
+read like §3's two-pass rule; and `ADR-001 §3 inert-assertion class` describes §2.
+That is 22 more citations needing the same per-site classification by quoted text,
+which is its own review rather than a tail-end of this one. Until then, read those
+by their quoted text — the numbering guard only stops NEW drift, it cannot detect a
+citation that points at a real decision it does not mean.
 
 ## Consequences
 

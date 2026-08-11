@@ -1,5 +1,5 @@
 """
-Guard: ADR-001's Decision numbers are STABLE, because 63 places cite them.
+Guard: ADR-001's Decision numbers are STABLE, because 67 places cite them.
 
 WHY THIS IS A CI INVARIANT AND NOT A STYLE PREFERENCE
 -----------------------------------------------------
@@ -149,7 +149,7 @@ class TestAdrDecisionNumbering(unittest.TestCase):
         self.assertEqual(
             wrong,
             {},
-            "an ADR-001 Decision number now denotes a DIFFERENT rule. 63 places "
+            "an ADR-001 Decision number now denotes a DIFFERENT rule. 67 places "
             "cite these numbers, so inserting or reordering an item silently "
             "re-points all of them (this is how 23 citations came to say §4 when "
             "they meant §5). APPEND instead, and add the new number here in the "
