@@ -518,7 +518,11 @@ class TestGraphViolationDetector(unittest.TestCase):
         Calls the REAL function with substituted text — not a parallel copy — so
         every mutation below exercises the code that actually guards the repo."""
         texts = workflow_texts()
-        self.assertNotEqual(mutant, texts[fname], "mutation did not apply — the test is vacuous")
+        if mutant == texts[fname]:
+            raise AssertionError(
+                "mutation did not apply — the test is vacuous (see "
+                "_ci_guard_util.apply_mutation for why this check exists)"
+            )
         texts[fname] = mutant
         return graph_violations(texts)
 

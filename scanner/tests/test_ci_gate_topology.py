@@ -28,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
+    apply_mutation,
     explicit_key_lines,
     job_block,
     job_needs,
@@ -371,9 +372,8 @@ class TestKeyQuotingAndEnumerationMutation(unittest.TestCase):
         for fname in ("lint.yml", "security-scan.yml"):
             with self.subTest(workflow=fname):
                 mutated = dict(texts)
-                mutated[fname] = texts[fname].replace("jobs:\n", "jobs:\n" + rogue, 1)
-                self.assertNotEqual(
-                    mutated[fname], texts[fname], "mutation did not apply"
+                mutated[fname] = apply_mutation(
+                    texts[fname], "jobs:\n", "jobs:\n" + rogue
                 )
                 aggregators, _ = required_aggregators(mutated)
                 gate = aggregators[fname]

@@ -50,7 +50,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import job_block, top_level_jobs  # noqa: E402
+from _ci_guard_util import apply_mutation, job_block, top_level_jobs  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -120,9 +120,7 @@ class TestRequiredJobsDetectorMutation(unittest.TestCase):
         self.assertIsNotNone(
             block, f"could not isolate the `{job}` job block in the real lint.yml"
         )
-        mutated = self.text.replace(block, "", 1)
-        self.assertNotEqual(mutated, self.text, f"deleting `{job}` changed nothing")
-        return mutated
+        return apply_mutation(self.text, block, "")
 
     def test_each_required_job_is_individually_detected(self):
         # One job at a time: deleting `gitleaks` must report `gitleaks` and
@@ -148,16 +146,14 @@ class TestRequiredJobsDetectorMutation(unittest.TestCase):
         # matcher would report the job missing and send someone chasing a
         # control that is actually there — the false-alarm twin of the quoted-key
         # blindness that hit eight guards in #391/#393/#394.
-        mutated = self.text.replace("\n  gitleaks:\n", '\n  "gitleaks":\n', 1)
-        self.assertNotEqual(mutated, self.text, "quoted-key fixture did not apply")
+        mutated = apply_mutation(self.text, "\n  gitleaks:\n", '\n  "gitleaks":\n')
         self.assertEqual(missing_required_jobs(mutated), set())
 
     def test_fires_on_a_job_demoted_to_a_comment(self):
         # Commenting a job out disables it exactly as deleting it does, and the
         # substring `gitleaks:` still appears in the file — so a raw-text
         # presence check would read green here.
-        mutated = self.text.replace("\n  gitleaks:\n", "\n  # gitleaks:\n", 1)
-        self.assertNotEqual(mutated, self.text, "comment fixture did not apply")
+        mutated = apply_mutation(self.text, "\n  gitleaks:\n", "\n  # gitleaks:\n")
         self.assertEqual(missing_required_jobs(mutated), {"gitleaks"})
 
 

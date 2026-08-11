@@ -50,7 +50,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import join_continuations, strip_comment_lines  # noqa: E402
+from _ci_guard_util import apply_mutation, join_continuations, strip_comment_lines  # noqa: E402
 
 
 # (relpath, [required escaper-usage substrings], [forbidden raw-interp substrings])
@@ -139,8 +139,7 @@ class TestNoRawOutputInterpolation(unittest.TestCase):
         """Removing a required escaper usage must be reported as a violation."""
         relpath, required, forbidden = SINKS[0]
         source = _normalized_source(relpath)
-        mutated = source.replace(required[0], "", 1)
-        self.assertNotEqual(mutated, source, "mutation pattern not present in source")
+        mutated = apply_mutation(source, required[0], "")
         self.assertTrue(
             _violations(mutated, required, forbidden),
             "guard failed to detect a removed escaper usage",

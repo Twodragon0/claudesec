@@ -45,6 +45,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
+    apply_mutation,
     extract_on_block,
     job_block,
     job_needs,
@@ -212,10 +213,9 @@ class TestGateBlockBoundaryMutation(unittest.TestCase):
         # used to yield an EMPTY block, which fails every positive assertion at
         # once — a false alarm rather than a bypass, but still a guard broken by
         # an ordinary authoring style.
-        mutant = self.real.replace(
-            "  security-scan-gate:\n", '  "security-scan-gate":\n', 1
+        mutant = apply_mutation(
+            self.real, "  security-scan-gate:\n", '  "security-scan-gate":\n'
         )
-        self.assertNotEqual(mutant, self.real, "fixture did not apply")
         self.assertEqual(
             gate_needs_from(mutant),
             GATE_REQUIRED_NEEDS,

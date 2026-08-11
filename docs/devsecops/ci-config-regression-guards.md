@@ -781,6 +781,71 @@ being on its list:
   for". Rationale lives in
   [the retrospective](../reports/runner-key-audit-retrospective.md).
 
+### Redirect-surface survey 2026-08-10 (post-#412)
+
+PR #412 closed the REDIRECT class inside the required graph. This survey asked
+where else those keys can reach, and found the exposure is nil — but found a
+different, larger gap on the way.
+
+**Redirect keys outside the required graph: none.** The only `working-directory`/
+`shell`/`defaults` sites repo-wide are `shell: bash` in the two composite
+actions, which GitHub *requires* on a composite `run:` step. `lint.yml` has a
+line that greps as `shell:` — it is an **output name** under `outputs:`, not a
+step key, and the column-derived matcher correctly ignores it (a naive
+`grep shell:` would have raised it as a finding).
+
+**The composite actions are not called by this repo at all.** No `uses: ./`
+appears anywhere under `.github/workflows/`. They are called from
+`templates/prowler.yml` and `templates/security-scan-suite.yml`, which ship to
+OTHER repositories. A docstring in `_ci_guard_util.workflow_and_action_files`
+asserted the opposite ("required workflows call them") and is corrected.
+
+**The real finding: `templates/` was scanned by nobody.** `scripts/setup.sh`
+copies `templates/codeql.yml` and `templates/dependency-review.yml` straight
+into a target repo's `.github/workflows/`, and both composite actions alongside
+them. So an injection there executes in someone else's repo with their token —
+strictly higher blast radius than this repo's own CI — and
+`workflow_and_action_files()` returned 18 files, none under `templates/`.
+
+`test_ci_injection_surface.py` now scans all 13 templates. Baseline is clean
+(zero untrusted-context interpolations, zero unscannable shapes), so it is a
+pure ratchet, with a canary and a mutation test that plants a live
+`${{ github.event.issue.title }}` in the real `templates/codeql.yml`.
+
+**Deliberately NOT changed — a product decision, not a guard's to make.** The
+templates carry ~30 tag-pinned `uses:` refs (`@v3`, `@v4`) while this repo
+enforces 40-hex SHA pins on its own workflows. That is why the template glob was
+added to *this guard* rather than to the shared `workflow_and_action_files()`:
+widening the shared enumerator would have enrolled the templates in
+`test_ci_gate_topology.test_every_uses_is_sha_pinned` and failed the build on a
+question nobody has decided. Injection is not a policy question and is closed
+now; whether a shipped *example* should carry SHA pins (and who then keeps them
+fresh in the user's repo) is left open and visible.
+
+### Mutation-fixture helpers (2026-08-10)
+
+`apply_mutation` and `assert_disables` in `_ci_guard_util`. Added because FIVE
+probes in one audit failed the same way — the fixture did not change the thing
+it claimed to — and each nearly produced a "fix" to a guard that was correct:
+
+1. a `case` arm moved just BEFORE the `*)` catch-all — still reachable;
+2. a section HEADER edited instead of the entry beneath it;
+3. a `job_block` case written only for end-of-file, where the discriminating
+   shape is a following top-level key;
+4. `if: always()` deleted from a gate whose explanatory COMMENTS quote it
+   verbatim — this repo's own comment-evasion class, biting the fixture rather
+   than the guard;
+5. text injected onto a TestCase class that `setUpClass` then overwrote from
+   disk, so the assertion ran against the unmutated real file.
+
+`apply_mutation` closes 2 and 5 mechanically: the substring must be present, and
+the result must differ, or it raises at the point of the mistake. **1, 3 and 4
+are semantic** — whether the edit disables the CONTROL, not whether it changed
+bytes — and no helper decides that; the docstring says so rather than implying
+coverage it does not have. Migrated the six literal-`replace` fixtures;
+`re.sub`-based ones in `test_ci_security_gate_behaviour.py` are left alone
+rather than forced into a substring API.
+
 ### Verified already-guarded during this review (not backlog)
 
 > **Re-checked 2026-08-10. One entry had gone false, and the section's shape is
