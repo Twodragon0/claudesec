@@ -161,6 +161,34 @@ MERGE_METHOD=squash ADMIN_MERGE=0 ./scripts/gh-merge-ready-pr.sh <PR_NUMBER>
 - The helper waits for `gh pr checks` to go green first, then retries merge when GitHub still reports checks as `expected`.
 - If it times out, inspect repository rulesets and branch protection directly in GitHub UI.
 
+## Stuck check-runs (workflow concluded, check still `in_progress`)
+
+A distinct failure from slowness: the workflow **run** reports `completed success`
+while one or more of its **check-runs** never conclude, so branch protection keeps
+the PR `BLOCKED` with nothing left to run. Observed 2026-08-11 on PR #424 — the
+`Lint` run was `completed success` while `Lint` and `Docker Dashboard Smoke Test`
+sat `in_progress` for 25–30 minutes with every step completed. Nothing had failed,
+so the "re-run a failed workflow up to twice" rule did not apply, and
+`gh pr checks` was indistinguishable from an ordinary long build.
+
+```bash
+# report only (safe; classifies pending / external / stuck)
+python3 scripts/gh_rerun_stuck_checks.py <PR_NUMBER>
+
+# re-run the owning workflow(s) once you have read the report
+python3 scripts/gh_rerun_stuck_checks.py <PR_NUMBER> --rerun
+```
+
+A check is called STUCK only when all three hold — the check-run is not
+`completed`, its workflow run **is**, and it has been running longer than
+`--stuck-minutes` (default 20). Each condition alone is normal, so the conjunction
+is what keeps a healthy job from being re-run; a re-run costs minutes and resets
+the evidence a reviewer just read. External app checks (GitGuardian and friends)
+have no workflow run behind them: they are reported and never re-run.
+
+Re-running issues fresh check-runs, which is what clears the stall — the run's own
+result was already correct.
+
 ## References
 
 - GitHub Actions security hardening: [https://docs.github.com/en/actions/reference/security/secure-use](https://docs.github.com/en/actions/reference/security/secure-use)

@@ -30,6 +30,7 @@ Automation scripts for scan execution, dashboard building, asset collection, and
 | `legalize-search.sh` | bash | Search Korean law Markdown and inspect law history from local mirror |
 | `run-github-repo-mcp.sh` | bash | Launch local GitHub Repo MCP build with `npx` fallback |
 | `gh-merge-ready-pr.sh` | bash | Wait for GitHub checks and mergeability propagation, then merge a PR with retries |
+| `gh_rerun_stuck_checks.py` | Python | Detect check-runs stuck `in_progress` after their workflow run CONCLUDED, and re-run the owning workflow (`--rerun`); reports only by default |
 | `quick-start.sh` | bash | Docker-first onboarding |
 | `lint-shell.sh` | bash | ShellCheck wrapper (local + CI) |
 | `gsheet-auth.py` | Python | Google Sheets OAuth helper |
