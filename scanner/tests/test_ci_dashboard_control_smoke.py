@@ -294,6 +294,78 @@ class TestPathGateActuallyFires(unittest.TestCase):
                 )
 
 
+class TestCommentCannotHideAStepCap(unittest.TestCase):
+    """`harness_step_block` is comment-BLIND; the immunity lives in its CALLER.
+
+    The 2026-08-11 block-truncation sweep (#419) fixed five collectors that ended a
+    block at a `#` line, because YAML does not — a mapping entry after a comment is
+    still in the mapping. This collector has the same shape and was left alone with
+    the verdict "no observable effect", which was not good enough: it turned out to
+    be IMMUNE, but for a reason nothing pinned.
+
+    `setUpClass` builds `cls.text` with `strip_comment_lines(cls.raw)`, so comments
+    are gone before any block is collected. Measured both ways on the real
+    workflow, with a dash-column comment planted above the first harness step's
+    `timeout-minutes`:
+
+        harness_step_block(RAW,      invocation)  -> None      <- collector truncates
+        harness_step_block(STRIPPED, invocation)  -> the step, cap intact
+
+    So a reader auditing the collector alone sees a bug, and a reader auditing the
+    guard sees none. Both are half right, and the half that keeps the guard correct
+    is one line in `setUpClass` that nothing asserted. If `cls.text` is ever wired
+    to `cls.raw` — the obvious "simplification" — the per-step cap assertion starts
+    reporting "step parsing broke" on any workflow whose author regrouped keys with
+    a comment, and the fix would look like deleting the assertion.
+
+    This pins the CALLER's contract rather than the collector's internals, so
+    hardening the collector later (harmless, just redundant) does not invalidate
+    it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.raw = WORKFLOW.read_text(encoding="utf-8") if WORKFLOW.is_file() else ""
+
+    def _with_dash_column_comment(self):
+        """The real workflow with a `# regrouped` line at the dash column of the
+        first harness step, immediately above its `timeout-minutes`."""
+        lines = self.raw.splitlines(keepends=True)
+        cap = next(
+            (j for j, ln in enumerate(lines) if re.match(r"^ {8}timeout-minutes:", ln)),
+            None,
+        )
+        self.assertIsNotNone(cap, "no step-level `timeout-minutes:` found — fixture stale")
+        step = max(
+            k for k in range(cap) if re.match(r"^\s*-\s+(?:name|uses):", lines[k])
+        )
+        dash = len(lines[step]) - len(lines[step].lstrip())
+        return "".join(lines[:cap] + [" " * dash + "# regrouped\n"] + lines[cap:]), dash
+
+    def test_the_guard_still_sees_the_cap_through_a_comment(self):
+        mutant, _ = self._with_dash_column_comment()
+        self.assertNotEqual(mutant, self.raw, "mutation did not apply — vacuous")
+        step = harness_step_block(strip_comment_lines(mutant), HARNESS_INVOCATIONS[0])
+        self.assertIsNotNone(
+            step,
+            "a comment at the step's dash column hid the harness step from the "
+            "per-step cap assertion. The strip in `setUpClass` is what prevents "
+            "this — do not wire the assertions to the raw text.",
+        )
+        self.assertRegex(step, r"timeout-minutes:\s*\d+")
+
+    def test_the_collector_alone_is_comment_blind(self):
+        # The other half, pinned so the docstring above cannot go stale: fed RAW
+        # text the collector DOES truncate. This is why the strip is load-bearing
+        # and not incidental tidiness.
+        mutant, _ = self._with_dash_column_comment()
+        self.assertIsNone(
+            harness_step_block(mutant, HARNESS_INVOCATIONS[0]),
+            "the collector no longer truncates at a comment — if it was hardened "
+            "deliberately, say so here; the strip in setUpClass is still required "
+            "by the other assertions in this file",
+        )
+
+
 class TestHarnessStepScoping(unittest.TestCase):
     """Mutation self-tests for `harness_step_block`.
 
