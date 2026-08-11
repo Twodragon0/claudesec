@@ -126,6 +126,44 @@ def workflow_and_action_files() -> list:
     return sorted(out)
 
 
+# `uses:` bare OR quoted, with an optionally QUOTED VALUE.
+_USES_LINE_RE = re.compile(
+    rf"""^\s*-?\s*{yaml_key_pattern('uses')}\s*:\s*['"]?(?P<ref>[^\s#'"]+)"""
+)
+
+
+def uses_refs(text: str) -> list:
+    """`(lineno, ref)` for every `uses:` value in `text`, comment-immune.
+
+    Canonical home for the action-ref matcher, which has now been fixed in three
+    directions and must not exist twice:
+
+    - the KEY may be quoted (`- "uses": …`) — the 2026-08-06 sweep, #391/#393;
+    - there may be whitespace before the colon (`uses : …`), the shape pinned in
+      `test_ci_security_gate_behaviour`;
+    - the VALUE may be quoted (`uses: "actions/checkout@main"`) — found
+      2026-08-11 while deciding the template pin policy, and it was live. The
+      previous matcher's value class excluded `'` and `"` with no leading-quote
+      allowance, so a quoted scalar produced NO MATCH AT ALL and the ref was not
+      merely unpinned but invisible. Measured on the real `lint.yml`: replacing
+      the `actions/checkout` SHA with `uses: "actions/checkout@main"` — a mutable
+      BRANCH ref in a required workflow — left `test_ci_gate_topology.py` at
+      **15 passed**. An absence reads exactly like compliance, which is why the
+      matcher lives here now instead of in two guards.
+
+    Whole-line `#` comments are skipped and a trailing comment stripped, so a ref
+    quoted in prose is not mistaken for an executed step. Returns the ref
+    verbatim; callers decide what is pinnable (`./`, `docker://`)."""
+    out = []
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        if raw.lstrip().startswith("#"):
+            continue
+        m = _USES_LINE_RE.match(strip_inline_comment(raw))
+        if m:
+            out.append((lineno, m.group("ref")))
+    return out
+
+
 def non_comment_lines(text: str) -> list:
     """The lines of `text` with whole-line `#` comments dropped."""
     return [line for line in text.splitlines() if not line.lstrip().startswith("#")]

@@ -1,6 +1,13 @@
 # .github/workflows/security-scan-suite.yml
 # ClaudeSec template — popular GitHub security scanners (SARIF → Security > Code scanning)
 #
+# EXAMPLE workflow — NOT installed by scripts/setup.sh; copy it deliberately.
+# The `uses:` refs below are tag-pinned for readability and because ClaudeSec
+# does not run these actions itself, so it has no Dependabot signal to keep a
+# SHA fresh here — a stale pin shipped as advice is worse than a visible tag.
+# Pin each to a 40-hex commit SHA when you adopt it (OWASP CICD-SEC-3): a tag
+# is mutable and can be repointed at attacker code.
+#
 # Tools:
 # - CodeQL (SAST)
 # - Semgrep CE (SAST)

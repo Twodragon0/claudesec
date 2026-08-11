@@ -1,5 +1,11 @@
 # .github/workflows/codeql.yml
-# ClaudeSec template — copy to your project's .github/workflows/
+# ClaudeSec template — INSTALLED workflow. `scripts/setup.sh` copies this file
+# straight into your .github/workflows/, so every `uses:` below is pinned to a
+# 40-hex commit SHA (OWASP CICD-SEC-3; GitHub hardening guidance). Each pin
+# matches the SHA this repo's own workflows run, and
+# `scanner/tests/test_ci_template_pin_policy.py` fails the build if they drift —
+# so ClaudeSec's Dependabot keeps them fresh, and yours keeps them fresh after
+# install (templates/dependabot.yml enables the github-actions ecosystem).
 
 name: "CodeQL Analysis"
 
@@ -33,18 +39,18 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
         with:
           languages: ${{ matrix.language }}
           queries: +security-extended,security-and-quality
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
 
       - name: Perform Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
         with:
           category: "/language:${{ matrix.language }}"

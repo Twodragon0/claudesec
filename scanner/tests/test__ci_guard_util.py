@@ -63,6 +63,7 @@ from _ci_guard_util import (  # noqa: E402
     strip_inline_comment,
     strip_inline_comment_sh,
     top_level_jobs,
+    uses_refs,
     workflow_and_action_files,
     yaml_key_pattern,
 )
@@ -652,6 +653,51 @@ class TestWorkflowAndActionFiles(unittest.TestCase):
         found = workflow_and_action_files()
         self.assertTrue([p for p in found if "/workflows/" in p])
         self.assertTrue([p for p in found if "/actions/" in p])
+
+
+class TestUsesRefs(unittest.TestCase):
+    """The action-ref matcher, fixed in three directions and now single-sourced.
+    Each case below is a spelling that hid a ref from the SHA-pin scan."""
+
+    def test_bare_key_and_value(self):
+        self.assertEqual(
+            uses_refs("      - uses: actions/checkout@v4"), [(1, "actions/checkout@v4")]
+        )
+
+    def test_quoted_key(self):
+        # 2026-08-06 sweep (#391/#393/#394).
+        self.assertEqual(
+            uses_refs('      - "uses": a/b@main'), [(1, "a/b@main")]
+        )
+        self.assertEqual(uses_refs("      - 'uses': a/b@main"), [(1, "a/b@main")])
+
+    def test_quoted_value(self):
+        # 2026-08-11: the value class excluded the quote characters with no
+        # leading-quote allowance, so this matched NOTHING — the ref was invisible,
+        # not merely unpinned, and an unmatched line reads like a compliant one.
+        self.assertEqual(uses_refs('      - uses: "a/b@main"'), [(1, "a/b@main")])
+        self.assertEqual(uses_refs("      - uses: 'a/b@v4'"), [(1, "a/b@v4")])
+
+    def test_space_before_colon(self):
+        self.assertEqual(uses_refs("      - uses : a/b@v4"), [(1, "a/b@v4")])
+
+    def test_trailing_comment_is_stripped(self):
+        self.assertEqual(
+            uses_refs("      - uses: a/b@" + "0" * 40 + "  # v1.2.3"),
+            [(1, "a/b@" + "0" * 40)],
+        )
+
+    def test_whole_line_comment_is_not_a_ref(self):
+        # A ref quoted in prose is documentation, not an executed step.
+        self.assertEqual(uses_refs("      # - uses: a/b@main"), [])
+
+    def test_does_not_widen_to_other_keys(self):
+        self.assertEqual(uses_refs("      - name: uses something"), [])
+        self.assertEqual(uses_refs('        with: {"uses": x}'), [])
+
+    def test_line_numbers_are_one_indexed_and_absolute(self):
+        text = "jobs:\n  j:\n    steps:\n      - uses: a/b@v4\n"
+        self.assertEqual(uses_refs(text), [(4, "a/b@v4")])
 
 
 class TestApplyMutation(unittest.TestCase):

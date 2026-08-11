@@ -1,5 +1,12 @@
 # .github/workflows/scorecard.yml
 # ClaudeSec template — OpenSSF Scorecard for repository security health
+#
+# EXAMPLE workflow — NOT installed by scripts/setup.sh; copy it deliberately.
+# The `uses:` refs below are tag-pinned for readability and because ClaudeSec
+# does not run these actions itself, so it has no Dependabot signal to keep a
+# SHA fresh here — a stale pin shipped as advice is worse than a visible tag.
+# Pin each to a 40-hex commit SHA when you adopt it (OWASP CICD-SEC-3): a tag
+# is mutable and can be repointed at attacker code.
 
 name: OpenSSF Scorecard
 
