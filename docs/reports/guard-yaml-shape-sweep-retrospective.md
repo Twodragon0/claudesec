@@ -40,7 +40,7 @@ no-PyYAML 제약에 묶인 "의도적 비수정".
    ↓ 구현 중
   +1:  다중 행 plain scalar `run:`의 연속 줄이 본문 추출에서 누락
        → 트립와이어로는 안 잡힌다(표현식이 자기 줄에서 닫힘). 감사에 없던 홀.
-   ↓ ADR-001 §2 적대 리뷰
+   ↓ ADR-001 §3 적대 리뷰
   +4:  인용 키 "run": (CRITICAL) / explicit ? run (CRITICAL)
        / *.yml 전용 glob (HIGH) / 주석 오탐 (MEDIUM, 내 첫 커밋이 유발)
   +1:  새로 쓴 sibling-key 테스트가 vacuous
@@ -177,7 +177,7 @@ F4 comment FP          echo hi                                        0     0   
 
 ### 4.2 적대 리뷰는 값을 냈고, 리뷰어 주장은 재검증했다
 
-ADR-001 §2가 의무화한 리뷰 패스가 #391에서 CRITICAL 2건을 찾았다. 동시에 리뷰의
+ADR-001 §3가 의무화한 리뷰 패스가 #391에서 CRITICAL 2건을 찾았다. 동시에 리뷰의
 5번째 주장(내 sibling-key 테스트가 vacuous)은 **범주 오류에 가까웠지만 결과적으로
 옳았다** — 부재 단정은 메타 가드가 면제하는 형태이지만, 연속 줄 수집을 통째로
 삭제해도 통과하는 것은 사실이었다. positive control을 짝지어 양방향을 고정했다.

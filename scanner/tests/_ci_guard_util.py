@@ -217,7 +217,7 @@ def strip_inline_comment_sh(line: str) -> str:
     unescaped `$` opens an escape-aware string (bash reads `\\'` as a literal
     quote there), so `$'\\''` is one string and a trailing `#` is a real comment.
     Missing this was an UNDER-strip (false NEGATIVE) that hid a dead `exit 1` from
-    the Security-Scan-Gate guard (ADR-001 §2 5th-pass finding), NOT the over-strip
+    the Security-Scan-Gate guard (ADR-001 §3 5th-pass finding), NOT the over-strip
     the earlier docstring claimed.
 
     KNOWN LIMITATIONS (all OVER-strip direction — they drop live text, causing a
