@@ -71,6 +71,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     apply_mutation,
+    block_ends_at,
     apply_regex_mutation,
     explicit_key_lines,
     keys_at_column,
@@ -151,7 +152,7 @@ def find_step_blocks(text: str, step_name: str) -> list:
         key_col = len(m.group(1))
         block = [line]
         for nxt in lines[i + 1:]:
-            if nxt.strip() and (len(nxt) - len(nxt.lstrip())) <= dash_col:
+            if block_ends_at(nxt, dash_col):
                 break
             block.append(nxt)
         out.append((key_col, i, "\n".join(block)))
@@ -206,6 +207,10 @@ def extract_run_block(text: str, step_name: str):
         body.append(line)
     if not body:
         return None
+    # NOT `key_column`: this dedents a block SCALAR, where a `#` line is shell
+    # content rather than a comment. Excluding those lines would compute the
+    # wrong indent and corrupt the script. See `block_ends_at` for the
+    # measured parser difference between a mapping and a scalar.
     indent = min((len(l) - len(l.lstrip())) for l in body if l.strip())
     return "\n".join(l[indent:] if l.strip() else "" for l in body).rstrip() + "\n"
 
@@ -244,7 +249,7 @@ def enclosing_job_block(text: str, line_no: int):
         return None
     out = [lines[start]]
     for line in lines[start + 1:]:
-        if line.strip() and (len(line) - len(line.lstrip())) <= 2:
+        if block_ends_at(line, 2):
             break
         out.append(line)
     return "\n".join(out)
@@ -1009,6 +1014,41 @@ class TestWorkflowLevelDisableDetector(unittest.TestCase):
             self._insert_step_key("shell: python"),
             "the suite proves the body under `bash`; a `shell:` override means CI "
             "runs something else entirely",
+        )
+
+    # --- comment truncation of the STEP block ------------------------------
+    def test_a_comment_cannot_truncate_the_step_block(self):
+        """A `#` line at the step's dash column is not a dedent.
+
+        `find_step_blocks` bounded the step by indentation and treated any
+        non-blank line at or left of the dash column as the end — including a
+        comment, which YAML discards before structure. Placed AFTER the `run:`
+        block the step is still found and its body still executes, so the whole
+        behavioural half stays green while a `continue-on-error:` below the
+        comment is invisible. Measured on the real `security-scan.yml`
+        (2026-08-11): PyYAML reported step keys
+        `['continue-on-error', 'name', 'run']` and this file plus the
+        required-graph guard reported **61 passed**.
+
+        Placement is load-bearing: the same comment BEFORE `run:` truncates the
+        body away too, which trips `test_step_is_found` and reads as caught."""
+        lines = self.text.splitlines(keepends=True)
+        i = next(i for i, ln in enumerate(lines) if "- name: " + STEP_NAME in ln)
+        dash = len(lines[i]) - len(lines[i].lstrip())
+        end = next(
+            j for j in range(i + 1, len(lines))
+            if lines[j].strip() and (len(lines[j]) - len(lines[j].lstrip())) <= dash
+        )
+        mutant = "".join(
+            lines[:end]
+            + [" " * dash + "# regrouped\n",
+               " " * (dash + 2) + "continue-on-error: true\n"]
+            + lines[end:]
+        )
+        self._assert_caught(
+            mutant,
+            "a comment at the step's dash column truncated the block, hiding the "
+            "`continue-on-error` below it",
         )
 
     # --- direction: legitimate shapes must NOT trip a false alarm ---------

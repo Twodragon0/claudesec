@@ -53,7 +53,11 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import extract_on_block, strip_comment_lines  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    extract_on_block,
+    strip_comment_lines,
+    yaml_key_pattern,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWEEP_YML = REPO_ROOT / ".github" / "workflows" / "lychee-redirect-sweep.yml"
@@ -76,7 +80,7 @@ def _extract_args_block(text):
     out, indent = [], None
     for line in text.splitlines():
         if indent is None:
-            m = re.match(r"^(\s*)args:\s*>-?\s*$", line)
+            m = re.match(rf"^(\s*){yaml_key_pattern('args')}\s*:\s*>-?\s*$", line)
             if m:
                 indent = len(m.group(1))
             continue

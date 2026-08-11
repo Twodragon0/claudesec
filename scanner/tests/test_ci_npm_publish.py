@@ -46,6 +46,12 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import (  # noqa: E402
+    apply_mutation,
+    apply_regex_mutation,
+    block_ends_at,
+    yaml_key_pattern,
+)
 from _ci_guard_util import strip_inline_comment as _strip_comment  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
@@ -98,11 +104,16 @@ class TestNpmPublishLeastPrivilege(unittest.TestCase):
         # Job-level permissions live under `jobs:` and are NOT captured here.
         out, in_perms = [], False
         for raw in self.text.splitlines():
-            if re.match(r"^permissions:\s*$", raw):
+            if re.match(rf"^{yaml_key_pattern('permissions')}\s*:\s*$", raw):
                 in_perms = True
                 continue
             if in_perms:
-                if re.match(r"^\S", raw):  # dedent to next top-level key
+                # A column-0 COMMENT is not a dedent: PyYAML keeps every entry after
+                # it in the same mapping. Breaking there truncated this block and
+                # hid a live `packages: write` while all 12 tests passed
+                # (measured 2026-08-11) — including the whole-block anchor below,
+                # because the truncated block really was exactly `contents: read`.
+                if block_ends_at(raw, 0):
                     break
                 out.append(raw)
         return "\n".join(out)
@@ -276,6 +287,67 @@ class TestAutoReleaseTriggerScoping(unittest.TestCase):
         scan = self._scan("    branches: [main]")
         self.assertIn("branches:", scan)
         self.assertRegex(scan, self._PATTERN)
+
+
+class TestPermissionsBlockTruncation(unittest.TestCase):
+    """Non-vacuity for the 2026-08-11 fix: a comment line must not truncate the
+    workflow-level `permissions:` block.
+
+    The extractor ended the block at the first line matching `^\\S` — "dedent to
+    the next top-level key" — and a column-0 `#` comment matches that. PyYAML does
+    not: it discards comment lines before structure, so every entry after one is
+    still in the same mapping. Measured on the real `npm-publish.yml`:
+
+        permissions:
+          contents: read
+        # regrouped for readability
+          packages: write
+
+        PyYAML             {'contents': 'read', 'packages': 'write'}
+        this guard         12 passed
+
+    Both least-privilege assertions were defeated at once, including the one whose
+    comment calls it "a structural catch-all for any added key the write-grant scan
+    does not classify" — it is a catch-all only over what the EXTRACTOR returns, and
+    the truncated block really was exactly `contents: read`."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = NPM_PUBLISH.read_text(encoding="utf-8")
+
+    def _block_of(self, text):
+        """The extractor under test, driven with substituted text (nothing is
+        written to `.github/`)."""
+        holder = TestNpmPublishLeastPrivilege("test_top_level_permissions_is_least_privilege")
+        holder.text = text
+        return holder._top_level_permissions_block()
+
+    def test_a_column_zero_comment_does_not_hide_a_write_grant(self):
+        # Regex fixture, not a literal one: the key may legitimately be written
+        # `"permissions":`, and a literal anchor then goes STALE — which reads as a
+        # guard failure while nothing is wrong with the guard (observed while
+        # probing this very sweep). `apply_regex_mutation` reports the miss as a
+        # stale fixture; tolerating the quoting removes the trap entirely.
+        mutant = apply_regex_mutation(
+            self.text,
+            r"(?P<k>[\"']?permissions[\"']?\s*:\n\s*contents:\s*read\n)",
+            r"\g<k># regrouped for readability\n  packages: write\n",
+        )
+        block = self._block_of(mutant)
+        self.assertIn(
+            "packages: write", block,
+            "the comment truncated the permissions block, so a live write grant "
+            f"never reached either assertion. Extracted:\n{block!r}",
+        )
+
+    def test_the_real_block_is_still_bounded_by_the_next_top_level_key(self):
+        # Direction: the fix must not widen the block into `jobs:`. A step-level
+        # `id-token: write` under the publish job is legitimate and must stay
+        # outside this scan, or the guard false-alarms on a correct workflow.
+        block = self._block_of(self.text)
+        self.assertNotIn("jobs:", block)
+        self.assertNotIn("runs-on", block)
+        self.assertRegex(block, r"^\s*contents:\s*read\s*$")
 
 
 class TestWriteGrantScanMutation(unittest.TestCase):
