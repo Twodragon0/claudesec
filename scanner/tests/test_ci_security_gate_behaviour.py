@@ -70,6 +70,8 @@ from pathlib import Path
 # version of this file repeated it with a hardcoded `^\s{8}(?:if|"if"|'if')\s*:`.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
+    apply_mutation,
+    apply_regex_mutation,
     explicit_key_lines,
     keys_at_column,
     strip_inline_comment_sh,
@@ -698,10 +700,15 @@ class TestGateBehaviourDetector(unittest.TestCase):
     _GATE_RE = r'if \[ "\$CRITS" -gt 0 \]; then\n(?:.*\n)*?fi\n'
 
     def _assert_caught(self, mutant, why):
-        # No-op guard on EVERY mutation, not just the first. Without it a
-        # `str.replace` that silently matches nothing asserts on the UNMUTATED
-        # script, which is vacuously green whenever the gate is already dead
-        # (review of #404, F7).
+        # Backstop for the no-op-fixture class (review of #404, F7): a mutation
+        # that silently matched nothing asserts on the UNMUTATED script, which is
+        # vacuously green whenever the gate is already dead. The fixtures below
+        # build their mutants with `apply_mutation` / `apply_regex_mutation`,
+        # which raise AT THE POINT of the stale fixture with the pattern in the
+        # message; this stays because it also covers mutants assembled by other
+        # means — `test_gate_wrapped_in_an_unreachable_branch` appends text after
+        # replacing, so its result differs from the original even when the
+        # replacement misses, and only the helper can see that.
         self.assertNotEqual(
             mutant, self.script, "mutation did not apply — the test is vacuous: " + why
         )
@@ -711,30 +718,47 @@ class TestGateBehaviourDetector(unittest.TestCase):
         )
 
     def test_gate_deleted(self):
-        m = re.sub(self._GATE_RE, 'echo "::notice::$CRITS recorded"\n', self.script)
-        self.assertNotEqual(m, self.script, "mutation did not apply")
+        m = apply_regex_mutation(
+            self.script, self._GATE_RE, 'echo "::notice::$CRITS recorded"\n'
+        )
         self._assert_caught(m, "gate block removed")
 
     def test_gate_replaced_by_a_quoted_decoy(self):
-        m = re.sub(
+        m = apply_regex_mutation(
+            self.script,
             self._GATE_RE,
             """echo 'legacy: if [ "$CRITS" -gt 0 ]; then exit 1; fi'\n""",
-            self.script,
         )
         self._assert_caught(m, "gate replaced by a quoted mention of itself")
 
     def test_gate_wrapped_in_an_unreachable_branch(self):
-        m = self.script.replace(
-            'if [ "$CRITS" -gt 0 ]; then', 'if false; then\nif [ "$CRITS" -gt 0 ]; then'
+        # The one fixture here whose own result cannot prove it applied: the
+        # trailing `fi` makes the mutant differ from the original even if the
+        # replacement missed, so `_assert_caught`'s no-op guard is blind to it and
+        # a stale anchor would surface as a bash syntax error three asserts later.
+        # `apply_mutation` is what makes the miss legible.
+        m = apply_mutation(
+            self.script,
+            'if [ "$CRITS" -gt 0 ]; then',
+            'if false; then\nif [ "$CRITS" -gt 0 ]; then',
         ).rstrip() + "\nfi\n"
         self._assert_caught(m, "gate wrapped in `if false; then … fi`")
 
     def test_gate_bound_moved_out_of_reach(self):
-        m = self.script.replace('-gt 0 ]; then', '-gt 999999 ]; then')
-        self._assert_caught(m, "threshold raised beyond any real finding count")
+        # Anchored on `$CRITS` rather than the bare `-gt 0 ]; then`, which occurs
+        # TWICE (the `$HIGHS` warning branch too). The old fixture replaced both
+        # and read as if it had targeted the gate; raising the HIGHS threshold is
+        # not what this case is about, and an un-counted literal that matches two
+        # regions is the ambiguity `apply_regex_mutation` refuses outright.
+        m = apply_mutation(
+            self.script, 'if [ "$CRITS" -gt 0 ]; then', 'if [ "$CRITS" -gt 999999 ]; then'
+        )
+        self._assert_caught(m, "gate threshold raised beyond any real finding count")
 
     def test_exit_moved_into_a_dead_case_arm(self):
-        m = self.script.replace("  exit 1\n", '  case "${MODE:-run}" in never) exit 1 ;; esac\n')
+        m = apply_mutation(
+            self.script, "  exit 1\n", '  case "${MODE:-run}" in never) exit 1 ;; esac\n'
+        )
         self._assert_caught(m, "`exit 1` moved into an unreachable case arm")
 
     def test_escalating_high_to_a_merge_block_is_caught(self):
@@ -744,12 +768,10 @@ class TestGateBehaviourDetector(unittest.TestCase):
         MORE aggressive, not less. Without this the HIGH test would pass on a
         gate that had been quietly rewritten to block on HIGH, since it never
         proves the assertion can fail."""
-        m = self.script.replace(
+        m = apply_mutation(
+            self.script,
             'echo "::warning::$HIGHS high finding(s) detected"',
             'echo "::warning::$HIGHS high finding(s) detected"\n  exit 1',
-        )
-        self.assertNotEqual(
-            m, self.script, "mutation did not apply — the test is vacuous"
         )
         self.assertNotEqual(
             run_gate(m, _HIGH_FIXTURE).returncode,
@@ -795,22 +817,28 @@ class TestEmitterLinkageDetector(unittest.TestCase):
     # --- X9: the gate's pattern narrowed to a FIXTURE-only token -----------
     def test_gate_pattern_narrowed_to_a_fixture_only_token_is_caught(self):
         # `SEC-001` exists only in _CRITICAL_FIXTURE; the scanner never prints it.
-        m = re.sub(r"(CRITS=\$\(grep -ci ')[^']*(')", r"\1SEC-001\2", self.script)
+        m = apply_regex_mutation(
+            self.script, r"(CRITS=\$\(grep -ci ')[^']*(')", r"\1SEC-001\2"
+        )
         self._assert_caught(m, self.emitter, "gate narrowed to a token only the fixture contains")
 
     # --- X10: the shape survives only in a trailing COMMENT ----------------
     def test_emitter_shape_surviving_only_in_a_comment_is_caught(self):
-        m = self.emitter.replace(
-            '${color}✗ FAIL${NC}', '${color}NG${NC}', 1
-        ).replace(
+        # Two edits, each checked: `_assert_caught` below only asks whether the
+        # PAIR (script, emitter) changed, so a chained `.replace` where the first
+        # link missed and the second landed passed its vacuity check while
+        # testing something else entirely.
+        m = apply_mutation(self.emitter, '${color}✗ FAIL${NC}', '${color}NG${NC}')
+        m = apply_mutation(
+            m,
             '$title ${DIM}(${severity})${NC}"',
-            '$title ${DIM}(${severity})${NC}"   # was: ✗ FAIL', 1,
+            '$title ${DIM}(${severity})${NC}"   # was: ✗ FAIL',
         )
         self._assert_caught(self.script, m, "the `✗ FAIL` shape lives only in an inline comment")
 
     # --- F6, for real this time: the glyph is dropped ----------------------
     def test_emitter_dropping_the_glyph_is_caught(self):
-        m = self.emitter.replace('✗ FAIL', 'FAILED', 1)
+        m = apply_mutation(self.emitter, '✗ FAIL', 'FAILED')
         self._assert_caught(self.script, m, "the emitter dropped the `✗` the gate's pattern relies on")
 
 
@@ -964,10 +992,10 @@ class TestWorkflowLevelDisableDetector(unittest.TestCase):
 
     # --- X4: JOB-level continue-on-error ----------------------------------
     def test_job_level_continue_on_error_is_caught(self):
-        mutant = self.text.replace(
+        mutant = apply_mutation(
+            self.text,
             "  scan:\n    name: Run Security Scan\n",
             "  scan:\n    continue-on-error: true\n    name: Run Security Scan\n",
-            1,
         )
         self._assert_caught(
             mutant,
