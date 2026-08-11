@@ -405,8 +405,14 @@ def _scanned_files():
     which they would fail on ~30 tag-pinned `uses:` refs. Whether a shipped
     example should carry 40-hex SHA pins is a PRODUCT decision with a real
     maintenance cost, not something a scanning guard gets to settle as a side
-    effect. Injection is not a policy question, so it is closed now and the pin
-    question is left open and visible.
+    effect. Injection is not a policy question, so it was closed first.
+
+    The pin question was DECIDED on 2026-08-11 and is codified in
+    `test_ci_template_pin_policy.py`: the templates `setup.sh` installs are
+    SHA-pinned (mirroring this repo's refs, so Dependabot keeps them fresh), the
+    example-only ones stay tag-pinned and say so. The split is why this scoping
+    stands rather than being folded into the shared enumerator — the two halves
+    have different pin rules, and only the injection rule applies to both.
 
     Baseline when added: zero injection hits, zero unscannable shapes across all
     13 templates — a pure ratchet."""
