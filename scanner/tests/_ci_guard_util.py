@@ -429,6 +429,94 @@ def keys_at_column(block: str, col: int) -> list:
     return out
 
 
+def key_column(block: str):
+    """The column of `block`'s own mapping keys, or None for an empty body.
+
+    The minimum indent over the body, ignoring blank AND COMMENT lines. A comment
+    is not a mapping key, and one indented shallower than the real keys drags this
+    minimum to itself — re-pointing every column-anchored matcher at a level that
+    does not exist. Measured on the real `security-scan.yml`: a three-space
+    `# regrouped` inside the `scan` job makes `_steps_of` derive `job_col = 3`, so
+    its `^ {3}steps:` matches nothing and it returns NO STEPS.
+
+    Direction, stated precisely because the first draft of this docstring got it
+    wrong: that is a FALSE ALARM, not a bypass. On `main` the same mutation
+    produced `7 failed` — the guard's own mutation self-tests broke, because a
+    detector that sees no steps cannot report the violation they plant. So this
+    fixes a guard that an ordinary authoring style breaks (with a message about
+    "not caught" rather than about indentation), which #414 established is worth
+    fixing on its own: a guard people have to fight gets weakened, not repaired.
+
+    It is also load-bearing for `block_ends_at`. Once comments no longer end a
+    block they are INSIDE it, so every `min(indent)` derivation would inherit the
+    hazard at four call sites at once — which is why this is a shared primitive.
+
+    Body only: the block's own header line is excluded, since it sits one level
+    out by construction."""
+    body = [
+        ln for ln in block.splitlines()[1:]
+        if ln.strip() and not ln.lstrip().startswith("#")
+    ]
+    if not body:
+        return None
+    return min(len(ln) - len(ln.lstrip()) for ln in body)
+
+
+def block_ends_at(line: str, col: int) -> bool:
+    """Whether `line` ENDS a mapping/sequence block whose body is indented past
+    `col`.
+
+    Blank lines and `#` COMMENT lines end nothing: YAML discards both before
+    structure, so a mapping entry after them is still part of the same mapping.
+    Every block collector in this repo guarded the blank case and NONE guarded the
+    comment case, which was a live three-way bypass measured on 2026-08-11 — one
+    comment line at the right column truncated the extracted block and every key
+    after it became invisible:
+
+        npm-publish.yml, a column-0 comment under `permissions:`
+          PyYAML: {'contents': 'read', 'packages': 'write'}   <- write grant LIVE
+          test_ci_npm_publish.py                              12 passed
+
+        security-scan.yml, a comment at the gate STEP's dash column
+          PyYAML: step keys ['continue-on-error', 'name', 'run']
+          behaviour + required-graph                           61 passed
+
+        security-scan.yml, a comment at the `scan` JOB's key column
+          PyYAML: jobs.scan.continue-on-error = True
+          behaviour + required-graph                           61 passed
+
+    PLACEMENT DECIDES THE VERDICT, and getting it wrong invents a false negative:
+    the same comment inserted at the START of the job truncates `steps:` away too,
+    which trips unrelated assertions and looks "caught". Both bypasses above put
+    the comment at the END of the block it terminates — the position an author
+    regrouping keys would actually use. Attack the harness before believing it
+    (the #411 lesson, re-earned here).
+
+    The second and third defeat the guards written FOR that key (#404's
+    `test_gate_step_does_not_swallow_its_exit_code` and #407's whole-graph rule),
+    so the required `Security Scan Gate` stopped blocking a CRITICAL with the
+    suite green. `packages: write` is the least-privilege regression
+    `test_ci_npm_publish` exists to prevent, and its "structural catch-all"
+    whole-block anchor passed because the TRUNCATED block really was exactly
+    `contents: read`.
+
+    DO NOT USE THIS FOR A BLOCK-SCALAR BODY (`run: |`, `args: >-`). Comments do
+    not exist inside a scalar, and a less-indented `#` line does not keep one
+    alive — measured, both spellings:
+
+        a:\\n  run: |\\n    echo one\\n# c\\n    echo two\\n   -> ParserError
+        a:\\n  x: 1\\n# c\\n  y: 2\\n                          -> {'a': {'x': 1, 'y': 2}}
+
+    So `extract_run_block` must keep breaking on such a line: ignoring it would
+    over-capture shell out of a workflow file, which is the execution-safety
+    hazard that guard's docstring is mostly about. The two rules look
+    inconsistent and are not — they follow the parser."""
+    s = line.strip()
+    if not s or s.startswith("#"):
+        return False
+    return (len(line) - len(line.lstrip())) <= col
+
+
 def job_block(text: str, job_key: str):
     """The block of the top-level job `job_key`, or None if not found uniquely.
 
@@ -448,7 +536,7 @@ def job_block(text: str, job_key: str):
     start = starts[0]
     out = [lines[start]]
     for line in lines[start + 1:]:
-        if line.strip() and (len(line) - len(line.lstrip())) <= 2:
+        if block_ends_at(line, 2):
             break
         out.append(line)
     return "\n".join(out)
@@ -489,10 +577,9 @@ def job_display_name(block: str, job_key: str) -> str:
 
     The `name:` key is read at the job's own indent column so a step's `name:`
     (deeper) cannot be mistaken for the job's."""
-    body = [ln for ln in block.splitlines()[1:] if ln.strip()]
-    if not body:
+    col = key_column(block)
+    if col is None:
         return job_key
-    col = min(len(ln) - len(ln.lstrip()) for ln in body)
     pat = re.compile(rf"^ {{{col}}}{yaml_key_pattern('name')}\s*:\s*(.+?)\s*$")
     for raw in block.splitlines()[1:]:
         m = pat.match(strip_inline_comment(raw))
@@ -543,10 +630,9 @@ def job_needs(block: str) -> list:
     lines = block.splitlines()
     if len(lines) < 2:
         return []
-    body = [ln for ln in lines[1:] if ln.strip()]
-    if not body:
+    col = key_column(block)
+    if col is None:
         return []
-    col = min(len(ln) - len(ln.lstrip()) for ln in body)
     needs, in_needs = [], False
     key_re = re.compile(rf"^ {{{col}}}{yaml_key_pattern('needs')}\s*:\s*(.*)$")
     for raw in lines[1:]:

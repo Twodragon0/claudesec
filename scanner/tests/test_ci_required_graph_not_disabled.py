@@ -89,6 +89,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     WORKFLOW_DIR,
+    block_ends_at,
+    key_column,
     desired_contexts,
     explicit_key_lines,
     job_block,
@@ -293,10 +295,9 @@ def _steps_of(block: str):
     a whole `steps:` list by 2 is valid YAML and would walk every step key out
     from under a fixed anchor (the shape that defeated #404's first draft)."""
     lines = block.splitlines()
-    body = [ln for ln in lines[1:] if ln.strip()]
-    if not body:
+    job_col = key_column(block)
+    if job_col is None:
         return []
-    job_col = min(len(ln) - len(ln.lstrip()) for ln in body)
     steps_re = re.compile(rf"^ {{{job_col}}}{yaml_key_pattern('steps')}\s*:\s*$")
     start = next(
         (i for i, ln in enumerate(lines) if steps_re.match(strip_inline_comment(ln))),
@@ -326,7 +327,7 @@ def _steps_of(block: str):
         key_col = len(m.group(1))
         item = [line]
         for nxt in lines[i + 1:]:
-            if nxt.strip() and (len(nxt) - len(nxt.lstrip())) <= dash_col:
+            if block_ends_at(nxt, dash_col):
                 break
             item.append(nxt)
         chunk = "\n".join(item)
@@ -386,8 +387,14 @@ def graph_violations(texts: dict = None):
         if block is None:
             out.append(f"{fname}: job {key!r} no longer resolves to one block")
             continue
-        body = [ln for ln in block.splitlines()[1:] if ln.strip()]
-        job_col = min((len(ln) - len(ln.lstrip()) for ln in body), default=4)
+        # `key_column`, not a local `min(indent)`: the FIFTH copy of this
+        # derivation in the repo and the one that hid the fix for the longest —
+        # once comments no longer end a block they are inside it, and a
+        # column-2 divider comment dragged this to 2, so `_declares(block, 2, …)`
+        # looked one level out from where the job's keys actually are.
+        job_col = key_column(block)
+        if job_col is None:
+            job_col = 4
         if _declares(block, job_col, "defaults"):
             out.append(
                 f"{fname}: job {key!r} sets job-level `defaults:` — "
@@ -559,6 +566,83 @@ class TestGraphViolationDetector(unittest.TestCase):
 
     # --- REDIRECT keys: the step RUNS and reports success, checking something
     # --- else. The 2026-08-10 finding; see REDIRECT_KEYS for the executed proof.
+
+    # --- COMMENT TRUNCATION: the block extractor's own blind spot -----------
+
+    @staticmethod
+    def _append_after_block(text, header, col, added):
+        """`text` with `added` inserted at the END of the block opened by `header`.
+
+        Placement is the whole point. The same comment at the START of a job also
+        truncates `steps:` away, which trips unrelated assertions and reads as
+        "caught" — a false negative in the PROBE, not in the guard. An author
+        regrouping keys puts the comment where these fixtures put it."""
+        lines = text.splitlines(keepends=True)
+        i = next(i for i, ln in enumerate(lines) if ln == header)
+        end = next(
+            j for j in range(i + 1, len(lines))
+            if lines[j].strip() and (len(lines[j]) - len(lines[j].lstrip())) <= col
+        )
+        return "".join(lines[:end] + added + lines[end:])
+
+    def test_a_comment_cannot_truncate_a_job_block(self):
+        """A `#` line at the job's key column is not a dedent — PyYAML keeps every
+        entry after it in the same mapping — so a job-level `continue-on-error`
+        below one must still be seen.
+
+        Measured on `main` (2026-08-11): `jobs.scan.continue-on-error = True` per
+        PyYAML, and this guard plus the behavioural one reported **61 passed**. The
+        required `Security Scan Gate` concludes success on a CRITICAL from that one
+        line, which is the exact class this file exists to close."""
+        m = self._append_after_block(
+            self.scan, "  scan:\n", 2,
+            ["  # regrouped for readability\n", "    continue-on-error: true\n"],
+        )
+        hits = self._violations_with("security-scan.yml", m)
+        self.assertTrue(
+            [h for h in hits if "continue-on-error" in h],
+            f"a comment at the job key column hid a job-level disable: {hits}",
+        )
+
+    def test_a_comment_cannot_truncate_a_step_block(self):
+        """Same shape one level in: a `#` at the step's DASH column. Placed after
+        the gate step's `run:` block, so the step is still located and its body
+        still executes — only the key after the comment disappears. Measured on
+        `main`: step keys `['continue-on-error', 'name', 'run']`, 61 passed."""
+        lines = self.scan.splitlines(keepends=True)
+        i = next(i for i, ln in enumerate(lines)
+                 if "- name: Check for critical/high failures" in ln)
+        dash = len(lines[i]) - len(lines[i].lstrip())
+        m = self._append_after_block(
+            self.scan, lines[i], dash,
+            [" " * dash + "# regrouped\n", " " * (dash + 2) + "continue-on-error: true\n"],
+        )
+        hits = self._violations_with("security-scan.yml", m)
+        self.assertTrue(
+            [h for h in hits if "continue-on-error" in h and "critical/high" in h],
+            f"a comment at the step dash column hid a step-level disable: {hits}",
+        )
+
+    def test_a_shallow_comment_does_not_blind_the_step_scan(self):
+        """Direction: no false alarm. A comment indented SHALLOWER than the job's
+        keys used to drag the derived key column down to itself, so `_steps_of`
+        found no `steps:` and returned nothing — on `main` this mutation produced
+        `7 failed`, all of them other mutation tests reporting "not caught". The
+        job is legitimate YAML and must simply be scanned normally."""
+        m = self._append_after_block(
+            self.scan, "  scan:\n", 2, ["   # regrouped\n"],
+        )
+        self.assertTrue(
+            _steps_of(job_block(m, "scan")),
+            "a three-space comment inside the job made the step scan return "
+            "NOTHING — every step-level check silently stops applying",
+        )
+        self.assertEqual(
+            [h for h in self._violations_with("security-scan.yml", m)
+             if "continue-on-error" in h or "working-directory" in h],
+            [],
+            "false alarm: a bare comment is not a disable",
+        )
 
     def test_step_working_directory_on_the_gate_is_caught(self):
         # THE finding, on the real gate step: one line, whole suite green (1945

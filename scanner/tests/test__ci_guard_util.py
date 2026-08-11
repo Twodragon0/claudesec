@@ -47,6 +47,7 @@ import _ci_guard_util  # noqa: E402  (module handle: the enumeration test patche
 from _ci_guard_util import (  # noqa: E402
     apply_mutation,
     apply_regex_mutation,
+    block_ends_at,
     assert_disables,
     desired_contexts,
     explicit_key_lines,
@@ -55,6 +56,7 @@ from _ci_guard_util import (  # noqa: E402
     job_display_name,
     job_needs,
     join_continuations,
+    key_column,
     keys_at_column,
     non_comment_lines,
     on_key_inline,
@@ -654,6 +656,53 @@ class TestWorkflowAndActionFiles(unittest.TestCase):
         found = workflow_and_action_files()
         self.assertTrue([p for p in found if "/workflows/" in p])
         self.assertTrue([p for p in found if "/actions/" in p])
+
+
+class TestBlockEndsAt(unittest.TestCase):
+    """The block terminator. Each case is measured against PyYAML in
+    `block_ends_at`'s docstring; this pins the primitive itself."""
+
+    def test_a_shallower_key_ends_the_block(self):
+        self.assertTrue(block_ends_at("  next: 1", 2))
+        self.assertTrue(block_ends_at("nope: 1", 2))
+
+    def test_a_deeper_key_does_not(self):
+        self.assertFalse(block_ends_at("    deeper: 1", 2))
+
+    def test_a_blank_line_does_not(self):
+        self.assertFalse(block_ends_at("", 2))
+        self.assertFalse(block_ends_at("   ", 2))
+
+    def test_a_comment_does_not_at_any_indent(self):
+        # THE 2026-08-11 bypass: PyYAML keeps every entry after a comment in the
+        # same mapping, so a comment cannot end a block no matter where it sits.
+        for line in ("# c", "  # c", "    # c", "\t# c"):
+            with self.subTest(line=line):
+                self.assertFalse(block_ends_at(line, 2))
+
+    def test_column_zero_blocks(self):
+        self.assertTrue(block_ends_at("jobs:", 0))
+        self.assertFalse(block_ends_at("# jobs:", 0))
+        self.assertFalse(block_ends_at("  contents: read", 0))
+
+
+class TestKeyColumn(unittest.TestCase):
+    def test_derives_the_body_indent(self):
+        self.assertEqual(key_column("  scan:\n    name: x\n    runs-on: y\n"), 4)
+
+    def test_ignores_blank_and_comment_lines(self):
+        # A comment shallower than the real keys used to drag this to itself,
+        # re-pointing every column-anchored matcher at a level that does not exist.
+        self.assertEqual(key_column("  scan:\n   # c\n\n    name: x\n"), 4)
+
+    def test_none_for_an_empty_body(self):
+        self.assertIsNone(key_column("  scan:\n"))
+        self.assertIsNone(key_column("  scan:\n  # only a comment\n"))
+
+    def test_header_line_is_excluded(self):
+        # The header sits one level out by construction; including it would make
+        # every derivation return the header's own column.
+        self.assertEqual(key_column("a:\n  b: 1\n"), 2)
 
 
 class TestUsesRefs(unittest.TestCase):
