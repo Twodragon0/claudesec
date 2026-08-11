@@ -308,7 +308,7 @@ def workflow_level_disables(text: str, step_name: str) -> list:
             reasons.append((key, why))
         # YAML's explicit-key form declares the same key while the substring
         # `key:` never appears, so no line matcher can reach it. Fail closed on
-        # the shape (the `unscannable_*` tripwire pattern, ADR-001 §4).
+        # the shape (the `unscannable_*` tripwire pattern, ADR-001 §5).
         elif explicit_key_lines(block, key):
             reasons.append((key, f"{why} (declared with the `? {key}` explicit-key form)"))
 

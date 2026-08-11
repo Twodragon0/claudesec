@@ -125,7 +125,7 @@ _RUN_RE = re.compile(rf"^(\s*(?:-\s+)?){_RUN_KEY}:\s?(.*)$")
 # mid-line after a `{`/`,`, so the line-anchored block scan above never sees it.
 # Match each flow-style run value (double/single-quoted or bare) so its `${{ }}`
 # interpolations are scanned too. Closes the single-physical-line flow form per
-# ADR-001 §4 (flow style is spec-standard YAML sugar, not an edge form).
+# ADR-001 §5 (flow style is spec-standard YAML sugar, not an edge form).
 #
 # KNOWN LIMITATION (backlog, catalog "Quarterly audit 2026-07-28"): a flow-style
 # run value whose quoted string SPANS MULTIPLE physical lines is not reassembled
@@ -271,7 +271,7 @@ def unscannable_flow_runs(text: str) -> list:
     `${{ }}` inside it. Rather than half-close that gap with a fragile
     bracket-depth heuristic, this tripwire flags the unscannable SHAPE so the
     author restructures to a block scalar (fully scanned) or a single-line flow
-    value (already scanned) — ADR-001 §4 (prefer a rule complete by construction
+    value (already scanned) — ADR-001 §5 (prefer a rule complete by construction
     over an incomplete reassembler). Dormant on this repo (all `run:` are block
     style), so it is false-positive-free today."""
     return [ln.strip() for ln in text.splitlines() if _FLOW_RUN_UNTERMINATED_RE.search(ln)]
@@ -292,7 +292,7 @@ def unscannable_block_runs(text: str) -> list:
     the semantics: the author keeps each `${{ ... }}` on one physical line (always
     possible, and how every expression in this repo is already written).
 
-    ADR-001 §4 — prefer a rule complete by construction over an incomplete
+    ADR-001 §5 — prefer a rule complete by construction over an incomplete
     reassembler. Dormant on this repo (zero unterminated `${{` in any run body),
     so it is false-positive-free today."""
     return [ln.strip() for ln in run_block_lines(text) if _expr_unterminated(ln)]
@@ -337,7 +337,7 @@ def unscannable_inline_runs(text: str) -> list:
     CICD-SEC-4 RCE this guard exists to prevent, hidden in the scanner's blind
     spot. Reassembling a folded multi-line quoted scalar (escapes, `''`, folding
     rules) needs a real YAML parser, so this fails CLOSED on the shape instead
-    (ADR-001 §4). Remediation is trivial and always available: a block scalar
+    (ADR-001 §5). Remediation is trivial and always available: a block scalar
     (`run: |`, fully scanned) or a single-line value (already scanned). Zero hits
     across all 18 scanned files today, so it is false-positive-free."""
     out = []
@@ -715,7 +715,7 @@ class TestInjectionDetectorMutation(unittest.TestCase):
 
     def test_fires_on_flow_style_step(self):
         # Flow-style step mapping (spec-standard YAML) puts `run:` mid-line; the
-        # untrusted interpolation must still be detected (ADR-001 §4).
+        # untrusted interpolation must still be detected (ADR-001 §5).
         wf = (
             "jobs:\n  j:\n    steps: "
             "[{name: x, run: \"echo '${{ github.event.issue.title }}'\"}]\n"
