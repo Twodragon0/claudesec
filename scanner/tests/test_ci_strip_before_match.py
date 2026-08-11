@@ -60,6 +60,27 @@ Known limitations (all UNDER-report — it can miss a violation, never invent on
   excluded from detector B, because that is how a file *reader* is written and
   flagging those produced the only two false positives this detector has ever
   had. An extractor that both reads and narrows would therefore be missed.
+- **Detector A skips any function that never strips internally** ("its caller owns
+  that decision") and nothing here checks the caller. That exclusion is the
+  caller-side blind spot, measured 2026-08-11: `harness_step_block` in
+  `test_ci_dashboard_control_smoke` truncates a step block at a comment when given
+  raw text, and is safe only because `setUpClass` builds `cls.text` with
+  `strip_comment_lines`. One line, unasserted, in the CALLER. Pinned there instead
+  (`TestCommentCannotHideAStepCap`, #420) rather than mechanised here — a rule
+  "never pass a raw attribute to a local extractor" has a legitimate counterexample
+  in the same suite: `test_ci_lychee_redirect_sweep._extract_args_block` MUST get
+  raw text, because `args: >-` is a folded scalar where a `#` line is content and
+  pre-stripping deletes a live CLI token (measured; pinned by
+  `TestArgsBlockMustNotBePreStripped`). Ordering is not universally "strip first" —
+  it is "strip first for mappings", and the grammar decides.
+- **A hand-rolled indentation collector is invisible to both detectors** (it does no
+  `re` matching and does no stripping, so A skips it and B never sees it). That is
+  the shape #419 found broken in five places at once: a `#` line ends no YAML
+  mapping, so a terminator of the form "first non-blank line at or left of the
+  threshold column" hides every key after a comment — three live bypasses, two of
+  them on a required check. Now prevented by construction rather than by detection:
+  collectors call `_ci_guard_util.block_ends_at` / `key_column`, and ADR-001 §9
+  makes that the rule.
 
 stdlib-only (`ast`); no PyYAML, no `scanner/lib` import, no network, no
 subprocess. Runs under pytest (the CI runner) and `python3 -m unittest`.
