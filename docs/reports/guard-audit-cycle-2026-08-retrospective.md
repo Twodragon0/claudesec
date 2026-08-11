@@ -43,7 +43,7 @@ tags:
 | 후속 | 08-11 | [#416](https://github.com/Twodragon0/claudesec/pull/416) `00f02f5` | `re.sub` 픽스처도 무음 실패한다 (4절) | 1989 passed |
 | 후속 | 08-11 | [#417](https://github.com/Twodragon0/claudesec/pull/417) `066d782` | templates 핀 정책 결정 + `uses:` 인용 **값** 우회 (6절) | 2006 passed |
 | 후속 | 08-11 | [#419](https://github.com/Twodragon0/claudesec/pull/419) `170c78e` | **2.4절** — 블록 추출기 우회 3건 + 철자 스윕 | 2036 passed |
-| 후속 | 08-11 | [#420](https://github.com/Twodragon0/claudesec/pull/420) OPEN | "무영향" 판정을 면역 근거까지 확정 | 2038 passed |
+| 후속 | 08-11 | [#420](https://github.com/Twodragon0/claudesec/pull/420) `7df8fff` | "무영향" 판정을 면역 근거까지 확정 | 2038 passed |
 
 스위트는 감사 사슬(#404 → #415) 동안 **1853 → 1981**로 늘었고, 같은 세션에서
 이어진 후속 PR까지 머지된 뒤의 `main`은 **#416·#417 기준 2014**, **#419 기준 2036**,
@@ -339,7 +339,7 @@ PR #415는 인젝션 스캔만 확장하고 핀 정책은 "제품 결정"으로 
 | [#416](https://github.com/Twodragon0/claudesec/pull/416) MERGED `00f02f5` | 1989 passed, 5 skipped; 두 러너 145 tests OK; 앵커를 낡게 만들어 실패 메시지 채집 후 복원 |
 | [#417](https://github.com/Twodragon0/claudesec/pull/417) MERGED `066d782` | 2006 passed, 5 skipped; 4개 가드 179 tests `python3 -m unittest` OK; `uses: "actions/checkout@main"` 를 실제 `lint.yml`에 적용 → 수정 전 15 passed / 수정 후 `lint.yml:66: actions/checkout@main` |
 | [#419](https://github.com/Twodragon0/claudesec/pull/419) MERGED `170c78e` | 2036 passed, 5 skipped; 주석-절단 프로브 3 BYPASS → 6 CAUGHT (PyYAML 사실 기준), 철자 프로브 10건 5 FALSE-ALARM → 전부 정상; 10개 가드 `python3 -m unittest` OK |
-| [#420](https://github.com/Twodragon0/claudesec/pull/420) OPEN | 2038 passed, 5 skipped; `harness_step_block(RAW) -> None` vs `(STRIPPED) -> 캡 유지` 양방향 측정 후 핀 |
+| [#420](https://github.com/Twodragon0/claudesec/pull/420) MERGED `7df8fff` | 2038 passed, 5 skipped; `harness_step_block(RAW) -> None` vs `(STRIPPED) -> 캡 유지` 양방향 측정 후 핀 |
 
 PR #416·#417은 이 문서의 **초안 시점에는 열린 상태**였고, 그 상태로 본문에
 기록됐다가 같은 세션에서 머지(`00f02f5`, `066d782`)된 뒤 이 갱신으로 정정됐다.
