@@ -40,7 +40,10 @@ tags:
 | 10 | 08-10 18:49 | [#414](https://github.com/Twodragon0/claudesec/pull/414) `e98adc1` | 손으로 쓴 블록 파서 2개, 하나는 **우회 가능** | 1972 passed |
 | 11 | 08-11 09:25 | [#415](https://github.com/Twodragon0/claudesec/pull/415) `b8e4a09` | `templates/` 는 **남의 레포로 나가는데** 아무 가드도 안 읽었다 | 1981 passed |
 
-스위트는 사이클 동안 **1853 → 1981**로 늘었다. 숫자는 각 PR 본문에서 인용했고,
+스위트는 감사 사슬(#404 → #415) 동안 **1853 → 1981**로 늘었고, 같은 세션에서
+이어진 #416·#417까지 머지된 뒤의 `main`은 **2014 passed, 5 skipped**다(직접 측정).
+각 PR의 수치는 그 PR 브랜치에서 측정된 값이므로 서로 더해지지 않는다는 점에 주의.
+숫자는 각 PR 본문에서 인용했고,
 모든 발견은 뮤턴트를 실제 파일에 적용해 "통제는 사라졌는데 가드는 green"을 확인한
 뒤에 기록됐다. 정적 읽기만으로 주장한 발견은 이 사이클에 없다.
 
@@ -158,7 +161,7 @@ PR #411의 방법론에서 나온 부수 규칙이 하나 더 있고, 이게 이
   제거했고 `job_block`은 원문을 반환한다. 이 차이는 happy path에서 보이지 않는다.
   `test_passset_surviving_only_in_comment_does_not_satisfy`가 즉시 잡았다.
   → **"해피 패스에서 같다"는 등가성이 아니다.**
-- **[#416](https://github.com/Twodragon0/claudesec/pull/416) (열림)** — #415가 리터럴
+- **[#416](https://github.com/Twodragon0/claudesec/pull/416)** MERGED `00f02f5` — #415가 리터럴
   치환 픽스처 6개를 `apply_mutation`으로 이관하면서 `re.sub` 기반은 "부분 문자열
   API에 억지로 넣지 않는다"는 이유로 남겼다. 남은 구멍이 바로 그것이었다: `re.sub`도
   **미스 시 무음으로 원본을 반환**한다. `apply_regex_mutation`이 같은 두 검사에
@@ -179,7 +182,7 @@ PR #411의 방법론에서 나온 부수 규칙이 하나 더 있고, 이게 이
 ## 5. 파서는 한 번 더 손볼 게 아니라 없앨 것
 
 ADR-001 §4("열거에 대한 세 번째 패치는 재설계 신호")가 이 사이클에서 다섯 번
-적용됐다 — 마지막 하나(#417)는 아직 열린 상태다.
+적용됐다.
 
 ```text
 PR #404  텍스트 스캐너(1형태 → 4형태 → 6형태 패배) → run: 본문을 실행
@@ -189,7 +192,7 @@ PR #414  gate_block_from · _extract_job_block 삭제 → 같은 공유 프리�
       (앞의 것은 우회 가능했다: 종단 조건 `^  [A-Za-z0-9_-]+:` 가 인용된 형제 잡
        `  "post-gate-notify":` 를 못 만나 블록이 끝나지 않았고, 그래서 자기
        `if: always()` 를 잃은 게이트가 test_gate_runs_always 를 통과했다)
-PR #417  uses: 매처 → _ci_guard_util.uses_refs (열림)
+PR #417  uses: 매처 → _ci_guard_util.uses_refs
 ```
 
 `#417`은 같은 매처가 **세 번** 고쳐진 사례로 이 절의 결론을 재확인한다: 인용된 키
@@ -263,11 +266,14 @@ PR #415는 인젝션 스캔만 확장하고 핀 정책은 "제품 결정"으로 
 | #413 스코프 | 실제 `security-scan.yml`에 `run: exit 1` 잡 추가 + `needs:` 누락: 1952 passed → 1 failed |
 | #414 우회 | 인용된 형제 잡을 심은 뒤 옛 파서 복원: 4개 뮤테이션 중 2개 FAIL |
 | #411 문서 전용 | 프로브 8개 적용·복원 후 `pytest scanner/ -q` 전후 동일 (1945 passed, 5 skipped), `git status --short`에 문서만 |
-| #416 (열림) | 1989 passed, 5 skipped; 두 러너 145 tests OK; 앵커를 낡게 만들어 실패 메시지 채집 후 복원 |
-| #417 (열림) | 2006 passed, 5 skipped; 4개 가드 179 tests `python3 -m unittest` OK; `uses: "actions/checkout@main"` 를 실제 `lint.yml`에 적용 → 수정 전 15 passed / 수정 후 `lint.yml:66: actions/checkout@main` |
+| [#416](https://github.com/Twodragon0/claudesec/pull/416) MERGED `00f02f5` | 1989 passed, 5 skipped; 두 러너 145 tests OK; 앵커를 낡게 만들어 실패 메시지 채집 후 복원 |
+| [#417](https://github.com/Twodragon0/claudesec/pull/417) MERGED `066d782` | 2006 passed, 5 skipped; 4개 가드 179 tests `python3 -m unittest` OK; `uses: "actions/checkout@main"` 를 실제 `lint.yml`에 적용 → 수정 전 15 passed / 수정 후 `lint.yml:66: actions/checkout@main` |
 
-PR #416·#417은 이 문서 작성 시점에 **열린 상태**다. 머지 여부는 확인되지 않았으며,
-표기된 근거는 로컬 실행 결과다.
+PR #416·#417은 이 문서의 **초안 시점에는 열린 상태**였고, 그 상태로 본문에
+기록됐다가 같은 세션에서 머지(`00f02f5`, `066d782`)된 뒤 이 갱신으로 정정됐다.
+3절이 말하는 문서 부패를 이 문서 자신이 몇 시간 만에 재현한 셈이므로, 숨기지 않고
+남긴다 — **회고에 "현재 열려 있음"이라고 쓰는 순간 그 문장은 만료 시한이 붙는다.**
+갱신 시점의 상태는 `gh pr view <n> --json state,mergedAt`으로 재확인 가능하다.
 
 ## 9. 관련 문서
 
