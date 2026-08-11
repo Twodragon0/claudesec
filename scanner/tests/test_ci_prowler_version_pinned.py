@@ -54,7 +54,12 @@ from _ci_guard_util import join_continuations, strip_comment_lines  # noqa: E402
 
 # `ARG PROWLER_VERSION=<x.y.z>` — the pin value must be version-shaped, not blank
 # or a placeholder. Matches e.g. ARG PROWLER_VERSION=5.30.1
-ARG_PIN_RE = re.compile(r"^\s*ARG\s+PROWLER_VERSION=(\d+\.\d+(?:\.\d+)?)\s*$", re.MULTILINE)
+# The default value may be QUOTED: Docker strips the quotes, so
+# `ARG PROWLER_VERSION="0.58.0"` is the identical pin. A bare-only matcher read it as
+# UNPINNED and reported a version bump that had not happened.
+ARG_PIN_RE = re.compile(
+    r"^\s*ARG\s+PROWLER_VERSION=[\"\']?(\d+\.\d+(?:\.\d+)?)[\"\']?\s*$", re.MULTILINE
+)
 
 # Any ARG PROWLER_VERSION assignment (incl. blank / non-version), to catch a
 # second override that bash/Docker last-wins resolves (sec-review Finding 3).
@@ -239,6 +244,26 @@ class TestProwlerVersionPinnedMutation(unittest.TestCase):
             violations(DOCKERFILE.read_text(encoding="utf-8")), [],
             "The real Dockerfile failed the prowler-pin validator.",
         )
+
+
+class TestArgQuotingDirection(unittest.TestCase):
+    """Docker strips quotes from an `ARG` default, so `ARG PROWLER_VERSION="0.58.0"`
+    is the identical pin. A bare-only matcher read it as UNPINNED and reported a
+    bump that had not happened (2026-08-11 sweep; false-alarm direction)."""
+
+    def test_quoted_and_bare_defaults_both_read_as_pinned(self):
+        for line in (
+            "ARG PROWLER_VERSION=0.58.0",
+            'ARG PROWLER_VERSION="0.58.0"',
+            "ARG PROWLER_VERSION='0.58.0'",
+        ):
+            with self.subTest(line=line):
+                m = ARG_PIN_RE.search(line)
+                self.assertIsNotNone(m, "a quoted ARG default read as unpinned")
+                self.assertEqual(m.group(1), "0.58.0")
+
+    def test_a_floating_default_is_still_not_a_pin(self):
+        self.assertIsNone(ARG_PIN_RE.search("ARG PROWLER_VERSION=latest"))
 
 
 if __name__ == "__main__":

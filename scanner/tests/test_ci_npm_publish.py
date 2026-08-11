@@ -46,7 +46,12 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import apply_mutation, block_ends_at  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    apply_mutation,
+    apply_regex_mutation,
+    block_ends_at,
+    yaml_key_pattern,
+)
 from _ci_guard_util import strip_inline_comment as _strip_comment  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
@@ -99,7 +104,7 @@ class TestNpmPublishLeastPrivilege(unittest.TestCase):
         # Job-level permissions live under `jobs:` and are NOT captured here.
         out, in_perms = [], False
         for raw in self.text.splitlines():
-            if re.match(r"^permissions:\s*$", raw):
+            if re.match(rf"^{yaml_key_pattern('permissions')}\s*:\s*$", raw):
                 in_perms = True
                 continue
             if in_perms:
@@ -318,10 +323,15 @@ class TestPermissionsBlockTruncation(unittest.TestCase):
         return holder._top_level_permissions_block()
 
     def test_a_column_zero_comment_does_not_hide_a_write_grant(self):
-        mutant = apply_mutation(
+        # Regex fixture, not a literal one: the key may legitimately be written
+        # `"permissions":`, and a literal anchor then goes STALE — which reads as a
+        # guard failure while nothing is wrong with the guard (observed while
+        # probing this very sweep). `apply_regex_mutation` reports the miss as a
+        # stale fixture; tolerating the quoting removes the trap entirely.
+        mutant = apply_regex_mutation(
             self.text,
-            "permissions:\n  contents: read\n",
-            "permissions:\n  contents: read\n# regrouped for readability\n  packages: write\n",
+            r"(?P<k>[\"']?permissions[\"']?\s*:\n\s*contents:\s*read\n)",
+            r"\g<k># regrouped for readability\n  packages: write\n",
         )
         block = self._block_of(mutant)
         self.assertIn(

@@ -33,9 +33,11 @@ from _ci_guard_util import (  # noqa: E402
     job_block,
     job_needs,
     required_aggregators,
+    strip_inline_comment,
     top_level_jobs,
     uses_refs,
     workflow_and_action_files,
+    yaml_key_pattern,
 )
 
 # scanner/tests/this_file -> parents[2] == repo root
@@ -238,7 +240,22 @@ class TestLycheeVersionPin(unittest.TestCase):
         cls.text = LINT_YML.read_text(encoding="utf-8") if LINT_YML.is_file() else ""
 
     def test_lychee_version_pinned(self):
-        matches = re.findall(r"^\s*lycheeVersion:\s*(\S+)\s*$", self.text, re.MULTILINE)
+        # Key bare OR quoted, value bare OR quoted, trailing comment stripped.
+        # A bare-only matcher read `lycheeVersion: v0.24.0  # temporary` as ABSENT
+        # rather than as a bump, so the failure named a missing pin instead of the
+        # version that broke the link-check installer.
+        matches = [
+            m.group(1).strip("\"'")
+            for m in (
+                re.match(
+                    rf"^\s*{yaml_key_pattern('lycheeVersion')}\s*:\s*(\S+)\s*$",
+                    strip_inline_comment(raw),
+                )
+                for raw in self.text.splitlines()
+                if not raw.lstrip().startswith("#")
+            )
+            if m
+        ]
         self.assertTrue(
             matches,
             "No `lycheeVersion:` found in lint.yml — the link-check binary pin was "
@@ -288,6 +305,23 @@ class TestKeyQuotingAndEnumerationMutation(unittest.TestCase):
                     got[0][1].startswith("actions/checkout@"),
                     f"captured the wrong ref: {got[0][1]!r}",
                 )
+
+    def test_lychee_pin_matcher_reads_quoted_and_commented_forms(self):
+        """The pin matcher was bare-key/bare-value/no-trailing-comment, so
+        `lycheeVersion: v0.24.0  # temporary` read as ABSENT rather than as a bump
+        and the failure named a missing pin instead of the version that breaks the
+        link-check installer. All four legal spellings must resolve to the version."""
+        pat = rf"^\s*{yaml_key_pattern('lycheeVersion')}\s*:\s*(\S+)\s*$"
+        for line in (
+            "          lycheeVersion: v0.24.0",
+            '          "lycheeVersion": v0.24.0',
+            '          lycheeVersion: "v0.24.0"',
+            "          lycheeVersion: v0.24.0  # temporary",
+        ):
+            with self.subTest(line=line.strip()):
+                m = re.match(pat, strip_inline_comment(line))
+                self.assertIsNotNone(m, "spelling hid the lychee pin from the scan")
+                self.assertEqual(m.group(1).strip("\"'"), "v0.24.0")
 
     def test_uses_matcher_does_not_widen_to_other_keys(self):
         # The alternation must not swallow neighbouring keys — `with:`/`name:` are

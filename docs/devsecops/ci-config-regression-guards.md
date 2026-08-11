@@ -890,6 +890,58 @@ left in the old file is one line of prose in its docstring. So this section
 asserted, for over a month, that a control was owned by a guard that no longer
 checked it — the precise failure mode a scoped, dated verdict prevents.
 
+## Block-collector enumeration (2026-08-11)
+
+Every indentation-bounded block collector in `scanner/tests/`, with its verdict.
+Recorded as a table rather than a prose summary because the comment-truncation
+class was found by enumerating them, and an enumeration nobody wrote down is
+re-derived from scratch by the next audit (the #411 stale-backlog lesson in the
+other direction).
+
+Ground truth throughout is PyYAML on the real file, not reasoning: in a **mapping**
+a comment line ends nothing (`a:\n  x: 1\n# c\n  y: 2` → `{'a': {'x': 1, 'y': 2}}`),
+while in a **block scalar** a less-indented comment is a `ParserError` — it does not
+keep the scalar alive. Collectors must follow whichever context they read.
+
+| Collector | Reads | Verdict |
+|---|---|---|
+| `_ci_guard_util.job_block` | mapping | **FIXED** — `block_ends_at`; shared, so every consumer got it at once |
+| `test_ci_security_gate_behaviour.find_step_blocks` | mapping | **FIXED** — was a live bypass (step `continue-on-error` hidden, 61 passed) |
+| `test_ci_security_gate_behaviour.enclosing_job_block` | mapping | **FIXED** — same class one level out |
+| `test_ci_required_graph_not_disabled._steps_of` (item collector) | mapping | **FIXED** — was a live bypass (job `continue-on-error` hidden, 61 passed) |
+| `test_ci_npm_publish._top_level_permissions_block` | mapping | **FIXED** — was a live bypass (`packages: write` hidden, 12 passed) |
+| `test_ci_security_gate_behaviour.extract_run_block` | block scalar | **CORRECT AS-IS** — must keep breaking; ignoring a `#` line there would over-capture shell out of a workflow file, the execution-safety hazard that guard exists to avoid |
+| `test_ci_lychee_redirect_sweep` (`args: >-` body) | folded scalar | **CORRECT AS-IS** for comments (same reason); already skips blank lines, which are legal inside a folded scalar |
+| `test_ci_pr_trigger_scope.pull_request_block` | mapping | **VERIFIED FAILS CLOSED** — probed with a comment at the `pull_request:` key column plus a `paths:` filter below it: PyYAML `{'paths': ['docs/**']}`, guard `1 failed` |
+| `test_ci_drift_watch_not_silent.steps_gated_on_token_absent` | mapping | **IMMUNE BY CONSTRUCTION** — calls `strip_comment_lines` before collecting, which is the pattern the others now match |
+| `test_ci_dashboard_control_smoke` (step blocks) | mapping | **NO OBSERVABLE EFFECT** — probed at a step's dash column before a step-level `timeout-minutes`; PyYAML still resolved both caps and the guard stayed green in both directions. Not proven immune, only unaffected on this file; left alone rather than changed without evidence |
+
+Five `min(indent)` key-column derivations existed alongside these, all of which
+inherit the hazard the moment comments live inside a block. They now call the
+shared `key_column`; the one exception is `extract_run_block`'s scalar dedent,
+where a `#` line is shell content and must be counted.
+
+### Key/value spelling sweep, same date
+
+A quoted KEY or a quoted VALUE resolves to the identical document. Which direction
+that breaks depends on what the check asserts, and the distinction is the reusable
+part:
+
+- **Violation checks** (`assert offenders == []`) — a missed line is an offender
+  that never existed. **Silent bypass.** This is what `uses:` was (#417).
+- **Presence / pin checks** (`assert the control is there / equals X`) — a missed
+  line reads as a control that is gone. **Fail-closed false alarm**, but still
+  fixed: #414 established that a guard an ordinary authoring style breaks gets
+  weakened, not repaired.
+
+Probed across the pin/presence guards: **zero further bypasses**, five false
+alarms, all fixed with both directions pinned — docker-compose hardening keys
+(`read_only`/`cap_drop`/`tmpfs`/`mem_limit`/`pids_limit` + the service header),
+`lycheeVersion:` (also now trailing-comment-immune, so a bump is reported as a bump
+instead of as a missing pin), the `permissions:` header, and the `ARG
+TRIVY_VERSION=` / `ARG PROWLER_VERSION=` defaults (Docker strips quotes, so a
+quoted default is the identical pin).
+
 ## Adding a new guard
 
 1. Identify a CI invariant whose silent weakening would disable enforcement, and

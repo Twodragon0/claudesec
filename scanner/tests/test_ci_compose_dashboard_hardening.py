@@ -27,22 +27,22 @@ COMPOSE_FILES = ["docker-compose.yml", "docker-compose.quickstart.yml"]
 # Shared comment-stripping primitive. Import as a top-level module so it resolves
 # under both pytest and `python3 -m unittest`.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_inline_comment  # noqa: E402
+from _ci_guard_util import strip_inline_comment, yaml_key_pattern  # noqa: E402
 
 # Required hardening lines inside the dashboard service block. Each is a regex
 # matched against the block text (comments stripped).
 REQUIRED = {
-    "read_only": re.compile(r"^\s*read_only:\s*true\s*$", re.MULTILINE),
-    "cap_drop ALL": re.compile(r"^\s*cap_drop:\s*\[?\s*[\"']?ALL[\"']?", re.MULTILINE),
+    "read_only": re.compile(rf"^\s*{yaml_key_pattern('read_only')}\s*:\s*[\"']?true[\"']?\s*$", re.MULTILINE),
+    "cap_drop ALL": re.compile(rf"^\s*{yaml_key_pattern('cap_drop')}\s*:\s*\[?\s*[\"']?ALL[\"']?", re.MULTILINE),
     # Unanchored on purpose: this token legitimately appears MID-line in the
     # inline-array form `security_opt: ["no-new-privileges:true"]` as well as the
     # block-list form `- "no-new-privileges:true"`, so it cannot be `^`-anchored
     # like the others. Comment-evasion is closed by stripping trailing inline
     # comments in `_strip_comments` (ADR-001 §1), not by anchoring.
     "no-new-privileges": re.compile(r"no-new-privileges:true"),
-    "tmpfs": re.compile(r"^\s*tmpfs:\s*$", re.MULTILINE),
-    "mem_limit": re.compile(r"^\s*mem_limit:\s*\S+", re.MULTILINE),
-    "pids_limit": re.compile(r"^\s*pids_limit:\s*\d+", re.MULTILINE),
+    "tmpfs": re.compile(rf"^\s*{yaml_key_pattern('tmpfs')}\s*:\s*$", re.MULTILINE),
+    "mem_limit": re.compile(rf"^\s*{yaml_key_pattern('mem_limit')}\s*:\s*\S+", re.MULTILINE),
+    "pids_limit": re.compile(rf"^\s*{yaml_key_pattern('pids_limit')}\s*:\s*[\"']?\d+", re.MULTILINE),
 }
 
 
@@ -83,7 +83,7 @@ def _dashboard_block(text: str) -> str:
     lines = text.splitlines()
     start = None
     for i, line in enumerate(lines):
-        if re.match(r"^  dashboard:\s*$", line):
+        if re.match(rf"^  {yaml_key_pattern('dashboard')}\s*:\s*$", line):
             start = i
             break
     if start is None:
@@ -239,6 +239,36 @@ class TestSiblingServiceNameGrammar(unittest.TestCase):
                 "hardening satisfied the dashboard's, so a gutted service reported "
                 f"only {sorted(missing)} as missing",
             )
+
+class TestKeyQuotingDirections(unittest.TestCase):
+    """Direction pins for the 2026-08-11 sweep: a QUOTED key resolves to the same
+    document, so a bare-only presence matcher reports the hardening as ABSENT on a
+    correct file. A false alarm rather than a bypass — and #414 settled that those
+    still get fixed, because a guard an ordinary authoring style breaks gets
+    weakened, not repaired."""
+
+    def test_quoted_keys_still_satisfy_every_required_directive(self):
+        block = "\n".join([
+            "  dashboard:",
+            '    "read_only": true',
+            "    'cap_drop': [ALL]",
+            '    security_opt: ["no-new-privileges:true"]',
+            '    "tmpfs":',
+            "      - /tmp",
+            "    'mem_limit': 512m",
+            '    "pids_limit": 100',
+        ])
+        missing = [name for name, pat in REQUIRED.items() if not pat.search(block)]
+        self.assertEqual(
+            missing, [],
+            f"quoted keys read as missing hardening (false alarm): {missing}",
+        )
+
+    def test_quoting_does_not_make_the_matcher_accept_anything(self):
+        # The other direction: `read_only: false` must stay a miss when quoted.
+        block = '  dashboard:\n    "read_only": false\n'
+        self.assertFalse(REQUIRED["read_only"].search(block))
+
 
 if __name__ == "__main__":
     unittest.main()

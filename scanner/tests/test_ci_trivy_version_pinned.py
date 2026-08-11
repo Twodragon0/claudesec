@@ -46,7 +46,12 @@ from _ci_guard_util import join_continuations, strip_comment_lines  # noqa: E402
 
 # `ARG TRIVY_VERSION=<x.y.z>` — the pin value must be version-shaped, not blank
 # or a placeholder. Matches e.g. ARG TRIVY_VERSION=0.69.3
-ARG_PIN_RE = re.compile(r"^\s*ARG\s+TRIVY_VERSION=(\d+\.\d+(?:\.\d+)?)\s*$", re.MULTILINE)
+# The default value may be QUOTED: Docker strips the quotes, so
+# `ARG TRIVY_VERSION="0.58.0"` is the identical pin. A bare-only matcher read it as
+# UNPINNED and reported a version bump that had not happened.
+ARG_PIN_RE = re.compile(
+    r"^\s*ARG\s+TRIVY_VERSION=[\"\']?(\d+\.\d+(?:\.\d+)?)[\"\']?\s*$", re.MULTILINE
+)
 
 # Any ARG TRIVY_VERSION assignment (incl. blank / non-version), to catch a second
 # override that Docker last-wins resolves.
@@ -197,6 +202,26 @@ class TestTrivyVersionPinnedMutation(unittest.TestCase):
             any("checksum" in p for p in violations(mutant)),
             "Mutation FAILED: dropping the sha256sum -c check was NOT detected.",
         )
+
+
+class TestArgQuotingDirection(unittest.TestCase):
+    """Docker strips quotes from an `ARG` default, so `ARG TRIVY_VERSION="0.58.0"`
+    is the identical pin. A bare-only matcher read it as UNPINNED and reported a
+    bump that had not happened (2026-08-11 sweep; false-alarm direction)."""
+
+    def test_quoted_and_bare_defaults_both_read_as_pinned(self):
+        for line in (
+            "ARG TRIVY_VERSION=0.58.0",
+            'ARG TRIVY_VERSION="0.58.0"',
+            "ARG TRIVY_VERSION='0.58.0'",
+        ):
+            with self.subTest(line=line):
+                m = ARG_PIN_RE.search(line)
+                self.assertIsNotNone(m, "a quoted ARG default read as unpinned")
+                self.assertEqual(m.group(1), "0.58.0")
+
+    def test_a_floating_default_is_still_not_a_pin(self):
+        self.assertIsNone(ARG_PIN_RE.search("ARG TRIVY_VERSION=latest"))
 
 
 if __name__ == "__main__":
