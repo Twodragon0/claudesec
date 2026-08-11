@@ -36,7 +36,7 @@ proven to be caught: a demoted severity, a lowered `minScore`, a deleted
 category, the un-shorthand `{"minScore": ...}` object form (which has no
 severity at all and therefore no hard gate), and `numberOfRuns: 1`. Assertions
 that only ever see a PASSING config cannot be distinguished from assertions that
-never run — the ADR-001 §3 inert-assertion class this repo has hit before.
+never run — the ADR-001 §2 inert-assertion class this repo has hit before.
 
 Being a detector also removes a real fragility of the earlier shape: it read
 `rule[1]["minScore"]` unconditionally, so a malformed rule raised

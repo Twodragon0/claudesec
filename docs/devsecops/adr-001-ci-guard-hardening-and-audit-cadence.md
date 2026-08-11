@@ -194,14 +194,30 @@ inserting or renumbering fails the build with a message pointing here. Appending
 a one-line guard update — deliberately, so it is a review moment rather than a
 silent re-pointing of 60-odd citations.
 
-**Still open, measured but not touched:** `§2` and `§3` citations show signs of the
-same class. Some `ADR-001 §2` references quote *"strip, THEN match"*, which is §1;
-several others ("§2 adversarial pass", "§2 review chain", "§2 5th-pass finding")
-read like §3's two-pass rule; and `ADR-001 §3 inert-assertion class` describes §2.
-That is 22 more citations needing the same per-site classification by quoted text,
-which is its own review rather than a tail-end of this one. Until then, read those
-by their quoted text — the numbering guard only stops NEW drift, it cannot detect a
-citation that points at a real decision it does not mean.
+The `§2`/`§3` follow-up is now done too (22 sites classified by quoted text,
+**13 corrected, 5 already right, 4 left as genuinely ambiguous**):
+
+| Was | Now | Why |
+|---|---|---|
+| §2 ×9 | **§3** | "5th-pass finding", "the mandated adversarial pass", "the mandated review chain", "반복 적대 검증" — all the ITERATED review, and one quotes §3's "second pass when the first finds a CRITICAL" verbatim |
+| §2 ×2 | **§1** | "scans the comment-stripped text, so a step parked behind a `#` cannot satisfy it"; "the whitespace-only `strip_inline_comment` is retained for YAML/Dockerfile callers" — stripper choice by language is §1's own text |
+| §3 ×1 | **§2** | "the inert-assertion class" is §2's, not §3's — read the text, do not infer from the topic |
+| §3 ×1 | **§4** | "mutation self-tests for the …" is §4 |
+
+Five `§2` citations were already correct (the inert-guard class, an unhardened
+service certified by a mis-cut block, "stripped BEFORE the job block is cut out")
+and stay.
+
+**Four are left alone on purpose**, because two decisions fit and the text does not
+choose between them: `test_ci_no_ere_pipe_regression`'s "§2 audit bypass" /
+"Audit finding" (§3's per-PR review vs §6's periodic audit) and
+`test_ci_cross_os_non_required`'s "without IGNORECASE the capitalized form evaded"
+(§5's form-enumeration rule vs whichever pass found it). Guessing would replace one
+wrong number with another, which is the mistake the §4 sweep avoided by classifying
+each site.
+
+The guard's limit stands: it stops NEW drift and cannot detect a citation pointing
+at a real decision it does not mean. That is what reading the quoted text is for.
 
 ## Consequences
 

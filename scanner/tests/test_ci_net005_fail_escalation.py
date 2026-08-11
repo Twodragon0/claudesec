@@ -108,7 +108,7 @@ class TestNet005FailEscalation(unittest.TestCase):
 
 
 class TestNet005SectionMutation(unittest.TestCase):
-    """Mutation self-tests for the comment-stripping section builder (ADR-001 §3)."""
+    """Mutation self-tests for the comment-stripping section builder (ADR-001 §4)."""
 
     # Active code downgraded to WARN, but the CRITICAL `fail` survives ONLY in a
     # `#` comment. A comment-blind section builder would satisfy the escalation
@@ -206,7 +206,7 @@ class TestNet005SectionMutation(unittest.TestCase):
         )
 
     # `$'\''` is one ANSI-C string (escaped literal quote), so the trailing
-    # ` #fail ... critical` is a real bash comment — 5th-pass finding (ADR-001 §2).
+    # ` #fail ... critical` is a real bash comment — 5th-pass finding (ADR-001 §3).
     # A single-quote stripper with no escape awareness misses it (UNDER-strip).
     _ANSI_C_COMMENT_EVASION = "\n".join(
         [

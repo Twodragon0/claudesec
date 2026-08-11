@@ -119,7 +119,7 @@ class TestStripInlineCommentSh(unittest.TestCase):
         )
 
     def test_ansi_c_escaped_quote_is_not_a_reopen(self):
-        # 5th-pass finding (ADR-001 §2): `$'\''` is ONE ANSI-C string — the `\'` is
+        # 5th-pass finding (ADR-001 §3): `$'\''` is ONE ANSI-C string — the `\'` is
         # an escaped literal quote, NOT a close+reopen — so the trailing ` #exit 1`
         # is a real comment (the exit never runs). A single-quote branch with no
         # escape awareness runs off the line "in a quote" and fails to strip it,
