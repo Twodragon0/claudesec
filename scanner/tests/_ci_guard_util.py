@@ -601,7 +601,12 @@ def apply_mutation(text: str, old: str, new: str, *, count: int = 1) -> str:
     test why the mutant is really broken.
 
     Raises AssertionError rather than returning, so a stale fixture fails at the
-    point of the mistake instead of surfacing as a confusing downstream pass."""
+    point of the mistake instead of surfacing as a confusing downstream pass.
+
+    For a fixture whose target is a REGION rather than a substring (a whole
+    `if … fi` block, the inside of a quoted argument), use
+    `apply_regex_mutation` — not bare `re.sub`, which no-ops on a miss exactly
+    like `str.replace`."""
     if old not in text:
         raise AssertionError(
             f"mutation fixture is stale: {old!r} not found in the target text — "
@@ -610,6 +615,47 @@ def apply_mutation(text: str, old: str, new: str, *, count: int = 1) -> str:
     out = text.replace(old, new, count)
     if out == text:
         raise AssertionError(f"mutation {old!r} -> {new!r} left the text unchanged")
+    return out
+
+
+def apply_regex_mutation(text: str, pattern: str, repl: str, *, count: int = 1, flags: int = 0) -> str:
+    """`apply_mutation` for fixtures whose target is a REGION, not a substring.
+
+    Some mutations cannot be expressed as a literal: deleting a whole `if … fi`
+    block, or rewriting the contents of a quoted argument, needs a pattern. The
+    fixtures that did so called `re.sub` directly and so opted out of every check
+    `apply_mutation` exists to provide — and `re.sub` fails the same silent way
+    `str.replace` does, returning the input unchanged when nothing matched.
+
+    Same two mechanical checks (the pattern must match; the result must differ),
+    plus one the literal API does not need:
+
+    **The match must not be ambiguous.** With a substring you can eyeball where it
+    occurs; with a pattern you cannot, and this repo has already executed a
+    stranger's `run:` body because a greedy regex matched more than its author
+    believed (`test_ci_security_gate_behaviour`'s prototype started
+    `python3 -m http.server`). So more matches than `count` is an error rather
+    than a silent first-wins: narrow the pattern, or raise `count` deliberately.
+    `count=0` means "every match" (`re.sub`'s own convention) and skips that
+    check.
+
+    It cannot check that the pattern matched the region you MEANT — that is the
+    same semantic limit `apply_mutation` documents. Read the mutant."""
+    matches = list(re.finditer(pattern, text, flags))
+    if not matches:
+        raise AssertionError(
+            f"mutation fixture is stale: pattern {pattern!r} matched nothing in the "
+            "target text — the file changed under the test, so this case proves nothing"
+        )
+    if count > 0 and len(matches) > count:
+        raise AssertionError(
+            f"pattern {pattern!r} matched {len(matches)} times but count={count} — "
+            "refusing to guess which occurrence the fixture meant. Narrow the "
+            "pattern, or pass the count you intend (0 for all)."
+        )
+    out = re.sub(pattern, repl, text, count=count, flags=flags)
+    if out == text:
+        raise AssertionError(f"mutation {pattern!r} -> {repl!r} left the text unchanged")
     return out
 
 
