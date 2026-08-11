@@ -79,7 +79,7 @@ def explicit_key_lines(text: str, *keys: str) -> list:
     anywhere, so no line matcher can reach the value — it is *unscannable*, not
     merely unmatched. Guards therefore FAIL CLOSED on the shape (the tripwire
     pattern established by `unscannable_run_keys` in
-    `test_ci_injection_surface.py`, ADR-001 §4: prefer a rule complete by
+    `test_ci_injection_surface.py`, ADR-001 §5: prefer a rule complete by
     construction over an incomplete reassembler). Remediation is always available
     and trivial — write the ordinary `key: value` form.
 
