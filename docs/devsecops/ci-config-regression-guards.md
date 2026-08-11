@@ -921,6 +921,28 @@ inherit the hazard the moment comments live inside a block. They now call the
 shared `key_column`; the one exception is `extract_run_block`'s scalar dedent,
 where a `#` line is shell content and must be counted.
 
+### Caller-side stripping sweep (2026-08-11)
+
+`test_ci_strip_before_match`'s detector A skips any function that never strips
+internally — "its caller owns that decision" — and nothing checks the caller. Every
+guard that keeps both a raw and a stripped text was audited against that gap.
+
+| Guard | Shape | Verdict |
+|---|---|---|
+| `test_ci_dashboard_control_smoke` | `cls.text = strip_comment_lines(cls.raw)`, collector is comment-blind | **REAL — fixed/pinned (#420).** Immunity was one unasserted line in `setUpClass`; both directions now pinned |
+| `test_ci_lychee_redirect_sweep` | `_extract_args_block(cls.text)` — RAW, while token checks use `cls.active` | **CORRECT AS-IS, and pre-stripping would be a DEFECT.** `args: >-` is a folded scalar: a `#` line indented past the content is CONTENT (PyYAML: `'--one\n  # c\n--two'`), so `strip_comment_lines` would delete a live CLI token. The only comment placement that could truncate the extractor is *invalid YAML* (`ParserError`), so no bypass exists. Pinned by `TestArgsBlockMustNotBePreStripped` |
+| `test_ci_drift_watch_not_silent` | strips INSIDE the function | **IMMUNE BY CONSTRUCTION** — no caller dependency to lose |
+| `test_ci_diagram_gen_canonical_sync` | keeps `cls.src` + `cls.stripped`; every assertion uses `cls.stripped` | **CORRECT** — raw kept only for the read |
+| `test_ci_lychee_config`, `test_ci_docker_kcov_parity`, `test_ci_dockerfile_base_pinned`, `test_ci_changes_job_merge_base`, `test_ci_net005_fail_escalation`, `test_ci_catalog_completeness`, `test_ci_scanner_lib_reachability`, `test_ci_no_code_injection_regression` | strip before matching, in the right order | **CORRECT** |
+
+**Zero new bypasses, and one negative result worth more than a fix:** "always strip
+before matching" is not universal. It holds for **mappings**, where a comment ends
+nothing and can satisfy a token check; it is **wrong for scalars**, where a `#` is
+content. The grammar decides — the same conclusion the block-collector table above
+reaches from the other direction, which is why no mechanical "never pass raw text to
+an extractor" rule was added: it would have a legitimate counterexample in this same
+suite. Both exceptions are pinned by tests where they live instead.
+
 ### Key/value spelling sweep, same date
 
 A quoted KEY or a quoted VALUE resolves to the identical document. Which direction

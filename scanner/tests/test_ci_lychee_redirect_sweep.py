@@ -304,5 +304,72 @@ class TestCiLycheeRedirectSweep(unittest.TestCase):
         )
 
 
+class TestArgsBlockMustNotBePreStripped(unittest.TestCase):
+    """`_extract_args_block` is fed the RAW text on purpose. Do not "fix" it.
+
+    The 2026-08-11 caller-side sweep asked why this extractor gets `cls.text`
+    while the token assertions get `cls.active` (comment-stripped). The answer is
+    the grammar: `args: >-` is a FOLDED SCALAR, and inside one a `#` line is
+    CONTENT, not a comment. Measured with PyYAML:
+
+        a:\n  args: >-\n    --one\n      # c\n    --two   ->  '--one\n  # c\n--two'
+        a:\n  args: >-\n    --one\n  # c\n    --two       ->  ParserError
+
+    So pre-stripping would DELETE a live CLI token from the block the guard then
+    asserts on — the ordering rule ADR-001 §2 asks for is wrong here, and applying
+    it uniformly would introduce the defect it exists to prevent. The second line
+    also shows the only comment placement that could truncate this extractor is
+    invalid YAML, so the workflow it describes could never run: no bypass exists to
+    close.
+
+    Identical on today's file (both forms yield the same 5-line block; the real
+    workflow has no `#`-leading line inside the block), which is exactly why this
+    needs a test rather than a comment — nothing would notice the change until a
+    flag line happened to start with `#`."""
+
+    def test_a_content_line_starting_with_hash_survives_extraction(self):
+        fixture = (
+            "jobs:\n  x:\n    steps:\n      - uses: a/b@c\n        with:\n"
+            "          args: >-\n"
+            "            --config lychee.toml\n"
+            "            # not-a-comment-here\n"
+            "            --max-redirects 0\n"
+        )
+        block = _extract_args_block(fixture)
+        self.assertIn("--max-redirects 0", block)
+        self.assertIn("# not-a-comment-here", block)
+
+    def test_pre_stripping_would_drop_a_live_token(self):
+        # The regression this pins: if someone routes the extractor through
+        # `strip_comment_lines`, a folded-scalar content line vanishes.
+        fixture = (
+            "jobs:\n  x:\n    steps:\n      - uses: a/b@c\n        with:\n"
+            "          args: >-\n"
+            "            --config lychee.toml\n"
+            "            # --max-redirects 0 lives on this line in the scalar\n"
+        )
+        self.assertIn("--max-redirects 0", _extract_args_block(fixture))
+        self.assertNotIn(
+            "--max-redirects 0",
+            _extract_args_block(strip_comment_lines(fixture)),
+            "pre-stripping no longer changes the extracted block — if the extractor "
+            "was deliberately changed, update this test and say why; do not delete "
+            "it, it is the reason the raw text is passed in",
+        )
+
+    def test_the_real_block_is_unaffected_today(self):
+        # Direction/canary: the two paths agree on the current file, so this PR
+        # changes no behaviour. If they ever diverge, the raw path is the correct
+        # one and the divergence is a finding to read, not to normalise away.
+        self.assertEqual(
+            _extract_args_block(self.__class__._raw()),
+            _extract_args_block(strip_comment_lines(self.__class__._raw())),
+        )
+
+    @staticmethod
+    def _raw():
+        return SWEEP_YML.read_text(encoding="utf-8") if SWEEP_YML.is_file() else ""
+
+
 if __name__ == "__main__":
     unittest.main()
