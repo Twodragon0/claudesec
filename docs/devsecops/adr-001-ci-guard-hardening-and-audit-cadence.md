@@ -179,10 +179,20 @@ Cite decisions by **title**, not only by number, and **never renumber** this lis
 inserted item silently re-points all of them. This decision is appended as §9 for
 that reason rather than filed next to Decision 2 where it belongs topically.
 
-Known drift, recorded rather than mass-edited: most of the 25 `ADR-001 §4`
-citations quote *"prefer a rule complete by construction over an incomplete
-reassembler"*, which is **§5** (Prefer a grammar-complete rule). §4 is the
-mutation-self-test decision. Read those citations by their quoted text.
+A drift was found and fixed on 2026-08-11: 26 `ADR-001 §4` citations existed and
+**23 of them meant §5** (Prefer a grammar-complete rule) — they quoted *"prefer a
+rule complete by construction over an incomplete reassembler"*, *"a third patch to
+an enumeration is a redesign signal"*, or *"model the grammar, not a proxy"*, none
+of which is §4. §4 is the mutation-self-test decision, and exactly **two**
+citations meant it correctly (`test_ci_security_gate_behaviour`'s and
+`test_ci_required_graph_not_disabled`'s "a control with no mutation self-test is an
+untested control"). Every citation was classified by its quoted text before being
+touched; a blanket rewrite would have broken those two.
+
+`test_ci_adr_decision_numbering.py` now pins each decision number to its title, so
+inserting or renumbering fails the build with a message pointing here. Appending is
+a one-line guard update — deliberately, so it is a review moment rather than a
+silent re-pointing of 60-odd citations.
 
 ## Consequences
 

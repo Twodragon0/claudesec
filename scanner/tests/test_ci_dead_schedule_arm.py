@@ -82,7 +82,7 @@ WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 # `contains(...)` separately, and the `contains` pattern immediately failed on
 # `contains(fromJSON('["schedule","push"]'), github.event_name)` because its
 # `[^)]*` could not span the `)` inside `fromJSON(...)`. Enumerating expression
-# syntax is the mistake ADR-001 §4 warns about; the *co-occurrence* is the real
+# syntax is the mistake ADR-001 §5 warns about; the *co-occurrence* is the real
 # invariant and it holds for every spelling, present and future.
 #
 # Error direction is safe: a line that merely mentions both (say an `echo`) causes
