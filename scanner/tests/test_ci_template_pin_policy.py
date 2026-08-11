@@ -129,7 +129,7 @@ def unpinned_uses(text: str) -> list:
 
     Fails CLOSED on the `? uses` explicit-key form: it declares the same mapping
     key while the substring `uses:` never appears, so no line matcher can reach
-    the value (ADR-001 §4, the shape that defeated eight guards in the 2026-08-06
+    the value (ADR-001 §5, the shape that defeated eight guards in the 2026-08-06
     sweep)."""
     out = []
     for lineno, ref in uses_refs(text):

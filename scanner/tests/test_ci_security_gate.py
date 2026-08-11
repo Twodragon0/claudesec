@@ -25,7 +25,7 @@ assert it by text through `conditional_body_from`, which searched the block
 anchor in RAW text while comment-stripping only the body it returned — so a
 single `# was: if [ "$CRITS" -gt 0 ]; then exit 1; fi` anchored the scan inside
 itself and certified a DELETED gate. Three successive line-scanner fixes were
-each defeated (1 shape, then 4, then 6), which is ADR-001 §4's redesign signal.
+each defeated (1 shape, then 4, then 6), which is ADR-001 §5's redesign signal.
 The function and its seven comment-evasion self-tests are deleted rather than
 kept as belt-and-braces: a second, weaker proof of an invariant that already has
 a behavioural one is not redundancy, it is a defect with a maintenance cost and

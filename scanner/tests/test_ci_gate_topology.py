@@ -113,7 +113,7 @@ class TestActionShaPinning(unittest.TestCase):
         # `? uses` / `: actions/checkout@main` declares the same key while the
         # substring `uses:` never appears, so the SHA-pin scan above cannot see the
         # value at all. Same for `? jobs`, which would hide the entire job map from
-        # the gating check. Fail closed on the shape (ADR-001 §4).
+        # the gating check. Fail closed on the shape (ADR-001 §5).
         offenders = []
         for path in workflow_and_action_files():
             text = Path(path).read_text(encoding="utf-8")

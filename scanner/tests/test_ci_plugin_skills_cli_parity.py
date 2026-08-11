@@ -66,7 +66,7 @@ def cli_case_arms(text):
     NOT by indentation. bash decides arm membership by nesting, not indent, so an
     indent heuristic is bypassable: a top-level `*)` indented deeper than the first
     arm would be skipped by an indent filter, letting a subcommand demoted below it
-    be wrongly counted as dispatched (ADR-001 §4 — model the grammar, not a proxy).
+    be wrongly counted as dispatched (ADR-001 §5 — model the grammar, not a proxy).
     """
     arms = set()
     depth = 0  # `case … in` opens a level; `esac` closes it. Top-level case == 1.

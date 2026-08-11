@@ -185,7 +185,7 @@ ALLOWED_STEP_EXCEPTIONS = frozenset(
 # passed it 14/14 (2026-08-08 audit).
 #
 # Direction is an ALLOWLIST of legitimate conditions, not a blocklist of disable
-# shapes. That is deliberate — ADR-001 §4: an enumeration of ways to write
+# shapes. That is deliberate — ADR-001 §5: an enumeration of ways to write
 # "false" (`false`, `${{ false }}`, `1 == 2`, `github.event_name == 'never'`, ...)
 # is exactly the shape that got defeated three times over in #402/#404. Any new
 # condition, however it is spelled, fails until a human reviews it.
@@ -345,7 +345,7 @@ def _declares(block: str, col: int, key: str) -> bool:
     The `? key` / `: value` explicit form yields the same mapping key while the
     substring `key:` never appears anywhere, so no line matcher can reach it —
     it is unscannable, not merely unmatched, and is treated as present
-    (fail closed, the `unscannable_*` tripwire pattern, ADR-001 §4)."""
+    (fail closed, the `unscannable_*` tripwire pattern, ADR-001 §5)."""
     return key in keys_at_column(block, col) or bool(explicit_key_lines(block, key))
 
 
@@ -780,7 +780,7 @@ class TestGraphViolationDetector(unittest.TestCase):
         self.assertTrue([h for h in hits if "Run gitleaks" in h], f"not caught: {hits}")
 
     def test_step_if_is_not_an_enumeration_of_false_spellings(self):
-        """The allowlist direction is the whole point (ADR-001 §4).
+        """The allowlist direction is the whole point (ADR-001 §5).
 
         A blocklist of ways to write "false" is the shape that got defeated three
         times over in #402/#404. None of these are `false` literally, and every
