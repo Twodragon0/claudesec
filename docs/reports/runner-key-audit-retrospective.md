@@ -337,6 +337,9 @@ run: npm install -g npm@'>=10.0.0'  # OIDC floor is 11.5.1
 - [CI 설정 회귀 가드 카탈로그](../devsecops/ci-config-regression-guards.md) —
   카탈로그 행, Tier-3 모니터 목록, `Backlog sweep 2026-08-10`
 - [ADR-001: CI 가드 하드닝과 감사 주기](../devsecops/adr-001-ci-guard-hardening-and-audit-cadence.md)
+- [가드 감사 사이클 회고 — 2026-08-08 ~ 08-11](./guard-audit-cycle-2026-08-retrospective.md)
+  — 이 문서의 4.4·4.5절이 **왜 보론이 되었는지**를 다룬 후속 회고. 이 회고가 만든
+  체크리스트가 이 회고를 두 번 반증한 구조, 그리고 #410–#415까지의 사이클 전체
 - [가드 YAML-형태 스윕 회고 (#391–#394)](./guard-yaml-shape-sweep-retrospective.md)
 
 ## 10. 참고 기준
