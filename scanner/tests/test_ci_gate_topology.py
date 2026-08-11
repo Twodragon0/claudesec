@@ -33,10 +33,9 @@ from _ci_guard_util import (  # noqa: E402
     job_block,
     job_needs,
     required_aggregators,
-    strip_inline_comment as _strip_comment,
     top_level_jobs,
+    uses_refs,
     workflow_and_action_files,
-    yaml_key_pattern,
 )
 
 # scanner/tests/this_file -> parents[2] == repo root
@@ -68,10 +67,13 @@ UNGATED_JOBS_ALLOWLIST = {
 }
 
 
-# `uses:` bare OR quoted. A quoted key resolves identically for any YAML parser,
-# and an adversarial sweep proved `- "uses": actions/checkout@main` slipped past
-# the SHA-pin scan with the whole suite green. See `yaml_key_pattern`.
-_USES_RE = re.compile(rf"""\s*-?\s*{yaml_key_pattern('uses')}:\s*([^\s#'"]+)""")
+# The action-ref matcher moved to `_ci_guard_util.uses_refs` (2026-08-11). It had
+# been fixed here twice — a quoted KEY (`- "uses":`, the 2026-08-06 sweep) and
+# then a quoted VALUE (`uses: "actions/checkout@main"`, which produced no match at
+# all and left this guard at 15 passed on a mutable branch ref in the required
+# `lint.yml`) — while `test_ci_template_pin_policy` needed the same primitive. A
+# matcher this repo has had to correct three times must have ONE home, or the
+# fourth fix reaches only one copy.
 
 
 class TestActionShaPinning(unittest.TestCase):
@@ -92,13 +94,7 @@ class TestActionShaPinning(unittest.TestCase):
         )
         violations = []
         for path in workflow_files:
-            for lineno, raw in enumerate(
-                Path(path).read_text(encoding="utf-8").splitlines(), start=1
-            ):
-                m = _USES_RE.match(_strip_comment(raw))
-                if not m:
-                    continue
-                ref = m.group(1)
+            for lineno, ref in uses_refs(Path(path).read_text(encoding="utf-8")):
                 # Local composite actions and docker refs are not SHA-pinnable.
                 if ref.startswith("./") or ref.startswith("docker://"):
                     continue
@@ -264,22 +260,33 @@ class TestKeyQuotingAndEnumerationMutation(unittest.TestCase):
     """Non-vacuity for the 2026-08-06 sweep fixes: each detector must FIRE on the
     quoted / explicit-key / composite-action form that previously slipped past."""
 
-    def test_uses_matcher_reads_quoted_key(self):
+    def test_uses_matcher_reads_quoted_key_and_quoted_value(self):
+        # Every spelling that has ever hidden a ref from the SHA-pin scan. The
+        # quoted VALUE forms are the 2026-08-11 finding: the matcher's value class
+        # excluded the quote characters with no leading-quote allowance, so
+        # `uses: "actions/checkout@main"` matched NOTHING and a mutable branch ref
+        # in the required `lint.yml` left this file at 15 passed. `uses :` is the
+        # space-before-colon shape already pinned for step keys elsewhere.
         for line in (
             '      - "uses": actions/checkout@main',
             "      - 'uses': actions/checkout@v4",
             "      - uses: actions/checkout@v4",
+            '      - uses: "actions/checkout@main"',
+            "      - uses: 'actions/checkout@v4'",
+            '      - uses : "actions/checkout@main"',
+            '        uses: "actions/checkout@v4"  # trailing comment',
         ):
             with self.subTest(line=line.strip()):
-                m = _USES_RE.match(_strip_comment(line))
-                self.assertIsNotNone(
-                    m,
-                    "Mutation FAILED: a quoted `uses` key hid the action ref from "
-                    "the SHA-pin scan — standard YAML key quoting evades OWASP A08.",
+                got = uses_refs(line)
+                self.assertTrue(
+                    got,
+                    "Mutation FAILED: this `uses` spelling hid the action ref from "
+                    "the SHA-pin scan — an unmatched line reads exactly like a "
+                    "compliant one (OWASP A08).",
                 )
                 self.assertTrue(
-                    m.group(1).startswith("actions/checkout@"),
-                    f"captured the wrong ref: {m.group(1)!r}",
+                    got[0][1].startswith("actions/checkout@"),
+                    f"captured the wrong ref: {got[0][1]!r}",
                 )
 
     def test_uses_matcher_does_not_widen_to_other_keys(self):
@@ -288,8 +295,9 @@ class TestKeyQuotingAndEnumerationMutation(unittest.TestCase):
         # deleted rather than fixed.
         for line in ("      - name: uses something", '        with: {"uses": x}'):
             with self.subTest(line=line.strip()):
-                self.assertIsNone(
-                    _USES_RE.match(_strip_comment(line)),
+                self.assertEqual(
+                    uses_refs(line),
+                    [],
                     "False positive: the quoted-uses pattern matched a non-`uses` key.",
                 )
 

@@ -1,5 +1,10 @@
 # .github/workflows/dependency-review.yml
-# ClaudeSec template — blocks PRs that introduce known-vulnerable dependencies
+# ClaudeSec template — blocks PRs that introduce known-vulnerable dependencies.
+# INSTALLED workflow: `scripts/setup.sh` copies this file straight into your
+# .github/workflows/, so every `uses:` below is pinned to a 40-hex commit SHA
+# (OWASP CICD-SEC-3; GitHub hardening guidance). Each pin matches the SHA this
+# repo's own workflows run, and `scanner/tests/test_ci_template_pin_policy.py`
+# fails the build if they drift.
 
 name: "Dependency Review"
 
@@ -21,10 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Dependency Review
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
         with:
           fail-on-severity: moderate
           deny-licenses: GPL-3.0, AGPL-3.0

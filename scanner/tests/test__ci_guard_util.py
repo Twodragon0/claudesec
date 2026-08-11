@@ -46,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _ci_guard_util  # noqa: E402  (module handle: the enumeration test patches its dirs)
 from _ci_guard_util import (  # noqa: E402
     apply_mutation,
+    apply_regex_mutation,
     assert_disables,
     desired_contexts,
     explicit_key_lines,
@@ -63,6 +64,7 @@ from _ci_guard_util import (  # noqa: E402
     strip_inline_comment,
     strip_inline_comment_sh,
     top_level_jobs,
+    uses_refs,
     workflow_and_action_files,
     yaml_key_pattern,
 )
@@ -654,6 +656,51 @@ class TestWorkflowAndActionFiles(unittest.TestCase):
         self.assertTrue([p for p in found if "/actions/" in p])
 
 
+class TestUsesRefs(unittest.TestCase):
+    """The action-ref matcher, fixed in three directions and now single-sourced.
+    Each case below is a spelling that hid a ref from the SHA-pin scan."""
+
+    def test_bare_key_and_value(self):
+        self.assertEqual(
+            uses_refs("      - uses: actions/checkout@v4"), [(1, "actions/checkout@v4")]
+        )
+
+    def test_quoted_key(self):
+        # 2026-08-06 sweep (#391/#393/#394).
+        self.assertEqual(
+            uses_refs('      - "uses": a/b@main'), [(1, "a/b@main")]
+        )
+        self.assertEqual(uses_refs("      - 'uses': a/b@main"), [(1, "a/b@main")])
+
+    def test_quoted_value(self):
+        # 2026-08-11: the value class excluded the quote characters with no
+        # leading-quote allowance, so this matched NOTHING — the ref was invisible,
+        # not merely unpinned, and an unmatched line reads like a compliant one.
+        self.assertEqual(uses_refs('      - uses: "a/b@main"'), [(1, "a/b@main")])
+        self.assertEqual(uses_refs("      - uses: 'a/b@v4'"), [(1, "a/b@v4")])
+
+    def test_space_before_colon(self):
+        self.assertEqual(uses_refs("      - uses : a/b@v4"), [(1, "a/b@v4")])
+
+    def test_trailing_comment_is_stripped(self):
+        self.assertEqual(
+            uses_refs("      - uses: a/b@" + "0" * 40 + "  # v1.2.3"),
+            [(1, "a/b@" + "0" * 40)],
+        )
+
+    def test_whole_line_comment_is_not_a_ref(self):
+        # A ref quoted in prose is documentation, not an executed step.
+        self.assertEqual(uses_refs("      # - uses: a/b@main"), [])
+
+    def test_does_not_widen_to_other_keys(self):
+        self.assertEqual(uses_refs("      - name: uses something"), [])
+        self.assertEqual(uses_refs('        with: {"uses": x}'), [])
+
+    def test_line_numbers_are_one_indexed_and_absolute(self):
+        text = "jobs:\n  j:\n    steps:\n      - uses: a/b@v4\n"
+        self.assertEqual(uses_refs(text), [(4, "a/b@v4")])
+
+
 class TestApplyMutation(unittest.TestCase):
     """The helper exists because five probes in one audit failed the same way —
     the fixture did not actually change the thing it claimed to."""
@@ -674,6 +721,54 @@ class TestApplyMutation(unittest.TestCase):
 
     def test_count_limits_the_replacement(self):
         self.assertEqual(apply_mutation("x x x", "x", "y", count=2), "y y x")
+
+
+class TestApplyRegexMutation(unittest.TestCase):
+    """The regex sibling. Every check `apply_mutation` makes, plus the
+    ambiguity check a literal target does not need."""
+
+    def test_applies_and_returns_the_mutant(self):
+        self.assertEqual(apply_regex_mutation("a bbb c", r"b+", "X"), "a X c")
+
+    def test_non_matching_pattern_raises_rather_than_no_ops(self):
+        # `re.sub` returns the input unchanged on a miss — the same silent
+        # failure as `str.replace`, which is the whole reason this exists.
+        with self.assertRaises(AssertionError) as cm:
+            apply_regex_mutation("a b c", r"z+", "X")
+        self.assertIn("stale", str(cm.exception))
+
+    def test_replacement_equal_to_the_original_raises(self):
+        with self.assertRaises(AssertionError) as cm:
+            apply_regex_mutation("a b c", r"b", "b")
+        self.assertIn("unchanged", str(cm.exception))
+
+    def test_more_matches_than_count_raises(self):
+        # A pattern hitting two regions while the fixture replaces one is a
+        # coin flip over which control got disabled.
+        with self.assertRaises(AssertionError) as cm:
+            apply_regex_mutation("x1 x2", r"x\d", "y")
+        self.assertIn("matched 2 times", str(cm.exception))
+
+    def test_explicit_count_permits_the_matches_it_names(self):
+        self.assertEqual(apply_regex_mutation("x1 x2", r"x\d", "y", count=2), "y y")
+
+    def test_count_zero_replaces_every_match(self):
+        # `re.sub`'s own convention for "all", and it opts out of the
+        # ambiguity check because nothing is left unreplaced to be ambiguous.
+        self.assertEqual(apply_regex_mutation("x1 x2 x3", r"x\d", "y", count=0), "y y y")
+
+    def test_flags_are_honoured(self):
+        self.assertEqual(
+            apply_regex_mutation("A\nb\n", r"^b$", "X", flags=re.M), "A\nX\n"
+        )
+
+    def test_group_references_in_the_replacement(self):
+        # The reason a caller reaches for this API at all: keep the anchors,
+        # rewrite what sits between them.
+        self.assertEqual(
+            apply_regex_mutation("grep -ci 'real'", r"(grep -ci ')[^']*(')", r"\1decoy\2"),
+            "grep -ci 'decoy'",
+        )
 
 
 class TestAssertDisables(unittest.TestCase):
