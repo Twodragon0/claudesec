@@ -338,7 +338,7 @@ control" regression path, the exact class ADR-001 §1/§3 target):**
   required ecosystem token rode a trailing inline comment → now composes
   `strip_inline_comment` + mutation test.
 - `test_ci_security_gate.py` (**required `Security Scan Gate` merge-block**, the
-  #271 F-1 incident class) — surfaced by the mandated ADR-001 §2 review chain: a
+  #271 F-1 incident class) — surfaced by the mandated ADR-001 §3 review chain: a
   `;#exit 1` (a REAL bash comment — no space before `#`, verified the `exit 1`
   never runs) survived `strip_inline_comment` and satisfied the CRITICAL
   merge-block check while the active code was warn-only. Root cause was the
@@ -353,7 +353,7 @@ control" regression path, the exact class ADR-001 §1/§3 target):**
   backtick `` `#… ` `` form after the initial metachar set; both are now closed
   and confirmed). The whitespace-only `strip_inline_comment` is retained for
   YAML/Dockerfile callers, where `;#` is literal scalar content, not a comment.
-  A **5th-pass** review (ADR-001 §2) then found the ANSI-C `$'...'` case was NOT
+  A **5th-pass** review (ADR-001 §1) then found the ANSI-C `$'...'` case was NOT
   an over-strip but an **UNDER-strip** (false negative): `$'\''` is one escape-
   aware string, and a single-quote branch with no escape awareness ran off the
   line "in a quote" and never stripped the trailing `#`, hiding a dead `exit 1`
@@ -487,7 +487,7 @@ only raise a false alarm, and a sibling `env:`/`with:` key aligns with the `run:
 column and still terminates the scan (pinned by a new test, the inline analog of
 the existing block-scalar case).
 
-The mandated ADR-001 §2 adversarial pass then found **four more**, all confirmed
+The mandated ADR-001 §3 adversarial pass then found **four more**, all confirmed
 by executing the detector against PyYAML's resolved document as ground truth
 (PyYAML is available outside the CI test job, so it can serve as an oracle for
 what the guard *should* see without becoming a dependency of the guard):
