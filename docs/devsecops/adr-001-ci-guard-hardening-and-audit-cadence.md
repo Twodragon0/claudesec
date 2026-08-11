@@ -138,6 +138,52 @@ single author pass misses.
    widening a `branches:` filter is strictly additive, whereas a workflow-level
    `paths-ignore:` on a required check blocks merges permanently (#186).
 
+9. **Route every BLOCK COLLECTOR through the shared block primitives**
+   (`block_ends_at`, `key_column`), and match the collector to the grammar it
+   reads. Decision 2 says bound the haystack; this decides where the bound *is*,
+   and getting it wrong makes a perfectly-spelled matcher scan a block that stops
+   short — nothing found, which reads exactly like compliant.
+
+   A comment line ends **no** YAML mapping — verified against PyYAML, `a:` then
+   `x: 1`, a `# c` line, then `y: 2` resolves to both keys — so a terminator of the
+   form "first non-blank line at or left of the threshold column" hides every key
+   after a comment. Three live bypasses on 2026-08-11 (#419), one comment line each,
+   all measured against PyYAML on the real files: a workflow-level `packages: write`
+   with the owning guard at `12 passed`, and a step-level and a job-level
+   `continue-on-error:` on the required `Security Scan Gate` at `61 passed` — the
+   last two defeating the guards written FOR that key (Decisions 4 and 6 in action,
+   both green). Any `min(indent)` column derivation must skip blank and comment
+   lines for the same reason; five copies existed and every one was wrong the moment
+   comments could live inside a block.
+
+   The rule is grammar-specific, not universal. In a block/folded scalar a `#` is
+   content and a less-indented one is a `ParserError`, so a collector over a
+   `run: |` body is **right** to stop there — "fixing" it for consistency
+   over-captures shell out of a workflow file, which is how a guard comes to execute
+   text it never meant to read. Follow the parser, not the appearance of
+   consistency.
+
+   Two corollaries, both earned in the same cycle:
+   - **Placement decides a probe's verdict.** The same comment at the START of a
+     block truncates unrelated keys away, trips other assertions, and reads as
+     "caught" — a false negative in the probe, not in the guard.
+   - **"No observable effect" is not a verdict** (#420). It describes a measurement
+     and explains nothing, which is how a stale "known fine" gets written. Find the
+     reason: the immunity may live in the guard's CALLER — one `strip_comment_lines`
+     call in `setUpClass`, which nothing asserted — and that is what needs pinning.
+
+### On citing this ADR
+
+Cite decisions by **title**, not only by number, and **never renumber** this list:
+62 references to `ADR-001 §N` exist across `scanner/`, `docs/` and `.claude/`, so an
+inserted item silently re-points all of them. This decision is appended as §9 for
+that reason rather than filed next to Decision 2 where it belongs topically.
+
+Known drift, recorded rather than mass-edited: most of the 25 `ADR-001 §4`
+citations quote *"prefer a rule complete by construction over an incomplete
+reassembler"*, which is **§5** (Prefer a grammar-complete rule). §4 is the
+mutation-self-test decision. Read those citations by their quoted text.
+
 ## Consequences
 
 - **Positive:** silent weakening of a CI gate fails loudly and reviewably; the

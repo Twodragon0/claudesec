@@ -190,6 +190,66 @@ you claim it.
   `x=$(cmd)#c` where the naive one is right. Neither dominates — re-attack the
   new version on its own terms, not just the old one's known gaps.
 
+### The block collector — the extractor is the matcher's haystack
+
+A matcher can be spelling-perfect and still see nothing, because what it scans is
+whatever the block collector returned. Attack the collector first.
+
+**Use the primitives; do not hand-roll.**
+
+- `block_ends_at(line, col)` — whether a line ENDS a mapping/sequence block.
+- `key_column(block)` — a block's own key column, ignoring blank AND comment lines.
+
+Both landed 2026-08-11 (#419) after the same bug appeared in five collectors and
+five separate `min(indent)` derivations. Three were live bypasses, each one comment
+line, each measured against PyYAML on the real file:
+
+```text
+npm-publish.yml  column-0 comment under `permissions:`
+  PyYAML {'contents': 'read', 'packages': 'write'}    guard 12 passed
+security-scan.yml  comment at the gate STEP's dash column
+  PyYAML step keys ['continue-on-error', 'name', 'run']  guards 61 passed
+security-scan.yml  comment at the `scan` JOB's key column
+  PyYAML jobs.scan.continue-on-error = True             guards 61 passed
+```
+
+The last two defeated the guards written *for that key*. The first defeated a
+whole-block anchor its own comment called "a structural catch-all for any added key
+the write-grant scan does not classify" — a catch-all only within what the
+extractor RETURNED, and the truncated block really was exactly `contents: read`.
+
+**Match the collector to the grammar it reads.** Measured both ways:
+
+```text
+mapping        a:\n  x: 1\n# c\n  y: 2        -> {'a': {'x': 1, 'y': 2}}
+block scalar   a:\n  run: |\n    e\n# c\n  e  -> ParserError
+```
+
+So a comment ends nothing in a mapping and does not keep a scalar alive either.
+`extract_run_block` breaking on such a line is **correct**; "fixing" it for
+consistency over-captures shell out of a workflow file — the execution-safety
+hazard that guard exists to avoid. Two rules that look inconsistent and are not:
+they follow the parser.
+
+**Placement decides a probe's verdict.** The same comment at the START of a job
+truncates `steps:` away too, trips unrelated assertions and reads as "caught" — a
+false negative in the probe, not the guard. Put it where an author regrouping keys
+would: at the END of the block it terminates.
+
+**Re-run the existing mutation tests after fixing a shared primitive, before
+reviewing the diff.** Once comments live inside a block, every column derivation
+inherits them. #419's second-order defect (a column-2 divider comment dragging
+`job_col` to 2, so `_declares(block, 2, key)` looked a level out) surfaced as
+`28 passed` → `1 failed`. Static review would not have found it.
+
+**Never file "no observable effect" as a verdict.** It describes a measurement and
+explains nothing, which is how a stale "known fine" is written. `dashboard_control_
+smoke` was recorded that way and turned out IMMUNE — because `setUpClass` builds
+`cls.text` with `strip_comment_lines(cls.raw)`. The immunity was in the **caller**,
+one line, unasserted; the collector alone still truncates
+(`harness_step_block(RAW, …) -> None` vs `(STRIPPED, …) -> the step`). Find the
+reason, then pin it where it lives (#420).
+
 ### The inert guard — check the HAYSTACK before the matcher
 
 A subtler failure than a beatable matcher: a guard whose **haystack is the raw
