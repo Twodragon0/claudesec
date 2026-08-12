@@ -194,8 +194,8 @@ inserting or renumbering fails the build with a message pointing here. Appending
 a one-line guard update — deliberately, so it is a review moment rather than a
 silent re-pointing of 60-odd citations.
 
-The `§2`/`§3` follow-up is now done too (22 sites classified by quoted text,
-**13 corrected, 5 already right, 4 left as genuinely ambiguous**):
+The `§2`/`§3` follow-up is now done too (22 sites: **17 corrected — 13 by quoted
+text, 4 by provenance — and 5 already right**). The 13 classified by their text:
 
 | Was | Now | Why |
 |---|---|---|
@@ -208,16 +208,36 @@ Five `§2` citations were already correct (the inert-guard class, an unhardened
 service certified by a mis-cut block, "stripped BEFORE the job block is cut out")
 and stay.
 
-**Four are left alone on purpose**, because two decisions fit and the text does not
-choose between them: `test_ci_no_ere_pipe_regression`'s "§2 audit bypass" /
-"Audit finding" (§3's per-PR review vs §6's periodic audit) and
-`test_ci_cross_os_non_required`'s "without IGNORECASE the capitalized form evaded"
-(§5's form-enumeration rule vs whichever pass found it). Guessing would replace one
-wrong number with another, which is the mistake the §4 sweep avoided by classifying
-each site.
+**The four held sites are now resolved — by provenance, not by re-reading the text.**
+All four were written the same day in `b1fb276` (squashed into `d9c79a2`, PR #379,
+merged 2026-08-05 14:10 KST), whose own body opens *"ADR-001 §2 adversarial pass
+on #379 found two guards still bypassable"*. On 2026-07-30, §2 **was**
+**Two-pass adversarial review for any substring/parse guard before merge** — so all
+four were correct when written. `9a530d6` (PR #390, 2026-08-05 18:47 KST, **4h37m
+after #379 merged**) inserted the new §2 (Scope the haystack) and shifted old §2→§3,
+§3→§4, §4→§5, §5→§6 while touching **no** citation. Both apparent ambiguities
+dissolve on that timeline: today's §6 was §5 then and today's §5 was §4 then, so
+neither is reachable from a "§2" written before the insertion. All four → **§3**.
+
+| Site | Now | Evidence |
+|---|---|---|
+| `no_ere_pipe_regression:102` "audit bypass" | **§3** Two-pass adversarial review … before merge | `b1fb276` added the `\begrep\b` alternative; the *same hunk* relabelled the #297-sourced finding on the next line to "an **earlier** audit bypass", separating the two passes by hand |
+| `no_ere_pipe_regression:385` "Audit finding" | **§3** (same) | same commit; `test_detects_egrep_backslash_pipe` is new in the second pass. The §6-sourced finding in this guard (`--extended-regexp`, `87c50e2`, PR #379's first commit) carries no `§N` at all |
+| `cross_os_non_required:48` "the capitalized form evaded" | **§3** (same) | `b1fb276`: *"false NEGATIVE: case-sensitive, so GitHub's own `macOS-14` … evaded"*. The grammar-complete rule was §**4** that day and was available to cite — it was not cited |
+| `cross_os_non_required:59` "false-positive finding" | **§3** (same) | same commit: *"false POSITIVE: … false-tripped a REQUIRED check"*. §3 is also the only decision whose text has a pass look for "a bypass (false negative) **or a false positive**"; §2 calls a raw-file over-report "a false alarm" and exempts it |
+
+Corroborated independently by the Q3 retrospective, whose #379 row files all three
+findings — case-insensitivity, the charset false positive, and `egrep` — under
+**"잔여 우회 (2차 패스에서 발견)"**: residual bypasses found in the *second* pass.
+
+The generalisable rule: when two decisions both fit the quoted text, the
+**introducing commit** decides, because a citation is only ever as stable as the
+numbering in force the day it was written. `9a530d6` is the single insertion behind
+both drift classes — the §4→§5 one fixed in #423 and this §2→§3 one.
 
 The guard's limit stands: it stops NEW drift and cannot detect a citation pointing
-at a real decision it does not mean. That is what reading the quoted text is for.
+at a real decision it does not mean. That is what reading the quoted text — and,
+when the text ties, the commit that wrote it — is for.
 
 ## Consequences
 

@@ -862,9 +862,19 @@ it claimed to — and each nearly produced a "fix" to a guard that was correct:
 the result must differ, or it raises at the point of the mistake. **1, 3 and 4
 are semantic** — whether the edit disables the CONTROL, not whether it changed
 bytes — and no helper decides that; the docstring says so rather than implying
-coverage it does not have. Migrated the six literal-`replace` fixtures;
-`re.sub`-based ones in `test_ci_security_gate_behaviour.py` are left alone
-rather than forced into a substring API.
+coverage it does not have. Migrated the six literal-`replace` fixtures; the
+`re.sub`-based ones in `test_ci_security_gate_behaviour.py` were initially left
+alone rather than forced into a substring API, then migrated in **#416** once
+`apply_regex_mutation` gave them a region API with the extra check a literal
+does not need (more matches than `count` is an error, because a pattern cannot
+be eyeballed).
+
+The nine probe errors this class produced (#411, #415, #419, #420, #424) are
+written up as an ordered pre-flight checklist in the
+`ci-config-guard-claudesec` skill, under **"Probe checklist — run this before
+you believe a GAP"** — including the unifying signal: a probe claiming a bypass
+while the guard suite reports `16 passed` is a contradiction to resolve, not a
+finding to file.
 
 ### Verified already-guarded during this review (not backlog)
 
