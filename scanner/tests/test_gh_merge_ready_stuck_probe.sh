@@ -264,38 +264,39 @@ use_real_clock() {
   unset FAKE_CLOCK DATE_STEP
 }
 
-# Portable stand-in for `timeout(1)`, which is GNU coreutils and is absent from a
-# default macOS install (CLAUDE.md's documented local path is `bash
-# scanner/tests/test_<name>.sh`, so this has to work there too). A killed run
-# surfaces as rc 137, which fails the scenario's own assertions loudly.
-# Overridable so the watchdog itself can be demonstrated firing (set it to 1 and
-# every clock-driven scenario reports the killed-run FAIL below).
+# Per-invocation watchdog. `timeout(1)` is GNU coreutils: present on the CI
+# runners (where an unbounded hang would burn the job's 6-hour default) and
+# absent from a stock macOS, where a dev can just ^C. `gtimeout` covers macOS
+# with coreutils installed. If NEITHER exists the runs are unwrapped — stated
+# plainly rather than pretended away.
+#
+# Two hand-rolled alternatives were measured and rejected, both because this file
+# also runs under kcov's 30s per-test cap: a `( sleep 60; kill )` subshell leaves
+# the sleep orphaned when the subshell is killed (19 strays outlived one run, and
+# kcov ptraces the whole tree, so they held it open -> `elapsed=30s rc=124`), and
+# a 1s-polling killer cost ~1s of teardown per invocation (44s total).
 WATCHDOG_SECONDS="${WATCHDOG_SECONDS:-60}"
-run_with_watchdog() {
-  local seconds="$1"
-  shift
-  "$@" &
-  local pid=$!
-  ( sleep "$seconds"; kill -9 "$pid" 2>/dev/null ) &
-  local killer=$!
-  wait "$pid"
-  local rc=$?
-  kill "$killer" 2>/dev/null || true
-  wait "$killer" 2>/dev/null || true
-  return "$rc"
-}
+WATCHDOG_BIN=""
+for candidate in timeout gtimeout; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    WATCHDOG_BIN="$candidate"
+    break
+  fi
+done
+# `timeout` reports 124 when it fires.
+WATCHDOG_RC=124
 
 run_merge() {
   local label="$1"
   export GH_LOG="$WORK/gh-$label.log"
   : >"$GH_LOG"
-  run_with_watchdog "$WATCHDOG_SECONDS" \
+  ${WATCHDOG_BIN:+$WATCHDOG_BIN $WATCHDOG_SECONDS} \
     env PATH="${CLOCK_PATH:+$CLOCK_PATH:}$STUB_BIN:$PATH" \
     bash "$SCRIPT_UNDER_TEST" 424 >"$WORK/out-$label.log" 2>&1
   RUN_RC=$?
   OUT="$(cat "$WORK/out-$label.log")"
   GH_CALLS="$(cat "$GH_LOG")"
-  if [[ "$RUN_RC" -eq 137 ]]; then
+  if [[ -n "$WATCHDOG_BIN" && "$RUN_RC" -eq "$WATCHDOG_RC" ]]; then
     echo "  FAIL: $label did not terminate within ${WATCHDOG_SECONDS}s (watchdog killed it)"
     ((TEST_FAILED++))
   fi
