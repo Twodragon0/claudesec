@@ -152,6 +152,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: ZAP Full Scan
+        # VERDICT SUPPRESSED — WHAT IT HIDES: `continue-on-error` stops a ZAP
+        # non-zero exit from failing the job. Unlike dast-baseline.yml this one is
+        # COMPENSATED: the status is preserved as `steps.zap.outcome` and re-raised
+        # by "Notify on Critical Findings" (`if: steps.zap.outcome == 'failure'`)
+        # below, so findings still reach a human. What remains lost is the
+        # distinction between "ZAP found something" and "ZAP could not run" — both
+        # surface as `outcome == 'failure'` and produce the same notification.
+        # If that notify step is ever removed, this becomes a silent suppression.
         uses: zaproxy/action-full-scan@3c58388149901b9a03b7718852c5ba889646c27c  # v0.13.0
         id: zap
         continue-on-error: true

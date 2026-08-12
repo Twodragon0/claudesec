@@ -44,6 +44,15 @@ jobs:
         run: chmod -R a+w .
 
       - name: ZAP Baseline Scan
+        # VERDICT SUPPRESSED — WHAT IT HIDES: three layers, all non-blocking.
+        # `continue-on-error` swallows the step's status; `fail_action: false` stops
+        # ZAP itself from exiting non-zero on findings; `allow_issue_writing: false`
+        # stops it filing an issue. Net effect: DAST findings are recorded ONLY in
+        # the uploaded `zap-baseline-results` artifact, which nothing reads
+        # automatically — an alert appearing here notifies no one, and a scan that
+        # fails to run at all is indistinguishable from a clean scan.
+        # Deliberate (this is a non-required advisory job on a local container),
+        # but it means the DAST verdict is human-review-only.
         uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25  # v0.15.0
         continue-on-error: true
         with:

@@ -83,6 +83,23 @@ jobs:
           npm init -y >/dev/null 2>&1
 
           # Transient install/network failure -> no-op (don't cry wolf).
+          #
+          # VERDICT SUPPRESSED HERE — WHAT IT HIDES (audit 2026-08-12): this branch
+          # exits 0 having verified NOTHING, and `status=transient` has no consumer
+          # anywhere in this workflow (the only readers are the two
+          # `status == 'failed'` steps below). So a PERSISTENT install failure —
+          # package unpublished or renamed, registry blocking the runner, a bad
+          # `npm@>=11.5.1` upgrade, an npm-side auth change — makes this monitor
+          # report green forever while never once checking a signature. Nothing
+          # opens an issue, nothing writes a summary, nothing degrades.
+          # This is exactly the dark-workflow class of #396/#397, and the sibling
+          # notifier protection-drift-watch.yml was FIXED for it: its no-op branch
+          # opens a self-healing `protection-drift` issue precisely because "a green
+          # check for work that never happened is worse than no check"
+          # (protection-drift-watch.yml:19-31 — the standing example).
+          # Distinguishing transient from persistent needs state this workflow does
+          # not keep. The cheap fix is the sibling's, i.e. make the no-op branch
+          # visible rather than silent. Not changed here, annotation-only PR.
           if ! npm install claudesec@latest --no-audit --no-fund > install.log 2>&1; then
             echo "::warning::Could not install claudesec@latest (transient?). Skipping."
             cat install.log || true
