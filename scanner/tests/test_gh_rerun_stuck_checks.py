@@ -11,18 +11,33 @@ Modelled on the real 2026-08-11 incident (PR #424): the `Lint` run reported
 `completed success` while its check-runs — including both required contexts' — sat
 `in_progress` for 25+ minutes with every step completed.
 
-stdlib-only; no network, no subprocess, no `scanner/lib` import. Passes under pytest
-and `python3 -m unittest`.
+`main()`'s EXIT CODES are pinned here too, because `scripts/gh-merge-ready-pr.sh`
+now calls this from its merge wait loop and branches on the status: 0 = nothing
+stuck, 10 = stuck (reported), 11 = stuck (re-run issued), 1 = `gh` failed, 2 =
+usage error. Before that contract existed every path returned 0, so the caller
+had no signal short of grepping stdout. `main()` is driven with a stubbed
+`_gh_json`/`subprocess.run`.
+
+stdlib-only; no network, no real subprocess, no `scanner/lib` import. Passes under
+pytest and `python3 -m unittest`.
 """
 
+import io
+import re
+import subprocess
 import sys
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
+import gh_rerun_stuck_checks as detector  # noqa: E402
 from gh_rerun_stuck_checks import run_id_from_details_url, select_stuck  # noqa: E402
+
+MERGE_SH = REPO_ROOT / "scripts" / "gh-merge-ready-pr.sh"
 
 NOW = datetime(2026, 8, 11, 15, 30, tzinfo=timezone.utc)
 RUN_URL = "https://github.com/o/r/actions/runs/31504280368/job/93821831557"
@@ -138,6 +153,148 @@ class TestSelectStuck(unittest.TestCase):
         )
         self.assertEqual(len({e["run_id"] for e in stuck}), 1)
         self.assertEqual(len(stuck), 2)
+
+
+def live_check(name="Lint", minutes_ago=30, url=RUN_URL, status="in_progress"):
+    """A check-run timestamped against the REAL clock.
+
+    `main()` calls `datetime.now()` itself, so these cases cannot use the frozen
+    NOW the pure-function tests use."""
+    started = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+    return {"name": name, "status": status, "started_at": started.isoformat(),
+            "details_url": url}
+
+
+def stub_gh_json(check_runs, runs, head="0" * 40):
+    """A `_gh_json` stand-in dispatching on the `gh` argv the script builds."""
+    def _stub(args):
+        if args[:2] == ["pr", "view"]:
+            return {"headRefOid": head}
+        if args[0] == "api":
+            return check_runs
+        if args[0] == "run":
+            return runs
+        raise AssertionError(f"unexpected gh invocation: {args}")
+    return _stub
+
+
+class MainExitCodeCase(unittest.TestCase):
+    def run_main(self, argv, check_runs, runs, gh_json=None, rerun_side_effect=None):
+        """`(exit_code, stdout, rerun_calls)` for `main(argv)`, fully stubbed."""
+        with mock.patch.object(detector, "_gh_json", gh_json or stub_gh_json(check_runs, runs)), \
+                mock.patch.object(detector.subprocess, "run") as run_mock:
+            run_mock.side_effect = rerun_side_effect
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                code = detector.main(argv)
+        return code, out.getvalue(), [c.args[0] for c in run_mock.call_args_list]
+
+
+class TestMainExitCodes(MainExitCodeCase):
+    def test_nothing_stuck_exits_zero(self):
+        code, out, calls = self.run_main(
+            ["424"], [live_check(status="completed")], [run()]
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("no stuck check-runs", out)
+        self.assertEqual(calls, [])
+
+    def test_only_pending_and_external_exits_zero(self):
+        # THE negative case: incomplete check-runs exist and the exit code must
+        # still be 0, or the caller re-runs (or nags about) healthy work.
+        code, out, calls = self.run_main(
+            ["424"],
+            [live_check("Docker Dashboard Smoke Test", minutes_ago=45),
+             live_check("GitGuardian", url="https://dashboard.gitguardian.com/x")],
+            [run(status="in_progress")],
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("pending", out)
+        self.assertIn("external", out)
+        self.assertEqual(calls, [])
+
+    def test_stuck_report_only_exits_10_and_reruns_nothing(self):
+        code, out, calls = self.run_main(["424"], [live_check()], [run()])
+        self.assertEqual(code, detector.EXIT_STUCK_FOUND)
+        self.assertEqual(code, 10)
+        self.assertIn("STUCK", out)
+        self.assertEqual(calls, [])
+
+    def test_stuck_with_rerun_exits_11_and_reruns_once_per_run_id(self):
+        code, out, calls = self.run_main(
+            ["424", "--rerun"],
+            [live_check("Lint"), live_check("Docker Dashboard Smoke Test")],
+            [run()],
+        )
+        self.assertEqual(code, detector.EXIT_STUCK_RERUN)
+        self.assertEqual(code, 11)
+        self.assertIn("re-running run 31504280368", out)
+        self.assertEqual(calls, [["gh", "run", "rerun", "31504280368"]])
+
+    def test_gh_query_failure_exits_1(self):
+        # An unknown verdict must not read as "nothing stuck" (0).
+        def boom(args):
+            raise subprocess.CalledProcessError(1, ["gh", *args])
+
+        code, _, calls = self.run_main(["424"], [], [], gh_json=boom)
+        self.assertEqual(code, detector.EXIT_GH_ERROR)
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, [])
+
+    def test_malformed_gh_payload_exits_1(self):
+        code, _, _ = self.run_main(
+            ["424"], [], [], gh_json=lambda args: {"unexpected": "shape"}
+        )
+        self.assertEqual(code, 1)
+
+    def test_rerun_failure_exits_1_not_11(self):
+        code, _, calls = self.run_main(
+            ["424", "--rerun"], [live_check()], [run()],
+            rerun_side_effect=subprocess.CalledProcessError(1, ["gh", "run", "rerun"]),
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(len(calls), 1)
+
+    def test_usage_error_exits_2(self):
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                detector.main([])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_stuck_minutes_is_forwarded_from_the_cli(self):
+        # The caller passes --stuck-minutes through; a threshold above the age
+        # must flip the verdict back to 0.
+        args = (["424", "--stuck-minutes", "60"], [live_check(minutes_ago=30)], [run()])
+        self.assertEqual(self.run_main(*args)[0], 0)
+        self.assertEqual(
+            self.run_main(["424", "--stuck-minutes", "10"], args[1], args[2])[0], 10
+        )
+
+    def test_the_codes_stay_out_of_the_shells_reserved_range(self):
+        codes = [detector.EXIT_OK, detector.EXIT_GH_ERROR,
+                 detector.EXIT_STUCK_FOUND, detector.EXIT_STUCK_RERUN]
+        self.assertEqual(len(set(codes)), 4)
+        for code in codes:
+            self.assertLess(code, 126, "126/127/128+n belong to the shell")
+
+
+class TestShellCallerAgreesOnTheCodes(unittest.TestCase):
+    """`gh-merge-ready-pr.sh` hard-codes the two stuck codes; pin them together.
+
+    A silent drift here is the worst failure mode available: the loop would
+    classify a real detection as "probe failed" and keep waiting."""
+
+    def setUp(self):
+        self.text = MERGE_SH.read_text(encoding="utf-8")
+
+    def _shell_const(self, name):
+        m = re.search(rf"^{name}=(\d+)$", self.text, re.MULTILINE)
+        self.assertIsNotNone(m, f"{name} not declared in {MERGE_SH.name}")
+        return int(m.group(1))
+
+    def test_found_and_rerun_codes_match_the_detector(self):
+        self.assertEqual(self._shell_const("STUCK_EXIT_FOUND"), detector.EXIT_STUCK_FOUND)
+        self.assertEqual(self._shell_const("STUCK_EXIT_RERUN"), detector.EXIT_STUCK_RERUN)
 
 
 if __name__ == "__main__":

@@ -272,6 +272,8 @@ jobs:
         run: bash scanner/tests/test_check_infra_kubernetes.sh
       - name: Run bash unit tests (network/scan-tools checks)
         run: bash scanner/tests/test_check_network_scan_tools.sh
+      - name: Run bash unit tests (merge-ready stuck-check probe wiring)
+        run: bash scanner/tests/test_gh_merge_ready_stuck_probe.sh
       - name: Run scanner pytest + coverage gate (>=99%)
         id: scanner_tests
         env:

@@ -41,6 +41,21 @@ otherwise would hide a genuinely pending third-party scan.
 Read-only unless `--rerun` is passed. `gh` is the only dependency; the decision
 logic (`select_stuck`) is pure and unit-tested in
 `scanner/tests/test_gh_rerun_stuck_checks.py`.
+
+EXIT CODES (the machine-readable half of the output)
+----------------------------------------------------
+`scripts/gh-merge-ready-pr.sh` calls this from its wait loop, so the verdict has
+to survive as an exit status rather than a stdout string a caller has to grep:
+
+    0   no stuck check-runs (including "only external/pending ones")
+    10  stuck check-runs found, reported only (no `--rerun`)
+    11  stuck check-runs found and the owning workflow run(s) were re-run
+    1   a `gh` call failed (query or re-run) — verdict unknown
+    2   argparse usage error (argparse's own convention)
+
+10 and 11 are distinct because they mean different things to an operator: 10 is
+"someone must act", 11 is "action was already taken, keep waiting". Both stay
+below 126 so they never collide with the shell's own 126/127/128+n codes.
 """
 
 import argparse
@@ -51,6 +66,11 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 _RUN_ID_RE = re.compile(r"/actions/runs/(\d+)")
+
+EXIT_OK = 0
+EXIT_GH_ERROR = 1
+EXIT_STUCK_FOUND = 10
+EXIT_STUCK_RERUN = 11
 
 
 def run_id_from_details_url(url) -> int:
@@ -137,14 +157,21 @@ def main(argv=None) -> int:
     )
     args = ap.parse_args(argv)
 
-    head = _gh_json(["pr", "view", args.pr, "--json", "headRefOid"])["headRefOid"]
-    check_runs = _gh_json(
-        ["api", f"repos/{{owner}}/{{repo}}/commits/{head}/check-runs", "--jq", ".check_runs"]
-    )
-    runs = _gh_json(
-        ["run", "list", "--commit", head, "--limit", "50", "--json",
-         "databaseId,status,conclusion,workflowName"]
-    )
+    # A failed query means the verdict is UNKNOWN, which is not the same as
+    # "nothing stuck" — the caller (the merge wait loop) must be able to tell
+    # those apart, so this exits 1 rather than raising a traceback out of 0/10/11.
+    try:
+        head = _gh_json(["pr", "view", args.pr, "--json", "headRefOid"])["headRefOid"]
+        check_runs = _gh_json(
+            ["api", f"repos/{{owner}}/{{repo}}/commits/{head}/check-runs", "--jq", ".check_runs"]
+        )
+        runs = _gh_json(
+            ["run", "list", "--commit", head, "--limit", "50", "--json",
+             "databaseId,status,conclusion,workflowName"]
+        )
+    except (subprocess.SubprocessError, OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"gh query failed: {exc!r}", file=sys.stderr)
+        return EXIT_GH_ERROR
 
     stuck, external, pending = select_stuck(
         check_runs, runs, datetime.now(timezone.utc), args.stuck_minutes
@@ -155,17 +182,21 @@ def main(argv=None) -> int:
         print(f"  external  {entry['name']} ({entry['age_minutes']}m) — no workflow run to re-run")
     if not stuck:
         print("no stuck check-runs")
-        return 0
+        return EXIT_OK
 
     for entry in stuck:
         print(f"  STUCK     {entry['name']} ({entry['age_minutes']}m, run {entry['run_id']})")
     if not args.rerun:
         print("\nre-run with --rerun (this re-runs the whole workflow, not one job)")
-        return 0
+        return EXIT_STUCK_FOUND
     for rid in sorted({e["run_id"] for e in stuck}):
         print(f"re-running run {rid}")
-        subprocess.run(["gh", "run", "rerun", str(rid)], check=True, timeout=120)
-    return 0
+        try:
+            subprocess.run(["gh", "run", "rerun", str(rid)], check=True, timeout=120)
+        except (subprocess.SubprocessError, OSError) as exc:
+            print(f"gh run rerun {rid} failed: {exc!r}", file=sys.stderr)
+            return EXIT_GH_ERROR
+    return EXIT_STUCK_RERUN
 
 
 if __name__ == "__main__":
