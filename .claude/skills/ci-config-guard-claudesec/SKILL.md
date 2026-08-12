@@ -68,7 +68,8 @@ a severity `exit 1`, a load-bearing version pin.
      branch you think it does — instrument the counter if you are not sure.
 5. If the guard parses text (substring / regex / mini-parser), do the
    adversarial pass in **Parse/substring guards** below before merge. This is
-   not optional for that class — ADR-001 Decision 2.
+   not optional for that class — ADR-001 Decision 3, "Two-pass adversarial review
+   for any substring/parse guard before merge".
 
 ## Template
 
@@ -264,6 +265,54 @@ would learn the **probe**, not the guard, is what is broken.
    surfaced three steps later as `bash: syntax error near unexpected token 'fi'`.
    Assert the anchor separately in that case.
 
+8. **An absence assertion needs a positive control — watch the payload FIRE with
+   the control removed.** "X did not happen" measures nothing until you have seen
+   X happen; without that, the assertion certifies whichever unrelated safety
+   mechanism aborted first — `set -u`, `set -e`, a missing file, an early
+   `return`. The review of #431 found that PR's own advertised security assertion
+   vacuous: it set `STUCK_MINUTES='a[$(touch $WORK/pwned)]'` and asserted the file
+   was never created, to prove a validation regex kept operator text out of
+   `$(( ))` (arithmetic evaluation resolves array subscripts, so it *executes*
+   command substitution). Array `a` is **unset**, so `set -u` aborted the script
+   before the subscript was ever evaluated; with the validation replaced by
+   `if false; then`, `no command substitution reached $(( ))` was **still green**.
+   The payload has to name an array already **defined** at that point
+   (`merge_args`). Same script, `set -euo pipefail`, one env var reaching
+   `$(( MINUTES * 60 / 2 ))`, validation switchable (bash 5.3.15, paths elided):
+
+   ```text
+   === payload=unset    validation=on  ===   MINUTES='a[$(touch $W/pwned)]'
+       Invalid MINUTES: a[$(touch .../pwned)]
+       exit=1  pwned=absent
+   === payload=unset    validation=off ===
+       sut.sh: line 16: a: unbound variable
+       exit=1  pwned=absent      <-- VACUOUS: set -u aborted, the regex did nothing
+   === payload=defined  validation=on  ===   MINUTES='defined_arr[$(touch $W/pwned)]'
+       Invalid MINUTES: defined_arr[$(touch .../pwned)]
+       exit=1  pwned=absent
+   === payload=defined  validation=off ===
+       sut.sh: line 16: one: unbound variable
+       exit=1  pwned=CREATED     <-- the validation is what stops this
+   ```
+
+   Rows 2 and 4 assert the identical thing; only row 4 distinguishes the control
+   from `set -u`, and only row 4 makes row 3 mean anything.
+
+   **A RED from one assertion does not certify its neighbour.** The same
+   validation-removal here *did* turn the sibling "garbage is rejected" assertion
+   red — which is precisely why nobody re-read the other one, and why item 6's
+   harness-can-produce-a-RED check passes while the vacuity survives untouched.
+   Score a mutation per assertion, not per run.
+
+   No helper does this for you. `assert_disables(detector, clean_text,
+   mutant_text, label="")` (item 7) is this same idea for a text detector and is
+   the only both-directions primitive in `scanner/tests/_ci_guard_util.py`; there
+   is **no** execution-level equivalent, and the `.sh` tests each hand-roll their
+   own `assert_contains`. For a script under test you write both runs yourself.
+   *Probe is wrong if:* the absence assertion still passes with the control
+   deleted. Then it never reached the control, and green anywhere else in the file
+   does not cover it.
+
 ## Parse/substring guards — the false-negative class
 
 Text matchers share one failure mode: the real control is gone but a protected
@@ -303,7 +352,7 @@ you claim it.
 - **Model the grammar, not a proxy.** Indentation is not what decides `case` arm
   ownership — `case`/`esac` depth is. A block scalar *is* any `run:` value
   starting with `|`/`>`. A third patch to an enumeration is a redesign signal
-  (ADR-001 Decision 4).
+  (ADR-001 Decision 5, "Prefer a grammar-complete rule over enumerating forms").
 - **A regex can be wrong in both directions at once.** #379's runner regex was
   too narrow (case-sensitive → missed `macOS-latest`) *and* too broad (a genuine
   `windows-1252` charset or `macos-universal` arch token in `run:`/`name:` text
