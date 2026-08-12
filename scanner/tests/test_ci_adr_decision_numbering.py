@@ -14,17 +14,28 @@ verbatim — "prefer a rule complete by construction over an incomplete
 reassembler", "a third patch to an enumeration is a redesign signal", "model the
 grammar, not a proxy". §4 is the mutation-self-test decision, and exactly two
 citations meant it. The most plausible history is an item inserted above it, which
-is the operation this guard now blocks.
+is the operation this guard now forces into the open.
+
+"Into the open", not "blocks": the pin is one-sided. Renumbering the ADR while
+reordering `DECISIONS` in the SAME commit passes all ten tests (measured 2026-08-12
+by in-memory mutation; the one-sided control — ADR renumbered, `DECISIONS` untouched
+— correctly fails `test_numbers_map_to_the_same_decisions`). The guarantee is that a
+renumber cannot be a silent one-line edit: it must arrive as a lockstep diff through
+this file, where a reviewer sees it. An APPEND without its `DECISIONS` line does fail
+outright, because `test_no_extra_or_missing_decisions` is a set equality.
 
 The fix for that drift was to correct the citations, not to renumber the ADR back:
 renumbering to satisfy one rule's citations would have broken §1/§2/§3/§6's.
 
-`_CITE_RE` below matches only the `ADR-001 §N` spelling — 64 of the 81 live
-citations. The other 17 use `ADR §N`, `ADR-001 Decision N`, a bare `Decision N`, or
-the tail of a `§N/§M` chain, and the 2026-08-12 vintage sweep found that ALL five
-citations still carrying a pre-renumbering number were in that invisible remainder.
-Widening the regex is not the fix (a bare `Decision N` is unquotably common in
-prose); writing new citations as `ADR-001 §N` is. See "On citing this ADR".
+`_CITE_RE` below matches only the `ADR-001 §N` spelling — 64 of the 81 live citations
+on `d55c506`. The other 17 use `ADR §N`, `ADR-001 Decision N`, a bare `Decision N`,
+or the tail of a `§N/§M` chain. The 2026-08-12 vintage sweep found all five citations
+still carrying a pre-renumbering number in that remainder: four invisible outright,
+and one (`ci-config-regression-guards.md:324`, `ADR-001 §1/§3`) on a line this scan
+DOES match — it resolved the `§1` and never saw the `/§3`, so a chained citation
+hides its tail from the only scanner that reads these. Widening the regex is not the
+fix (a bare `Decision N` is unquotably common in prose); writing new citations as
+`ADR-001 §N`, and spelling two out as `§1 and §4`, is. See "On citing this ADR".
 
 DIRECTION
 ---------

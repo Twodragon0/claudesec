@@ -180,13 +180,16 @@ and `.claude/` (30 files), so an inserted item silently re-points all of them. T
 decision is appended as §9 for that reason rather than filed next to Decision 2
 where it belongs topically.
 
-**81, not 67.** The familiar 67 counts one spelling. Measured on `d55c506` — the
-tree the vintage sweep below audited, before its own tables added more `§N` strings
-to this file — the citations are written five ways, and only the first is what
-`test_ci_adr_decision_numbering.py` and the #423 / #426 / #430 sweeps ever matched.
-"Load-bearing" excludes the drift notes in this section and in that guard's
-docstring, which quote numbers as *data* about the drift rather than pointing at a
-decision.
+**81, not 67.** The familiar 67 counts one spelling. Measured on `d55c506`, the tree
+the vintage sweep below audited; the citations are written five ways, and only the
+first is what `test_ci_adr_decision_numbering.py` and the #423 / #426 / #430 sweeps
+ever matched.
+
+To reproduce 81, exclude **every** drift note that quotes a number as *data* about
+the drift rather than as a pointer to a rule — this section, the numbering guard's
+docstring, that guard's row in the catalog, and the 2026-08 cycle retrospective's
+falsification table. The rule is the number's *role* in the sentence, not its file.
+On `d55c506` that is 11 exclusions out of 92 `§`-shaped hits.
 
 | Spelling | Count | Seen by the guard? |
 |---|---|---|
@@ -196,10 +199,23 @@ decision.
 | `ADR-001 Decision N` (the authoring skill) | 4 | no |
 | the tail of a `§N/§M` chain | 2 | no |
 
-The 17 invisible ones are where the surviving errors were: **all five** citations
-still carrying a pre-`9a530d6` number used a spelling no sweep could see. Write new
-citations as `ADR-001 §N` for that reason, and when you cite two decisions write
-them out (`§1 and §4`) rather than chaining (`§1/§4`).
+The 17 invisible ones are where the surviving errors were — with one distinction
+worth keeping straight. **Four** of the five citations still carrying a
+pre-`9a530d6` number were cleanly invisible: no `ADR-001 §N` anywhere on the line.
+The fifth, `ci-config-regression-guards.md:324`, was an **invisible token on a
+visible line** — `ADR-001 §1/§3` is match #8 of 69 in a plain `_CITE_RE` scan, so
+the sweeps read the line, resolved its `§1` (correctly), and never saw the `/§3`.
+It then sat in the untriaged §1 bucket looking done.
+
+Write new citations as `ADR-001 §N` for that reason, and when you cite two decisions
+write them out (`§1 and §4`) rather than chaining (`§1/§4`) — a chain hides its tail
+from the only scanner that reads these.
+
+A count taken on a later commit will not be 81: this PR's own fixes add three
+`ADR-001 §N` matches (69 → 72 by that regex), two from normalising `ADR §N` in
+`adr-001-q3-audit-retrospective.md` and one from naming §2 alongside §1 in
+`test_ci_drift_watch_not_silent.py`. The new tables in *this* section add none —
+they write `§N` without the `ADR-001` prefix, so `_CITE_RE` does not see them.
 
 A drift was found and fixed on 2026-08-11: 26 `ADR-001 §4` citations existed and
 **23 of them meant §5** (Prefer a grammar-complete rule) — they quoted *"prefer a
@@ -222,7 +238,7 @@ text, 4 by provenance — and 5 already right**). The 13 classified by their tex
 | Was | Now | Why |
 |---|---|---|
 | §2 ×9 | **§3** | "5th-pass finding", "the mandated adversarial pass", "the mandated review chain", "반복 적대 검증" — all the ITERATED review, and one quotes §3's "second pass when the first finds a CRITICAL" verbatim |
-| ~~§2 ×2~~ | ~~**§1**~~ | **Both reverted by the vintage sweep below — this row was wrong.** Each parenthetical was attached to the sentence BEFORE the one it sits in; the clause it actually annotates is "A **5th-pass** review" (→ §3) and "the inert-guard class" (→ §2) |
+| ~~§2 ×2~~ | ~~**§1**~~ | **Both reverted by the vintage sweep below — this row was wrong.** Two *different* misreads, not one: at `ci-config-regression-guards.md`:356 the evidence quoted is the sentence BEFORE the one the parenthetical sits in, while the clause it annotates is "A **5th-pass** review" (→ §3). At `test_ci_drift_watch_not_silent.py`:40 there is no preceding sentence — the pre-#426 text is a *single* sentence holding both clauses, and the evidence quoted its first clause while the parenthetical annotates its second, "the inert-guard class" (→ §2) |
 | §3 ×1 | **§2** | "the inert-assertion class" is §2's, not §3's — read the text, do not infer from the topic |
 | §3 ×1 | **§4** | "mutation self-tests for the …" is §4 |
 
@@ -296,25 +312,47 @@ all three sweeps), and two were prior corrections that went the wrong way:
 | `ci-config-regression-guards.md`:324 | §1/§3 | §1 and **§4** Every detector ships a non-vacuous mutation self-test | written `b82394af` (pre-shift); every bullet under the heading pairs a stripper fix with "+ mutation test" |
 | `adr-001-q3-audit-retrospective.md`:139 | ADR §4 | **§5** Prefer a grammar-complete rule over enumerating forms | written `9b1d3fe` (pre-shift); the heading *is* "프록시가 아니라 문법을 모델링하라" — model the grammar, not a proxy |
 | `adr-001-q3-audit-retrospective.md`:191 | ADR §3 | **§4** Every detector ships a non-vacuous mutation self-test | same commit; the subject is a **vacuous** self-test. The maxim it quotes is from the Context, not from any decision — now attributed there |
-| `ci-config-regression-guards.md`:356 | §1 (by #426) | **§3** Two-pass adversarial review … before merge | the parenthetical annotates "A **5th-pass** review"; #426 read the preceding sentence instead. #426 sent the four *other* "5th-pass" citations to §3 |
-| `test_ci_drift_watch_not_silent.py`:40 | §1 (by #426) | **§1 and §2** | authored `8bee564c` (post-shift) as §2, correctly: "the inert-guard class" is §2's vocabulary and #383 is the inert-assertion meta-guard. Both decisions are now named so the sentence stops inviting a third re-decision |
+| `ci-config-regression-guards.md`:356 | §1 (by #426) | **§3** Two-pass adversarial review … before merge | the parenthetical annotates "A **5th-pass** review"; #426's recorded evidence is the *preceding* sentence, about `strip_inline_comment`. #426 sent the four *other* "5th-pass" citations to §3. Pre-shift original was §2 = the two-pass review, so vintage says §3 as well |
+| `test_ci_drift_watch_not_silent.py`:40 | §1 (by #426) | **§1 and §2** | authored `8bee564c` (2026-08-06 19:36:48 +0900, **post**-shift) as §2 — correct as written, since §2 was already "Scope the haystack" and "the inert-guard class" is its vocabulary (#383 is the inert-assertion meta-guard). Decisive: #426 left the *identical* phrase at §2 in `test_ci_security_gate.py`:295 (`inert-guard class, ADR-001 §2`) and its own summary counts "the inert-guard class" among the five §2 citations that were **already correct** — then moved this one to §1. Both decisions are now named so the sentence stops inviting another re-decision |
 
 `b82394af` settles its own two sites internally: the same commit wrote `§2 review
 chain` and `§4 grammar-complete extractor`, both correct pre-shift, so its `§1/§3`
 was written in the same old numbering and its `§3` is today's §4.
 
-**A correction to the account above: the §4→§5 drift was mostly not mechanical.**
-Of those 23 citations, only **5** predate `9a530d6`. The other **18** were written
-*after* the renumbering — a stale number copied from a pre-shift sibling, spreading
-for six days while the guard was green. The insertion started the drift; **copying**
-is what made it 23. Cite by number *and title* because the title is what makes a
-copied number fail to typecheck under review.
+Three of the §2→§3 corrections are **not** in the 36 and the shift does not explain
+them: `ci-config-regression-guards.md`:490 (`99e8c2e`) and
+`guard-yaml-shape-sweep-retrospective.md`:43 and :180 (both `55b30ada`) were written
+on 2026-08-06, the day *after* the renumbering, as §2. All three are
+text-unambiguous §3 ("적대 리뷰", "의무화한 리뷰 패스"), so #426 moved them correctly —
+they are named here because a table that presents the shift as the explanation while
+silently omitting them invites the next reader to re-derive the arithmetic.
 
-The guard's limit stands, and vintage sharpens it: it stops NEW renumbering and
-cannot detect a citation pointing at a real decision it does not mean. That is what
-reading the quoted text — and, when the text ties, the commit that wrote it — is
-for. What the vintage sweep adds is knowing *which* citations were exposed, and that
-the answer is now none.
+**A correction to the account above: the §4→§5 drift was mostly not mechanical.**
+Of those 23 citations, only **5** predate `9a530d6`; the other **18** were written
+*after* the renumbering, over six days, with the guard green. Those dates are
+measured. The *mechanism* — a stale number copied from a pre-shift sibling — is
+**inference** from the pattern, not evidence: no commit says so. What the dates alone
+establish is that the insertion cannot account for 18 of the 23, so something
+downstream of it did. Cite by number *and title* regardless, because a title is what
+makes a wrong number fail to typecheck under review.
+
+The guard's limit stands, and vintage sharpens it. Two things it does **not** do:
+
+- It does not make renumbering impossible. Renumber the ADR **and** reorder
+  `DECISIONS` in the same commit and all 10 tests pass while 81 citations silently
+  re-point — measured by in-memory mutation, with the one-sided control (ADR
+  renumbered, `DECISIONS` untouched) correctly failing
+  `test_numbers_map_to_the_same_decisions`, so the harness demonstrably reaches the
+  assertion. What the guard delivers is that a renumber must be a **lockstep,
+  reviewable diff** instead of an invisible one-line edit. An *append* without its
+  `DECISIONS` line does genuinely fail (`test_no_extra_or_missing_decisions` is a set
+  equality), so "appending costs one line here, by design" is exact.
+- It cannot detect a citation pointing at a real decision it does not mean. That is
+  what reading the quoted text — and, when the text ties, the commit that wrote it —
+  is for.
+
+What the vintage sweep adds is knowing *which* citations were exposed to the shift,
+and that the answer is now none.
 
 ## Consequences
 
