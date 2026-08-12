@@ -429,14 +429,26 @@ PR #415는 인젝션 스캔만 확장하고 핀 정책은 "제품 결정"으로 
 | [#423](https://github.com/Twodragon0/claudesec/pull/423) MERGED `6f2ae8c` | 26건 인용을 인용 텍스트로 분류(23→§5, 2건 §4 유지); 실제 ADR에 결정 삽입 → FAIL, 인용을 `§12`로 → FAIL 양방향 측정; 2048 passed |
 | [#424](https://github.com/Twodragon0/claudesec/pull/424) MERGED `f8c8501` | 가드 10개 감사, 새 우회 0; folded scalar에서 `#`가 내용임을 PyYAML로 측정(`'--one\n  # c\n--two'`), pre-strip이 결함임을 테스트로 고정; 2041 passed |
 | [#425](https://github.com/Twodragon0/claudesec/pull/425) MERGED `f237162` | 미등재 수집기 파일 추가 → FAIL, 섹션 이름 변경 → 3 FAIL; 작성 당일 누락 1건(`injection_surface`) 발견; 2049 passed |
-| [#426](https://github.com/Twodragon0/claudesec/pull/426) OPEN | 22건 분류: 13 정정 / 5 정상 / **4 보류**(두 결정이 모두 들어맞음); 2062 passed |
-| [#427](https://github.com/Twodragon0/claudesec/pull/427) OPEN | 14개 단위 테스트(순수 판정 로직 + 시계 주입); 실제 PR #426에 read-only 실행, `--stuck-minutes 0`으로 런-상태 조건이 단독으로 유효함을 확인; 2076 passed |
+| [#426](https://github.com/Twodragon0/claudesec/pull/426) MERGED `9dd776c` | 22건 분류: 13 정정 / 5 정상 / **4 보류**(두 결정이 모두 들어맞음); 2062 passed |
+| [#427](https://github.com/Twodragon0/claudesec/pull/427) MERGED `2dfaa34` | 14개 단위 테스트(순수 판정 로직 + 시계 주입); 실제 PR #426에 read-only 실행, `--stuck-minutes 0`으로 런-상태 조건이 단독으로 유효함을 확인; 2076 passed |
+| [#418](https://github.com/Twodragon0/claudesec/pull/418) MERGED `5386535` | **뮤테이션 근거 없음 — 문서 전용**(이 문서 초판 +294줄). 위 행들과 같은 종류의 근거가 아니다. [#433](https://github.com/Twodragon0/claudesec/pull/433)의 사후 측정만 있음: `5386535` 체크아웃 → 2014 passed, 5 skipped (#417과 동일) |
+| [#428](https://github.com/Twodragon0/claudesec/pull/428) MERGED `30f1301` | **뮤테이션 근거 없음 — 문서 전용**(2.5절 +85 / −8). #433의 사후 측정만 있음: `30f1301` → 2076 passed, 5 skipped (#427과 동일) |
+| [#429](https://github.com/Twodragon0/claudesec/pull/429) MERGED `3bbfbcb` | **뮤테이션 근거 없음 — 스킬·카탈로그 문서 전용.** #433의 사후 측정만 있음: `3bbfbcb` → 2076 passed, 5 skipped (불변) |
+| [#430](https://github.com/Twodragon0/claudesec/pull/430) MERGED `d55c506` | 근거는 뮤테이션이 아니라 **프로비넌스**다 — `b1fb276`(#379)·`9a530d6`(#390)를 `git blame`으로 추적해 4건 전부 §3으로 확정(3절 표에 기록); 가드 2개의 인용 문자열 정정. #433의 사후 측정: `d55c506` → 2076 passed, 5 skipped (불변) |
 
 PR #416·#417은 이 문서의 **초안 시점에는 열린 상태**였고, 그 상태로 본문에
 기록됐다가 같은 세션에서 머지(`00f02f5`, `066d782`)된 뒤 이 갱신으로 정정됐다.
 3절이 말하는 문서 부패를 이 문서 자신이 몇 시간 만에 재현한 셈이므로, 숨기지 않고
 남긴다 — **회고에 "현재 열려 있음"이라고 쓰는 순간 그 문장은 만료 시한이 붙는다.**
 갱신 시점의 상태는 `gh pr view <n> --json state,mergedAt`으로 재확인 가능하다.
+
+그리고 이 문장은 바로 아래 표에서 **두 번째로** 만료됐다. #426·#427이 `OPEN`으로
+적힌 뒤 실제로 머지되고 그 위로 세 PR(#428·#429·#430)이 더 지나갔지만, 만료를
+알아차린 건 표를 다시 읽은 사람이 아니라 `git log`/`gh pr list`로 원장을 파생시켜
+표와 diff한 [#433](https://github.com/Twodragon0/claudesec/pull/433)이었다. #416·#417
+때와 달리 같은 세션에서 잡히지 않았다는 점이 차이다 — **만료 시한은 스스로 집행되지
+않는다.** 상태를 문서에 적는 한, 상태를 파생시켜 diff하는 절차가 함께 있어야 한다
+(1절 원장에서 #418이 그렇게 발견됐다).
 
 ## 9. 관련 문서
 
