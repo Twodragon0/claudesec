@@ -50,7 +50,8 @@ to survive as an exit status rather than a stdout string a caller has to grep:
     0   no stuck check-runs (including "only external/pending ones")
     10  stuck check-runs found, reported only (no `--rerun`)
     11  stuck check-runs found and the owning workflow run(s) were re-run
-    1   a `gh` call failed (query or re-run) — verdict unknown
+    1   a `gh` call failed, or returned a payload this cannot classify (query,
+        classification, or re-run) — verdict unknown, which is NOT "clean"
     2   argparse usage error (argparse's own convention)
 
 10 and 11 are distinct because they mean different things to an operator: 10 is
@@ -173,9 +174,17 @@ def main(argv=None) -> int:
         print(f"gh query failed: {exc!r}", file=sys.stderr)
         return EXIT_GH_ERROR
 
-    stuck, external, pending = select_stuck(
-        check_runs, runs, datetime.now(timezone.utc), args.stuck_minutes
-    )
+    # Separate from the query guard above so the message stays honest about which
+    # step failed. `gh api --jq .check_runs` emits `null` when the key is absent
+    # (TypeError on iteration) and a bare object when the API returns an error
+    # envelope (AttributeError on `.get`); neither should traceback.
+    try:
+        stuck, external, pending = select_stuck(
+            check_runs, runs, datetime.now(timezone.utc), args.stuck_minutes
+        )
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        print(f"unexpected gh payload: {exc!r}", file=sys.stderr)
+        return EXIT_GH_ERROR
     for entry in pending:
         print(f"  pending   {entry['name']} ({entry['age_minutes']}m)")
     for entry in external:

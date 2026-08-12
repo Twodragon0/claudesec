@@ -242,9 +242,27 @@ class TestMainExitCodes(MainExitCodeCase):
         self.assertEqual(calls, [])
 
     def test_malformed_gh_payload_exits_1(self):
+        # KeyError on the FIRST call (`headRefOid` absent).
         code, _, _ = self.run_main(
             ["424"], [], [], gh_json=lambda args: {"unexpected": "shape"}
         )
+        self.assertEqual(code, 1)
+
+    def test_null_check_runs_exits_1_without_a_traceback(self):
+        # `gh api --jq .check_runs` prints `null` when the key is absent, which
+        # json-decodes to None. Iterating that is a TypeError raised INSIDE
+        # select_stuck, i.e. outside the query guard.
+        code, _, _ = self.run_main(["424"], None, [run()])
+        self.assertEqual(code, 1)
+
+    def test_null_run_list_exits_1_without_a_traceback(self):
+        code, _, _ = self.run_main(["424"], [live_check()], None)
+        self.assertEqual(code, 1)
+
+    def test_error_envelope_instead_of_a_list_exits_1(self):
+        # An API error envelope: iterating a dict yields str keys, so the first
+        # `cr.get(...)` is an AttributeError, not a TypeError.
+        code, _, _ = self.run_main(["424"], {"message": "Not Found"}, [run()])
         self.assertEqual(code, 1)
 
     def test_rerun_failure_exits_1_not_11(self):

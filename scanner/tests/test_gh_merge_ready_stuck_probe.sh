@@ -4,23 +4,43 @@
 #
 # Why executed and not read: this repo has already learned (see the guard-parser
 # history around #404) that a static read of a control-flow construct is weaker
-# evidence than running it. The probe's whole value is being on exactly one of
-# four branches of the wait loop, so each branch is driven here:
+# evidence than running it. The probe's whole value is being on exactly one
+# branch of the wait loop, so each branch is driven here:
 #
-#   1. checks failing            -> probe runs (report only, exit 10 path)
-#   2. checks failing, RERUN=1   -> probe runs and re-runs the workflow (exit 11)
-#   3. checks failing, repeated  -> probe runs ONCE, not once per poll (cadence)
-#   3b. same, with a fake clock  -> and probes AGAIN once the interval elapses
-#   4. checks green, merge fails -> NO probe (merge path)
-#   5. checks green, merge lags  -> NO probe (mergeability-lag retry path)
-#   6. probe itself errors       -> logged, loop keeps waiting (advisory only)
-#   7. workflow still running    -> probe runs and reports nothing stuck
-#   8. PR already MERGED         -> NO probe
-#   9. STUCK_MINUTES garbage     -> rejected before the loop
+#   1.  checks failing            -> probe runs (report only, exit 10 path)
+#   1b. same, with the REAL date  -> control: the fake clock below hides nothing
+#   2.  checks failing, RERUN=1   -> probe runs and re-runs the workflow (11)
+#   3.  many polls, one interval  -> exactly ONE probe
+#   3b. interval elapses          -> probes AGAIN
+#   4.  checks green, merge fails -> NO probe (merge path), status propagates
+#   5.  checks green, merge lags  -> NO probe (mergeability-lag retry path)
+#   6.  probe itself errors       -> logged, loop keeps waiting (advisory only)
+#   7.  workflow still running    -> probe runs and reports nothing stuck
+#   8.  PR already MERGED         -> NO probe
+#   9.  arithmetic-eval payloads  -> rejected before the loop (STUCK_MINUTES and
+#                                    TIMEOUT_SECONDS both reach `$(( ))`)
+#   10. overflow-sized threshold  -> rejected (it would INVERT the cadence gate)
+#   11. detector file missing     -> reported, loop keeps waiting
+#
+# DETERMINISM (this test feeds the required `Lint` check, so it may not be
+# flaky). The wait loop's budget is wall-clock seconds, which makes every
+# "did the loop run N times?" question a race on a loaded machine — and with
+# TIMEOUT_SECONDS=1 the loop can legitimately run ZERO times, because
+# `date +%s` has one-second granularity. Two earlier revisions of this file
+# were flaky for exactly those two reasons (8/10 green under a 4-way CPU load).
+#
+# So: by default a PATH-prepended fake `date +%s` advances a fixed step per
+# call. The script calls it once per loop-condition test and once per probe
+# attempt, so the iteration count is arithmetic, not timing —
+# TIMEOUT_SECONDS=9 at 1s/call is always exactly 4 polls. Assertions are
+# relations (`probes == 1`, `probes < polls`), never "how many iterations fit
+# in N seconds". Scenario 1b keeps the REAL `date` as a control and terminates
+# on a stub state change instead of a timeout, so nothing here depends on the
+# fake clock being faithful.
 #
 # Hermetic: a PATH-prepended recording `gh` stub answers every call (pr view /
 # pr checks / pr merge / api check-runs / run list / run rerun). No network, no
-# real repo, no `gh` auth. Timeouts are 1-3s so the whole file runs in seconds.
+# real repo, no `gh` auth, no sleep longer than 0.05s.
 # Run: bash scanner/tests/test_gh_merge_ready_stuck_probe.sh
 set -uo pipefail
 
@@ -71,6 +91,45 @@ assert_eq() {
   fi
 }
 
+# `actual >= floor`, reporting the observed value either way. Only ever used on
+# counts the fake clock fixes by construction.
+assert_ge() {
+  local label="$1" floor="$2" actual="$3"
+  if [[ "$actual" -ge "$floor" ]]; then
+    echo "  PASS: $label (observed $actual)"
+    ((TEST_PASSED++))
+  else
+    echo "  FAIL: $label"
+    echo "    expected: >= $floor"
+    echo "    actual:   $actual"
+    ((TEST_FAILED++))
+  fi
+}
+
+assert_lt() {
+  local label="$1" smaller="$2" larger="$3"
+  if [[ "$smaller" -lt "$larger" ]]; then
+    echo "  PASS: $label ($smaller < $larger)"
+    ((TEST_PASSED++))
+  else
+    echo "  FAIL: $label"
+    echo "    expected: $smaller < $larger"
+    ((TEST_FAILED++))
+  fi
+}
+
+assert_missing_file() {
+  local label="$1" path="$2"
+  if [[ -e "$path" ]]; then
+    echo "  FAIL: $label"
+    echo "    arithmetic evaluation executed the embedded command: $path exists"
+    ((TEST_FAILED++))
+  else
+    echo "  PASS: $label"
+    ((TEST_PASSED++))
+  fi
+}
+
 if [[ ! -f "$MERGE_SH" ]]; then
   echo "FAIL: $MERGE_SH not found"
   exit 1
@@ -96,9 +155,17 @@ case "${1:-}" in
       view)
         if [[ "$*" == *headRefOid* ]]; then
           printf '{"headRefOid":"%s"}\n' "$(printf '0%.0s' {1..40})"
-        else
-          printf '{"state":"%s","mergeStateStatus":"BLOCKED","url":"https://github.com/o/r/pull/424","headRefName":"feat/x","baseRefName":"main"}\n' "${STUB_PR_STATE:-OPEN}"
+          exit 0
         fi
+        # Count state queries so a test can terminate the loop on a state
+        # CHANGE (nth call reports MERGED) instead of on elapsed time.
+        views=$(( $(cat "$STUB_VIEW_COUNT" 2>/dev/null || echo 0) + 1 ))
+        printf '%s\n' "$views" >"$STUB_VIEW_COUNT"
+        state="${STUB_PR_STATE:-OPEN}"
+        if [[ -n "${STUB_MERGED_AFTER:-}" ]] && (( views >= STUB_MERGED_AFTER )); then
+          state="MERGED"
+        fi
+        printf '{"state":"%s","mergeStateStatus":"BLOCKED","url":"https://github.com/o/r/pull/424","headRefName":"feat/x","baseRefName":"main"}\n' "$state"
         ;;
       checks) exit "${STUB_CHECKS_RC:-1}" ;;
       merge)
@@ -129,9 +196,8 @@ esac
 STUB
 chmod +x "$STUB_BIN/gh"
 
-# Opt-in second PATH entry: a `date +%s` that jumps $DATE_STEP seconds per call,
-# so the probe interval (600s at the default STUCK_MINUTES) can elapse inside a
-# sub-second test. Everything else defers to the real date.
+# The deterministic clock. `+%s` jumps $DATE_STEP per call; anything else defers
+# to the real date. Prepended to PATH for every scenario except the 1b control.
 CLOCK_BIN="$WORK/clockbin"
 mkdir -p "$CLOCK_BIN"
 cat >"$CLOCK_BIN/date" <<'CLOCK'
@@ -147,9 +213,17 @@ exec /bin/date "$@"
 CLOCK
 chmod +x "$CLOCK_BIN/date"
 
+# Fake-clock base: large enough that the first probe's `now - 0` clears any
+# interval, exactly as real epoch seconds (~1.7e9) do.
+CLOCK_BASE=1000000000
+# 1 fake second per call, 2 calls per iteration, deadline 9 -> 4 polls, always.
+EXPECTED_POLLS=4
+
 OUT=""
 GH_CALLS=""
 RUN_RC=0
+SCRIPT_UNDER_TEST="$MERGE_SH"
+CLOCK_PATH="$CLOCK_BIN"
 
 reset_env() {
   export STUB_PR_STATE="OPEN"
@@ -159,18 +233,31 @@ reset_env() {
   export STUB_API_RC=0
   export STUB_RUN_STATUS="completed"
   export STUB_STARTED_AT="$STARTED_AT"
-  export TIMEOUT_SECONDS=1
-  export POLL_SECONDS=0.2
+  export STUB_MERGED_AFTER=""
+  export STUB_VIEW_COUNT="$WORK/views"
+  : >"$STUB_VIEW_COUNT"
+  export TIMEOUT_SECONDS=9
+  export POLL_SECONDS=0.05
   export STUCK_MINUTES=20
   unset RERUN_STUCK
+  SCRIPT_UNDER_TEST="$MERGE_SH"
+  CLOCK_PATH="$CLOCK_BIN"
+  export FAKE_CLOCK="$WORK/clock" DATE_STEP=1
+  echo "$CLOCK_BASE" >"$FAKE_CLOCK"
+}
+
+# Opt out of the fake clock (scenario 1b).
+use_real_clock() {
+  CLOCK_PATH=""
+  unset FAKE_CLOCK DATE_STEP
 }
 
 run_merge() {
-  local label="$1" extra_path="${2:-}"
+  local label="$1"
   export GH_LOG="$WORK/gh-$label.log"
   : >"$GH_LOG"
-  PATH="${extra_path:+$extra_path:}$STUB_BIN:$PATH" \
-    bash "$MERGE_SH" 424 >"$WORK/out-$label.log" 2>&1
+  PATH="${CLOCK_PATH:+$CLOCK_PATH:}$STUB_BIN:$PATH" \
+    bash "$SCRIPT_UNDER_TEST" 424 >"$WORK/out-$label.log" 2>&1
   RUN_RC=$?
   OUT="$(cat "$WORK/out-$label.log")"
   GH_CALLS="$(cat "$GH_LOG")"
@@ -181,6 +268,13 @@ count_matches() {
   grep -c -- "$needle" <<<"$haystack" 2>/dev/null || true
 }
 
+# 1-based line number of the first match, or 0.
+line_of() {
+  local needle="$1" haystack="$2" n=""
+  n="$(grep -n -- "$needle" <<<"$haystack" 2>/dev/null | head -1 | cut -d: -f1)"
+  printf '%s' "${n:-0}"
+}
+
 echo "== 1. waiting path: stuck check-run detected, report only (default) =="
 reset_env
 run_merge waiting-report
@@ -189,8 +283,21 @@ assert_contains "the stuck check-run is named" "$OUT" "STUCK     Lint"
 assert_contains "report-only verdict is surfaced" "$OUT" "Stuck check-runs detected (report only)"
 assert_contains "the escalation command is printed" "$OUT" "RERUN_STUCK=1"
 assert_not_contains "nothing was re-run by default" "$GH_CALLS" "run rerun"
-assert_eq "still exits 1 on timeout" "1" "$RUN_RC"
+# The default only REPORTS: it still waits out the budget and exits 1.
+assert_eq "still exits 1 at the end of the budget" "1" "$RUN_RC"
 assert_contains "timeout message preserved" "$OUT" "Timed out waiting for PR #424"
+
+echo "== 1b. control: the same detection with the REAL date binary =="
+# No fake clock at all. Terminates on a stub state change (2nd `pr view` reports
+# MERGED), not on elapsed time, so it is deterministic without one.
+reset_env
+use_real_clock
+export STUB_MERGED_AFTER=2 TIMEOUT_SECONDS=60
+run_merge real-clock-control
+assert_contains "probe ran under the real clock" "$OUT" "$PROBE_LOG"
+assert_contains "the stuck check-run is named" "$OUT" "STUCK     Lint"
+assert_contains "the loop continued past the probe" "$OUT" "PR already merged."
+assert_eq "exits 0" "0" "$RUN_RC"
 
 echo "== 2. waiting path with RERUN_STUCK=1: the workflow run is re-run =="
 reset_env
@@ -200,46 +307,47 @@ assert_contains "probe ran" "$OUT" "$PROBE_LOG"
 assert_contains "re-run was reported" "$OUT" "re-running run 31504280368"
 assert_contains "caller logged the rerun verdict" "$OUT" "re-ran the owning workflow run(s)"
 assert_contains "gh run rerun was invoked" "$GH_CALLS" "run rerun 31504280368"
+# Pins the `python3 -u` in the caller: with stdout captured into a pipe, python
+# block-buffers, so its own "re-running run N" would land AFTER the unbuffered
+# child's output — i.e. the log would show the effect before its cause.
+assert_lt "python's line precedes the child gh output it explains" \
+  "$(line_of "re-running run 31504280368" "$OUT")" \
+  "$(line_of "stub: re-run requested" "$OUT")"
 
-echo "== 3. cadence: one probe per interval, not one per poll =="
+echo "== 3. cadence: exactly one probe across many polls =="
+# The 600s interval cannot elapse in 9 fake seconds, so a time-gated probe fires
+# once; an ungated one would fire on all 4 polls.
 reset_env
-export TIMEOUT_SECONDS=2 POLL_SECONDS=0.2
 run_merge cadence
 polls="$(count_matches "not fully green yet" "$OUT")"
 probes="$(count_matches "$PROBE_LOG" "$OUT")"
-if [[ "$polls" -ge 3 ]]; then
-  echo "  PASS: the loop polled repeatedly (polls=$polls)"
-  ((TEST_PASSED++))
-else
-  echo "  FAIL: expected >=3 polls, got $polls"
-  ((TEST_FAILED++))
-fi
+assert_eq "the loop polled exactly as constructed" "$EXPECTED_POLLS" "$polls"
 assert_eq "probed exactly once across those polls" "1" "$probes"
+assert_lt "probes are strictly fewer than polls" "$probes" "$polls"
 
-echo "== 3b. cadence: probes again once the interval has elapsed (fake clock) =="
-# 301s per `date +%s` call, so the 600s interval (STUCK_MINUTES=20) elapses
-# between polls. Without a time-based gate this would print once, and with no
-# gate at all it would print on every poll — the assertion below is 2, which
-# only a per-interval gate produces.
+echo "== 3b. cadence: probes again once the interval has elapsed =="
+# 301 fake seconds per call, so the 600s interval (STUCK_MINUTES=20) elapses
+# between polls. Without a time gate this would print once; with no gate at all,
+# on every poll. 2 is what a per-interval gate produces.
 reset_env
-export FAKE_CLOCK="$WORK/clock" DATE_STEP=301
-echo 0 >"$FAKE_CLOCK"
-export TIMEOUT_SECONDS=1500 POLL_SECONDS=0.1
-run_merge cadence-fakeclock "$CLOCK_BIN"
+export DATE_STEP=301 TIMEOUT_SECONDS=1500
+run_merge cadence-elapsed
 polls="$(count_matches "not fully green yet" "$OUT")"
 probes="$(count_matches "$PROBE_LOG" "$OUT")"
 assert_eq "polled twice on the fake clock" "2" "$polls"
 assert_eq "probed on both polls, 600s apart" "2" "$probes"
-unset FAKE_CLOCK DATE_STEP
 
 echo "== 4. merge path: checks green, hard merge failure, NO probe =="
+# Merge rc is 3, not 1: a timeout also exits 1, so 1 could not distinguish
+# "propagated the merge status" from "fell through to the timeout".
 reset_env
-export STUB_CHECKS_RC=0 STUB_MERGE_RC=1 STUB_MERGE_OUT="GraphQL: Resource not accessible"
+export STUB_CHECKS_RC=0 STUB_MERGE_RC=3 STUB_MERGE_OUT="GraphQL: Resource not accessible"
 run_merge merge-path
 assert_contains "merge was attempted" "$OUT" "Attempting merge"
 assert_not_contains "probe did NOT run before the merge attempt" "$OUT" "$PROBE_LOG"
 assert_not_contains "no check-runs API call at all" "$GH_CALLS" "check-runs"
-assert_eq "merge exit status propagates" "1" "$RUN_RC"
+assert_eq "the merge exit status itself propagates" "3" "$RUN_RC"
+assert_not_contains "did not fall through to the timeout" "$OUT" "Timed out waiting"
 
 echo "== 5. mergeability-lag retry path: NO probe =="
 reset_env
@@ -249,21 +357,16 @@ run_merge lag-path
 assert_contains "lag was detected" "$OUT" "GitHub mergeability lag detected"
 assert_not_contains "probe did NOT run on the lag path" "$OUT" "$PROBE_LOG"
 assert_not_contains "no check-runs API call at all" "$GH_CALLS" "check-runs"
+assert_ge "the lag path retried, as constructed" 2 "$(count_matches "Attempting merge" "$OUT")"
 
 echo "== 6. probe failure is advisory: the wait loop continues =="
 reset_env
-export STUB_API_RC=1 TIMEOUT_SECONDS=2 POLL_SECONDS=0.2
+export STUB_API_RC=1
 run_merge probe-fails
 assert_contains "probe failure is logged" "$OUT" "Stuck-check probe failed (exit 1)"
 assert_contains "the loop kept waiting" "$OUT" "Timed out waiting for PR #424"
-polls="$(count_matches "not fully green yet" "$OUT")"
-if [[ "$polls" -ge 2 ]]; then
-  echo "  PASS: loop iterated after the probe failure (polls=$polls)"
-  ((TEST_PASSED++))
-else
-  echo "  FAIL: probe failure aborted the loop (polls=$polls)"
-  ((TEST_FAILED++))
-fi
+assert_eq "the loop iterated again after the failed probe" "$EXPECTED_POLLS" \
+  "$(count_matches "not fully green yet" "$OUT")"
 
 echo "== 7. workflow still running: probe reports nothing stuck =="
 reset_env
@@ -282,23 +385,66 @@ assert_contains "merged short-circuit hit" "$OUT" "PR already merged."
 assert_not_contains "probe did NOT run" "$OUT" "$PROBE_LOG"
 assert_eq "exits 0" "0" "$RUN_RC"
 
-echo "== 9. STUCK_MINUTES is validated before arithmetic evaluation =="
+echo "== 9. arithmetic-eval payloads are rejected before the loop =="
+# The payload names `merge_args`, an array the script has ALREADY defined, so
+# bash evaluates the subscript and runs the command. The tempting `a[$(...)]`
+# shape is USELESS as a test: `a` is unset, so `set -u` aborts first and the
+# assertion passes even with the validation deleted (measured). Both variables
+# below reach `$(( ))`; POLL_SECONDS does not and is intentionally unvalidated.
 reset_env
-# SC2016 is the point: `$(...)` must reach the script UNexpanded, so that the
-# only thing that could expand it is `$(( ))` inside the script under test.
+# SC2016 is the point: `$(...)` must reach the script UNexpanded, so the only
+# thing that could expand it is `$(( ))` inside the script under test.
 # shellcheck disable=SC2016
-export STUCK_MINUTES='a[$(touch '"$WORK"'/pwned)]'
+export STUCK_MINUTES='merge_args[$(touch '"$WORK"'/pwned-stuck)]'
 run_merge bad-stuck-minutes
-assert_contains "garbage STUCK_MINUTES is rejected" "$OUT" "Invalid STUCK_MINUTES"
+assert_contains "STUCK_MINUTES payload is rejected" "$OUT" "Invalid STUCK_MINUTES"
 assert_eq "exits 1" "1" "$RUN_RC"
-if [[ -e "$WORK/pwned" ]]; then
-  echo "  FAIL: arithmetic evaluation executed the embedded command"
-  ((TEST_FAILED++))
-else
-  echo "  PASS: no command substitution reached \$(( ))"
-  ((TEST_PASSED++))
-fi
+assert_missing_file "no command substitution reached \$(( )) via STUCK_MINUTES" "$WORK/pwned-stuck"
 assert_not_contains "loop never started" "$OUT" "$PROBE_LOG"
+
+reset_env
+# shellcheck disable=SC2016
+export TIMEOUT_SECONDS='merge_args[$(touch '"$WORK"'/pwned-timeout)]'
+run_merge bad-timeout
+assert_contains "TIMEOUT_SECONDS payload is rejected" "$OUT" "Invalid TIMEOUT_SECONDS"
+assert_eq "exits 1" "1" "$RUN_RC"
+assert_missing_file "no command substitution reached \$(( )) via TIMEOUT_SECONDS" "$WORK/pwned-timeout"
+
+echo "== 10. an overflow-sized STUCK_MINUTES cannot invert the cadence gate =="
+# 10^24 minutes passes a digits-only check and then overflows
+# `STUCK_MINUTES*60/2` to a NEGATIVE interval, which makes
+# `now - last < interval` permanently false: the probe would fire on EVERY poll.
+# Rejecting the input is what prevents that, so both halves are asserted.
+reset_env
+export STUCK_MINUTES=999999999999999999999999
+run_merge overflow-stuck-minutes
+assert_contains "the overflow value is rejected" "$OUT" "Invalid STUCK_MINUTES"
+assert_eq "exits 1" "1" "$RUN_RC"
+assert_eq "the gate was never given a negative interval to invert" "0" \
+  "$(count_matches "$PROBE_LOG" "$OUT")"
+
+reset_env
+export STUCK_MINUTES=100000
+run_merge just-over-the-bound
+assert_contains "one digit past the bound is rejected" "$OUT" "Invalid STUCK_MINUTES"
+
+reset_env
+export STUCK_MINUTES=99999
+run_merge at-the-bound
+assert_not_contains "the largest accepted value still runs" "$OUT" "Invalid STUCK_MINUTES"
+assert_contains "and still probes" "$OUT" "$PROBE_LOG"
+
+echo "== 11. a missing detector is reported, and the loop keeps waiting =="
+# The script resolves the detector next to itself, so a copy on its own has none.
+mkdir -p "$WORK/lonely"
+cp "$MERGE_SH" "$WORK/lonely/gh-merge-ready-pr.sh"
+reset_env
+SCRIPT_UNDER_TEST="$WORK/lonely/gh-merge-ready-pr.sh"
+run_merge no-detector
+assert_contains "the missing detector is named" "$OUT" "Stuck-check detector not found"
+assert_not_contains "no probe verdict is claimed" "$OUT" "No stuck check-runs detected."
+assert_contains "the loop still waited and timed out" "$OUT" "Timed out waiting for PR #424"
+assert_eq "exits 1 from the timeout" "1" "$RUN_RC"
 
 echo
 echo "Passed: $TEST_PASSED"

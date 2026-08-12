@@ -26,10 +26,10 @@ Environment:
   MERGE_METHOD=rebase|merge|squash   Default: rebase
   DELETE_BRANCH=1|0                  Default: 1
   ADMIN_MERGE=1|0                    Default: 1
-  TIMEOUT_SECONDS=<seconds>          Default: 900
-  POLL_SECONDS=<seconds>             Default: 15
+  TIMEOUT_SECONDS=<seconds>          Default: 900   (integer, 1..999999)
+  POLL_SECONDS=<seconds>             Default: 15    (fractional allowed)
   RERUN_STUCK=1|0                    Default: 0 (detect and report only)
-  STUCK_MINUTES=<minutes>            Default: 20
+  STUCK_MINUTES=<minutes>            Default: 20    (integer, 1..99999)
 
 Behavior:
   - Waits until `gh pr checks` reports success
@@ -37,9 +37,10 @@ Behavior:
     "expected" even though checks are already green
   - While waiting, probes for check-runs stuck `in_progress` after their
     workflow run already concluded (scripts/gh_rerun_stuck_checks.py). Such a
-    PR stays BLOCKED with nothing left to run, so waiting out
-    TIMEOUT_SECONDS can never help. With RERUN_STUCK=1 the owning workflow
-    run is re-run automatically; the default only reports.
+    PR stays BLOCKED with nothing left to run, so waiting cannot fix it.
+    RERUN_STUCK=0 (default) only NAMES the cause: the wait still runs to
+    TIMEOUT_SECONDS and still exits 1. RERUN_STUCK=1 re-runs the owning
+    workflow run, which can unblock the PR within the same wait.
   - The probe is advisory: a probe failure never aborts the wait loop, and it
     runs at most once per STUCK_MINUTES*60/2 seconds — a check needs more than
     STUCK_MINUTES to qualify as stuck, so a faster cadence buys no detection
@@ -74,12 +75,35 @@ esac
 [[ "$DELETE_BRANCH" == "1" ]] && merge_args+=("--delete-branch")
 [[ "$ADMIN_MERGE" == "1" ]] && merge_args+=("--admin")
 
-# Validated before it reaches `$(( ))`: arithmetic evaluation of an unvalidated
-# string is a code-execution surface, not just a formatting risk.
-if ! [[ "$STUCK_MINUTES" =~ ^[1-9][0-9]*$ ]]; then
-  echo "Invalid STUCK_MINUTES: $STUCK_MINUTES (positive integer minutes)" >&2
-  exit 1
-fi
+# Both STUCK_MINUTES and TIMEOUT_SECONDS reach `$(( ))`, where an unvalidated
+# string has two distinct failure modes:
+#
+#   1. Code execution. Bash evaluates array subscripts inside arithmetic, so
+#      `TIMEOUT_SECONDS='merge_args[$(cmd)]'` runs `cmd` (an UNSET array name
+#      aborts on `set -u` first, which is why the tests use a name that is
+#      already defined here). No privilege boundary is crossed — whoever sets
+#      the variable can already run commands in that shell — so this is
+#      consistency and defence in depth, not a vulnerability fix. It is applied
+#      to both because validating one of two identical adjacent surfaces is
+#      what produces false assurance.
+#   2. Silent overflow. An unbounded digit string wraps to a NEGATIVE value:
+#      STUCK_MINUTES=10^24 yielded stuck_probe_interval=-4450678101776531486,
+#      which makes the cadence gate always true and probes on EVERY poll — the
+#      exact behaviour the gate exists to prevent. Hence an upper bound, not
+#      just a digits-only check.
+#
+# POLL_SECONDS is deliberately NOT validated: it never reaches `$(( ))`, it is
+# only passed to `sleep`, and fractional values are useful there.
+validate_int_range() {
+  local name="$1" value="$2" pattern="$3" range="$4"
+  if ! [[ "$value" =~ $pattern ]]; then
+    echo "Invalid $name: $value (expected an integer in $range)" >&2
+    exit 1
+  fi
+}
+
+validate_int_range STUCK_MINUTES "$STUCK_MINUTES" '^[1-9][0-9]{0,4}$' '1..99999'
+validate_int_range TIMEOUT_SECONDS "$TIMEOUT_SECONDS" '^[1-9][0-9]{0,5}$' '1..999999'
 
 stuck_args=("$PR_NUMBER" "--stuck-minutes" "$STUCK_MINUTES")
 [[ "$RERUN_STUCK" == "1" ]] && stuck_args+=("--rerun")
