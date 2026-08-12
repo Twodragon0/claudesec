@@ -164,11 +164,35 @@ jobs:
           name: security-dashboard
           path: "${{ github.workspace }}/claudesec-dashboard.html"
           retention-days: 30
+          # VERDICT SUPPRESSED — WHAT IT HIDES: if the dashboard was never written,
+          # this step warns instead of failing. The loss is deferred, not avoided:
+          # the downstream `lighthouse` job then fails on the missing artifact
+          # instead, so the signal survives but points at the wrong job. `warn`
+          # (not `error`) is kept because `lighthouse` is the better place to fail.
           if-no-files-found: warn
 
       # Gate: count critical/high findings from scan output.
       # Any CRITICAL finding FAILS the build (blocks merge via the Security Scan
       # Gate required check); HIGH findings are surfaced as warnings only.
+      #
+      # VERDICT SUPPRESSED HERE — WHAT IT HIDES (audit 2026-08-12). This gate has
+      # NO positive control on its own input: it cannot tell "zero criticals" from
+      # "no parseable scan output", and every indistinguishable case reads GREEN on
+      # the REQUIRED `Security Scan Gate`. Measured by running this step body
+      # verbatim under `bash -eo pipefail`:
+      #   scan-output.txt missing -> `Critical: , High: ` + `[: : integer
+      #     expression expected` TWICE, step exit 0. The `[` errors are non-fatal
+      #     because they sit in an `if` CONDITION, where `set -e` does not apply.
+      #   scan-output.txt empty   -> `Critical: 0, High: 0`, step exit 0.
+      #   glyph/wording drift     -> `[X] Critical severity: ...` scores 0, exit 0.
+      #   one real CRITICAL       -> exit 1 (the gate does work on its happy path).
+      # So a scanner that silently stops emitting findings, or renames `✗`, or
+      # writes to stderr instead of stdout, disarms the only merge-blocking
+      # severity gate in the repo without turning anything red. Same class as
+      # #396/#397 (a no-op job reads green).
+      # `|| true` on both greps is REQUIRED (grep exits 1 on zero matches) and is
+      # not itself the defect — the absent non-empty-input assertion is.
+      # HIGH findings are warn-only by design (see ::warning:: below).
       - name: Check for critical/high failures
         run: |
           CRITS=$(grep -ci '✗.*critical\|CRITICAL.*Fail' scan-output.txt || true)
@@ -176,6 +200,10 @@ jobs:
           echo "Critical: $CRITS, High: $HIGHS"
           echo "::notice::Security scan completed — Critical: $CRITS, High: $HIGHS"
           if [ "$HIGHS" -gt 0 ]; then
+            # HIDES: every HIGH-severity finding. Only CRITICAL blocks a merge, so
+            # an unbounded number of HIGHs ships green on the required check.
+            # Deliberate, because scanner HIGHs include advisory checks. The only
+            # record of them is this annotation plus scan-output.txt in the run log.
             echo "::warning::$HIGHS high finding(s) detected"
           fi
           if [ "$CRITS" -gt 0 ]; then
@@ -226,6 +254,11 @@ jobs:
           echo "Performance: $PERF, Accessibility: $A11Y"
 
           if [ "$PERF" -lt 90 ] || [ "$A11Y" -lt 90 ]; then
+            # HIDES: a Performance/Accessibility regression on the freshly-built
+            # dashboard. Warn-only ON PURPOSE, because a single Lighthouse run is
+            # noisy. The hard >= 0.90 gate lives in lighthouse.yml on deployed Pages.
+            # What is genuinely lost: a regression that only reproduces on the
+            # PR-built artifact and not on the deployed site has no blocking gate.
             echo "::warning::Dashboard quality below threshold (Perf=$PERF, A11y=$A11Y)"
           fi
 

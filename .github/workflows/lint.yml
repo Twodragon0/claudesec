@@ -172,6 +172,13 @@ jobs:
       - name: Run pip-audit
         # CVE-2026-4539: pygments <=2.19.2 local ReDoS — no fix available yet
         # CVE-2026-3219: pip 26.0.1 tar+ZIP confusion — no fix version published yet
+        #
+        # VERDICT SUPPRESSED — WHAT EACH `--ignore-vuln` HIDES: exactly those two
+        # CVEs, and it keeps hiding them SILENTLY once a fix ships — pip-audit does
+        # not warn that an ignore has become unnecessary. So each entry is an
+        # un-expiring exemption on the REQUIRED `Lint` check. Re-check both at the
+        # quarterly guard audit and delete the flag once a fix version exists;
+        # the note above records why each was added, not that it is still needed.
         run: pip-audit --strict --desc --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
 
   shell-lint:
@@ -188,6 +195,13 @@ jobs:
           SHELLCHECK_OPTS: -x
         with:
           version: v0.11.0
+          # VERDICT NARROWED — WHAT IT HIDES: `severity: error` means shellcheck
+          # `warning`/`info`/`style` findings do NOT fail this job (e.g. SC2086
+          # unquoted expansion is a *warning*), and `ignore_paths` below means no
+          # `.sh` under those directories is linted at all — `templates/` and
+          # `examples/` ship shell to users unchecked. shell-lint is in
+          # `lint-gate`'s `needs:`, so both narrowings ride the REQUIRED `Lint`.
+          # Widening either is a deliberate decision, not a cleanup.
           severity: error
           scandir: '.'
           ignore_paths: >-
@@ -282,6 +296,14 @@ jobs:
         run: |
           python3 -m py_compile scanner/lib/dashboard-gen.py scanner/lib/compliance-map.py scanner/lib/prowler_compliance_summary.py scanner/tests/test_dashboard_gen_smoke.py scanner/tests/test_markdown_preview.py scanner/tests/test_prowler_ocsf.py scanner/tests/test_prowler_ocsf_e2e.py scanner/tests/test_compliance_map.py scanner/tests/test_prowler_compliance_summary.py
           mkdir -p test-reports
+          # VERDICT DEFERRED (not suppressed) — `set +e` + `exit 0` below make this
+          # step green even when pytest fails, ON PURPOSE: the report/artifact/
+          # Codecov steps that follow need `if: always()` to be reachable, and the
+          # real exit code is exported as `test_exit_code` and re-raised by "Fail
+          # workflow on scanner unittest / coverage failure". The re-raise fails
+          # CLOSED (an unset output is `!= '0'`), so a lost GITHUB_OUTPUT write
+          # still blocks. What would be silently lost: deleting that final step,
+          # which is the ONLY thing turning pytest + the 99% floor into a verdict.
           set +e
           python3 -m pytest scanner/tests/ \
             --junitxml=test-reports/pytest-junit.xml \
@@ -298,6 +320,14 @@ jobs:
         uses: mikepenz/action-junit-report@d9f48fc87bc235f7e214acf696ca5abc0a986f16  # v6.4.2
         with:
           report_paths: 'test-reports/*.xml'
+          # VERDICT SUPPRESSED — WHAT IT HIDES: `fail_on_failure: false` means a
+          # red test in the junit XML does not fail this step, and
+          # `require_tests: false` means a run that collected ZERO tests (or wrote
+          # no XML at all) also reads green. Both are intentional: this step is a
+          # REPORTER, and the actual verdict is re-raised from the captured exit
+          # code by "Fail workflow on scanner unittest / coverage failure" below.
+          # That step is the only thing enforcing pytest + the 99% floor here — if
+          # it is ever deleted, this job goes green on every test failure.
           fail_on_failure: false
           require_tests: false
       - name: Upload scanner unittest + coverage artifacts
@@ -310,6 +340,12 @@ jobs:
           if-no-files-found: ignore
       - name: Upload coverage to Codecov
         if: always()
+        # VERDICT SUPPRESSED — WHAT IT HIDES: `continue-on-error` +
+        # `fail_ci_if_error: false` mean an upload failure (Codecov outage, missing
+        # or expired CODECOV_TOKEN, rate-limit) is invisible. What is lost is only
+        # REPORTING: the badge and the Codecov diff go stale silently. No gate is
+        # lost — the 99% floor is enforced locally by `--cov-fail-under=99` above,
+        # not by Codecov. Deliberate: a third-party outage must not block merges.
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
         continue-on-error: true
         with:
@@ -415,6 +451,30 @@ jobs:
           # regression in 30s instead of 120s. Exit 124 (cap hit) is treated as
           # a warning so the remaining tests still run and we still get a
           # coverage merge; normal kcov exit codes are preserved.
+          #
+          # VERDICT SUPPRESSED HERE — WHAT IT HIDES (audit 2026-08-12):
+          # every non-zero rc below becomes a log line, so THIS STEP CANNOT FAIL
+          # on a failing shell test. Two distinct losses, both measured:
+          #   1. rc=124 (cap hit): a test pushed onto the 30s cap surfaces only as
+          #      `elapsed=30s rc=124` inside a green job. That is how #431's
+          #      watchdog bug read green.
+          #   2. rc!=0 and !=124 (ASSERTION FAILURE): swallowed by the plain
+          #      `echo WARN:` below — not even a ::warning:: annotation. This
+          #      matters because the `scanner-unit-tests` job's shell-test list is
+          #      EXPLICIT and does not auto-discover: 20 of the 54
+          #      `scanner/tests/test_*.sh` files are named in NO workflow and are
+          #      reached only by this glob. For those 20, this loop is the only
+          #      thing that runs them, and it cannot fail — so they gate nothing.
+          #      Measured by running this step body verbatim with a real SUT
+          #      regression (output.sh `_score_to_grade` C boundary 70->75):
+          #      `test_print_summary_score_to_grade.sh` exits 1, this step exits 0,
+          #      and `lint-gate` ("Lint", a REQUIRED check that lists
+          #      scanner-shell-coverage in `needs:`) reads success.
+          #      The kcov coverage floor does NOT compensate: an assertion that
+          #      fails still executes its lines, so `percent_covered` is unchanged.
+          # Registering a test in the `scanner-unit-tests` list is what makes it
+          # gate. Adding it here only buys coverage. Do not read a green
+          # scanner-shell-coverage as "the shell tests passed".
           chmod +x scanner/tests/test_*.sh
           # GitHub Actions sets `bash -eo pipefail` by default, so any non-zero
           # exit from `timeout 30 kcov ...` (e.g., 124 on cap-hit) would abort
@@ -456,6 +516,10 @@ jobs:
             if [ "$rc" -eq 124 ]; then
               echo "::warning::kcov $name TIMED OUT after ${elapsed}s (>=30s cap)"
             elif [ "$rc" -ne 0 ]; then
+              # HIDES: a genuine assertion failure. Plain text, not ::warning::,
+              # so it does not even raise an annotation on the run. See the
+              # "VERDICT SUPPRESSED HERE" note above for the 20 tests this is the
+              # only runner of.
               echo "WARN: $sh exited non-zero under kcov (rc=$rc, ${elapsed}s)"
             fi
             echo "kcov $name elapsed=${elapsed}s rc=${rc}"
@@ -477,6 +541,11 @@ jobs:
             pct=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('percent_covered','?'))" "$cov_json")
             echo "Bash coverage (merged): ${pct}%"
           else
+            # HIDES nothing that matters: this step is a PRINTER. The identical
+            # find-based discovery is repeated in "Enforce bash coverage threshold"
+            # below, where a missing coverage.json is `::error::` + `exit 1`. If
+            # that duplicate discovery is ever refactored away into this step, the
+            # warn here becomes the whole verdict and the floor stops being enforced.
             echo "WARN: no coverage.json found under kcov-out/"
             echo "Contents of kcov-out/merged/ (top two levels):"
             find kcov-out/merged -maxdepth 2 -print 2>/dev/null || true
@@ -797,6 +866,21 @@ jobs:
           # Exclude allowlist lives in lychee.toml (single source of truth,
           # guarded by scanner/tests/test_ci_lychee_config.py) so it cannot
           # drift from a second inline copy. Only operational flags stay here.
+          #
+          # VERDICT SUPPRESSED BY `--accept '100..=599'` — WHAT IT HIDES:
+          # every HTTP status from 100 to 599 counts as OK, so this job fails
+          # only on a link that does not RESOLVE at all (DNS/TLS/timeout). Dead
+          # links pass. Measured against a local 404 (lychee 0.24.2):
+          #   no --accept          -> `[404] ... Rejected status code`, exit 2
+          #   --accept '100..=599' -> `2 Total  2 OK  0 Errors`, exit 0
+          # `fail: true` below therefore never fires for link ROT, and because
+          # `link-check` is in `lint-gate`'s `needs:`, a 404 ships green through
+          # the REQUIRED `Lint` check. This is deliberate: PR-time link checking
+          # must not fail on someone else's transient 5xx. The compensating
+          # control is the MONTHLY sweep in lychee-redirect-sweep.yml, which runs
+          # the same lychee/lychee.toml with the strict `--accept '200..=299'`
+          # and opens a self-healing issue (#298). If that sweep is ever removed
+          # or goes dark, link rot has NO detector anywhere in CI.
           args: >-
             --config lychee.toml
             --no-progress
