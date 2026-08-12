@@ -178,11 +178,18 @@ def main(argv=None) -> int:
     # step failed. `gh api --jq .check_runs` emits `null` when the key is absent
     # (TypeError on iteration) and a bare object when the API returns an error
     # envelope (AttributeError on `.get`); neither should traceback.
+    #
+    # Only those two, deliberately. `select_stuck` cannot raise ValueError
+    # (`_parse_ts` swallows its own) or KeyError (it only ever calls `.get`), so
+    # catching those here would relabel one of OUR bugs as "unexpected gh
+    # payload" — the exact misattribution this split exists to avoid. An internal
+    # bug still fails safe for the caller: the traceback exits 1, which the wait
+    # loop treats as advisory and keeps waiting, and 1 is never folded into 0.
     try:
         stuck, external, pending = select_stuck(
             check_runs, runs, datetime.now(timezone.utc), args.stuck_minutes
         )
-    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+    except (TypeError, AttributeError) as exc:
         print(f"unexpected gh payload: {exc!r}", file=sys.stderr)
         return EXIT_GH_ERROR
     for entry in pending:

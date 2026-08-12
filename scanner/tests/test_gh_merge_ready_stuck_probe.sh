@@ -11,15 +11,20 @@
 #   1b. same, with the REAL date  -> control: the fake clock below hides nothing
 #   2.  checks failing, RERUN=1   -> probe runs and re-runs the workflow (11)
 #   3.  many polls, one interval  -> exactly ONE probe
-#   3b. interval elapses          -> probes AGAIN
-#   4.  checks green, merge fails -> NO probe (merge path), status propagates
+#   3b. interval elapses          -> probes AGAIN (bounds the interval ABOVE)
+#   3c. shorter gap than 600s     -> does NOT probe (bounds it BELOW; together
+#                                    3b+3c pin the `/2` divisor, not just a range)
+#   4.  checks green, merge OK    -> merges, NO probe (the primary success path)
+#   4b. checks green, merge fails -> NO probe (merge path), status propagates
 #   5.  checks green, merge lags  -> NO probe (mergeability-lag retry path)
 #   6.  probe itself errors       -> logged, loop keeps waiting (advisory only)
 #   7.  workflow still running    -> probe runs and reports nothing stuck
 #   8.  PR already MERGED         -> NO probe
 #   9.  arithmetic-eval payloads  -> rejected before the loop (STUCK_MINUTES and
 #                                    TIMEOUT_SECONDS both reach `$(( ))`)
-#   10. overflow-sized threshold  -> rejected (it would INVERT the cadence gate)
+#   10. overflow-sized threshold  -> rejected (it would INVERT the cadence gate);
+#                                    and the accepted bound is FORWARDED to the
+#                                    detector, not just printed in the log
 #   11. detector file missing     -> reported, loop keeps waiting
 #
 # DETERMINISM (this test feeds the required `Lint` check, so it may not be
@@ -37,6 +42,13 @@
 # in N seconds". Scenario 1b keeps the REAL `date` as a control and terminates
 # on a stub state change instead of a timeout, so nothing here depends on the
 # fake clock being faithful.
+#
+# Countable facts about this file, so no summary has to guess: 15 scenario
+# blocks, 18 invocations of the script under test, 67 assertions. Nine of those
+# scenarios reach their assertions only because the fake clock walks the deadline
+# forward, so every invocation is wrapped in a portable watchdog — a harness
+# change that decoupled termination from the clock would otherwise hang until the
+# CI job's 6-hour default instead of failing.
 #
 # Hermetic: a PATH-prepended recording `gh` stub answers every call (pr view /
 # pr checks / pr merge / api check-runs / run list / run rerun). No network, no
@@ -252,15 +264,41 @@ use_real_clock() {
   unset FAKE_CLOCK DATE_STEP
 }
 
+# Portable stand-in for `timeout(1)`, which is GNU coreutils and is absent from a
+# default macOS install (CLAUDE.md's documented local path is `bash
+# scanner/tests/test_<name>.sh`, so this has to work there too). A killed run
+# surfaces as rc 137, which fails the scenario's own assertions loudly.
+# Overridable so the watchdog itself can be demonstrated firing (set it to 1 and
+# every clock-driven scenario reports the killed-run FAIL below).
+WATCHDOG_SECONDS="${WATCHDOG_SECONDS:-60}"
+run_with_watchdog() {
+  local seconds="$1"
+  shift
+  "$@" &
+  local pid=$!
+  ( sleep "$seconds"; kill -9 "$pid" 2>/dev/null ) &
+  local killer=$!
+  wait "$pid"
+  local rc=$?
+  kill "$killer" 2>/dev/null || true
+  wait "$killer" 2>/dev/null || true
+  return "$rc"
+}
+
 run_merge() {
   local label="$1"
   export GH_LOG="$WORK/gh-$label.log"
   : >"$GH_LOG"
-  PATH="${CLOCK_PATH:+$CLOCK_PATH:}$STUB_BIN:$PATH" \
+  run_with_watchdog "$WATCHDOG_SECONDS" \
+    env PATH="${CLOCK_PATH:+$CLOCK_PATH:}$STUB_BIN:$PATH" \
     bash "$SCRIPT_UNDER_TEST" 424 >"$WORK/out-$label.log" 2>&1
   RUN_RC=$?
   OUT="$(cat "$WORK/out-$label.log")"
   GH_CALLS="$(cat "$GH_LOG")"
+  if [[ "$RUN_RC" -eq 137 ]]; then
+    echo "  FAIL: $label did not terminate within ${WATCHDOG_SECONDS}s (watchdog killed it)"
+    ((TEST_FAILED++))
+  fi
 }
 
 count_matches() {
@@ -268,11 +306,32 @@ count_matches() {
   grep -c -- "$needle" <<<"$haystack" 2>/dev/null || true
 }
 
-# 1-based line number of the first match, or 0.
+# 1-based line number of the first match, or 0 when absent.
 line_of() {
   local needle="$1" haystack="$2" n=""
   n="$(grep -n -- "$needle" <<<"$haystack" 2>/dev/null | head -1 | cut -d: -f1)"
   printf '%s' "${n:-0}"
+}
+
+# `first` must appear BEFORE `second`, and both must appear at all: a missing
+# needle yields line 0, which would otherwise satisfy `0 < n` and make the
+# ordering assertion vacuum-capable.
+assert_line_order() {
+  local label="$1" haystack="$2" first="$3" second="$4" a="" b=""
+  a="$(line_of "$first" "$haystack")"
+  b="$(line_of "$second" "$haystack")"
+  if [[ "$a" -eq 0 || "$b" -eq 0 ]]; then
+    echo "  FAIL: $label"
+    echo "    a needle is missing entirely (first=$a second=$b) — ordering is undefined"
+    ((TEST_FAILED++))
+  elif [[ "$a" -lt "$b" ]]; then
+    echo "  PASS: $label (line $a before line $b)"
+    ((TEST_PASSED++))
+  else
+    echo "  FAIL: $label"
+    echo "    expected line($first)=$a < line($second)=$b"
+    ((TEST_FAILED++))
+  fi
 }
 
 echo "== 1. waiting path: stuck check-run detected, report only (default) =="
@@ -310,9 +369,8 @@ assert_contains "gh run rerun was invoked" "$GH_CALLS" "run rerun 31504280368"
 # Pins the `python3 -u` in the caller: with stdout captured into a pipe, python
 # block-buffers, so its own "re-running run N" would land AFTER the unbuffered
 # child's output — i.e. the log would show the effect before its cause.
-assert_lt "python's line precedes the child gh output it explains" \
-  "$(line_of "re-running run 31504280368" "$OUT")" \
-  "$(line_of "stub: re-run requested" "$OUT")"
+assert_line_order "python's line precedes the child gh output it explains" "$OUT" \
+  "re-running run 31504280368" "stub: re-run requested"
 
 echo "== 3. cadence: exactly one probe across many polls =="
 # The 600s interval cannot elapse in 9 fake seconds, so a time-gated probe fires
@@ -337,7 +395,36 @@ probes="$(count_matches "$PROBE_LOG" "$OUT")"
 assert_eq "polled twice on the fake clock" "2" "$polls"
 assert_eq "probed on both polls, 600s apart" "2" "$probes"
 
-echo "== 4. merge path: checks green, hard merge failure, NO probe =="
+echo "== 3c. cadence: a gap SHORTER than the interval does not re-probe =="
+# 3b bounds the interval from above (602s elapsed must be enough); this bounds it
+# from below (400s elapsed must NOT be). Together they pin the interval to
+# (400, 602] at STUCK_MINUTES=20 — i.e. the `/2` divisor specifically, since
+# `*60/1`=1200 fails 3b and `*60/3`=400 and `*60/4`=300 both fail here. Without
+# this, changing `/2` to `/4` would double `gh` spend and read green, while the
+# usage text still promised "at most once per STUCK_MINUTES*60/2".
+# 200 fake seconds per call = 400 per iteration; deadline 900 admits 2 polls.
+reset_env
+export DATE_STEP=200 TIMEOUT_SECONDS=900
+run_merge cadence-short-gap
+assert_eq "polled twice" "2" "$(count_matches "not fully green yet" "$OUT")"
+assert_eq "400s < the 600s interval, so only the first poll probed" "1" \
+  "$(count_matches "$PROBE_LOG" "$OUT")"
+
+echo "== 4. merge path: checks green, merge SUCCEEDS, NO probe =="
+# The script's primary success path. Nothing else in the repo executes it: both
+# its message and its `exit 0` could be changed without any test noticing.
+reset_env
+export STUB_CHECKS_RC=0 STUB_MERGE_RC=0
+export STUB_MERGE_OUT="✓ Merged pull request Twodragon0/claudesec#424 (feat: x)"
+run_merge merge-success
+assert_contains "merge was attempted" "$OUT" "Attempting merge"
+assert_contains "gh's own merge output is surfaced" "$OUT" "Merged pull request"
+assert_contains "success is reported" "$OUT" "Merge completed."
+assert_eq "exits 0" "0" "$RUN_RC"
+assert_not_contains "probe did NOT run on the success path" "$OUT" "$PROBE_LOG"
+assert_not_contains "did not fall through to the timeout" "$OUT" "Timed out waiting"
+
+echo "== 4b. merge path: checks green, hard merge failure, NO probe =="
 # Merge rc is 3, not 1: a timeout also exits 1, so 1 could not distinguish
 # "propagated the merge status" from "fell through to the timeout".
 reset_env
@@ -433,6 +520,15 @@ export STUCK_MINUTES=99999
 run_merge at-the-bound
 assert_not_contains "the largest accepted value still runs" "$OUT" "Invalid STUCK_MINUTES"
 assert_contains "and still probes" "$OUT" "$PROBE_LOG"
+# THE PLUMBING, not the log line: the stub's check-run is 30m old, so a 99999m
+# threshold must find nothing. If `--stuck-minutes` were dropped from
+# `stuck_args` the detector would fall back to its own default of 20 and report
+# the 30m check as STUCK — while the log above still announced 99999m and the
+# escalation command still printed the operator's value. With RERUN_STUCK=1 that
+# re-runs healthy work at a threshold nobody asked for.
+assert_contains "the operator's threshold reached the detector" "$OUT" \
+  "No stuck check-runs detected."
+assert_not_contains "no STUCK verdict at a 99999m threshold" "$OUT" "STUCK     Lint"
 
 echo "== 11. a missing detector is reported, and the loop keeps waiting =="
 # The script resolves the detector next to itself, so a copy on its own has none.

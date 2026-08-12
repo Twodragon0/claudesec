@@ -180,13 +180,19 @@ def stub_gh_json(check_runs, runs, head="0" * 40):
 
 class MainExitCodeCase(unittest.TestCase):
     def run_main(self, argv, check_runs, runs, gh_json=None, rerun_side_effect=None):
-        """`(exit_code, stdout, rerun_calls)` for `main(argv)`, fully stubbed."""
+        """`(exit_code, stdout, rerun_calls)` for `main(argv)`, fully stubbed.
+
+        stderr lands in `self.stderr`: exit 1 is reached by two different guards
+        (query vs classification) and a test that only checks the code cannot
+        tell them apart — which would let the two being merged back into one
+        read as green."""
         with mock.patch.object(detector, "_gh_json", gh_json or stub_gh_json(check_runs, runs)), \
                 mock.patch.object(detector.subprocess, "run") as run_mock:
             run_mock.side_effect = rerun_side_effect
             out, err = io.StringIO(), io.StringIO()
             with redirect_stdout(out), redirect_stderr(err):
                 code = detector.main(argv)
+        self.stderr = err.getvalue()
         return code, out.getvalue(), [c.args[0] for c in run_mock.call_args_list]
 
 
@@ -240,30 +246,37 @@ class TestMainExitCodes(MainExitCodeCase):
         self.assertEqual(code, detector.EXIT_GH_ERROR)
         self.assertEqual(code, 1)
         self.assertEqual(calls, [])
+        self.assertIn("gh query failed", self.stderr)
 
     def test_malformed_gh_payload_exits_1(self):
-        # KeyError on the FIRST call (`headRefOid` absent).
+        # KeyError on the FIRST call (`headRefOid` absent) -> the QUERY guard.
         code, _, _ = self.run_main(
             ["424"], [], [], gh_json=lambda args: {"unexpected": "shape"}
         )
         self.assertEqual(code, 1)
+        self.assertIn("gh query failed", self.stderr)
 
     def test_null_check_runs_exits_1_without_a_traceback(self):
         # `gh api --jq .check_runs` prints `null` when the key is absent, which
         # json-decodes to None. Iterating that is a TypeError raised INSIDE
-        # select_stuck, i.e. outside the query guard.
+        # select_stuck, so the CLASSIFICATION guard must be the one to report it.
         code, _, _ = self.run_main(["424"], None, [run()])
         self.assertEqual(code, 1)
+        self.assertIn("unexpected gh payload", self.stderr)
+        self.assertNotIn("gh query failed", self.stderr)
 
     def test_null_run_list_exits_1_without_a_traceback(self):
         code, _, _ = self.run_main(["424"], [live_check()], None)
         self.assertEqual(code, 1)
+        self.assertIn("unexpected gh payload", self.stderr)
 
     def test_error_envelope_instead_of_a_list_exits_1(self):
         # An API error envelope: iterating a dict yields str keys, so the first
         # `cr.get(...)` is an AttributeError, not a TypeError.
         code, _, _ = self.run_main(["424"], {"message": "Not Found"}, [run()])
         self.assertEqual(code, 1)
+        self.assertIn("unexpected gh payload", self.stderr)
+        self.assertIn("AttributeError", self.stderr)
 
     def test_rerun_failure_exits_1_not_11(self):
         code, _, calls = self.run_main(
@@ -280,8 +293,12 @@ class TestMainExitCodes(MainExitCodeCase):
         self.assertEqual(ctx.exception.code, 2)
 
     def test_stuck_minutes_is_forwarded_from_the_cli(self):
-        # The caller passes --stuck-minutes through; a threshold above the age
-        # must flip the verdict back to 0.
+        # Scope: this proves the DETECTOR honours the flag. That
+        # `gh-merge-ready-pr.sh` actually passes it is a separate claim, pinned by
+        # executing the caller in scanner/tests/test_gh_merge_ready_stuck_probe.sh
+        # (scenario 10, `at-the-bound`) — dropping `--stuck-minutes` from
+        # `stuck_args` leaves every test in THIS file green.
+        # A threshold above the age must flip the verdict back to 0.
         args = (["424", "--stuck-minutes", "60"], [live_check(minutes_ago=30)], [run()])
         self.assertEqual(self.run_main(*args)[0], 0)
         self.assertEqual(

@@ -94,6 +94,11 @@ esac
 #
 # POLL_SECONDS is deliberately NOT validated: it never reaches `$(( ))`, it is
 # only passed to `sleep`, and fractional values are useful there.
+# CONTRACT: `pattern` is passed to `=~` UNQUOTED, which is required for regex
+# semantics — so it must be a single shell word (no whitespace, no glob-ish
+# quoting). Both call sites pass a literal single-quoted ERE. `value` is echoed
+# back on rejection so the operator can see their own typo; both variables this
+# guards are numeric config, never credentials.
 validate_int_range() {
   local name="$1" value="$2" pattern="$3" range="$4"
   if ! [[ "$value" =~ $pattern ]]; then
