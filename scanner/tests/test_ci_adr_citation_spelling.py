@@ -24,13 +24,18 @@ gets WRITTEN is. This guard is that narrowing.
 
 FORBIDDEN SPELLINGS, by slug
 ----------------------------
-- `mis-anchored` — the anchor is not exactly `ADR-001 ` immediately before the
-  section mark. #434 enumerated ONE instance of this (`ADR §<N>`, the `-001`
-  dropped) and writing the guard to that one spelling left four more evasions,
-  each measured invisible to `_CITE_RE` too. This is therefore a RULE, not an
-  enumeration (ADR-001 §5) — see the pattern's comment and the seven tests that
-  pin the shapes and the false-positive boundary.
-- `adr001-decision` — `ADR-001 Decision <N>`: the word form instead of the mark.
+- `mis-anchored` — the anchor is not exactly `ADR-001` plus ONE SPACE plus a
+  DIGIT after the section mark, which is precisely what `_CITE_RE` requires. #434
+  enumerated ONE instance of this (`ADR §<N>`, the `-001` dropped); written to that
+  one spelling the guard left four evasions, and written with an exemption one
+  character short of `_CITE_RE`'s own pattern it left a whole further family —
+  `§§<N>`, the ordinary plural-sections form, among them. This is therefore a RULE,
+  not an enumeration (ADR-001 §5) — see the pattern's comment, and the tests under
+  `TestSpellingDetector` that pin each shape AND the false-positive boundary. (No
+  count here on purpose: an earlier draft of the catalog row miscounted them, in a
+  PR about a miscounted population.)
+- `adr001-decision` — the word form instead of the mark, `ADR` and `Decision` both
+  case-insensitive, id required.
 - `anchored-chain` — `ADR-001 §<N>/§<M>`: head visible, tail invisible. Cite the
   pair by REPEATING the prefix (`ADR-001 §<N> and ADR-001 §<M>`), which is the only
   form `_CITE_RE` fully sees — measured 2026-08-12: it returns ONE number for the
@@ -43,7 +48,9 @@ FORBIDDEN SPELLINGS, by slug
   which 23 meant §5"*), so a rule wide enough to catch the pair would over-report
   on precisely the prose that documents this class. Named as a test rather than
   left as an unremarked green, and recorded in the catalog's backlog.
-- `bare-decision` — `Decision <N>` in a file OTHER than the ADR itself.
+- `bare-decision` — `Decision <N>` in a file outside the `docs/devsecops/adr-NNN`
+  series. Deliberately the narrowest class of the four; both proposed widenings
+  were measured to cost live false positives and are rejected in its comment.
 
 The `mis-anchored` rule earned itself immediately: it found a LIVE citation in
 `test_ci_strip_before_match.py` that no census had ever seen, because a line wrap
@@ -66,8 +73,14 @@ The ADR writes `Decision <N>` about its own list ("Decision <N> says bound the
 haystack"). That is correct prose, not a citation: it sits beside the list it
 names, and the numbering guard reads that list DIRECTLY rather than through
 `_CITE_RE`, so nothing is hidden from anything. Demanding `ADR-001 §<N>` inside
-`adr-001-....md` would be absurd. So `bare-decision` is exempt for exactly one
-path — `ADR_REL` — and for no other class.
+`adr-001-....md` would be absurd. So `bare-decision` is exempt for one class over
+one GLOB — `docs/devsecops/adr-[0-9]*.md` — and for no other class.
+
+The glob, not the single path the first draft hardcoded: `adr-index.md` documents
+`adr-NNN` as a sequential series and instructs that a changed decision be recorded
+as a NEW ADR, so the first `adr-002` would have failed this guard on its own
+legitimate self-cross-references. The index itself is NOT exempt — it cites ADRs
+rather than defining decisions.
 
 That exemption is NARROW, and the baseline below proves it: the ADR does carry
 `mis-anchored` and `anchored-chain` entries, because its drift tables quote the old
@@ -81,11 +94,19 @@ DIRECTION / SEMANTICS
 Regression-pin over a KNOWN baseline, the shape of
 `test_ci_guard_assertion_scoping.py` and `test_ci_strip_before_match.py`: the
 detected set must EQUAL `GRANDFATHERED`. A new non-canonical citation fails, and a
-stale entry fails once the site is canonicalized — so the allowlist cannot outlive
-its justification. Unlike those two, this baseline cannot be empty: #434
-deliberately left correct citations in a non-canonical spelling alone rather than
-churning twelve sites for spelling, and churn is the wrong trade for a permanent
-doc.
+canonicalized site's stale entry fails. Unlike those two, this baseline cannot be
+empty: #434 deliberately left correct citations in a non-canonical spelling alone
+rather than churning twelve sites for spelling, and churn is the wrong trade for a
+permanent doc.
+
+The precise limit of set equality, because an earlier draft of this docstring
+overstated it as "the allowlist cannot outlive its justification": equality is over
+the SET, so any edit that leaves the set unchanged is invisible. Two measured
+counterexamples — canonicalize one of the retrospective's two `ADR §<N>` sites
+while adding a new one elsewhere in the same file, and the `|#1`/`|#2` pair is
+reproduced exactly; or swap two grandfathered numbers within one file (below).
+What equality does guarantee is that the baseline cannot grow, or hold an entry for
+a site that no longer produces it, without a diff through this file.
 
 What makes a non-empty baseline maintainable is the KEY, which carries no line
 number and no surrounding prose:
@@ -96,8 +117,13 @@ number and no surrounding prose:
   demands an update for an unrelated paragraph edit is a baseline that gets
   bulk-regenerated instead of read.
 - **The NUMBER is in the key**, so this cannot degrade into a per-file count. A
-  count of 4 hides `Decision <N>` being edited to `Decision <M>`; the key changes,
-  so the swap is a new entry and fails. That is the failure mode chosen against.
+  count of 4 hides `Decision <N>` being edited to `Decision <M>` entirely; here the
+  key changes, so a ONE-WAY retarget is a new entry and fails
+  (`test_a_number_swap_changes_the_key`). Stated exactly, because the first draft
+  claimed more: a PAIRWISE swap — two of the skill's word-form citations trading
+  numbers — leaves the key set byte-identical and passes, with both citations now
+  wrong. Set membership catches a retarget; it cannot catch a permutation. That is
+  a strictly smaller hole than a count, which hides both.
 - **The ordinal** (per file+slug+numbers) keeps a second identical occurrence from
   collapsing into the first. Two `ADR §<N>`s in one file are two entries.
 - **The whole number sequence** for a chain, so retargeting a tail is visible too.
@@ -107,8 +133,9 @@ number and no surrounding prose:
   docstring above writes `<N>` for the same reason, and the test fixtures are
   ASSEMBLED from parts (`_misanchored(4)`) rather than written literally — the same
   discipline this repo already uses for credential-shaped fixtures, which the
-  repository ruleset blocks even in tests. That test caught this file's own first
-  draft: 28 keys, all of them fixtures.
+  repository ruleset blocks even in tests. That test has now caught this file three
+  times: 28 keys in the first draft, 6 after the mis-anchored rule widened, and 6
+  more after the review fixes. All fixtures and comments, none of them exemptions.
 
 Removal direction: canonicalizing a grandfathered site is welcome and costs one
 line here. It is a one-sided pin the other way — the baseline can only shrink
@@ -120,10 +147,15 @@ The scanned globs are IMPORTED from `test_ci_adr_decision_numbering` rather than
 restated, because the invariant is defined relative to that scanner's population:
 two lists is where they drift apart. Widening one widens both.
 
-Measured 2026-08-12 on 21edb45: zero occurrences of any forbidden spelling in the
+Measured 2026-08-12 on b382641: zero occurrences of any forbidden spelling in the
 255 tracked files those globs do NOT cover, so nothing is being missed today. If a
 citation ever lands in a `.sh` or a workflow, BOTH guards are blind to it — a
 shared limitation with a single fix, which is the point of sharing the constant.
+
+`test_population_is_scanned`'s `>= 40` is a VACUITY canary, not a pinned invariant:
+it exists so a broken glob fails loudly instead of passing over nothing, and
+nothing mutation-tests the threshold itself. Do not read it as a floor on the
+citation count.
 
 NOT CLAIMED
 -----------
@@ -142,6 +174,7 @@ the guards is part of the configuration; NIST SP 800-218 (SSDF) PO.3, PW.4.
 import re
 import sys
 import unittest
+from fnmatch import fnmatch
 from glob import glob
 from pathlib import Path
 
@@ -155,11 +188,43 @@ from test_ci_adr_decision_numbering import ADR_REL, _CITED_GLOBS  # noqa: E402
 
 THIS_REL = "scanner/tests/test_ci_adr_citation_spelling.py"
 
-# One more `§<digits>` hop; separator is a `/` with optional SAME-LINE whitespace,
-# and the `§` is optional so `§1/3` is read as a chain too. Deliberately `[ \t]`
-# rather than `\s`: a hop that could span a newline turns an unrelated `/ §6` on
-# the next line into a chain tail, which is a false alarm with no upside.
-_CHAIN_HOP = r"(?:[ \t]*/[ \t]*§?\d+)"
+# One more `§<digits>` hop in a chain.
+#
+# The separator is a CLASS, not the single literal `/` the first draft used: all of
+# `§1, §3` · `§1–§3` · `§1-§3` · `§1 & §3` · `§1+§3` · `§1; §3` · `§1|§3` yield
+# `['1']` from `_CITE_RE` and were invisible here, which is an enumeration in the
+# very file that invokes ADR-001 §5. The `§` on the tail is optional ONLY after
+# `/` (where `§1/3` is an idiomatic abbreviation) and REQUIRED after every other
+# separator, because `§5, 2026-08-12` would otherwise key as a chain to decision
+# 2026 — a real shape in this repo's tables.
+#
+# `[ \t]` and not `\s`: a hop that could span a newline turns an unrelated `/ §6`
+# on the next line into a chain tail. Pinned by
+# `test_a_chain_hop_does_not_cross_a_newline`.
+_CHAIN_SEP = r"(?:/[ \t]*§?|[,;&+|~–—-][ \t]*§)"
+_CHAIN_HOP = rf"(?:[ \t]*{_CHAIN_SEP}\d+)"
+
+# The ADR's own identifier after the `ADR` token: a separator plus a zero-padded 1,
+# so `-001`, ` 001` and adr-tools' 4-digit `-0001` all read as the id.
+#
+# The separator class EXCLUDES `§` deliberately. With a plain `\W` there, the
+# `ADR §<N>/§<M>` in the 2026-08 retrospective parsed as id=`ADR §<N>` and keyed as a
+# `mis-anchored|2` rather than `|1/2` — the id matcher ate the first decision
+# number. Caught by re-measuring the live hit set after the widening, not by
+# review; see the harness discipline in ADR-001 §4.
+_ADR_ID = r"(?:[^\w§]{1,2}0*1)?"
+
+# The joint between the anchor and what follows it: up to three non-word chars on
+# the same line, OR a line wrap with any indent and an optional continuation
+# marker, OR a Markdown link suffix (`[ADR-001](path)`), which the repo already
+# writes in four places.
+#
+# The wrap branch is unbounded on indent on purpose. Bounded at `\W{0,3}` it
+# covered 0/1/2-space and `> ` continuations but NOT a 4- or 8-space Python
+# docstring continuation — the single most common wrap shape in this suite, and
+# the exact place the one live wrap site was found. Re-derived with an unbounded
+# gap over all tracked files: still exactly one site, so widening costs nothing.
+_JOINT = r"(?:\](?:\([^)\s]*\))?)?(?:\W{0,3}|[ \t]*\n[ \t]*(?:[#>*+-][ \t]*)*)"
 
 # Slug -> pattern. Group 1 is the head number, group 2 the (possibly empty) chain
 # tail. There is no masking pass and so no stripper to attack: the `mis-anchored`
@@ -174,46 +239,79 @@ FORBIDDEN = (
     # `_CITE_RE` while the tail is not. Requires at least one hop, so plain
     # `ADR-001 §1` and a pair with the prefix repeated are untouched.
     ("anchored-chain", re.compile(rf"ADR-001 §(\d+)((?:{_CHAIN_HOP})+)")),
-    # The word form, `ADR` case-insensitively.
+    # The word form. `ADR` and `Decision` are both case-insensitive, and the
+    # joint between them and the number is `\W{0,3}`, so a lower-case word form and
+    # a parenthesised number are both covered. The id is REQUIRED here, which keeps
+    # slug honest; a bare `ADR Decision <N>` with no id is a named limit below.
     (
         "adr001-decision",
-        re.compile(rf"(?<![-\w])(?i:ADR)-001 Decisions? (\d+)((?:{_CHAIN_HOP})*)"),
+        re.compile(
+            rf"(?<![-\w])(?i:ADR)[^\w§]{{1,2}}0*1[ \t]*(?i:Decisions?)\W{{0,3}}"
+            rf"(\d+)((?:{_CHAIN_HOP})*)"
+        ),
     ),
-    # The ANCHOR is not exactly `ADR-001 ` immediately before the section mark.
+    # The ANCHOR is not exactly `ADR-001` plus one space before the section mark.
     #
     # A rule, not an enumeration (ADR-001 §5). #434 catalogued one instance of
     # this class — the `-001` simply dropped — and writing the guard as that one
-    # spelling left four evasions, each measured invisible to BOTH `_CITE_RE` and
-    # the enumerated matcher: a U+2011 hyphen, a missing hyphen (`ADR 001 §<N>`),
-    # a backticked prefix (`` `ADR-001` §<N> ``), and lower case (the #379 lesson
-    # — a case-sensitive matcher missed GitHub's own `macOS-14`). A parenthesised
-    # `the ADR (§<N>)` is a fifth. The rule covers all of them and, measured on
-    # the live population, produces exactly the same five hits the enumeration
-    # did — no new false positives. Each shape is pinned in TestSpellingDetector.
+    # spelling left evasions invisible to BOTH `_CITE_RE` and the matcher: a
+    # U+2011 hyphen, a missing hyphen (`ADR 001 §<N>`), a backticked prefix
+    # (`` `ADR-001` §<N> ``), lower case (the #379 lesson — a case-sensitive
+    # matcher missed GitHub's own `macOS-14`), a parenthesised `the ADR (§<N>)`, a
+    # Markdown link, adr-tools' 4-digit id, and every wrap shape above.
+    #
+    # THE LOOKAHEAD MUST REQUIRE A DIGIT. Written `(?!ADR-001 §)` it exempted a
+    # SUPERSET of what `_CITE_RE` matches — that regex needs `ADR-001 §\d+`, so the
+    # whole family `ADR-001 §<non-digit>…<digit>` was invisible to both, including
+    # `§§4`, which is the ordinary way to write plural sections. Found by an
+    # independent pass, not by the live-population measurement: "same hits, no new
+    # false positives" can only ever measure spellings that already exist, which is
+    # #434's own finding turned on this guard. `§\W{0,3}` closes the spaced and
+    # marked-up variants of the same family.
     #
     # The negative lookahead is case-SENSITIVE while `ADR` is not, which is the
     # whole point: a lower-case canonical form is invisible to `_CITE_RE` and must
     # be flagged, so only the exactly-canonical anchor may be exempt. `(?i:...)`
-    # is a SCOPED inline flag (Python 3.6+), verified on 3.11 and 3.13 — both CI
-    # versions — precisely so no global `re.IGNORECASE` can weaken the lookahead.
-    # `\W{0,3}` cannot cross a word character, so `in the ADR, see §4` does not
-    # match — that shape belongs to the documented same-line gap instead.
+    # is a SCOPED inline flag (Python 3.6+), verified on 3.11 — the version the
+    # `scanner-unit-tests` job runs — precisely so no global `re.IGNORECASE` can
+    # weaken the lookahead.
+    #
+    # False-positive boundary: `\W{0,3}` cannot cross a word character, so
+    # `in the ADR, see §4` does not match. That shape belongs to the documented
+    # same-line gap instead.
     (
         "mis-anchored",
         re.compile(
-            rf"(?<![-\w])(?!ADR-001 §)(?i:ADR)(?:\W{{0,3}}001)?\W{{0,3}}"
-            rf"§(\d+)((?:{_CHAIN_HOP})*)"
+            rf"(?<![-\w])(?!ADR-001 §\d)(?i:ADR){_ADR_ID}{_JOINT}"
+            rf"§\W{{0,3}}(\d+)((?:{_CHAIN_HOP})*)"
         ),
     ),
-    # A bare `Decision` + number, outside the ADR. The lookbehind is fixed-width
+    # A bare `Decision` + number, outside the ADRs. The lookbehind is fixed-width
     # and exact, so the uppercase word form is claimed only by its own class.
+    #
+    # This class is DELIBERATELY the narrowest of the four — capital `D`, exactly
+    # one space, no marked-up joint — because it has no `ADR` anchor to disambiguate
+    # it from ordinary prose. Both proposed widenings were measured and REJECTED:
+    # a `\W{0,3}` joint plus a `\d{1,2}` bound (offered as a fix for the
+    # `Decision <4-digit year>` false positive) produced SIX live false positives at
+    # once, because this catalog writes `**Decision (2026-08-12): no guard.**` and
+    # that parses as decision 20. The narrow form is what prevents them. Named
+    # limits, all measured at zero live instances: lower-case `decision <N>`,
+    # `Decision #<N>`, `Decision-<N>`, and `Decision <4-digit year>` as a false
+    # positive that fails loudly rather than silently.
     ("bare-decision", re.compile(r"(?<!ADR-001 )\bDecisions? (\d+)()")),
 )
 
-# Slug -> paths where that slug is not a violation at all. See "THE ADR'S OWN
-# CROSS-REFERENCES": one class, one path, and the reason is that the ADR is the
-# definition site rather than a citer.
-EXEMPT_PATHS = {"bare-decision": frozenset({ADR_REL})}
+# Slug -> path GLOBS where that slug is not a violation. See "THE ADR'S OWN
+# CROSS-REFERENCES": one class, one directory of definition sites.
+#
+# A GLOB, not the single `ADR_REL` path the first draft hardcoded. `adr-index.md`
+# documents `adr-NNN` as a sequential series and instructs that a changed decision
+# be recorded as a NEW ADR, so the first `adr-002` would have failed this guard on
+# its own legitimate self-cross-references. `adr-[0-9]*` covers 3- and 4-digit ids
+# and deliberately does NOT cover `adr-index.md`: an index cites ADRs, it does not
+# define decisions, so a bare `Decision <N>` there is a citation like any other.
+EXEMPT_PATH_GLOBS = {"bare-decision": ("docs/devsecops/adr-[0-9]*.md",)}
 
 # Correct citations in a non-canonical spelling, present when this guard landed.
 # #434 left them alone on purpose: they resolve to the right decision, and
@@ -283,7 +381,7 @@ def spelling_findings(text: str, relpath: str) -> list:
     seen = {}
     out = []
     for slug, pattern in FORBIDDEN:
-        if relpath in EXEMPT_PATHS.get(slug, ()):
+        if any(fnmatch(relpath, g) for g in EXEMPT_PATH_GLOBS.get(slug, ())):
             continue
         for m in pattern.finditer(text):
             base = f"{relpath}|{slug}|{_numbers(m.group(1), m.group(2))}"
@@ -533,7 +631,7 @@ class TestSpellingDetector(unittest.TestCase):
         # notes quoting a number as data, which a wider rule would over-report.
         self.assertEqual(self._keys(f"ADR-001 {_S}1 and {_S}4"), [])
 
-    def test_canonical_does_not_leak_into_the_adr_no_001_class(self):
+    def test_canonical_does_not_leak_into_the_mis_anchored_class(self):
         # The canonical form contains `ADR` and a section mark; only a SPACE after
         # `ADR` may match, and there a `-` follows.
         self.assertNotIn("mis-anchored", self._slugs(_canon(4)))
@@ -573,6 +671,22 @@ class TestSpellingDetector(unittest.TestCase):
     def test_a_chain_tail_swap_changes_the_key(self):
         self.assertNotEqual(self._keys(_chain(1, 3)), self._keys(_chain(1, 5)))
 
+    def test_a_PAIRWISE_swap_is_a_KNOWN_hole_in_set_equality(self):
+        # The precise limit of the baseline, made executable so the docstring
+        # cannot drift back to claiming more. Two grandfathered citations in one
+        # file trading numbers leave the key SET identical — both are now wrong and
+        # nothing fails. A one-way retarget is caught (test above); a permutation is
+        # not. Set membership cannot distinguish them, and a per-file count would
+        # hide both, which is why the key is still the better choice.
+        before = self._keys(f"{_word(1)} then {_word(5)}")
+        after = self._keys(f"{_word(5)} then {_word(1)}")
+        self.assertEqual(
+            sorted(set(before)),
+            sorted(set(after)),
+            "a pairwise swap now changes the key set — good; update the "
+            "'known hole' paragraph in the module docstring",
+        )
+
     def test_a_duplicate_occurrence_is_a_second_key(self):
         # Set semantics would collapse the two, so adding a spelling to a file
         # that already has that exact one would be invisible.
@@ -598,6 +712,114 @@ class TestSpellingDetector(unittest.TestCase):
             self._keys(_chain(1, 3, 5)),
             [f"{self.OTHER}|anchored-chain|1/3/5|#1"],
         )
+
+    # --- HIGH-1: the lookahead must require a DIGIT, not just the mark ----------
+    #
+    # `_CITE_RE` needs `ADR-001 §\d+`. An exemption for the shorter `ADR-001 §`
+    # exempted a SUPERSET, so this whole family was invisible to both matchers.
+    # `§§<N>` is the ordinary way to write plural sections.
+
+    def test_the_plural_section_mark_is_detected(self):
+        for text in (f"ADR-001 {_S}{_S}4", f"ADR-001 {_S}{_S}4-5"):
+            self.assertEqual(self._slugs(text), ["mis-anchored"], text)
+
+    def test_a_gap_or_markup_between_the_mark_and_the_number_is_detected(self):
+        for text in (
+            f"ADR-001 {_S} 4",
+            f"ADR-001 {_S}`4`",
+            f"ADR-001 {_S}**4**",
+            f"ADR-001 {_S}(4)",
+            f"ADR-001 {_S}-4",
+        ):
+            self.assertEqual(self._slugs(text), ["mis-anchored"], text)
+
+    def test_the_canonical_form_is_still_the_only_exemption(self):
+        # The control for the family above: exactly `ADR-001 §<digit>` is exempt,
+        # and nothing shorter. If this ever fails the guard has become a false-alarm
+        # machine on the encouraged spelling.
+        self.assertEqual(self._keys(_canon(4)), [])
+
+    # --- M-2: the chain separator is a class ------------------------------------
+
+    def test_every_chain_separator_is_detected(self):
+        for sep in (",", "–", "-", " & ", "+", "; ", "|"):
+            text = f"ADR-001 {_S}1{sep}{_S}3"
+            self.assertEqual(
+                self._keys(text),
+                [f"{self.OTHER}|anchored-chain|1/3|#1"],
+                f"separator {sep!r} not read as a chain",
+            )
+
+    def test_a_number_after_a_comma_is_not_a_chain_tail(self):
+        # The false-positive boundary of the separator class: a date following a
+        # citation must not key as a chain to decision 2026. This is why every
+        # separator except `/` requires the tail's section mark.
+        self.assertEqual(self._keys(f"ADR-001 {_S}5, 2026-08-12"), [])
+
+    def test_a_chain_hop_does_not_cross_a_newline(self):
+        # Pins the documented `[ \t]`-not-`\s` choice.
+        #
+        # The first version of this test was VACUOUS and the review's N-2 was right:
+        # its fixture read `ADR-001 §5 applies\n/ §6`, where the word "applies"
+        # blocks the hop before the newline is ever reached, so swapping `[ \t]` for
+        # `\s` left it green. The citation has to END the line for the newline to be
+        # the only thing the separator class decides. Verified: with `\s` restored
+        # this assertion goes RED.
+        self.assertEqual(
+            self._keys(f"ADR-001 {_S}5\n/ {_S}6"),
+            [],
+            "a `/ §N` on the NEXT line was read as a chain tail",
+        )
+
+    def test_a_chain_across_a_line_WRAP_is_a_KNOWN_limit(self):
+        # The cost of the line above, named rather than implied: a genuinely
+        # wrapped chain is invisible to this guard and to `_CITE_RE` alike (the head
+        # is canonical, so nothing fires; the tail has no anchor). Zero live
+        # instances — the only three chains in the tree are grandfathered and all
+        # sit on one line. Accepting it keeps the hop from turning any next-line
+        # `/ <number>` into a tail.
+        self.assertEqual(self._keys(f"ADR-001 {_S}5\n/ {_S}6"), [])
+
+    # --- M-1 / L-3: the wrap and link shapes -----------------------------------
+
+    def test_every_wrap_indent_is_detected(self):
+        # A 4- or 8-space continuation is the commonest wrap in this suite, and is
+        # exactly where the one live site was found.
+        for indent in ("", " ", "  ", "   ", "    ", "        ", "\t", "  - ", "# "):
+            text = f"ADR-001\n{indent}{_S}4"
+            self.assertEqual(self._slugs(text), ["mis-anchored"], repr(text))
+
+    def test_a_markdown_link_around_the_anchor_is_detected(self):
+        # The repo already writes the link form in four places.
+        self.assertEqual(
+            self._slugs(f"[ADR-001](../devsecops/x.md) {_S}4"), ["mis-anchored"]
+        )
+
+    def test_a_four_digit_adr_id_is_detected(self):
+        # adr-tools' convention; `_CITE_RE` sees nothing.
+        self.assertEqual(self._slugs(f"ADR-0001 {_S}4"), ["mis-anchored"])
+
+    def test_a_chain_after_a_mis_anchored_head_keys_the_whole_sequence(self):
+        # Regression pin for the id matcher eating the first number: with a plain
+        # `\W` separator in the id, this keyed `|2` instead of `|1/2`.
+        self.assertEqual(
+            self._keys(_misanchored(1, 2)),
+            [f"{self.OTHER}|mis-anchored|1/2|#1"],
+        )
+
+    # --- L-2 / L-1: what the tail classes do and do not cover ------------------
+
+    def test_a_lower_case_word_form_is_detected(self):
+        self.assertIn("adr001-decision", self._slugs(f"per {_word(4).lower()}"))
+
+    def test_named_tail_limits_are_still_uncovered(self):
+        # Not a wish list: an executable record of what the narrowest class does
+        # NOT see, so the next audit does not have to re-derive it. All measured at
+        # zero live instances. Widening `bare-decision` to reach these was measured
+        # to cost six live false positives (see its pattern comment).
+        for text in (f"{_bare(4)[:-2]}#4", f"{_bare(4)[:-2]}-4", _bare(4).lower()):
+            self.assertEqual(self._keys(text), [], f"{text!r} is now covered — "
+                             "good, but update the named limits in the docstring")
 
 
 class TestAdrExemptionIsNarrow(unittest.TestCase):
@@ -627,11 +849,42 @@ class TestAdrExemptionIsNarrow(unittest.TestCase):
             "time so a NEW one is still a review moment",
         )
 
-    def test_exactly_one_class_and_one_path_are_exempt(self):
+    def test_exactly_one_class_and_one_glob_are_exempt(self):
         self.assertEqual(
-            {k: sorted(v) for k, v in EXEMPT_PATHS.items()},
-            {"bare-decision": [ADR_REL]},
+            {k: sorted(v) for k, v in EXEMPT_PATH_GLOBS.items()},
+            {"bare-decision": ["docs/devsecops/adr-[0-9]*.md"]},
         )
+        # The glob must actually cover the ADR the numbering guard reads, so the
+        # exemption is not silently pointing at nothing.
+        self.assertTrue(
+            any(fnmatch(ADR_REL, g) for g in EXEMPT_PATH_GLOBS["bare-decision"]),
+            f"the exempt glob no longer matches {ADR_REL}",
+        )
+
+    def test_a_future_adr_may_cross_reference_its_own_items(self):
+        # `adr-index.md` documents `adr-NNN` as a sequential series and says to
+        # record a changed decision as a NEW ADR, so the first `adr-002` must not
+        # fail this guard on its own prose. The hardcoded single path did.
+        for rel in (
+            "docs/devsecops/adr-002-something.md",
+            "docs/devsecops/adr-0007-four-digit.md",
+        ):
+            self.assertEqual(spelling_findings(self._XREF, rel), [], rel)
+
+    def test_the_exemption_does_not_leak_past_the_adr_series(self):
+        # Non-vacuity for the GLOB form specifically: an index (which cites ADRs
+        # rather than defining decisions) and a same-named file in another
+        # directory are both still scanned.
+        for rel in (
+            "docs/devsecops/adr-index.md",
+            "docs/reports/adr-002-retrospective.md",
+            "scanner/tests/test_ci_adr_002.py",
+        ):
+            self.assertEqual(
+                [k.split("|")[1] for k in spelling_findings(self._XREF, rel)],
+                ["bare-decision", "bare-decision"],
+                f"the exempt glob wrongly covers {rel}",
+            )
 
 
 class TestRealFileMutation(unittest.TestCase):
