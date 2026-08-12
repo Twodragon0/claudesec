@@ -1,5 +1,5 @@
 """
-Guard: ADR-001's Decision numbers are STABLE, because 67 places cite them.
+Guard: ADR-001's Decision numbers are STABLE, because 81 places cite them.
 
 WHY THIS IS A CI INVARIANT AND NOT A STYLE PREFERENCE
 -----------------------------------------------------
@@ -18,6 +18,13 @@ is the operation this guard now blocks.
 
 The fix for that drift was to correct the citations, not to renumber the ADR back:
 renumbering to satisfy one rule's citations would have broken §1/§2/§3/§6's.
+
+`_CITE_RE` below matches only the `ADR-001 §N` spelling — 64 of the 81 live
+citations. The other 17 use `ADR §N`, `ADR-001 Decision N`, a bare `Decision N`, or
+the tail of a `§N/§M` chain, and the 2026-08-12 vintage sweep found that ALL five
+citations still carrying a pre-renumbering number were in that invisible remainder.
+Widening the regex is not the fix (a bare `Decision N` is unquotably common in
+prose); writing new citations as `ADR-001 §N` is. See "On citing this ADR".
 
 DIRECTION
 ---------
@@ -149,7 +156,7 @@ class TestAdrDecisionNumbering(unittest.TestCase):
         self.assertEqual(
             wrong,
             {},
-            "an ADR-001 Decision number now denotes a DIFFERENT rule. 67 places "
+            "an ADR-001 Decision number now denotes a DIFFERENT rule. 81 places "
             "cite these numbers, so inserting or reordering an item silently "
             "re-points all of them (this is how 23 citations came to say §4 when "
             "they meant §5). APPEND instead, and add the new number here in the "

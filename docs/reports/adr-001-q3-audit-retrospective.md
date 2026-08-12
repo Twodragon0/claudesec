@@ -136,7 +136,7 @@ quote-aware primitive다. 초기 4-패스 체인(공백 필요 → `;#` metachar
 이는 ADR-001이 예측한 **"첫 수정이 잔여 구멍을 남긴다"** 패턴의 5번째 사례다:
 4-패스 체인조차 5번째 구멍을 남겼고, 2차 적대 패스가 그것을 잡았다.
 
-### 3.3 #378 — 프록시가 아니라 문법을 모델링하라 (Class-2, ADR §4)
+### 3.3 #378 — 프록시가 아니라 문법을 모델링하라 (Class-2, ADR-001 §5)
 
 `cli_case_arms`는 케이스 중첩의 **프록시로 들여쓰기**를 썼다. bash `case`는
 들여쓰기와 무관하게 중첩(`case`/`esac`)으로 arm 소속을 결정하므로, 첫 arm보다 더
@@ -188,7 +188,8 @@ ADR-001 §3의 "1차가 CRITICAL을 찾으면 2차 패스"를 이번엔 **관점
 - **모든 수정에 non-vacuous mutation test** — 수정 전 로직으로 되돌려 RED임을 증명
   (예: deeper-indent가 `{prowler,scan}` 수집, egrep가 `[]`, ANSI-C가 `exit 1` 잔존).
 - **vacuous test 적발** — #378 nested-case 테스트가 스코핑을 전혀 실행하지 않음을
-  확인해 교체. ADR §3 "거짓 확신은 무가드보다 나쁘다"의 직접 적용.
+  확인해 교체. ADR-001 §4("모든 검출기는 non-vacuous mutation self-test를 갖춘다")의
+  직접 적용이며, 그 근거인 "거짓 확신은 무가드보다 나쁘다"는 ADR-001 Context에 있다.
 - **positive control** — 실제 `bin/claudesec-cli.sh`(필수 서브커맨드)·`output.sh`
   (16 provider)·`lint.yml`(러너 없음)가 계속 green.
 

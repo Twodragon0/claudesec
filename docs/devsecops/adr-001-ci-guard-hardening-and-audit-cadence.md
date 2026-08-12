@@ -175,9 +175,31 @@ single author pass misses.
 ### On citing this ADR
 
 Cite decisions by **title**, not only by number, and **never renumber** this list:
-67 references to `ADR-001 §N` exist across `scanner/`, `docs/` and `.claude/`, so an
-inserted item silently re-points all of them. This decision is appended as §9 for
-that reason rather than filed next to Decision 2 where it belongs topically.
+**81** load-bearing references to these decisions exist across `scanner/`, `docs/`
+and `.claude/` (30 files), so an inserted item silently re-points all of them. This
+decision is appended as §9 for that reason rather than filed next to Decision 2
+where it belongs topically.
+
+**81, not 67.** The familiar 67 counts one spelling. Measured on `d55c506` — the
+tree the vintage sweep below audited, before its own tables added more `§N` strings
+to this file — the citations are written five ways, and only the first is what
+`test_ci_adr_decision_numbering.py` and the #423 / #426 / #430 sweeps ever matched.
+"Load-bearing" excludes the drift notes in this section and in that guard's
+docstring, which quote numbers as *data* about the drift rather than pointing at a
+decision.
+
+| Spelling | Count | Seen by the guard? |
+|---|---|---|
+| `ADR-001 §N` | 64 | yes |
+| bare `Decision N` (this file's own cross-references) | 6 | no |
+| `ADR §N` (no `-001`) | 5 | no |
+| `ADR-001 Decision N` (the authoring skill) | 4 | no |
+| the tail of a `§N/§M` chain | 2 | no |
+
+The 17 invisible ones are where the surviving errors were: **all five** citations
+still carrying a pre-`9a530d6` number used a spelling no sweep could see. Write new
+citations as `ADR-001 §N` for that reason, and when you cite two decisions write
+them out (`§1 and §4`) rather than chaining (`§1/§4`).
 
 A drift was found and fixed on 2026-08-11: 26 `ADR-001 §4` citations existed and
 **23 of them meant §5** (Prefer a grammar-complete rule) — they quoted *"prefer a
@@ -200,7 +222,7 @@ text, 4 by provenance — and 5 already right**). The 13 classified by their tex
 | Was | Now | Why |
 |---|---|---|
 | §2 ×9 | **§3** | "5th-pass finding", "the mandated adversarial pass", "the mandated review chain", "반복 적대 검증" — all the ITERATED review, and one quotes §3's "second pass when the first finds a CRITICAL" verbatim |
-| §2 ×2 | **§1** | "scans the comment-stripped text, so a step parked behind a `#` cannot satisfy it"; "the whitespace-only `strip_inline_comment` is retained for YAML/Dockerfile callers" — stripper choice by language is §1's own text |
+| ~~§2 ×2~~ | ~~**§1**~~ | **Both reverted by the vintage sweep below — this row was wrong.** Each parenthetical was attached to the sentence BEFORE the one it sits in; the clause it actually annotates is "A **5th-pass** review" (→ §3) and "the inert-guard class" (→ §2) |
 | §3 ×1 | **§2** | "the inert-assertion class" is §2's, not §3's — read the text, do not infer from the topic |
 | §3 ×1 | **§4** | "mutation self-tests for the …" is §4 |
 
@@ -232,12 +254,67 @@ findings — case-insensitivity, the charset false positive, and `egrep` — und
 
 The generalisable rule: when two decisions both fit the quoted text, the
 **introducing commit** decides, because a citation is only ever as stable as the
-numbering in force the day it was written. `9a530d6` is the single insertion behind
-both drift classes — the §4→§5 one fixed in #423 and this §2→§3 one.
+numbering in force the day it was written.
 
-The guard's limit stands: it stops NEW drift and cannot detect a citation pointing
-at a real decision it does not mean. That is what reading the quoted text — and,
-when the text ties, the commit that wrote it — is for.
+#### The vintage sweep (2026-08-12) — the population is now audited, not sampled
+
+Both earlier sweeps (#423, and #426/#430) classified citations by **quoted text**,
+which found real errors but left the rest *unverified* rather than *verified*: nobody
+had checked how many citations were written before `9a530d6`. So all 81 were dated —
+`git log`-walked to the first revision whose text carries the citation's anchor
+**and** a number, which unlike `git blame` is not fooled by a later reflow. Two
+dates per site: when the annotated claim was written, and when its current `§N` was.
+
+`9a530d6` (2026-08-05 18:47:58 +0900) is confirmed the **only** renumbering in the
+ADR's ten-commit history — every revision's Decision list was extracted and
+diffed. Before it: 1 strippers / 2 two-pass review / 3 mutation self-test /
+4 grammar-complete / 5 periodic audit. So a pre-`9a530d6` citation shifts
+§2→§3, §3→§4, §4→§5, §5→§6, and §1 is immune.
+
+**36 of the 81 predate it.** By the number as originally written:
+
+| Original | Count | Should now be | Status |
+|---|---|---|---|
+| §1 | 14 | §1 (immune) | all 14 correct, untouched |
+| §2 | 12 | §3 | 10 already fixed; **1 fixed here**; **1 was sent to §1 by #426 — reverted here** |
+| §3 | 3 | §4 | 1 already fixed; **2 fixed here** |
+| §4 | 7 | §5 | 5 already fixed; **2 fixed here** |
+
+**Zero** pre-`9a530d6` citations name a §6 or higher, so the "cited a decision that
+did not exist yet" class — a different error, not a shiftable one — is empty. And
+every prior correction agrees with vintage: all 16 sites #423/#426/#430 moved landed
+exactly where the shift predicts. Vintage corroborates them rather than reopening
+them.
+
+Seven sites were wrong. Five had never been triaged (their spelling was invisible to
+all three sweeps), and two were prior corrections that went the wrong way:
+
+| Site | Was | Now | Why |
+|---|---|---|---|
+| `ci-config-guard-claudesec` skill:71 | Decision 2 | **3** Two-pass adversarial review … before merge | written `5a35454` (pre-shift); "do the adversarial pass … before merge. This is not optional for that class" is §3 verbatim |
+| `ci-config-guard-claudesec` skill:306 | Decision 4 | **5** Prefer a grammar-complete rule over enumerating forms | same commit; "**Model the grammar, not a proxy** … a third patch to an enumeration is a redesign signal" is §5's own text |
+| `ci-config-regression-guards.md`:324 | §1/§3 | §1 and **§4** Every detector ships a non-vacuous mutation self-test | written `b82394af` (pre-shift); every bullet under the heading pairs a stripper fix with "+ mutation test" |
+| `adr-001-q3-audit-retrospective.md`:139 | ADR §4 | **§5** Prefer a grammar-complete rule over enumerating forms | written `9b1d3fe` (pre-shift); the heading *is* "프록시가 아니라 문법을 모델링하라" — model the grammar, not a proxy |
+| `adr-001-q3-audit-retrospective.md`:191 | ADR §3 | **§4** Every detector ships a non-vacuous mutation self-test | same commit; the subject is a **vacuous** self-test. The maxim it quotes is from the Context, not from any decision — now attributed there |
+| `ci-config-regression-guards.md`:356 | §1 (by #426) | **§3** Two-pass adversarial review … before merge | the parenthetical annotates "A **5th-pass** review"; #426 read the preceding sentence instead. #426 sent the four *other* "5th-pass" citations to §3 |
+| `test_ci_drift_watch_not_silent.py`:40 | §1 (by #426) | **§1 and §2** | authored `8bee564c` (post-shift) as §2, correctly: "the inert-guard class" is §2's vocabulary and #383 is the inert-assertion meta-guard. Both decisions are now named so the sentence stops inviting a third re-decision |
+
+`b82394af` settles its own two sites internally: the same commit wrote `§2 review
+chain` and `§4 grammar-complete extractor`, both correct pre-shift, so its `§1/§3`
+was written in the same old numbering and its `§3` is today's §4.
+
+**A correction to the account above: the §4→§5 drift was mostly not mechanical.**
+Of those 23 citations, only **5** predate `9a530d6`. The other **18** were written
+*after* the renumbering — a stale number copied from a pre-shift sibling, spreading
+for six days while the guard was green. The insertion started the drift; **copying**
+is what made it 23. Cite by number *and title* because the title is what makes a
+copied number fail to typecheck under review.
+
+The guard's limit stands, and vintage sharpens it: it stops NEW renumbering and
+cannot detect a citation pointing at a real decision it does not mean. That is what
+reading the quoted text — and, when the text ties, the commit that wrote it — is
+for. What the vintage sweep adds is knowing *which* citations were exposed, and that
+the answer is now none.
 
 ## Consequences
 

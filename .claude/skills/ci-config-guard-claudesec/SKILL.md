@@ -68,7 +68,8 @@ a severity `exit 1`, a load-bearing version pin.
      branch you think it does — instrument the counter if you are not sure.
 5. If the guard parses text (substring / regex / mini-parser), do the
    adversarial pass in **Parse/substring guards** below before merge. This is
-   not optional for that class — ADR-001 Decision 2.
+   not optional for that class — ADR-001 Decision 3, "Two-pass adversarial review
+   for any substring/parse guard before merge".
 
 ## Template
 
@@ -303,7 +304,7 @@ you claim it.
 - **Model the grammar, not a proxy.** Indentation is not what decides `case` arm
   ownership — `case`/`esac` depth is. A block scalar *is* any `run:` value
   starting with `|`/`>`. A third patch to an enumeration is a redesign signal
-  (ADR-001 Decision 4).
+  (ADR-001 Decision 5, "Prefer a grammar-complete rule over enumerating forms").
 - **A regex can be wrong in both directions at once.** #379's runner regex was
   too narrow (case-sensitive → missed `macOS-latest`) *and* too broad (a genuine
   `windows-1252` charset or `macos-universal` arch token in `run:`/`name:` text
