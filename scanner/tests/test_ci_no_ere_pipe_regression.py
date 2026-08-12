@@ -99,7 +99,7 @@ ALLOWLIST: list[tuple[str, str]] = [
 # Regex that matches a line invoking grep in ERE mode:
 #   * `egrep` — IMPLICITLY ERE (no flag needed); `\bgrep\b` never matches it (no
 #     word boundary between `e` and `grep`), so it needs its own alternative
-#     (ADR-001 §2 audit bypass); OR
+#     (ADR-001 §3 audit bypass); OR
 #   * `grep` with the short `-…E` flag combination (grep -qE, -E, -nrE, -rE) OR
 #     the GNU long option `--extended-regexp` (no uppercase `E`, so the short-flag
 #     branch alone would miss it — an earlier audit bypass).
@@ -382,7 +382,7 @@ class TestMutationSelfTest(unittest.TestCase):
         self.assertTrue(hits, "regression: grep -Ei no longer detected")
 
     def test_detects_egrep_backslash_pipe(self):
-        # Audit finding (ADR-001 §2): `\bgrep\b` never matches `egrep` (no word
+        # Audit finding (ADR-001 §3): `\bgrep\b` never matches `egrep` (no word
         # boundary between `e` and `grep`), and `egrep` is IMPLICITLY ERE (no `-E`
         # flag), so the `-…E`/`--extended-regexp` branch also misses it — an
         # `egrep 'a\|b'` literal-pipe bug slipped past entirely.

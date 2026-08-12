@@ -45,7 +45,7 @@ FORBIDDEN_NAME_TOKENS = ("cross-os", "live-os-checks")
 # Any macOS/Windows runner label, VERSION-AGNOSTIC and case-INSENSITIVE —
 # `macos-latest`, `macos-14`, `macOS-14`, `windows-latest`, `windows-2022`, …
 # GitHub runner labels are case-insensitive, so `macOS-14` is the same runner as
-# `macos-14` (without IGNORECASE the capitalized form evaded — ADR-001 §2). The
+# `macos-14` (without IGNORECASE the capitalized form evaded — ADR-001 §3). The
 # hyphen is required so it never matches a test-script name like
 # `test_check_macos_cis_security.sh` (`macos_`) or a path `macos/cis-security`.
 _OS_RUNNER_RE = re.compile(r"\b(?:macos|windows)-[a-z0-9.]+\b", re.IGNORECASE)
@@ -56,7 +56,7 @@ _OS_RUNNER_RE = re.compile(r"\b(?:macos|windows)-[a-z0-9.]+\b", re.IGNORECASE)
 # (a build arch) share the runner-label SHAPE but are not runners; scoping to the
 # context is the only way to exclude them without also dropping real `<os>-<ver>`
 # labels, since a charset like `windows-1252` is indistinguishable by shape from a
-# version like `windows-2022` (ADR-001 §2 false-positive finding).
+# version like `windows-2022` (ADR-001 §3 false-positive finding).
 # The `runs-on:`/`os:` key is read bare OR quoted: `"runs-on": macos-14` selects
 # the same runner, and the bare-only regex let it become a REQUIRED merge gate
 # with this guard green (2026-08-06 sweep). See yaml_key_pattern.
