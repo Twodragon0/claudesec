@@ -37,7 +37,9 @@ WHAT IT CHECKS / DOES NOT
   fatigue, not signal; that trade-off is documented in the workflow header and is
   a deliberate product decision, not an oversight this guard should police.
 - Scans the comment-stripped text, so a step parked behind a `#` cannot satisfy
-  the presence checks (the inert-guard class from ADR-001 §1 / #383).
+  the presence checks. The stripping itself is ADR-001 §1 (shared comment-stripping
+  primitives); the "inert-guard" label is ADR-001 §2 (scope the haystack), which is
+  the class #383 meta-guarded.
 
 stdlib-only (regex/line scanning, no PyYAML — absent from requirements-ci.txt).
 No network, no subprocess. Passes under pytest (the CI runner) and
