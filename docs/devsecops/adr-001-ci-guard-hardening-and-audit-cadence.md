@@ -219,11 +219,16 @@ Un-chaining improves readability; it does not restore visibility. The three-row
 transcript is in the catalog's backlog.
 
 That distinction is not mechanizable in the other direction, which is why the
-spelling guard flags the chain and permits the un-repeated pair: on 2026-08-12 all
-three live instances of "a canonical citation with a bare `§M` later on the same
-line" were drift notes quoting a number as *data* (*"26 `ADR-001 §4` citations of
-which 23 meant §5"*), not second citations. A rule broad enough to catch the pair
-would over-report on exactly the prose that documents this class.
+spelling guard flags the chain and permits the un-repeated pair. Measured on
+`b382641` with the pattern recorded in that guard's docstring, all **three** live
+instances of "a canonical citation with a bare `§M` later on the same line" were
+drift notes quoting a number as *data* (*"26 `ADR-001 §4` citations of which 23
+meant §5"*), not second citations. A rule broad enough to catch the pair would
+over-report on exactly the prose that documents this class.
+
+The count is anchored to a commit on purpose: the same pattern gives 7 on
+`dc3a959`, because prose *about* the class is itself an instance of it. Re-derive
+before quoting it.
 
 A count taken on a later commit will not be 81: this PR's own fixes add three
 `ADR-001 §N` matches (69 → 72 by that regex), two from normalising `ADR §N` in

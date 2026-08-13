@@ -1,4 +1,4 @@
-"""
+r"""
 Guard: a NEW citation of an ADR-001 decision must use the canonical spelling, so
 the population stays inside the regex `test_ci_adr_decision_numbering.py` scans.
 
@@ -42,12 +42,20 @@ FORBIDDEN SPELLINGS, by slug
   chain and for the un-repeated pair alike, and two only for the repeated form
   (the transcript is in the catalog's backlog). So the ADR's original "write them
   out" advice was a half-fix, corrected there in this PR. The un-repeated pair is
-  nevertheless NOT flagged here, and that is a deliberate false negative: all three
-  live instances of "a canonical citation with a bare `§<M>` later on the same
-  line" are drift notes quoting a number as DATA (*"26 `ADR-001 §4` citations of
-  which 23 meant §5"*), so a rule wide enough to catch the pair would over-report
-  on precisely the prose that documents this class. Named as a test rather than
-  left as an unremarked green, and recorded in the catalog's backlog.
+  nevertheless NOT flagged here, and that is a deliberate false negative. Measured
+  on `b382641`, the tree this decision was taken against: THREE live instances of
+  "a canonical citation with a bare `§<M>` later on the same line", by the pattern
+  `ADR-001 §\d+(?![\d/])(?:(?!ADR-001)[^\n])*?§\d+`, and all three are drift notes
+  quoting a number as DATA (*"26 `ADR-001 §4` citations of which 23 meant §5"*). So
+  a rule wide enough to catch the pair would over-report on precisely the prose that
+  documents this class.
+
+  That count is anchored to a commit because THIS PR moved it: the same pattern
+  gives 3 on `b382641`, 6 on `6c9a387` and 7 on `dc3a959` — writing about the class
+  creates instances of it. The cost argument is unaffected (the four added are this
+  PR's own prose about drift notes, the same category), but a bare "three" would be
+  unreproducible within a week, which is the failure this PR exists to stop. Named
+  as a test rather than left as an unremarked green, and in the catalog's backlog.
 - `bare-decision` — `Decision <N>` in a file outside the `docs/devsecops/adr-NNN`
   series. Deliberately the narrowest class of the four; both proposed widenings
   were measured to cost live false positives and are rejected in its comment.
@@ -152,10 +160,13 @@ Measured 2026-08-12 on b382641: zero occurrences of any forbidden spelling in th
 citation ever lands in a `.sh` or a workflow, BOTH guards are blind to it — a
 shared limitation with a single fix, which is the point of sharing the constant.
 
-`test_population_is_scanned`'s `>= 40` is a VACUITY canary, not a pinned invariant:
-it exists so a broken glob fails loudly instead of passing over nothing, and
-nothing mutation-tests the threshold itself. Do not read it as a floor on the
-citation count.
+`test_population_is_scanned`'s `>= 40` is a VACUITY canary and NOT the control.
+Measured on `dc3a959`: canonical citations total 98, and dropping the `scanner/**`
+glob leaves exactly 40 — so the threshold is inert for every single-glob drop, and
+raising it would only move the inertness. The real control in that test is the two
+`assertIn`s, which name the ADR itself and this guard's own file: either glob going
+missing fails them by name. Read the `>= 40` as "the scan returned something", and
+nothing more.
 
 NOT CLAIMED
 -----------
@@ -166,6 +177,13 @@ scanner that reads them, so the next sweep's matches ARE its population.
 stdlib-only, no PyYAML, no `scanner/lib` import (so it never moves the 99%
 coverage gate), no network, no subprocess. Passes under pytest (the CI runner) and
 `python3 -m unittest`.
+
+This docstring is RAW — it carries an `r` prefix — because it quotes regexes. It was not, and the
+consequence was the exact failure this guard exists to prevent, one level up: the
+`[^\n]` inside the reproducible pattern above was interpreted as a real newline, so
+the pattern a reader saw was TRUNCATED, and `\d` raised a SyntaxWarning that the two
+AST meta-guards surfaced on every pytest run. A quoted pattern that does not
+round-trip is not evidence. Keep the `r`.
 
 OWASP CICD-SEC-7 (Insecure System Configuration) — the documented policy behind
 the guards is part of the configuration; NIST SP 800-218 (SSDF) PO.3, PW.4.
@@ -276,9 +294,14 @@ FORBIDDEN = (
     # `scanner-unit-tests` job runs — precisely so no global `re.IGNORECASE` can
     # weaken the lookahead.
     #
-    # False-positive boundary: `\W{0,3}` cannot cross a word character, so
-    # `in the ADR, see §4` does not match. That shape belongs to the documented
-    # same-line gap instead.
+    # False-positive boundary, stated completely: `\W{0,3}` cannot cross a WORD
+    # character, so `in the ADR, see §4` does not match — that shape belongs to the
+    # documented same-line gap instead. It CAN cross a paragraph break, though,
+    # because a blank line is two non-word characters: `see the ADR.\n\n§4 of NIST`
+    # keys as `mis-anchored|4`. Zero live instances on `dc3a959`, over-report
+    # direction, and pinned as a known false positive rather than left for a reader
+    # to trip over. Narrowing it would mean dropping `\n` from the joint, which is
+    # exactly what hid the one live wrap site.
     (
         "mis-anchored",
         re.compile(
@@ -291,14 +314,28 @@ FORBIDDEN = (
     #
     # This class is DELIBERATELY the narrowest of the four — capital `D`, exactly
     # one space, no marked-up joint — because it has no `ADR` anchor to disambiguate
-    # it from ordinary prose. Both proposed widenings were measured and REJECTED:
-    # a `\W{0,3}` joint plus a `\d{1,2}` bound (offered as a fix for the
-    # `Decision <4-digit year>` false positive) produced SIX live false positives at
-    # once, because this catalog writes `**Decision (2026-08-12): no guard.**` and
-    # that parses as decision 20. The narrow form is what prevents them. Named
-    # limits, all measured at zero live instances: lower-case `decision <N>`,
-    # `Decision #<N>`, `Decision-<N>`, and `Decision <4-digit year>` as a false
-    # positive that fails loudly rather than silently.
+    # it from ordinary prose. The widening offered in review was measured and
+    # REJECTED, and the measurement also located the blame precisely. Variants, each
+    # counted as NEW hits over the shipped pattern, ADR series exempt:
+    #
+    #     variant                                    b382641   dc3a959
+    #     joint `\W{0,3}` + bound `\d{1,2}`               +4       +11
+    #     joint `\W{0,3}` only                            +4       +11
+    #     bound `\d{1,2}` only                             0         0
+    #
+    # So the JOINT is the whole cost and the bound is free — but also pointless,
+    # since without the joint there is nothing for it to bound. Every one of those
+    # hits is this catalog writing `**Decision (2026-08-12): no guard.**`, which the
+    # widened joint parses as decision 20.
+    #
+    # An earlier version of this comment said "SIX", which reproduces at no
+    # committed state: it was measured mid-edit on an uncommitted tree. Third
+    # unreproducible numeral this round, in a PR about miscounted populations —
+    # hence the table with commits in it.
+    #
+    # Named limits, all measured at zero live instances on `dc3a959`: lower-case
+    # `decision <N>`, `Decision #<N>`, `Decision-<N>`, and `Decision <4-digit year>`
+    # as a false positive that fails loudly rather than silently.
     ("bare-decision", re.compile(r"(?<!ADR-001 )\bDecisions? (\d+)()")),
 )
 
@@ -421,8 +458,11 @@ class TestAdrCitationSpelling(unittest.TestCase):
         cls.found = set(scan_population())
 
     def test_population_is_scanned(self):
-        # Vacuity canary: an empty or citation-free population would make the pin
-        # below pass for free, which is how a guard over a moved path goes inert.
+        # Vacuity canary. The two `assertIn`s below are the actual control — they
+        # name a file from two different globs, so either glob disappearing fails by
+        # name. The `>= 40` only says "the scan returned something": canonical is 98
+        # on `dc3a959` and dropping the `scanner/**` glob leaves exactly 40, so the
+        # threshold is inert for a single-glob drop and is not a floor.
         rels = [rel for rel, _ in self.files]
         self.assertTrue(rels, "no files matched the imported citation globs")
         self.assertIn(ADR_REL, rels, f"{ADR_REL} dropped out of the scanned globs")
@@ -518,6 +558,13 @@ def _word(n) -> str:
     return f"ADR-001 Decision {n}"
 
 
+def _word_joint(joint, n, word="Decision") -> str:
+    """The word form with an arbitrary joint between the word and the number, and
+    an arbitrary spelling of the word itself. Assembled, so no literal instance of
+    any of these shapes exists in this file."""
+    return f"ADR-001 {word}{joint}{n}"
+
+
 def _chain(*nums) -> str:
     """The `anchored-chain` spelling: a canonical head, an invisible tail."""
     return "ADR-001 " + "/".join(f"{_S}{n}" for n in nums)
@@ -605,6 +652,18 @@ class TestSpellingDetector(unittest.TestCase):
         self.assertEqual(
             self._keys(f"adr-001 {_S}1/{_S}3"),
             [f"{self.OTHER}|mis-anchored|1/3|#1"],
+        )
+
+    def test_a_paragraph_break_IS_crossed_a_known_false_positive(self):
+        # Named, not hidden: a blank line is two non-word characters, so the joint
+        # spans it. Over-report direction, zero live instances on `dc3a959`. The only
+        # way to narrow it is to drop `\n` from the joint, which is what hid the one
+        # live wrap site this rule was widened to find.
+        self.assertEqual(
+            self._slugs(f"see the ADR.\n\n{_S}4 of NIST SP 800-218"),
+            ["mis-anchored"],
+            "the paragraph-break false positive is gone — good; remove it from the "
+            "boundary comment and from here",
         )
 
     def test_prose_that_merely_mentions_the_adr_is_not_flagged(self):
@@ -771,14 +830,26 @@ class TestSpellingDetector(unittest.TestCase):
             "a `/ §N` on the NEXT line was read as a chain tail",
         )
 
-    def test_a_chain_across_a_line_WRAP_is_a_KNOWN_limit(self):
-        # The cost of the line above, named rather than implied: a genuinely
-        # wrapped chain is invisible to this guard and to `_CITE_RE` alike (the head
-        # is canonical, so nothing fires; the tail has no anchor). Zero live
-        # instances — the only three chains in the tree are grandfathered and all
-        # sit on one line. Accepting it keeps the hop from turning any next-line
-        # `/ <number>` into a tail.
-        self.assertEqual(self._keys(f"ADR-001 {_S}5\n/ {_S}6"), [])
+    def test_named_chain_and_anchor_misses(self):
+        # The cost of the newline bound above plus two more true misses, named here
+        # rather than left for a reader to rediscover. All invisible to `_CITE_RE`
+        # too, and all measured at zero live instances on `dc3a959`.
+        #
+        # The previous version of this test re-asserted the newline fixture from the
+        # test above verbatim — two names, one assertion, so the second proved
+        # nothing new (review NIT).
+        cases = {
+            # a genuinely WRAPPED chain: head canonical so nothing fires, tail
+            # unanchored. The price of not letting a hop cross a newline.
+            "wrapped chain": f"ADR-001 {_S}5\n/ {_S}6",
+            # a doubled separator is not a hop
+            "doubled separator": f"ADR-001 {_S}1//{_S}3",
+            # the anchor AFTER the mark — the reverse word order
+            "trailing anchor": f"{_S}4 of ADR-001",
+        }
+        for label, text in cases.items():
+            self.assertEqual(self._keys(text), [], f"{label} is now covered — good, "
+                             "but move it out of the named-misses list")
 
     # --- M-1 / L-3: the wrap and link shapes -----------------------------------
 
@@ -812,11 +883,32 @@ class TestSpellingDetector(unittest.TestCase):
     def test_a_lower_case_word_form_is_detected(self):
         self.assertIn("adr001-decision", self._slugs(f"per {_word(4).lower()}"))
 
+    def test_the_word_form_joint_is_not_a_single_space(self):
+        # The gap the second pass found: L-2 widened this class's joint from one
+        # literal space to `\W{0,3}`, and NOTHING asserted it. Reverting the joint
+        # left all 54 tests green while these six shapes lost coverage — the same
+        # "widened but unpinned" shape as HIGH-1, one class over.
+        for label, joint, word in (
+            ("parenthesised", "(", "Decision"),
+            ("hyphenated", "-", "Decision"),
+            ("bold", " **", "Decision"),
+            ("double space", "  ", "Decision"),
+            ("colon, lower case", ": ", "decision"),
+            ("plural with a hash", " #", "Decisions"),
+        ):
+            text = _word_joint(joint, 4, word)
+            self.assertEqual(
+                self._slugs(text),
+                ["adr001-decision"],
+                f"{label} joint ({text!r}) not read as the word form",
+            )
+
     def test_named_tail_limits_are_still_uncovered(self):
         # Not a wish list: an executable record of what the narrowest class does
         # NOT see, so the next audit does not have to re-derive it. All measured at
-        # zero live instances. Widening `bare-decision` to reach these was measured
-        # to cost six live false positives (see its pattern comment).
+        # zero live instances on `dc3a959`. Widening `bare-decision` to reach these
+        # was measured to cost live false positives — see the per-commit variant
+        # table in that pattern's comment for the numbers.
         for text in (f"{_bare(4)[:-2]}#4", f"{_bare(4)[:-2]}-4", _bare(4).lower()):
             self.assertEqual(self._keys(text), [], f"{text!r} is now covered — "
                              "good, but update the named limits in the docstring")
