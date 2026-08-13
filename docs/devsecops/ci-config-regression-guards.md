@@ -77,6 +77,7 @@ All guards follow the same rules (see the existing files for reference):
 | `scanner/tests/test_ci_catalog_completeness.py` | Completeness of this catalog vs the on-disk guard suite | every `scanner/tests/test_ci_*.py` file has its repo-relative path listed in this catalog (presence) — a new guard added without a Catalog row is silent documentation drift that makes the inventory understate coverage; the meta-guard documents itself so the invariant is uniform. HTML-comment-stripped, so a row parked in `<!-- ... -->` (invisible when rendered, the Markdown comment-evasion form) does NOT satisfy the presence check. Mutation self-tests | #254 |
 | `scanner/tests/test_ci_catalog_no_ghost_rows.py` | No ghost rows in this catalog vs the on-disk guard suite | every concrete `scanner/tests/test_ci_<name>.py` path cited in this catalog resolves to a real file (existence) — the reverse of the completeness guard: a renamed/deleted guard left in the table is a ghost row that makes the inventory overstate coverage. Together the two guards verify a 1:1 catalog↔suite mapping. HTML-comment-stripped, the opposite direction from the completeness guard: a row parked in `<!-- ... -->` claims no coverage, so flagging it as a ghost would be a false alarm — a test pins that a commented ghost still does not mask a live one. Mutation self-tests | #255 |
 | `scanner/tests/test_ci_adr_decision_numbering.py` | ADR-001's Decision NUMBERS, because 81 places cite them (64 as `ADR-001 §N`, which is all this guard can match) | pins `number -> title` for all nine decisions (prefix match, so rewording a body stays green). Inserting a decision anywhere but the end, renumbering, reordering, deleting or RETITLING one fails the build; a citation to a number that does not exist (`§10`) fails too. Appending costs one line in `DECISIONS` — deliberately a review moment rather than a silent re-pointing of sixty citations. **This is a fixed drift, not a hypothetical:** on 2026-08-11 a sweep found 26 `ADR-001 §4` citations of which **23 meant §5** ("Prefer a grammar-complete rule"), quoting its text verbatim — "prefer a rule complete by construction over an incomplete reassembler", "a third patch to an enumeration is a redesign signal", "model the grammar, not a proxy". §4 is the mutation-self-test decision and exactly TWO citations meant it, so every one was classified by its quoted text before being touched — a blanket rewrite would have broken those two. The ADR was NOT renumbered back to suit them: that would have broken §1/§2/§3/§6's citations instead, which is the trap this guard exists to close. Two vacuity canaries (the Decision section must parse; the citation scan must still find >= 40 references) and four parser mutation tests, including that a nested sub-item must not be collected as decision 1 | this PR |
+| `scanner/tests/test_ci_adr_citation_spelling.py` | The SPELLING of new ADR-001 decision citations, so the numbering guard above can actually see the population it is asserted over | four classes, each a slug: `mis-anchored` (the anchor is not exactly `ADR-001` plus a single space plus a DIGIT after the section mark — precisely what `_CITE_RE` requires), `adr001-decision` (the word form instead of the mark), `anchored-chain` (a canonical head with a `/`-chained tail — head visible to `_CITE_RE`, tail not), and `bare-decision` (`Decision <N>` outside the ADR). Set EQUALITY against `GRANDFATHERED`: a new non-canonical citation fails, and a stale entry fails once its site is canonicalized. **Incident:** the 2026-08-12 vintage sweep (#434) found the population is 81, written five ways, of which `_CITE_RE` matches 64 — and **all five** citations still carrying a pre-renumbering number were in the invisible 17, which is why they survived #423 and #426/#430. One was an *invisible token on a visible line*: `ADR-001 §1` followed by a chained tail, match #8 of 69, read and "triaged" by every sweep. **`mis-anchored` is a RULE, not an enumeration (ADR-001 §5), and it took two rounds to become one.** Written as #434's single `ADR §<N>` spelling it left four forms invisible to *both* matchers (a U+2011 hyphen, a missing hyphen, a backticked prefix, and wrong case — the #379 lesson); generalized, it found a **live, never-censused** citation in `test_ci_strip_before_match.py` where a line wrap split `ADR-001` from its `§<N>` (canonical spelling, invisible by layout; reflowed here, so the population is 82). Then the independent ADR-001 §3 pass found the generalization's own exemption **one character short of the thing it exempts**: `_CITE_RE` needs `ADR-001 §\d+`, the lookahead required only `ADR-001 §`, so the whole family `ADR-001 §<non-digit>...<digit>` was invisible to both — including `§§<N>`, the ordinary plural-sections form. Fixed to `(?!ADR-001 §\d)` plus `§\W{0,3}` before the number. **Why the guard's own measurement could not find it:** "same five live hits, no new false positives" can only measure spellings that already exist, which is #434's finding restated against this guard. The live hit set is therefore reported before and after every widening (all four: zero added, zero removed) *and* each bypass shape is pinned as its own test. Boundaries pinned too: a mere ADR mention followed later by a section mark must NOT match, a `/ §<N>` on the next line is not a chain tail, and a date after a citation is not a chain tail. Baseline keys are `<path>\|<slug>\|<number(s)>\|#<ordinal>` — no line number (reflow-immune), the NUMBER inside the key (so it cannot degrade into a per-file count that hides a retarget), an ordinal (so a duplicate is a second entry), and the slug rather than the matched text (so this guard's own source instantiates nothing it forbids and needs no self-exemption — its fixtures are ASSEMBLED, and that test caught 28 literal fixtures in the first draft, then 6 more, then 6 again after the rule widened). ONE exemption, pinned in both directions, over a GLOB rather than a hardcoded path: any `docs/devsecops/adr-[0-9]*.md` may use bare `Decision <N>` for its own cross-references, because those are definition sites and the numbering guard reads the list directly. The glob matters — `adr-index.md` documents `adr-NNN` as a sequential series, so a hardcoded single path would have failed the first `adr-002` on its own prose; the index itself stays scanned, since it cites rather than defines. Not blanket-exempt either: a new mis-anchored reference in the ADR's drift tables still fails. Globs are IMPORTED from the numbering guard, so the two cannot drift apart on scope; measured 2026-08-12, zero forbidden spellings in the 255 tracked files outside them. 41 detector self-tests on synthetic text (`TestSpellingDetector`, counted from the loader at each commit — 25 at `6c9a387`, 39 at `dc3a959`, 41 here; the first draft of this row said 19, which was wrong at every commit, in a PR about a miscounted population) plus four real-file degradations of a live citation via `assert_disables`, with the encouraged forms (plain canonical, and a pair with the prefix REPEATED) as negative controls. Every review fix is proven non-vacuous by reverting JUST that fix in memory and watching its own assertion go RED — nine cases, including one that caught the `[ \t]`-not-`\s` pin as VACUOUS on the first try (its fixture's prose blocked the hop before the newline mattered). Two limits are pinned as NAMED tests rather than left as unremarked greens: the un-repeated pair, and a PAIRWISE swap of two grandfathered numbers in one file — set membership catches a one-way retarget but not a permutation (a per-file count would hide both, which is why the key is still the better choice). `bare-decision` is deliberately the narrowest class and the widening offered in review was measured and REJECTED — with the blame located: counted as NEW hits over the shipped pattern, a `\W{0,3}` joint costs **+4 on `b382641`** and **+11 on `dc3a959`** (with or without a `\d{1,2}` bound), while the bound ALONE costs **0** at both. The joint is the whole cost; the bound is free but pointless without it. Every one of those hits is this very file writing `**Decision (2026-08-12): no guard.**`, which the widened joint reads as decision 20. (An earlier draft said "six", which reproduces at no committed state — it was measured mid-edit. Hence the commits.) | this PR |
 | `scanner/tests/test_ci_branch_protection_codified.py` | Codified branch protection (`scripts/sync-repo-protection.sh`) + its nightly notifier (`protection-drift-watch.yml`) | the desired state keeps `DESIRED_CONTEXTS=["Lint","Security Scan Gate"]` (both required checks — an exact two-sided pin: dropping a context un-requires that aggregator, and silently *adding* a third required context is equally caught, proven by appended+prepended mutation self-tests), `DESIRED_ENFORCE_ADMINS="true"` (admins not exempt — no force-push to main), `strict` true and `require_code_owner_reviews` **false** (pinned exactly, so a flip in either direction is reviewable — see the script for why: with `required_approving_review_count=0` it only ever blocked non-owner-authored PRs, i.e. Dependabot's, and #388 sat BLOCKED at 22/22 green until it was reapplied by hand as #400), `set -euo pipefail`, and the default-arm dry-run; the `DRIFT DETECTED` marker contract holds on both producer (script) and consumer (`grep -q`) sides; the watch keeps `schedule:` + tooling-error `exit 1` and its `on:` block never gains a `pull_request(_target)` trigger (scheduled notifier, must not become a required PR check). Protects the #250/#251 codification | #256 |
 | `scanner/tests/test_ci_dependabot_config.py` | `.github/dependabot.yml` update coverage + alpine version freeze | all four ecosystems stay declared (`github-actions`, `npm`, `pip`, `docker`) so no surface silently stops getting update PRs (OWASP CICD-SEC-3); the `docker` `ignore` keeps the `alpine` `semver-minor`+`semver-major` freeze that holds alpine on its py3.12 minor line — loosening it would let Dependabot propose the bump that ships py3.14 and crashes prowler (pydantic v1, incident #220). Distinct from `test_ci_dependabot_automerge.py` (guards the *workflow*, not this *config*) | #256 |
 | `scanner/tests/test_ci_prowler_version_pinned.py` | prowler install pin in `Dockerfile` | prowler is installed via an exact `==` pin through the `PROWLER_VERSION` build arg (version-shaped value), never a bare unpinned `pip install ... prowler`. An unpinned spec silently backtracks to ancient prowler 3.11.3 (pydantic v1) on a newer Python and crashes at runtime (incident #237). Pins the *pinning*, so a lockstep version bump stays green | #258 |
@@ -226,6 +227,86 @@ Both former Tier-2 candidates landed in #258 and are now in the Catalog above:
   comment is a readability/doc-accuracy wart, not a security regression — below
   the incident bar. Mitigation is a one-time normalization on each major action
   bump, not a guard.
+
+- **A LOCKSTEP renumber of ADR-001 is unguarded, and both ADR-001 guards stay
+  green through it.** Renumbering the Decision list *and* reordering `DECISIONS`
+  in `test_ci_adr_decision_numbering.py` **in the same commit** passes all 10 of
+  that guard's tests while silently re-pointing every citation in the repo. The
+  #434 review demonstrated it by in-memory mutation, with the control that makes
+  the result trustworthy (ADR-001 §4):
+
+  | Mutation | Result |
+  |---|---|
+  | ADR renumbered, `DECISIONS` untouched (**control**) | FAIL — `test_numbers_map_to_the_same_decisions` |
+  | ADR renumbered **+** `DECISIONS` reordered, same commit | all 10 PASS — both guards blind |
+  | Append a decision, `DECISIONS` untouched | FAIL — `test_no_extra_or_missing_decisions` (set equality) |
+
+  The control failing is the whole reason the middle row can be believed: the
+  harness demonstrably reaches the assertion, so its green is a measurement and
+  not a misfire. The third row is why appending remains a deliberate one-line
+  review moment rather than a hole.
+
+  State the guarantee exactly, because overstating it is the error `b3fb4ea`
+  corrected: the pin is **one-sided**. It does not make renumbering impossible —
+  it forces a renumber to arrive as a **lockstep, reviewable diff** through a
+  guard file instead of as an invisible one-line edit. It is a **review moment,
+  not an impossibility.**
+
+  **Does `test_ci_adr_citation_spelling.py` narrow this?** Not the renumber
+  itself — it never compares a citation's number against the ADR, so a lockstep
+  renumber produces **zero** findings from it. What it narrows is the *other half*
+  of the compound failure. The invisible-spelling cohort is now **frozen and
+  enumerated**: 12 keys in `GRANDFATHERED`, which can only shrink. Before, the
+  cohort grew silently and nobody knew its size — #434 was the first count, and it
+  found the whole never-triaged error population living inside it. So the next
+  sweep after a renumber can read the invisible sites off one frozen list instead
+  of re-deriving a five-spelling census, and no new one can be added.
+
+  Said plainly, without softening: a lockstep renumber combined with the 11
+  still-invisible spellings **rings no alarm in either guard**, and those 11
+  remain outside `_CITE_RE` until someone canonicalizes them. The residual control
+  is review — cite number **and** title, so a re-pointed number fails to typecheck
+  against the title beside it.
+
+  **Decision (2026-08-12): no guard.** Detecting a lockstep renumber means
+  detecting an *intent* behind a diff that is internally consistent by
+  construction; a date-vs-snapshot check was assessed in #434 and rejected by two
+  independent reviewers as detecting an extinct cause (the pre-`9a530d6` cohort is
+  closed, finite, and now audited to zero). Revisit only if a second renumbering
+  ever lands.
+
+- **A citation pair written without repeating the prefix is invisible past its
+  first number, and the spelling guard permits it.** Found while writing that
+  guard, by running `_CITE_RE` over the three spellings:
+
+  ```text
+  'ADR-001 §1/§4'              -> _CITE_RE sees ['1']
+  'ADR-001 §1 and §4'          -> _CITE_RE sees ['1']
+  'ADR-001 §1 and ADR-001 §4'  -> _CITE_RE sees ['1', '4']
+  ```
+
+  So un-chaining does not restore visibility — only repeating the anchor does. The
+  ADR's advice said "write them out"; that sentence is corrected in this PR, and
+  the guard's failure message now says *repeat the prefix*.
+
+  **Decision (2026-08-12): flag the chain, permit the un-repeated pair.** A rule
+  wide enough to catch it would have to treat any bare `§<M>` later on the same
+  line as a second citation, and on **`b382641`** — the tree this decision was
+  taken against — all **three** live instances of that shape were drift notes
+  quoting a number as **data**: *"26 `ADR-001 §4` citations of which 23 meant §5"*
+  in the catalog row above, the same sentence in the 2026-08 cycle retrospective,
+  and the ADR's own reversal table. The count is anchored to a commit because the
+  same pattern gives 6 on `6c9a387` and 7 on `dc3a959` — prose *about* this class
+  is itself an instance of it, so this PR staled its own number. The cost argument
+  is unaffected (the additions are the same drift-note category); re-derive before
+  quoting the figure. Distinguishing
+  a pointer from data is the un-mechanizable judgement #434 already named, so the
+  broader rule would over-report on precisely the prose that documents this class.
+  Pinned as a NAMED false negative
+  (`test_the_un_repeated_pair_is_a_KNOWN_false_negative`) rather than left as an
+  unremarked green, per ADR-001 §3's bar for shipping a known gap: the cost
+  argument is the three false positives, and the revisit trigger is a real
+  un-repeated pair landing as a genuine second citation.
 
 ### Stripper / haystack-narrowing audit 2026-08-07 (ADR-001 §6)
 
