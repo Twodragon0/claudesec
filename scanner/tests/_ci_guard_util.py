@@ -517,6 +517,84 @@ def block_ends_at(line: str, col: int) -> bool:
     return (len(line) - len(line.lstrip())) <= col
 
 
+_STEP_FIRST_KEYS = (
+    "name", "uses", "id", "run", "if", "env", "shell", "with",
+    "continue-on-error", "timeout-minutes", "working-directory",
+)
+
+
+def step_blocks(text: str) -> list:
+    """The per-step blocks of every `steps:` sequence in `text`, comment-stripped.
+
+    A step owns everything from its own `- <key>:` sequence item up to the next
+    item at the SAME dash column, so an `if:` and the `run:` it gates are attributed
+    to the same step — and a `gh issue create` sitting in a *different*,
+    unconditional step is never credited to a conditional one. That attribution is
+    the whole point: the two guards that use this (`test_ci_drift_watch_not_silent`,
+    `test_ci_provenance_verify`) both assert "the step gated on X actually does
+    something visible", which is meaningless without it.
+
+    Two properties worth stating because they are what make the naive version wrong:
+
+    - **Comment lines are stripped first** (`strip_comment_lines`), so a control
+      parked behind a `#` cannot satisfy any presence check a caller runs over a
+      block. The immunity lives HERE, not in each caller's `setUpClass` — that
+      one-line, unasserted caller-side immunity is exactly what #420 could not
+      account for.
+    - **The dash column is DERIVED from the first item after `steps:`**, and only a
+      dash at that column starts a new step. A `run: |` body is always indented
+      deeper than its own step's dash, so YAML-shaped text inside a block scalar
+      (`- name: x` in a documentation snippet, an issue-body heredoc) cannot split
+      one step into two — an over-split would put the `if:` and its payload in
+      different blocks and silently turn the caller's assertion into a false
+      NEGATIVE. Step keys are read bare or quoted (`- "name":`) for the same
+      reason (#391's quoted-key class).
+
+    Returns a list of block strings in document order (empty list when there is no
+    `steps:` key, so a caller asserting "some step does X" fails closed)."""
+    step_key = "|".join(yaml_key_pattern(k) for k in _STEP_FIRST_KEYS)
+    start_re = re.compile(rf"^(\s*)-\s+(?:{step_key})\s*:")
+    steps_re = re.compile(rf"^(\s*){yaml_key_pattern('steps')}\s*:\s*$")
+
+    blocks, cur = [], None
+    steps_col = dash_col = None
+
+    def flush():
+        nonlocal cur
+        if cur is not None:
+            blocks.append("\n".join(cur))
+            cur = None
+
+    for line in strip_comment_lines(text).splitlines():
+        if not line.strip():
+            if cur is not None:
+                cur.append(line)
+            continue
+        indent = len(line) - len(line.lstrip())
+        m_steps = steps_re.match(line)
+        if m_steps:
+            flush()
+            steps_col, dash_col = len(m_steps.group(1)), None
+            continue
+        if steps_col is None:
+            continue
+        m_start = start_re.match(line)
+        if m_start and (dash_col is None or indent == dash_col):
+            flush()
+            dash_col = indent
+            cur = [line]
+            continue
+        if not line.lstrip().startswith("-") and indent <= steps_col:
+            # Dedented back out of this job's `steps:` list.
+            flush()
+            steps_col = dash_col = None
+            continue
+        if cur is not None:
+            cur.append(line)
+    flush()
+    return blocks
+
+
 def job_block(text: str, job_key: str):
     """The block of the top-level job `job_key`, or None if not found uniquely.
 

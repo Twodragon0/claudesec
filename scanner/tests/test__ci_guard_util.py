@@ -61,6 +61,7 @@ from _ci_guard_util import (  # noqa: E402
     non_comment_lines,
     on_key_inline,
     required_aggregators,
+    step_blocks,
     strip_comment_lines,
     strip_html_comments,
     strip_inline_comment,
@@ -485,6 +486,113 @@ class TestJobBlock(unittest.TestCase):
         # Fail CLOSED: callers assert on None, instead of silently scanning one
         # of two blocks that happen to share a name.
         self.assertIsNone(job_block("jobs:\n  x:\n    a: 1\n  x:\n    b: 2\n", "x"))
+
+
+class TestStepBlocks(unittest.TestCase):
+    WF = (
+        "jobs:\n"
+        "  verify:\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@sha\n"
+        "      - name: detect\n"
+        "        id: d\n"
+        "        run: echo status=bad >> $GITHUB_OUTPUT\n"
+        "      - name: react\n"
+        "        if: steps.d.outputs.status == 'bad'\n"
+        "        run: gh issue create --title x\n"
+    )
+
+    def test_one_block_per_step_in_order(self):
+        blocks = step_blocks(self.WF)
+        self.assertEqual(
+            [b.splitlines()[0].strip() for b in blocks],
+            ["- uses: actions/checkout@sha", "- name: detect", "- name: react"],
+        )
+
+    def test_attribution_does_not_leak_between_steps(self):
+        # The whole point: the payload of step 3 must not be visible in step 2's
+        # block, or "the step gated on X does something" is unfalsifiable.
+        detect = [b for b in step_blocks(self.WF) if "- name: detect" in b][0]
+        self.assertNotIn("gh issue create", detect)
+
+    def test_comment_lines_are_stripped_inside_the_block(self):
+        wf = self.WF.replace(
+            "        run: gh issue create --title x",
+            "        # run: gh issue create --title x",
+        )
+        react = [b for b in step_blocks(wf) if "- name: react" in b][0]
+        self.assertNotIn("gh issue create", react)
+
+    def test_block_scalar_content_shaped_like_a_step_does_not_split(self):
+        # An issue body / doc snippet inside `run: |` may contain `- name: …`.
+        # Splitting there would put an `if:` and its payload in DIFFERENT blocks —
+        # a false NEGATIVE for every caller, so the dash column is derived and only
+        # a dash AT that column starts a step.
+        wf = (
+            "jobs:\n"
+            "  j:\n"
+            "    steps:\n"
+            "      - name: write body\n"
+            "        if: steps.d.outputs.status == 'bad'\n"
+            "        run: |\n"
+            "          cat <<'EOF' > /tmp/b.md\n"
+            "          - name: not a step\n"
+            "          - uses: also not a step\n"
+            "          EOF\n"
+            "          gh issue create --body-file /tmp/b.md\n"
+        )
+        blocks = step_blocks(wf)
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("gh issue create", blocks[0])
+        self.assertIn("steps.d.outputs.status == 'bad'", blocks[0])
+
+    def test_quoted_step_key_still_starts_a_step(self):
+        wf = 'jobs:\n  j:\n    steps:\n      - "name": a\n      - name: b\n'
+        self.assertEqual(len(step_blocks(wf)), 2)
+
+    def test_multiple_jobs_are_all_collected(self):
+        wf = (
+            "jobs:\n"
+            "  a:\n"
+            "    steps:\n"
+            "      - name: a1\n"
+            "  b:\n"
+            "    steps:\n"
+            "      - name: b1\n"
+            "      - name: b2\n"
+        )
+        self.assertEqual(
+            [b.splitlines()[0].strip() for b in step_blocks(wf)],
+            ["- name: a1", "- name: b1", "- name: b2"],
+        )
+
+    def test_dedent_out_of_steps_closes_the_last_block(self):
+        wf = (
+            "jobs:\n"
+            "  j:\n"
+            "    steps:\n"
+            "      - name: only\n"
+            "        run: x\n"
+            "    timeout-minutes: 5\n"
+            "on:\n"
+            "  schedule:\n"
+            "    - cron: '0 6 * * *'\n"
+        )
+        blocks = step_blocks(wf)
+        self.assertEqual(len(blocks), 1)
+        self.assertNotIn("cron", blocks[0])
+        self.assertNotIn("timeout-minutes", blocks[0])
+
+    def test_no_steps_key_fails_closed(self):
+        # An empty list, not a whole-file block: a caller asking "does some step do
+        # X" must get NO for a file it cannot parse, never a vacuous yes.
+        self.assertEqual(step_blocks("on:\n  push:\njobs:\n  j:\n    uses: ./x\n"), [])
+
+    def test_dedented_steps_sequence_is_supported(self):
+        # A block sequence may legally sit at its parent key's indent; a fixed
+        # `^\s{6}-` anchor would see no steps at all.
+        wf = "jobs:\n  j:\n    steps:\n    - name: a\n    - name: b\n"
+        self.assertEqual(len(step_blocks(wf)), 2)
 
 
 class TestJobNeeds(unittest.TestCase):
