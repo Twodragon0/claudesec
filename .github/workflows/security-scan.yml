@@ -175,28 +175,69 @@ jobs:
       # Any CRITICAL finding FAILS the build (blocks merge via the Security Scan
       # Gate required check); HIGH findings are surfaced as warnings only.
       #
-      # VERDICT SUPPRESSED HERE — WHAT IT HIDES (audit 2026-08-12). This gate has
-      # NO positive control on its own input: it cannot tell "zero criticals" from
-      # "no parseable scan output", and every indistinguishable case reads GREEN on
-      # the REQUIRED `Security Scan Gate`. Measured by running this step body
-      # verbatim under `bash -eo pipefail`:
+      # POSITIVE CONTROL ON THE INPUT (added 2026-08-13, audit 2026-08-12). Until
+      # this PR the gate could not tell "zero criticals" from "no parseable scan
+      # output", and every indistinguishable case read GREEN on the REQUIRED
+      # `Security Scan Gate`. Measured by running the old step body verbatim
+      # (`bash -eo pipefail`, plus the guard's plain `bash`):
       #   scan-output.txt missing -> `Critical: , High: ` + `[: : integer
       #     expression expected` TWICE, step exit 0. The `[` errors are non-fatal
       #     because they sit in an `if` CONDITION, where `set -e` does not apply.
       #   scan-output.txt empty   -> `Critical: 0, High: 0`, step exit 0.
       #   glyph/wording drift     -> `[X] Critical severity: ...` scores 0, exit 0.
-      #   one real CRITICAL       -> exit 1 (the gate does work on its happy path).
-      # So a scanner that silently stops emitting findings, or renames `✗`, or
-      # writes to stderr instead of stdout, disarms the only merge-blocking
-      # severity gate in the repo without turning anything red. Same class as
-      # #396/#397 (a no-op job reads green).
-      # `|| true` on both greps is REQUIRED (grep exits 1 on zero matches) and is
-      # not itself the defect — the absent non-empty-input assertion is.
+      #   real production output  -> `Critical: 0` on a report whose own severity
+      #     breakdown says `CRITICAL  1`, step exit 0. scanner/lib/checks.sh
+      #     sources every check with stdout on /dev/null, so the per-finding
+      #     `✗ FAIL ... (critical)` line the counters look for never reaches
+      #     scan-output.txt at all — only print_summary's breakdown survives.
+      #   one real CRITICAL       -> exit 1 (the gate works on its happy path).
+      # The four preconditions below make each of those a LOUD, SPECIFIC failure
+      # that says the input was unusable — which is a different verdict from
+      # "the scan was clean". Same class as #396/#397 (a no-op job reads green)
+      # and PR #412 (a stray `working-directory: docs` producing `Critical: `).
+      # Proven by execution, in both directions, by
+      # scanner/tests/test_ci_security_gate_behaviour.py.
       # HIGH findings are warn-only by design (see ::warning:: below).
       - name: Check for critical/high failures
         run: |
+          # PRECONDITION 1 of 4 — the input must exist and be non-empty.
+          if [ ! -s scan-output.txt ]; then
+            echo "::error::UNUSABLE SCAN INPUT: scan-output.txt is missing or empty, so this gate counted nothing. That is NOT a clean scan — the scan did not deliver a report. Failing closed."
+            exit 1
+          fi
+          # PRECONDITION 2 of 4 — it must be a COMPLETE claudesec report.
+          # print_summary in scanner/lib/output.sh always emits this sentinel, so
+          # its absence means the run crashed, was truncated, went to stderr, was
+          # read from the wrong directory, or the report format changed under this
+          # gate. Note the scan step pipes docker into tee under `bash -e` without
+          # pipefail, so a crashed scanner already exits 0 there. Sentinel pinned
+          # to the emitter by scanner/tests/test_ci_security_gate_behaviour.py.
+          if ! grep -q 'Security Score' scan-output.txt; then
+            echo "::error::UNUSABLE SCAN INPUT: scan-output.txt has no 'Security Score' summary line, so it is not a complete claudesec report. That is NOT a clean scan. Failing closed."
+            exit 1
+          fi
           CRITS=$(grep -ci '✗.*critical\|CRITICAL.*Fail' scan-output.txt || true)
           HIGHS=$(grep -ci '✗.*high\|HIGH.*Fail' scan-output.txt || true)
+          # PRECONDITION 3 of 4 — the counters must have produced NUMBERS. This is
+          # the arm that closes the original mechanism directly. The fallback to
+          # `true` on both greps is REQUIRED, because grep exits 1 on zero
+          # matches, and it is not the defect. What was missing is this control on
+          # the RESULT. `${VAR##*[!0-9]*}` is empty when VAR is empty or holds any
+          # non-digit, and the comparison is a STRING test, so this arm cannot
+          # itself error out and be swallowed the way `-gt` was.
+          if [ -z "${CRITS##*[!0-9]*}" ] || [ -z "${HIGHS##*[!0-9]*}" ]; then
+            echo "::error::UNUSABLE SCAN VERDICT: the severity counters produced no number (Critical='$CRITS' High='$HIGHS'), so nothing was actually counted. That is NOT a clean scan. Failing closed."
+            exit 1
+          fi
+          # PRECONDITION 4 of 4 — a zero count is trustworthy only when the report
+          # itself declares zero. print_summary renders an INDEPENDENT severity
+          # breakdown, so a report that declares CRITICALs the counters scored as
+          # 0 means the count pattern is blind, not that the scan was clean. This
+          # is what distinguishes "zero criticals" from "no count found".
+          if [ "$CRITS" = "0" ] && grep -q 'CRITICAL  *[0-9].*Immediate action required' scan-output.txt; then
+            echo "::error::UNUSABLE SCAN VERDICT: the report's own severity breakdown declares CRITICAL findings that this gate scored as 0 — the count pattern no longer matches what the scanner emits. That is NOT a clean scan. Failing closed."
+            exit 1
+          fi
           echo "Critical: $CRITS, High: $HIGHS"
           echo "::notice::Security scan completed — Critical: $CRITS, High: $HIGHS"
           if [ "$HIGHS" -gt 0 ]; then
