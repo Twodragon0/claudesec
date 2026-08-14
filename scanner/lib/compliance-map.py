@@ -30,7 +30,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Secure authentication",
             "desc": "Strong authentication (MFA, SSO) in use",
             "action": "Adopt MFA and SSO; strengthen password policy and session management.",
-            "checks": ["mfa", "two_factor", "sso", "authentication"],
+            "checks": ["mfa", "two_factor", "_sso", "authentication"],
             "status": "",
         },
         {
@@ -54,7 +54,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Secure coding",
             "desc": "Secure coding and SAST for vulnerability management",
             "action": "Adopt CodeQL/SAST, code review; prevent injection and XSS.",
-            "checks": ["code_scanning", "sast", "injection", "codeql"],
+            "checks": ["code_scanning", "injection", "codeql"],
             "status": "",
         },
         {
@@ -144,7 +144,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "사용자 인증 (User authentication)",
             "desc": "안전한 인증 수단 사용 (MFA, SSO 등)",
             "action": "MFA 적용; SSO 통합; 비밀번호 복잡도 및 주기적 변경.",
-            "checks": ["mfa", "two_factor", "sso", "authentication", "password"],
+            "checks": ["mfa", "two_factor", "_sso", "authentication", "password"],
             "status": "",
         },
         {
@@ -168,7 +168,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "정보시스템 접근 (System access control)",
             "desc": "정보시스템 접근 통제 및 인증·권한 관리",
             "action": "서버·DB 접근통제; 관리자 접근 이력 관리; 원격접근 보안.",
-            "checks": ["mfa", "authentication", "sso", "two_factor", "admin"],
+            "checks": ["mfa", "authentication", "_sso", "two_factor", "admin"],
             "status": "",
         },
         {
@@ -216,7 +216,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "시큐어 코딩 (Secure coding)",
             "desc": "시큐어 코딩 표준 준수 및 소스코드 검증",
             "action": "SAST/CodeQL 적용; 코드 리뷰 필수; OWASP Top 10 대응; 인젝션 방지.",
-            "checks": ["code_scanning", "sast", "injection", "codeql", "xss"],
+            "checks": ["code_scanning", "injection", "codeql", "xss"],
             "status": "",
         },
         {
@@ -434,11 +434,11 @@ COMPLIANCE_CONTROL_MAP = {
         {"control": "S-2.1", "name": "정보보호 정책", "desc": "정보보호 정책 수립·시행·검토", "action": "정책 문서화; 전 직원 숙지; 연 1회 이상 검토.", "checks": ["security_policy", "governance"], "assessable": False, "status": ""},
         {"control": "S-2.2", "name": "인적 보안", "desc": "직무 분리, 보안 서약, 교육", "action": "직무 분리(SoD); 입사/퇴사 절차; 연 1회 보안 교육.", "checks": ["admin", "permission", "training", "account"], "status": ""},
         {"control": "S-2.3", "name": "외부자 보안", "desc": "외부자(위탁, 협력사) 보안 관리", "action": "위탁 계약 시 보안 요구사항; 접근 통제; 주기적 점검.", "checks": ["third_party", "vendor", "external"], "status": ""},
-        {"control": "S-2.4", "name": "사용자 인증 관리", "desc": "계정·비밀번호·인증 관리", "action": "MFA 적용; 비밀번호 복잡도; 미사용 계정 비활성화.", "checks": ["mfa", "authentication", "password", "account", "sso"], "status": ""},
+        {"control": "S-2.4", "name": "사용자 인증 관리", "desc": "계정·비밀번호·인증 관리", "action": "MFA 적용; 비밀번호 복잡도; 미사용 계정 비활성화.", "checks": ["mfa", "authentication", "password", "account", "_sso"], "status": ""},
         {"control": "S-2.5", "name": "접근권한 관리", "desc": "최소 권한 부여 및 주기적 검토", "action": "RBAC; 권한 검토; 퇴직자 즉시 회수.", "checks": ["branch_protection", "access", "permission", "restrict", "rbac"], "status": ""},
         {"control": "S-2.6", "name": "네트워크 접근통제", "desc": "네트워크 영역 분리 및 접근 제어", "action": "방화벽; VPC/서브넷; Security Group 최소 오픈.", "checks": ["firewall", "network", "segmentation", "vpc", "security_group"], "status": ""},
         {"control": "S-2.7", "name": "암호화 적용", "desc": "전송·저장 시 암호화", "action": "TLS 1.2+; 저장 암호화(AES-256); KMS 키 관리.", "checks": ["encrypt", "tls", "ssl", "kms", "certificate"], "status": ""},
-        {"control": "S-2.8", "name": "시큐어 코딩", "desc": "안전한 소프트웨어 개발", "action": "SAST/CodeQL; 코드 리뷰; OWASP Top 10 대응.", "checks": ["code_scanning", "sast", "injection", "codeql"], "status": ""},
+        {"control": "S-2.8", "name": "시큐어 코딩", "desc": "안전한 소프트웨어 개발", "action": "SAST/CodeQL; 코드 리뷰; OWASP Top 10 대응.", "checks": ["code_scanning", "injection", "codeql"], "status": ""},
         {"control": "S-2.9", "name": "변경 관리", "desc": "시스템 변경 승인·이행·기록", "action": "PR 기반 변경; 변경 이력 추적; 롤백 절차.", "checks": ["require_approval", "review", "pull_request", "change"], "status": ""},
         {"control": "S-2.10", "name": "로그 관리", "desc": "접근·이용 기록 수집·보관", "action": "감사 로그 6개월 보관; CloudTrail 활성화; 무결성 보장.", "checks": ["logging", "audit", "cloudtrail", "retention"], "status": ""},
         {"control": "S-2.11", "name": "취약점 관리", "desc": "정기 취약점 점검 및 조치", "action": "Prowler/OWASP 스캔; 패치 관리; CVE 모니터링.", "checks": ["vulnerability", "scan", "prowler", "cve", "patch"], "status": ""},
@@ -484,7 +484,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Secure software development",
             "desc": "Secure SDLC and vulnerability management",
             "action": "SAST and dependency checks; patching and code review.",
-            "checks": ["code_scanning", "sast", "injection", "vulnerability"],
+            "checks": ["code_scanning", "injection", "vulnerability"],
             "status": "",
         },
         {
@@ -500,7 +500,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "User identification and authentication",
             "desc": "Strong authentication and account management",
             "action": "MFA; password policy; account lockout and session management.",
-            "checks": ["mfa", "authentication", "two_factor", "sso"],
+            "checks": ["mfa", "authentication", "two_factor", "_sso"],
             "status": "",
         },
         {
@@ -559,7 +559,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Identification and authentication",
             "desc": "Uniquely identify and authenticate organizational users and processes",
             "action": "Enforce MFA for all users; implement SSO; strong password and session policies.",
-            "checks": ["mfa", "authentication", "two_factor", "sso", "identity"],
+            "checks": ["mfa", "authentication", "two_factor", "_sso", "identity"],
             "status": "",
         },
         {
@@ -567,7 +567,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Vulnerability monitoring and scanning",
             "desc": "Monitor and scan for vulnerabilities in the system and hosted applications",
             "action": "Run SAST/DAST scans; dependency vulnerability checks; prioritize by CVSS severity.",
-            "checks": ["vulnerability", "code_scanning", "sast", "dependency", "cve"],
+            "checks": ["vulnerability", "code_scanning", "dependency", "cve"],
             "status": "",
         },
         {
@@ -665,7 +665,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "ArgoCD RBAC and security configuration",
             "desc": "Verify ArgoCD RBAC policies, SSO integration, and project-level access restrictions",
             "action": "Enforce ArgoCD RBAC with least privilege; enable SSO; restrict project sources and destinations; disable anonymous access.",
-            "checks": ["argocd", "argo", "gitops", "rbac", "sso", "project"],
+            "checks": ["argocd", "argo", "gitops", "rbac", "_sso", "project"],
             "status": "",
         },
     ],
