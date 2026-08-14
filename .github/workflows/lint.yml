@@ -843,7 +843,7 @@ jobs:
 
       - name: Verify HTTP 200 on key endpoints
         run: |
-          for endpoint in "/" "/scan.html" "/scan-report.json"; do
+          for endpoint in "/" "/scan-report.json"; do
             status=$(curl -o /dev/null -sw '%{http_code}' "http://localhost:11777${endpoint}")
             if [ "$status" != "200" ]; then
               echo "::error::Expected HTTP 200 on ${endpoint}, got ${status}"
@@ -851,6 +851,33 @@ jobs:
               exit 1
             fi
             echo "OK ${endpoint} -> ${status}"
+          done
+
+      # The standalone scan dashboard was folded into `/`. Its old URLs must
+      # REDIRECT rather than 404 — a 404 here would mean a bookmark breaks, and a
+      # 200 would mean the page came back without anyone noticing. Asserting the
+      # exact target catches a `try_files` fallback silently serving index.html
+      # under the old URL, which would look fine to a human and be a stale route.
+      - name: Verify retired scan-dashboard URLs redirect to /
+        run: |
+          # Two curl calls rather than one `read` from a process substitution:
+          # `curl -w` emits no trailing newline, so `read` returns non-zero even
+          # after populating the variables, and the runner's `bash -e` aborts the
+          # step before the loop body ever runs.
+          for endpoint in "/scan.html" "/claudesec-dashboard.html"; do
+            status=$(curl -o /dev/null -sw '%{http_code}' "http://localhost:11777${endpoint}")
+            target=$(curl -o /dev/null -sw '%{redirect_url}' "http://localhost:11777${endpoint}")
+            if [ "$status" != "301" ]; then
+              echo "::error::Expected HTTP 301 on ${endpoint}, got ${status}"
+              docker compose logs dashboard
+              exit 1
+            fi
+            case "$target" in
+              */) ;;
+              *) echo "::error::${endpoint} redirected to '${target}', expected /"
+                 exit 1 ;;
+            esac
+            echo "OK ${endpoint} -> ${status} ${target}"
           done
 
       - name: Clean up

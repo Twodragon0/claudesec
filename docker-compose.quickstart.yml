@@ -44,7 +44,6 @@ services:
     ports: ["11777:8080"]
     volumes:
       - ./claudesec-asset-dashboard-live.html:/usr/share/nginx/html/index.html:ro
-      - ./claudesec-dashboard.html:/usr/share/nginx/html/scan.html:ro
       - ./.claudesec-assets/dashboard-data.json:/usr/share/nginx/html/.claudesec-assets/dashboard-data.json:ro
     healthcheck:
       # Use wget (busybox) — the nginx:alpine base image does not ship curl,

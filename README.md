@@ -252,7 +252,7 @@ docker compose up -d dashboard
 
 # Endpoints:
 #   http://localhost:11777           → ISMS Dashboard
-#   http://localhost:11777/scan.html → ClaudeSec Scan Dashboard
+#   http://localhost:11777/scan.html → 301 to / (scan summary folded into the ISMS dashboard)
 ```
 
 ### Directory Structure
