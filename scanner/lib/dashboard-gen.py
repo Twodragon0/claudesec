@@ -432,6 +432,42 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         if scanner_cat_labels
         else "No fail/warn categories in this run (checks may be pass/skip only)."
     )
+    # Which categories actually EXECUTED. Distinct from the "detected" list
+    # above, which is derived from findings and therefore cannot distinguish a
+    # category that ran and was clean from one that never ran at all. Without
+    # this, `claudesec dashboard` narrowing an unqualified `all` to a fast local
+    # subset produced a headline grade over a fraction of the checks with
+    # nothing on screen saying so.
+    _ran_raw = os.environ.get("CLAUDESEC_SCAN_CATEGORIES", "").strip()
+    scan_coverage_html = ""
+    if _ran_raw:
+        _ran = {c.strip().lower() for c in _ran_raw.split(",") if c.strip()}
+        # "other" is a display bucket for uncategorized findings, not a
+        # scannable category — see test_dashboard_mapping_pure's parity test,
+        # which pins the rest of CATEGORY_META against the scanner's own
+        # CLAUDESEC_ALL_CATEGORIES array.
+        _all = [c for c in CATEGORY_META if c != "other"]
+        _not_run = [] if "all" in _ran else [c for c in _all if c not in _ran]
+        if _not_run:
+            _labels = ", ".join(
+                (CATEGORY_META[c] or {}).get("label", c) for c in _not_run
+            )
+            scan_coverage_html = (
+                '<div style="margin-top:.25rem">'
+                '<strong style="color:var(--text)">Not scanned in this run:</strong> '
+                f"{h(len(_not_run))} of {h(len(_all))} categories &mdash; {h(_labels)}. "
+                "The score below covers only the categories that ran; "
+                "use <code>claudesec dashboard --all</code> for full scope."
+                "</div>"
+            )
+        else:
+            scan_coverage_html = (
+                '<div style="margin-top:.25rem">'
+                '<strong style="color:var(--text)">Scan coverage:</strong> '
+                f"all {h(len(_all))} categories ran."
+                "</div>"
+            )
+
     scan_root_short = _middle_ellipsis(scan_dir, 68)
     scan_root_badge = (
         '<span class="trust-badge trust-ms" style="margin-left:.35rem">Repo root</span>'
@@ -466,6 +502,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         + f'<div style="margin-top:.25rem"><strong style="color:var(--text)">Local scanner categories detected:</strong> {cat_count_html} '
         + (scanner_cat_links_html if scanner_cat_links_html else h(scanner_cat_text))
         + "</div>"
+        + scan_coverage_html
         + f'<div style="margin-top:.25rem"><strong style="color:var(--text)">Scan root:</strong> <code class="scan-root-path" title="{h(scan_dir)}">{h(scan_root_short)}</code>{scan_root_badge}</div>'
         + '<div style="margin-top:.4rem;display:flex;flex-wrap:wrap;gap:.75rem;align-items:center"><a href="#scanner-section" data-action="scroll-to" data-target="scanner-section" style="color:var(--accent);text-decoration:underline;font-weight:600">View scanner results ↓</a><label style="display:flex;align-items:center;gap:.35rem"><span style="color:var(--text);font-weight:600">Prowler summary</span><select class="scope-select" data-change="openProwler">'
         + prowler_selector_options_html
