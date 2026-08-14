@@ -59,9 +59,29 @@ EXPECTED_NON_ASSESSABLE = {
     "SOC 2 (TSC)": {"CC1", "CC2", "CC9"},
 }
 
-# Keyword tokens that never appear in any scanner finding text (verified 0-emission
-# across scanner/checks/**). A KISA control whose entire `checks` set is a subset
-# of these can only ever render as a false-PASS, so it MUST be non-assessable.
+# Tokens verified 0-emission across `scanner/checks/**`.
+#
+# SCOPE CORRECTION (2026-08-14). This list said "never appear in any scanner
+# finding text". That claim is FALSE for the corpus `map_compliance()` actually
+# consumes. It is fed ONLY Prowler OCSF findings — `dashboard-gen.py` and
+# `prowler_compliance_summary.py` are its two callers — and the bash scanner's
+# own findings never reach it. Measured against the real Prowler 5.38 catalog
+# (1561 checks), 8 of these 13 DO match:
+#
+#   deletion 41 · retention 31 · lifecycle 17 · governance 5 · training 4 ·
+#   security_policy 1 · awareness 1 · destroy 1
+#
+# All 8 are homonyms — `training` hits `sagemaker_training_jobs_*`, `awareness`
+# hits OpenSearch "Zone Awareness", `governance` hits a Defender CSPM feature —
+# so no control's N/A status is wrong today. But the EVIDENCE was wrong: these
+# controls are not "never matched", they are "matched only by unrelated noise".
+# The distinction matters if one is ever reclassified assessable.
+#
+# The set is retained under its true, narrower meaning. `TestSelectionCompleteness`
+# below is correspondingly a check against `scanner/checks/**` emission, NOT proof
+# that a control can never match in production. Separately measured and confirmed:
+# no assessable KISA control is a pure never-matcher against the real corpus
+# either (lowest is 2.10.8 at 12 hits).
 NEVER_EMITTED_TOKENS = {
     "security_policy", "governance", "training", "awareness", "education",
     "deletion", "retention", "destroy", "lifecycle", "data_subject",
