@@ -205,13 +205,15 @@ jobs:
             echo "::error::UNUSABLE SCAN INPUT: scan-output.txt is missing or empty, so this gate counted nothing. That is NOT a clean scan — the scan did not deliver a report. Failing closed."
             exit 1
           fi
-          # PRECONDITION 2 of 4 — it must be a COMPLETE claudesec report.
-          # print_summary in scanner/lib/output.sh always emits this sentinel, so
-          # its absence means the run crashed, was truncated, went to stderr, was
-          # read from the wrong directory, or the report format changed under this
-          # gate. Note the scan step pipes docker into tee under `bash -e` without
-          # pipefail, so a crashed scanner already exits 0 there. Sentinel pinned
-          # to the emitter by scanner/tests/test_ci_security_gate_behaviour.py.
+          # PRECONDITION 2 of 4 — the report must have reached its SUMMARY.
+          # print_summary emits this sentinel unconditionally, so its absence
+          # means the run crashed, was truncated BEFORE the summary, went to
+          # stderr, was read from the wrong directory, or changed format. The scan
+          # step pipes docker into tee under `bash -e` without pipefail, so a
+          # crashed scanner already exits 0 there. BOUND: the sentinel is the
+          # FIRST summary line, so truncation AFTER it but before the breakdown
+          # satisfies arms 1-3 and leaves arm 4 nothing to find. Sentinel and
+          # residual both pinned by the guard.
           if ! grep -q 'Security Score' scan-output.txt; then
             echo "::error::UNUSABLE SCAN INPUT: scan-output.txt has no 'Security Score' summary line, so it is not a complete claudesec report. That is NOT a clean scan. Failing closed."
             exit 1
@@ -224,7 +226,10 @@ jobs:
           # matches, and it is not the defect. What was missing is this control on
           # the RESULT. `${VAR##*[!0-9]*}` is empty when VAR is empty or holds any
           # non-digit, and the comparison is a STRING test, so this arm cannot
-          # itself error out and be swallowed the way `-gt` was.
+          # itself error out and be swallowed the way `-gt` was. RESIDUAL, noted
+          # rather than contorted around: an all-digit value above intmax passes
+          # this arm and still lets `-gt` error and be swallowed (#437 verbatim)
+          # — unreachable via `grep -c`, which cannot print such a count.
           if [ -z "${CRITS##*[!0-9]*}" ] || [ -z "${HIGHS##*[!0-9]*}" ]; then
             echo "::error::UNUSABLE SCAN VERDICT: the severity counters produced no number (Critical='$CRITS' High='$HIGHS'), so nothing was actually counted. That is NOT a clean scan. Failing closed."
             exit 1
@@ -243,8 +248,11 @@ jobs:
           if [ "$HIGHS" -gt 0 ]; then
             # HIDES: every HIGH-severity finding. Only CRITICAL blocks a merge, so
             # an unbounded number of HIGHs ships green on the required check.
-            # Deliberate, because scanner HIGHs include advisory checks. The only
-            # record of them is this annotation plus scan-output.txt in the run log.
+            # Deliberate, because scanner HIGHs include advisory checks. AND,
+            # measured 2026-08-14: in production this never fires — `$HIGHS`
+            # counts the `✗ FAIL … (high)` line checks.sh keeps off stdout, so
+            # `HIGH 1` in the breakdown still yields `High: 0`. Pre-existing;
+            # arm 4 covers only the CRITICAL side of that hole.
             echo "::warning::$HIGHS high finding(s) detected"
           fi
           if [ "$CRITS" -gt 0 ]; then
