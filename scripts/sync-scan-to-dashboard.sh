@@ -59,7 +59,7 @@ else
   echo "  ⚠ build-dashboard.py not found, skipping"
 fi
 
-# Step 3: Regenerate scan.html dashboard
+# Step 3: Regenerate the scan dashboard artifact (also augments scan-report.json)
 echo ""
 echo "[3/3] Regenerating scan dashboard HTML..."
 if [[ -f "$SCAN_REPORT" ]]; then
@@ -85,4 +85,4 @@ fi
 echo ""
 echo "=== Sync complete ==="
 echo "  Main dashboard: http://localhost:11777/"
-echo "  Scan dashboard: http://localhost:11777/scan.html"
+echo "  Scan summary:   http://localhost:11777/ (보안 탭)"

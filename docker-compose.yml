@@ -17,16 +17,16 @@
 #   `scan` writes a report only with an explicit `-f json -o <file>`; the two
 #   files below are produced together by the `dashboard` subcommand:
 #     docker run --rm -v "$PWD:/workspace" -w /workspace claudesec:local dashboard
-#   Without them `docker compose up dashboard` cannot start (the bind mount has
-#   no source).
-#     - claudesec-dashboard.html        — scan dashboard (mounted at /scan.html)
+#   Without scan-report.json `docker compose up dashboard` cannot start (the
+#   bind mount has no source).
+#     - claudesec-dashboard.html        — no longer mounted; /scan.html 301s to /
 #     - scan-report.json                — scan results (overridable via CLAUDESEC_SCAN_REPORT)
 #     - claudesec-asset-dashboard.html  — PDCA / ISMS main dashboard (static, checked in)
 #   OPTIONAL (populated by external-API scripts, safe to be absent/empty):
 #     - .claudesec-assets/              — asset sync output; an empty dir is fine
 # Routing:
 #   /            → PDCA dashboard (claudesec-asset-dashboard.html)  [main per user feedback]
-#   /scan.html   → scan dashboard (claudesec-dashboard.html)
+#   /scan.html   → 301 to /  (the standalone scan dashboard was folded in)
 #   /scan-report.json — live scan data (falls back to scan-report.default.json)
 
 services:
@@ -54,8 +54,10 @@ services:
       # Uses the checked-in static file; the live variant is built by scripts/build-dashboard.py
       # when API keys are present (see docker-compose.quickstart.yml for that flow).
       - ./claudesec-asset-dashboard.html:/usr/share/nginx/html/index.html:ro
-      # Required: produced by running a scan
-      - ./claudesec-dashboard.html:/usr/share/nginx/html/scan.html:ro
+      # Scan results. The standalone scan dashboard is no longer served: its
+      # compliance / OWASP rollups are published into scan-report.json by
+      # dashboard-gen and rendered inside the ISMS page above, so this one
+      # mount now carries everything /scan.html used to. /scan.html 301s to /.
       - ${CLAUDESEC_SCAN_REPORT:-./scan-report.json}:/usr/share/nginx/html/scan-report.json:ro
       # Optional: populated by asset-sync scripts that need external APIs.
       # Mount an empty directory on fresh clones — nginx serves static assets fine without content.
