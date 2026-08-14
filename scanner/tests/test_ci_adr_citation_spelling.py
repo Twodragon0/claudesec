@@ -191,9 +191,9 @@ the guards is part of the configuration; NIST SP 800-218 (SSDF) PO.3, PW.4.
 
 import re
 import sys
+import tempfile
 import unittest
 from fnmatch import fnmatch
-from glob import glob
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -202,7 +202,12 @@ from _ci_guard_util import (  # noqa: E402
     apply_mutation,
     assert_disables,
 )
-from test_ci_adr_decision_numbering import ADR_REL, _CITED_GLOBS  # noqa: E402
+from test_ci_adr_decision_numbering import (  # noqa: E402
+    ADR_REL,
+    _CITED_GLOBS,
+    cited_paths,
+    in_nested_checkout,
+)
 
 THIS_REL = "scanner/tests/test_ci_adr_citation_spelling.py"
 
@@ -428,13 +433,14 @@ def spelling_findings(text: str, relpath: str) -> list:
 
 
 def scanned_files() -> list:
-    """`(relpath, text)` for every file the numbering guard's citation scan reads,
-    sorted and de-duplicated (the globs overlap: `*.md` and `docs/**/*.md`)."""
-    paths = set()
-    for pattern in _CITED_GLOBS:
-        paths.update(glob(str(REPO_ROOT / pattern), recursive=True))
+    """`(relpath, text)` for every file the numbering guard's citation scan reads.
+
+    Enumeration lives in `cited_paths()` (sorted, de-duplicated — the globs
+    overlap: `*.md` and `docs/**/*.md` — and with nested checkouts excluded).
+    This guard must police exactly that population, so it must not re-derive it.
+    """
     out = []
-    for path in sorted(paths):
+    for path in cited_paths():
         p = Path(path)
         try:
             out.append((str(p.relative_to(REPO_ROOT)), p.read_text(encoding="utf-8")))
@@ -1041,6 +1047,73 @@ class TestScopeIsSharedWithTheNumberingGuard(unittest.TestCase):
 
         self.assertIs(_CITED_GLOBS, numbering._CITED_GLOBS)
         self.assertTrue(_CITED_GLOBS, "the shared glob tuple is empty")
+
+    def test_path_enumeration_comes_from_the_numbering_guard(self):
+        # Sharing the glob tuple alone was NOT enough: each guard ran its own
+        # `glob()` loop, so the nested-checkout exclusion could be added to one
+        # and silently miss the other. Both now enumerate through one function.
+        import test_ci_adr_decision_numbering as numbering
+
+        self.assertIs(cited_paths, numbering.cited_paths)
+        self.assertEqual([rel for rel, _ in scanned_files()],
+                         [str(Path(p).relative_to(REPO_ROOT)) for p in cited_paths()])
+
+
+class TestNestedCheckoutExclusion(unittest.TestCase):
+    """`.claude/worktrees/<id>/` holds gitignored checkouts of OTHER branches.
+
+    Scanning them made both ADR guards report citation errors for files the
+    current commit does not contain — a failure reproducible only on a developer
+    machine, since a CI checkout has no worktrees. These tests build the shape in
+    a tmpdir rather than in the repo, so they assert the same thing whether or
+    not the developer running them happens to have worktrees checked out.
+    """
+
+    def _tree(self, tmp):
+        root = Path(tmp)
+        (root / "docs").mkdir()
+        (root / "docs" / "own.md").write_text("x", encoding="utf-8")
+        nested = root / ".claude" / "worktrees" / "agent-deadbeef"
+        (nested / "docs").mkdir(parents=True)
+        (nested / "docs" / "other.md").write_text("x", encoding="utf-8")
+        return root, nested
+
+    def test_worktree_gitdir_file_is_detected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, nested = self._tree(tmp)
+            # A LINKED worktree marks its root with a `.git` FILE, not a dir.
+            (nested / ".git").write_text("gitdir: /elsewhere\n", encoding="utf-8")
+            self.assertTrue(in_nested_checkout(nested / "docs" / "other.md", root))
+            self.assertFalse(in_nested_checkout(root / "docs" / "own.md", root))
+
+    def test_vendored_clone_gitdir_directory_is_detected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, nested = self._tree(tmp)
+            (nested / ".git").mkdir()
+            self.assertTrue(in_nested_checkout(nested / "docs" / "other.md", root))
+
+    def test_repo_own_dot_git_does_not_exclude_everything(self):
+        # The walk must STOP at root: if it inspected root/.git the predicate
+        # would be true for every file and the scan would silently go empty —
+        # a vacuous guard that reads green.
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _ = self._tree(tmp)
+            (root / ".git").mkdir()
+            self.assertFalse(in_nested_checkout(root / "docs" / "own.md", root))
+
+    def test_unmarked_nested_directory_is_still_scanned(self):
+        # Only a real checkout is excluded. A plain subdirectory that merely
+        # lives under .claude/ must stay in the population, or the exclusion
+        # would be a hole a doc could hide in.
+        with tempfile.TemporaryDirectory() as tmp:
+            root, nested = self._tree(tmp)
+            self.assertFalse(in_nested_checkout(nested / "docs" / "other.md", root))
+
+    def test_live_population_contains_no_nested_checkout_paths(self):
+        # Whatever this machine has checked out, the scanned population is
+        # this repo's own files.
+        offenders = [p for p in cited_paths() if in_nested_checkout(p, REPO_ROOT)]
+        self.assertEqual(offenders, [], f"nested-checkout paths leaked in: {offenders[:5]}")
 
     def test_adr_rel_comes_from_the_numbering_guard(self):
         import test_ci_adr_decision_numbering as numbering
