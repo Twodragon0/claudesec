@@ -29,8 +29,8 @@ def _make_finding(check="chk", title="", message="", compliance=None):
 class TestComplianceControlMap(unittest.TestCase):
     """Verify the structure of the compliance control map."""
 
-    def test_has_six_frameworks(self):
-        self.assertEqual(len(COMPLIANCE_CONTROL_MAP), 6)
+    def test_has_seven_frameworks(self):
+        self.assertEqual(len(COMPLIANCE_CONTROL_MAP), 7)
 
     def test_expected_framework_names(self):
         expected = {
@@ -40,6 +40,7 @@ class TestComplianceControlMap(unittest.TestCase):
             "NIST 800-53 Rev5",
             "CIS Benchmarks",
             "KISA ISMS Simple",
+            "SOC 2 (TSC)",
         }
         self.assertEqual(set(COMPLIANCE_CONTROL_MAP.keys()), expected)
 
@@ -63,6 +64,7 @@ class TestComplianceControlMap(unittest.TestCase):
         self.assertEqual(counts["NIST 800-53 Rev5"], 10)
         self.assertEqual(counts["CIS Benchmarks"], 9)
         self.assertEqual(counts["KISA ISMS Simple"], 20)
+        self.assertEqual(counts["SOC 2 (TSC)"], 9)
 
 
 class TestMatchProwlerCompliance(unittest.TestCase):
@@ -97,6 +99,21 @@ class TestMatchProwlerCompliance(unittest.TestCase):
     def test_no_match(self):
         finding = {"compliance": {"SOC2": ["CC6.1"]}}
         self.assertFalse(_match_prowler_compliance(finding, "ISO 27001:2022"))
+
+    def test_soc2_framework_key_does_not_native_match_prowler_soc2(self):
+        """Deliberate: 'SOC 2 (TSC)' must NOT native-match Prowler's bare 'SOC2'.
+
+        `_match_prowler_compliance` is framework-level, not control-level: one
+        native hit marks EVERY control of that framework FAIL. Prowler tags
+        nearly every AWS check with a SOC2 requirement, so a native match would
+        pin all nine CC series to FAIL on any scan and destroy the per-criterion
+        signal. The spaced/parenthesised name keeps SOC 2 keyword-driven, which
+        is how ISO/CIS/NIST already behave against real Prowler output (their
+        display names do not match Prowler's 'CIS-1.5'/'ISO27001-2013' keys
+        either). Renaming the framework to 'SOC2' would silently flip this.
+        """
+        finding = {"compliance": {"SOC2": ["cc_6_1"]}}
+        self.assertFalse(_match_prowler_compliance(finding, "SOC 2 (TSC)"))
 
 
 class TestMapCompliance(unittest.TestCase):

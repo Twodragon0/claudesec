@@ -15,7 +15,8 @@ compliance assurance. Such controls are tagged `"assessable": False` in
 This started as an ISMS-P 3.x PII/privacy pilot (#309) and now extends
 framework-wide to governance/legal/human controls in the frameworks where the
 gap actually exists: KISA ISMS-P (11 PII 3.x + management/policy/training),
-KISA ISMS Simple (governance/policy + PII/legal), and ISO 27001:2022 (A.5.1).
+KISA ISMS Simple (governance/policy + PII/legal), ISO 27001:2022 (A.5.1), and
+SOC 2 (TSC) (the COSO-derived CC1/CC2/CC9 governance criteria).
 NIST 800-53 stays fully assessable (CA-7 keeps genuine monitoring signal).
 
 stdlib-only (importlib to load the hyphenated `compliance-map.py` module, same
@@ -52,6 +53,10 @@ EXPECTED_NON_ASSESSABLE = {
     "KISA ISMS Simple": {"S-1.1", "S-2.1", "S-3.1", "S-3.2", "S-3.3", "S-3.4"},
     # the sole Organizational-theme ISO control (all others are A.8 Technological).
     "ISO 27001:2022": {"A.5.1"},
+    # COSO-derived governance criteria: control environment (CC1), communication
+    # (CC2), and vendor/business-partner risk mitigation (CC9) are assessed by an
+    # auditor from evidence a scanner cannot produce.
+    "SOC 2 (TSC)": {"CC1", "CC2", "CC9"},
 }
 
 # Keyword tokens that never appear in any scanner finding text (verified 0-emission
