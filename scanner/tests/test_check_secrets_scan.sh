@@ -315,6 +315,105 @@ PY
 SCAN_DIR="$tmpdir/cred_clean" run_check
 assert_has_result "No credential path refs -> PASS SECRETS-004" "PASS" "SECRETS-004"
 
+echo "=== SECRETS-004: multi-hit detail blob (count + newline regression) ==="
+
+# The accumulators used to append the two-character sequence `\n` (bash leaves
+# `\n` literal inside double quotes), which collapsed the whole blob onto ONE
+# line. Two defects followed: the awk dedup/count saw a single line and always
+# reported "1 reference(s)" no matter how many files matched, and
+# _json_escape_str escaped the backslash so scan-report.json carried `\\n` —
+# rendered as visible `\n` text in the dashboard. Both are asserted here.
+#
+# The default `warn()` stub above records only the check id, so this block
+# installs a title-capturing stub for the duration and restores it after.
+_captured_warn_title=""
+warn() { RESULTS+=("WARN:$1"); _captured_warn_title="$2"; }
+
+mkdir -p "$tmpdir/cred_multi/templates"
+for _n in one two three; do
+  cat > "$tmpdir/cred_multi/templates/setup-$_n.sh" <<SH
+#!/usr/bin/env bash
+KUBECONFIG=~/.kube/config
+SH
+done
+SCAN_DIR="$tmpdir/cred_multi" run_check
+
+# 1. The count must equal the number of distinct matching files, not 1.
+if [[ "$_captured_warn_title" == 3\ * ]]; then
+  echo "  PASS: 3 matching files -> title reports 3, not 1"
+  ((TEST_PASSED++))
+else
+  echo "  FAIL: expected title to start with '3 ', got: ${_captured_warn_title%%$'\n'*}"
+  ((TEST_FAILED++))
+fi
+
+# 1b. The summary line must stand alone: `awk NF` drops the leading blank line,
+#     which glued the first detail onto it.
+if [[ "${_captured_warn_title%%$'\n'*}" != *"Kubernetes config file:"* ]]; then
+  echo "  PASS: summary line is not glued to the first detail line"
+  ((TEST_PASSED++))
+else
+  echo "  FAIL: first detail is on the summary line: ${_captured_warn_title%%$'\n'*}"
+  ((TEST_FAILED++))
+fi
+
+# 2. Details must be separated by REAL newlines...
+if [[ "$_captured_warn_title" == *$'\n'* ]]; then
+  echo "  PASS: detail lines are separated by real newlines"
+  ((TEST_PASSED++))
+else
+  echo "  FAIL: no real newline in title — the blob collapsed onto one line"
+  ((TEST_FAILED++))
+fi
+
+# 3. ...and must NOT contain a literal backslash-n, which is what leaks into
+#    scan-report.json as `\\n` and reaches the dashboard as visible garbage.
+if [[ "$_captured_warn_title" != *'\n'* ]]; then
+  echo "  PASS: no literal backslash-n in the detail blob"
+  ((TEST_PASSED++))
+else
+  echo "  FAIL: literal backslash-n present — it will render as \\n in the dashboard"
+  ((TEST_FAILED++))
+fi
+
+# Mutation self-test: the assertions above must actually be able to fail.
+# Rebuild the pre-fix blob and confirm each one rejects it.
+_broken=""
+for _p in a b c; do _broken="${_broken}\n    Kubernetes config file: $_p"; done
+_broken="3 references${_broken}"
+if [[ "$_broken" == *$'\n'* ]] || [[ "$_broken" != *'\n'* ]]; then
+  echo "  FAIL: mutation self-test — assertions 2/3 accept the pre-fix blob (vacuous)"
+  ((TEST_FAILED++))
+else
+  echo "  PASS: mutation self-test — assertions 2/3 reject the pre-fix blob"
+  ((TEST_PASSED++))
+fi
+
+# Restore the id-only stub for any later block.
+warn() { RESULTS+=("WARN:$1"); }
+
+echo "=== SECRETS-004: nested worktree checkouts are not scanned ==="
+
+# .claude/worktrees/<id>/ holds gitignored checkouts of OTHER branches. Scanning
+# them reported the same template file once per worktree — four duplicate
+# findings for one real one, on a developer machine only.
+mkdir -p "$tmpdir/cred_wt/templates" "$tmpdir/cred_wt/.claude/worktrees/agent-dead/templates"
+cat > "$tmpdir/cred_wt/.claude/worktrees/agent-dead/templates/setup.sh" <<'SH'
+#!/usr/bin/env bash
+KUBECONFIG=~/.kube/config
+SH
+cat > "$tmpdir/cred_wt/main.py" <<'PY'
+print("hello world")
+PY
+SCAN_DIR="$tmpdir/cred_wt" run_check
+assert_has_result "credential ref only inside .claude/worktrees -> PASS SECRETS-004" "PASS" "SECRETS-004"
+
+# Positive control: the identical file OUTSIDE the worktree must still be found,
+# so the exclusion cannot pass by disabling the check entirely.
+cp "$tmpdir/cred_wt/.claude/worktrees/agent-dead/templates/setup.sh" "$tmpdir/cred_wt/templates/setup.sh"
+SCAN_DIR="$tmpdir/cred_wt" run_check
+assert_has_result "same file outside the worktree -> WARN SECRETS-004" "WARN" "SECRETS-004"
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 echo ""
