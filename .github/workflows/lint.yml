@@ -842,11 +842,13 @@ jobs:
       # under the old URL, which would look fine to a human and be a stale route.
       - name: Verify retired scan-dashboard URLs redirect to /
         run: |
+          # Two curl calls rather than one `read` from a process substitution:
+          # `curl -w` emits no trailing newline, so `read` returns non-zero even
+          # after populating the variables, and the runner's `bash -e` aborts the
+          # step before the loop body ever runs.
           for endpoint in "/scan.html" "/claudesec-dashboard.html"; do
-            read -r status target < <(
-              curl -o /dev/null -sw '%{http_code} %{redirect_url}' \
-                "http://localhost:11777${endpoint}"
-            )
+            status=$(curl -o /dev/null -sw '%{http_code}' "http://localhost:11777${endpoint}")
+            target=$(curl -o /dev/null -sw '%{redirect_url}' "http://localhost:11777${endpoint}")
             if [ "$status" != "301" ]; then
               echo "::error::Expected HTTP 301 on ${endpoint}, got ${status}"
               docker compose logs dashboard
