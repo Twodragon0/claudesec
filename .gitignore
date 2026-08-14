@@ -131,3 +131,4 @@ claudesec-summary-*.pdf
 docs/architecture/*.svg
 docs/architecture/*.drawio
 scripts/sync-notion-licenses.py
+scan-report-baseline.json

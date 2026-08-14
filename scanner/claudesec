@@ -510,15 +510,30 @@ run_scan() {
   end_time=$(date +%s)
   local duration=$((end_time - start_time))
 
-  if [[ "$FORMAT" == "text" ]]; then
-    print_summary "$duration"
-  elif [[ "$FORMAT" == "json" ]]; then
-    print_json_summary "$duration"
-  fi
+  # `-o` used to parse its argument, print "Report saved to <file>", and write
+  # NOTHING — a documented flag that reported success for work it never did.
+  # The redirection below is on a function call, not a pipeline, so the report
+  # renderer still runs in THIS shell and its global counters stay intact.
+  _emit_report() {
+    if [[ "$FORMAT" == "text" ]]; then
+      print_summary "$duration"
+    elif [[ "$FORMAT" == "json" ]]; then
+      print_json_summary "$duration"
+    fi
+  }
 
-  # Write to file if requested
   if [[ -n "$OUTPUT_FILE" ]]; then
-    info "Report saved to $OUTPUT_FILE"
+    if _emit_report > "$OUTPUT_FILE"; then
+      # stdout still gets the report, which is what `-o` did before (minus the
+      # file); dropping that would break anyone piping the output today.
+      cat "$OUTPUT_FILE"
+      success "Report saved to $OUTPUT_FILE"
+    else
+      error "Could not write report to $OUTPUT_FILE"
+      _emit_report
+    fi
+  else
+    _emit_report
   fi
 
   # Benchmark mode: run sequential + parallel and compare
