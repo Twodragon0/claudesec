@@ -421,10 +421,32 @@ function gauge(val,max,label,color){
   return'<div class="gauge-wrap"><div class="gauge-lbl">'+esc(label)+'</div><div class="gauge-track"><div class="gauge-fill" style="width:'+pct+'%;background:'+(color||'var(--accent)')+'"></div></div><div class="gauge-val">'+esc(val)+'/'+esc(max)+' ('+pct+'%)</div></div>';
 }
 /* Timestamp bar: [{src:'Datadog',time:'2026-03-17 03:22 UTC'},...] */
+/* Age of a collection timestamp in whole days, or null when unparseable.
+   Handles the two shapes the sync scripts emit: "YYYY-MM-DD HH:MM KST" (a wall
+   clock with a trailing zone label Date cannot parse) and ISO-8601 "...Z". */
+function _tsAgeDays(str){
+  if(!str)return null;
+  var m=String(str).trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if(!m)return null;
+  var t=Date.UTC(+m[1],+m[2]-1,+m[3],+(m[4]||0),+(m[5]||0));
+  if(isNaN(t))return null;
+  var days=Math.floor((Date.now()-t)/86400000);
+  return days<0?0:days;
+}
+
+/* Per-source freshness. `.ts-dot.stale` has been in the stylesheet from the
+   start but nothing ever applied it: every source rendered green regardless of
+   age, so a months-old cache looked identical to a live one. Measured
+   2026-08-14, the cached inventory claimed 28 Datadog hosts against 13 actually
+   reporting to Datadog — behind a green dot. */
+var TS_STALE_DAYS=7, TS_OLD_DAYS=30;
 function tsBar(items){
   return'<div class="ts-bar">'+items.map(function(i){
-    var cls='ts-dot';if(!i.time)cls+=' old';
-    return'<div class="'+cls+'"></div><span class="ts-src">'+esc(i.src)+'</span><span>'+esc(i.time||'미수집')+'</span><span class="ts-sep"></span>';
+    var cls='ts-dot',age=_tsAgeDays(i.time),note='';
+    if(!i.time)cls+=' old';
+    else if(age!==null&&age>=TS_OLD_DAYS){cls+=' old';note=' · '+age+'일 경과';}
+    else if(age!==null&&age>=TS_STALE_DAYS){cls+=' stale';note=' · '+age+'일 경과';}
+    return'<div class="'+cls+'"></div><span class="ts-src">'+esc(i.src)+'</span><span>'+esc(i.time||'미수집')+esc(note)+'</span><span class="ts-sep"></span>';
   }).join('')+'</div>';
 }
 /* Month bar chart */
@@ -573,19 +595,64 @@ function renderISMS(d,s){
 
 /* ═══ ClaudeSec Scan ═══ */
 /* ═══ Unified Security Tab ═══ */
+/* Compliance framework posture, folded in from the removed /scan.html.
+   `na` is rendered explicitly: a framework whose governance controls are
+   non-assessable must not read as all-pass. */
+function _complianceCard(sc){
+  var cmp=sc.compliance;
+  if(!cmp||typeof cmp!=='object')return '';
+  var names=Object.keys(cmp);
+  if(!names.length)return '';
+  var rows=names.map(function(fw){
+    var st=cmp[fw]||{},p=st.pass||0,f=st.fail||0,na=st.na||0,tot=st.total||0;
+    var pct=tot?Math.round(p/tot*100):0;
+    var color=f>0?'var(--red)':(pct===100?'var(--green)':'var(--yellow)');
+    return '<tr><td style="padding:6px 8px">'+esc(fw)+'</td>'
+      +'<td style="padding:6px 8px;text-align:right"><strong style="color:'+safeColor(color)+'">'+esc(p)+'</strong> / '+esc(tot)+'</td>'
+      +'<td style="padding:6px 8px;text-align:right">'+(f?'<span style="color:var(--red)">'+esc(f)+'</span>':'0')+'</td>'
+      +'<td style="padding:6px 8px;text-align:right;color:var(--muted)">'+(na?esc(na):'—')+'</td>'
+      +'<td style="padding:6px 8px;width:120px"><div style="height:6px;border-radius:3px;background:var(--border)"><div style="height:6px;border-radius:3px;width:'+esc(pct)+'%;background:'+safeColor(color)+'"></div></div></td></tr>';
+  }).join('');
+  return '<div class="cd"><h3>컴플라이언스 프레임워크 <span class="bg">'+esc(names.length)+'</span></h3>'
+    +'<div style="padding:8px 16px 16px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+    +'<thead><tr style="color:var(--muted);text-align:left">'
+    +'<th style="padding:6px 8px">프레임워크</th><th style="padding:6px 8px;text-align:right">PASS</th>'
+    +'<th style="padding:6px 8px;text-align:right">FAIL</th><th style="padding:6px 8px;text-align:right">N/A</th>'
+    +'<th style="padding:6px 8px"></th></tr></thead><tbody>'+rows+'</tbody></table>'
+    +'<div style="margin-top:10px;font-size:11px;color:var(--muted)">N/A는 거버넌스·계약 증빙처럼 스캐너가 판단할 수 없는 통제입니다. PASS/FAIL 총계에서 제외됩니다.</div>'
+    +'</div></div>';
+}
+
+/* OWASP Top 10 exposure, folded in from the removed /scan.html. */
+function _owaspCard(sc){
+  var ow=sc.owasp;
+  if(!Array.isArray(ow)||!ow.length)return '';
+  var hit=ow.filter(function(e){return (e.count||0)>0});
+  var body=hit.length
+    ? hit.sort(function(a,b){return (b.count||0)-(a.count||0)}).map(function(e){
+        return '<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">'
+          +'<span><strong>'+esc(e.id)+'</strong> '+esc(e.name)+'</span>'
+          +'<strong style="color:var(--red)">'+esc(e.count)+'</strong></div>';
+      }).join('')
+    : '<div style="font-size:12px;color:var(--muted)">매핑된 취약점이 없습니다.</div>';
+  return '<div class="cd"><h3>OWASP Top 10 <span class="bg">'+esc(hit.length)+'/'+esc(ow.length)+'</span></h3>'
+    +'<div style="padding:8px 16px 16px">'+body+'</div></div>';
+}
+
 function renderSecUnified(d){
   var el=$('p-sec');var t=window._ts||{};
   var sc=d.claudesec||{},pw=d.prowler||{},sigs=(d.datadog||{}).signals||[],byProv=pw.by_provider||{};
   var audits=d.notion_audits||[];var findings=sc.findings||[];var s1t=d.s1_threats||[];
   var sevD=pw.fail_by_severity||{};
-  var scanUrl='scan.html';
   el.innerHTML=tsBar([{src:'ClaudeSec',time:t.claudesec_scan},{src:'Prowler',time:t.prowler},{src:'Datadog SIEM',time:t.datadog},{src:'Notion',time:t.notion}])
     +'<div id="k-sec" class="kpis"></div>'
     +'<div class="g2"><div class="cd"><h3>ClaudeSec 스캔 점수</h3><div class="ring-wrap" id="scan-ring"></div></div>'
     +'<div class="cd"><h3>심각도 분포</h3><div style="padding:16px;display:flex;align-items:center;gap:24px" id="sec-sev"></div></div></div>'
     +(Object.keys(byProv).length?'<div class="cd"><h3>프로바이더별 분석</h3><div class="fb" id="sec-fb"></div><div style="padding:16px" id="sec-prov"></div></div>':'')
     +'<div class="g2"><div class="cd"><h3>Prowler 취약점 <span class="bg" id="prow-c"></span></h3><div class="fb" id="prow-sev-fb"></div><div id="t-prow" style="padding:12px 16px;max-height:480px;overflow-y:auto"></div>'
-    +'<div style="padding:10px 16px;border-top:1px solid var(--border)"><a href="'+scanUrl+'" target="_blank" style="color:var(--accent);font-size:12px;font-weight:600">DevSecOps 상세 보기 →</a></div></div>'
+    +'</div>'
+    +_complianceCard(sc)
+    +_owaspCard(sc)
     +'<div class="cd"><h3>ClaudeSec 취약점 <span class="bg" id="scan-fc"></span></h3><div class="stbl" id="scan-tbl-wrap"></div></div></div>'
     +'<div class="cd"><h3>정보보호 규정·지침 현황 <span class="bg" id="pol-c"></span></h3><div id="pol-area" style="padding:16px"></div></div>'
     +'<div class="cd"><h3>Notion 보안 정기점검 이력 <span class="bg" id="audit-c"></span></h3><div id="t-audit" style="padding:12px 16px;max-height:400px;overflow-y:auto"></div></div>'
@@ -811,8 +878,7 @@ function _renderPolicies(d){
       ph+='</div>';
     });
     ph+='</div>';
-    ph+='<a href="scan.html#tab-bestpractices" target="_blank" class="scan-link-card" style="display:inline-flex;gap:8px;padding:8px 14px;font-size:12px">\uD83D\uDCDC \uADDC\uC815 \uC0C1\uC138 \u00B7 \uC870\uD56D \uBAA9\uB85D \u2192 scan.html</a>';
-    $('pol-area').innerHTML=ph;
+        $('pol-area').innerHTML=ph;
 }
 window._fprow=function(p,el){
   document.querySelectorAll('#sec-fb .fb-btn').forEach(function(b){b.classList.remove('on')});el.classList.add('on');
@@ -1330,9 +1396,19 @@ function mergeScanReport(d,sr){
   if(typeof sr.total==='number')sc.total=sr.total;
   if(Array.isArray(sr.findings))sc.findings=sr.findings;
   if(typeof sr.duration==='number')sc.duration=sr.duration;
+  /* Compliance / OWASP rollups. These existed only inside the standalone scan
+     dashboard's HTML; dashboard-gen now publishes them into scan-report.json so
+     this page is the single view. */
+  if(sr.compliance&&typeof sr.compliance==='object')sc.compliance=sr.compliance;
+  if(Array.isArray(sr.owasp))sc.owasp=sr.owasp;
+  if(sr.scanner_version)sc.version=sr.scanner_version;
   /* surface scan timestamp for the header bar */
   d.timestamps=d.timestamps||{};
   if(sr.timestamp) d.timestamps.claudesec_scan=sr.timestamp;
+  /* generated_at is the authoritative scan time when the report carries one —
+     preferred over a cached dashboard-data.json value, which is what let a
+     months-old inventory read as current. */
+  if(sr.generated_at) d.timestamps.claudesec_scan=sr.generated_at;
 }
 function showLoadError(msg){document.getElementById('p-isms').innerHTML='<div class="load-error"><div class="icon">⚠</div><div>대시보드 데이터 로딩 실패</div><div class="msg">'+esc(msg||'알 수 없는 오류')+'</div><div class="msg" style="margin-top:12px">python3 scripts/build-dashboard.py 실행 후 다시 시도하세요.</div></div>';}
 function renderWithScan(d){

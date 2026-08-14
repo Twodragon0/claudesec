@@ -98,7 +98,7 @@ if [ "$MODE" != "--serve" ]; then
     -v "$(pwd):/workspace" -w /workspace \
     -e SCAN_DIR=/workspace \
     claudesec:local dashboard -d /workspace -c all --no-serve 2>&1 | tail -5
-  ok "scan.html 생성 완료"
+  ok "스캔 리포트 생성 완료"
 
   if [ "$MODE" = "--scan-only" ]; then
     echo ""
@@ -120,7 +120,6 @@ else
   # Fallback: direct nginx run
   docker run -d --rm --name claudesec-dashboard \
     -p "$PORT:8080" \
-    -v "$(pwd)/claudesec-dashboard.html:/usr/share/nginx/html/scan.html:ro" \
     claudesec-dashboard:local 2>/dev/null || \
   docker run -d --rm --name claudesec-dashboard \
     -p "$PORT:8080" \
@@ -142,7 +141,7 @@ echo "  대시보드 준비 완료!"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "  자산관리 대시보드: http://localhost:$PORT/"
-echo "  스캔 대시보드:     http://localhost:$PORT/scan.html"
+echo "  스캔 요약:         http://localhost:$PORT/ (보안 탭)"
 echo ""
 echo "  중지: docker compose down"
 echo ""
