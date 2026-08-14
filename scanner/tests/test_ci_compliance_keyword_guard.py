@@ -85,6 +85,18 @@ BENIGN_WORDS = [
     "dialog",
     "login",
     "transfer",  # e.g. "s3 transfer"
+    # Added 2026-08-14 after an adversarial pass against the REAL Prowler 5.38
+    # check catalog found both of these live in the map, past this guard:
+    #   `sso`  inside "a-sso-ciated"  — 70 of 74 corpus hits were this, not SSO
+    #                                   ("subnet has a network security group
+    #                                   associated" scored as an access control)
+    #   `sast` inside "di-sast-er"    — 3 of 3 corpus hits were backup/DR checks
+    #                                   ("drs_job_exist") scored as secure coding
+    # The detector was already correct; its word list simply did not contain the
+    # two words that mattered. A curated list is only as good as its curation —
+    # extend it whenever a real corpus turns up a new collision.
+    "associated",
+    "disaster",
 ]
 
 # Intentional short acronyms that are ALLOWED to be a proper substring of a
@@ -142,6 +154,22 @@ REMOVED_TOKENS = [
     ("KISA ISMS-P", "3.3.4", "transfer"),
     ("CIS Benchmarks", "CIS-4.1", "port"),
     ("CIS Benchmarks", "CIS-K8s-4.1", "node"),
+    # 2026-08-14 sweep: `sso` -> `_sso` (keeps team_saml_sso_enforced,
+    # entra_seamless_sso_disabled, sagemaker_domain_sso_configured; drops
+    # "associated"), `sast` dropped outright (no real check id contains it;
+    # every affected control keeps code_scanning / injection / vulnerability).
+    ("ISO 27001:2022", "A.8.5", "sso"),
+    ("KISA ISMS-P", "2.5.3", "sso"),
+    ("KISA ISMS-P", "2.6.2", "sso"),
+    ("KISA ISMS Simple", "S-2.4", "sso"),
+    ("PCI-DSS v4.0.1", "Req 8", "sso"),
+    ("NIST 800-53 Rev5", "IA-2", "sso"),
+    ("CIS Benchmarks", "CIS-K8s-ArgoCD", "sso"),
+    ("ISO 27001:2022", "A.8.28", "sast"),
+    ("KISA ISMS-P", "2.8.4", "sast"),
+    ("KISA ISMS Simple", "S-2.8", "sast"),
+    ("PCI-DSS v4.0.1", "Req 6", "sast"),
+    ("NIST 800-53 Rev5", "RA-5", "sast"),
 ]
 
 # Controls this PR edited — each must still carry >=2 intent-carrying keywords.
@@ -215,6 +243,22 @@ class TestComplianceKeywordCollision(unittest.TestCase):
             "Mutation FAILED: injecting a fake 'port' keyword did NOT trip the "
             "collision detector — the guard is vacuous.",
         )
+
+    def test_mutation_detector_fires_on_the_two_real_2026_collisions(self):
+        # Non-vacuity for the words added in the 2026-08-14 sweep specifically.
+        # Without this, deleting "associated"/"disaster" from BENIGN_WORDS would
+        # silently re-open the exact hole the sweep closed and every assertion
+        # above would still pass.
+        for token, word in (("sso", "associated"), ("sast", "disaster")):
+            with self.subTest(token=token):
+                hits = _collisions(_all_keywords() | {token})
+                self.assertIn(
+                    (token, word),
+                    hits,
+                    f"Mutation FAILED: re-injecting {token!r} did not collide with "
+                    f"{word!r} — {word!r} is missing from BENIGN_WORDS and the "
+                    "guard is blind to a collision that was live in the map.",
+                )
 
     def test_mutation_equal_match_is_not_flagged(self):
         # A keyword EQUAL to a benign word (e.g. an intended `session` match) is
