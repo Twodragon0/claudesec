@@ -288,11 +288,29 @@ jobs:
         run: bash scanner/tests/test_check_network_scan_tools.sh
       - name: Run bash unit tests (merge-ready stuck-check probe wiring)
         run: bash scanner/tests/test_gh_merge_ready_stuck_probe.sh
+      # Produce the grade-A baseline report the next step asserts against.
+      # Without this, test_scan_report_baseline.py skips itself — which is what
+      # it had always done in CI, because scan-report.json is gitignored and
+      # therefore never present on a fresh checkout. A lock that cannot run is
+      # not a lock. Scoped to the three local categories so it stays fast and
+      # needs no cloud credentials; `|| true` because the scan's exit code
+      # reflects findings, and the ASSERTIONS are the verdict, not the exit code.
+      - name: Generate scan baseline report
+        run: |
+          bash scanner/claudesec scan -d . -c access-control,cicd,code \
+            -f json -o scan-report-baseline.json > /dev/null || true
+          # Fail loudly here rather than letting the test skip: an empty or
+          # missing file means `-o` regressed, and that is the exact defect that
+          # kept this baseline dark.
+          test -s scan-report-baseline.json
+          python3 -c "import json,sys; json.load(open('scan-report-baseline.json'))"
+
       - name: Run scanner pytest + coverage gate (>=99%)
         id: scanner_tests
         env:
           PYTHONPATH: .
           CLAUDESEC_DASHBOARD_OFFLINE: "1"
+          CLAUDESEC_REQUIRE_BASELINE: "1"
         run: |
           python3 -m py_compile scanner/lib/dashboard-gen.py scanner/lib/compliance-map.py scanner/lib/prowler_compliance_summary.py scanner/tests/test_dashboard_gen_smoke.py scanner/tests/test_markdown_preview.py scanner/tests/test_prowler_ocsf.py scanner/tests/test_prowler_ocsf_e2e.py scanner/tests/test_compliance_map.py scanner/tests/test_prowler_compliance_summary.py
           mkdir -p test-reports
@@ -825,7 +843,7 @@ jobs:
 
       - name: Verify HTTP 200 on key endpoints
         run: |
-          for endpoint in "/" "/scan.html" "/scan-report.json"; do
+          for endpoint in "/" "/scan-report.json"; do
             status=$(curl -o /dev/null -sw '%{http_code}' "http://localhost:11777${endpoint}")
             if [ "$status" != "200" ]; then
               echo "::error::Expected HTTP 200 on ${endpoint}, got ${status}"
@@ -833,6 +851,33 @@ jobs:
               exit 1
             fi
             echo "OK ${endpoint} -> ${status}"
+          done
+
+      # The standalone scan dashboard was folded into `/`. Its old URLs must
+      # REDIRECT rather than 404 — a 404 here would mean a bookmark breaks, and a
+      # 200 would mean the page came back without anyone noticing. Asserting the
+      # exact target catches a `try_files` fallback silently serving index.html
+      # under the old URL, which would look fine to a human and be a stale route.
+      - name: Verify retired scan-dashboard URLs redirect to /
+        run: |
+          # Two curl calls rather than one `read` from a process substitution:
+          # `curl -w` emits no trailing newline, so `read` returns non-zero even
+          # after populating the variables, and the runner's `bash -e` aborts the
+          # step before the loop body ever runs.
+          for endpoint in "/scan.html" "/claudesec-dashboard.html"; do
+            status=$(curl -o /dev/null -sw '%{http_code}' "http://localhost:11777${endpoint}")
+            target=$(curl -o /dev/null -sw '%{redirect_url}' "http://localhost:11777${endpoint}")
+            if [ "$status" != "301" ]; then
+              echo "::error::Expected HTTP 301 on ${endpoint}, got ${status}"
+              docker compose logs dashboard
+              exit 1
+            fi
+            case "$target" in
+              */) ;;
+              *) echo "::error::${endpoint} redirected to '${target}', expected /"
+                 exit 1 ;;
+            esac
+            echo "OK ${endpoint} -> ${status} ${target}"
           done
 
       - name: Clean up

@@ -117,6 +117,65 @@ from dashboard_template import (
 )
 
 
+def _augment_scan_report(scan_dir, compliance_summary, owasp_map, prov_summary):
+    """Write the compliance / OWASP / Prowler rollups back into scan-report.json.
+
+    These summaries are computed here and, until now, only ever rendered into
+    the standalone HTML dashboard — `scan-report.json` (written by output.sh
+    BEFORE this module runs) carried nine keys, none of them compliance. So the
+    ISMS dashboard at `/`, which already fetches that file, had no way to show a
+    framework posture without opening a second page.
+
+    ADDITIVE ONLY. The existing keys are rewritten verbatim; the other consumer
+    (diagram-gen.py) reads named keys and ignores extras.
+
+    Best-effort by design, matching the diagram generation in output.sh: a
+    missing or unreadable report must not fail a scan that already succeeded.
+    Writes via a temp file + os.replace so a crash mid-write cannot truncate the
+    report the dashboard reads.
+    """
+    report_path = os.path.join(scan_dir, "scan-report.json")
+    try:
+        with open(report_path, encoding="utf-8") as fh:
+            report = json.load(fh)
+        if not isinstance(report, dict):
+            return False
+    except (OSError, ValueError):
+        return False
+
+    report["scanner_version"] = VERSION
+    report["generated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    report["compliance"] = compliance_summary
+    report["owasp"] = [
+        {
+            "id": entry["id"],
+            "name": entry["name"],
+            "count": len(owasp_map.get(entry["id"], [])),
+        }
+        for entry in OWASP_2025
+    ]
+    report["prowler"] = {
+        "providers": len(prov_summary),
+        "fail": sum(v["total_fail"] for v in prov_summary.values()),
+        "pass": sum(v["total_pass"] for v in prov_summary.values()),
+        "critical": sum(v["critical"] for v in prov_summary.values()),
+        "high": sum(v["high"] for v in prov_summary.values()),
+    }
+
+    tmp_path = report_path + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            json.dump(report, fh, separators=(",", ":"))
+        os.replace(tmp_path, report_path)
+    except OSError:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return False
+    return True
+
+
 def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     network_dir = os.environ.get("CLAUDESEC_NETWORK_DIR", "")
     scan_dir = os.environ.get("CLAUDESEC_SCAN_DIR", "") or os.environ.get(
@@ -179,6 +238,10 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
 
     # Compliance summary for history tracking (canonical source: compliance-map.py)
     compliance_summary = _compliance_summary(compliance_map)
+
+    # Publish the same rollups to scan-report.json so the ISMS dashboard at `/`
+    # can show framework posture without a second page to open.
+    _augment_scan_report(scan_dir, compliance_summary, owasp_map, prov_summary)
 
     history_json = json.dumps(
         history
