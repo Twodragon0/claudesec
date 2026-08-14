@@ -165,6 +165,29 @@ REMOVED_TOKENS = [
     ("PCI-DSS v4.0.1", "Req 8", "sso"),
     ("NIST 800-53 Rev5", "IA-2", "sso"),
     ("CIS Benchmarks", "CIS-K8s-ArgoCD", "sso"),
+    # 2026-08-14, SECOND class — over-broad WHOLE WORDS. These are correctly
+    # spelled, correctly meaning English words that are simply too common in
+    # Prowler's risk narratives. The collision detector below CANNOT catch them:
+    # it looks for a keyword hidden INSIDE a differently-spelled benign word
+    # (`sso` in "associated"), and these are not hidden — they are the word.
+    # Only corpus measurement finds this class, so the pins are the guard.
+    #   change    316 hits, 308 (97.5%) unrelated ("X changed" config drift)
+    #   forensic   73 hits, essentially all generic "logging enabled" hygiene
+    #   edr        24 hits, 24 of them onedrive/sharepoint/requestedregion
+    #   endpoint   ~40-53% VPC/private-endpoint checks read as malware evidence
+    #   health     29 hits, all ELB/ASG/K8s health CHECKS, no health DATA
+    ("KISA ISMS-P", "2.9.1", "change"),
+    ("KISA ISMS Simple", "S-2.9", "change"),
+    ("KISA ISMS-P", "2.11.5", "forensic"),
+    ("KISA ISMS Simple", "S-2.13", "edr"),
+    ("KISA ISMS Simple", "S-2.13", "endpoint"),
+    ("KISA ISMS-P", "3.1.4", "health"),
+    # Zero real-corpus hits anywhere in 1561 checks — they were never carrying
+    # the change-management signal their control's action text implies.
+    ("KISA ISMS-P", "2.9.1", "require_approval"),
+    ("KISA ISMS-P", "2.9.1", "pull_request"),
+    ("KISA ISMS Simple", "S-2.9", "require_approval"),
+    ("KISA ISMS Simple", "S-2.9", "pull_request"),
     ("ISO 27001:2022", "A.8.28", "sast"),
     ("KISA ISMS-P", "2.8.4", "sast"),
     ("KISA ISMS Simple", "S-2.8", "sast"),
