@@ -704,6 +704,31 @@ COMPLIANCE_CONTROL_MAP = {
             "checks": ["vulnerability", "dependency", "dependabot", "scan", "cve"],
             "status": "",
         },
+        # CC4 and CC5 both retain a high miss rate against Prowler's own SOC 2
+        # mapping (75% and 72%), and BOTH are structural rather than a keyword
+        # defect. Measured 2026-08-14 against the real 5.38 catalog:
+        #
+        #   CC5's 21 missed checks are ALL CloudWatch / Azure-Monitor alarm
+        #   checks (`cloudwatch_changes_to_network_acls_alarm_configured`,
+        #   `logging_log_metric_filter_and_alert_for_*_changes_enabled`).
+        #   Prowler maps that same alarm family to CC4, CC5 AND CC7
+        #   simultaneously. A keyword set cannot separate what the ground truth
+        #   itself conflates.
+        #
+        # Two edits were proposed by review and both were REJECTED on measurement:
+        #
+        #   CC5 + `default`  -> recovers 0 of the 21 missed checks, while newly
+        #                       lighting 158 corpus-wide. Pure dilution. (The
+        #                       token's 169 corpus hits are real; none of them
+        #                       are CC5's mapped checks.)
+        #   CC4 + `alert`    -> recovers 3 of 24 (miss 85.7% -> 75.0%) but takes
+        #                       CC4's corpus matches 137 -> 182 and its overlap
+        #                       with CC7 from 38% -> 52% of CC4. Buying 3 checks
+        #                       by making half of CC4 indistinguishable from CC7
+        #                       is a bad trade for a per-criterion breakdown.
+        #
+        # Pinned in test_ci_compliance_keyword_guard.py so a future pass does not
+        # re-propose either without re-measuring.
         {
             "control": "CC4",
             "name": "Monitoring activities",

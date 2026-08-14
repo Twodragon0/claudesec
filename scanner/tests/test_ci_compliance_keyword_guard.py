@@ -226,6 +226,39 @@ class TestComplianceKeywordRegressionPins(unittest.TestCase):
                 )
 
 
+class TestMeasuredRejections(unittest.TestCase):
+    """Two edits proposed by review and rejected on measurement, 2026-08-14.
+
+    Both look obviously right on inspection — CC5's own action text says "enforce
+    secure defaults", and CC4 is a monitoring criterion with no `alert` token —
+    which is exactly why they need a pin rather than a comment. Measured against
+    Prowler 5.38's real catalog using Prowler's own soc2_{aws,azure,gcp}.json as
+    ground truth:
+
+      CC5 + `default`  recovers 0 of its 21 missed checks and newly lights 158
+                       corpus-wide. The token's 169 hits are real; none are CC5's.
+      CC4 + `alert`    recovers 3 of 24 (85.7% -> 75.0% miss) while taking CC4's
+                       corpus matches 137 -> 182 and its overlap with CC7 from
+                       38% -> 52% of CC4.
+
+    Re-adding either is allowed — but only with a fresh measurement, which is
+    what this failing test forces someone to do.
+    """
+
+    def test_cc5_does_not_carry_default(self):
+        checks = _checks_of("SOC 2 (TSC)", "CC5")
+        self.assertNotIn("default", checks)
+        self.assertNotIn("_default_", checks)
+
+    def test_cc4_does_not_carry_alert(self):
+        self.assertNotIn("alert", _checks_of("SOC 2 (TSC)", "CC4"))
+
+    def test_cc7_still_owns_alert(self):
+        # The rejection is about CC4, not about the token. CC7 is where alerting
+        # belongs, and dropping it there would be a real detection loss.
+        self.assertIn("alert", _checks_of("SOC 2 (TSC)", "CC7"))
+
+
 class TestComplianceKeywordCollision(unittest.TestCase):
     def test_no_keyword_is_proper_substring_of_benign_word(self):
         hits = _collisions(_all_keywords())
