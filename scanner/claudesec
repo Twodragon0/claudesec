@@ -369,6 +369,13 @@ parse_args() {
       if [[ "${CATEGORY:-all}" == "all" && "$serve" != "1" && "$dashboard_all" != "1" ]]; then
         CATEGORY="access-control,cicd,code"
       fi
+      # Tell the dashboard which categories actually EXECUTED. It otherwise
+      # derives its category list from the findings, which cannot distinguish
+      # "ran and was clean" from "never ran" — so the narrowing above produced a
+      # headline grade from a fraction of the checks with nothing on screen
+      # saying so (measured: Grade A / 97 over 40 checks, where `scan -c all`
+      # on the same tree gives 90 over 180).
+      export CLAUDESEC_SCAN_CATEGORIES="${CATEGORY:-all}"
       # For Prowler: if no AWS profile set, use first from ~/.aws/credentials
       if [[ ",${CATEGORY}," == *",prowler,"* && -z "${AWS_PROFILE:-}" ]]; then
         _first_profile=$(aws_default_or_first_profile 2>/dev/null || true)
