@@ -296,8 +296,22 @@ if is_git_repo; then
     _git_secrets=$((_git_secrets + 1))
   fi
 
-  # Check for AWS keys in git history
-  _aws_in_history=$(git -C "$SCAN_DIR" log -p --all -20 2>/dev/null | grep -cE 'AKIA[0-9A-Z]{16}' 2>/dev/null || true)
+  # Check for AWS keys in git history.
+  #
+  # `scanner/tests/` is excluded for the same reason the file-content scan above
+  # already excludes `*/scanner/*`: the fixtures there deliberately contain
+  # key-SHAPED strings so the detectors can be tested, and the history scan was
+  # flagging the scanner's own AKIA test fixture as a leaked credential.
+  #
+  # It surfaced as an ENVIRONMENT-DEPENDENT result, which is the worse symptom:
+  # `-20` bounds the scan to the last twenty commits, so whether this fires
+  # depends on which files happen to have been touched recently. The same tree
+  # passed locally (0 hits) and failed in CI (1 hit) on 2026-08-14 — a check
+  # that answers differently per checkout cannot serve as a baseline.
+  #
+  # Pathspec, not a grep filter: `git log -p -- <pathspec>` never emits the
+  # excluded diffs, so there is nothing for the pattern to match against.
+  _aws_in_history=$(git -C "$SCAN_DIR" log -p --all -20 -- . ':(exclude)scanner/tests' 2>/dev/null | grep -cE 'AKIA[0-9A-Z]{16}' 2>/dev/null || true)
   _aws_in_history=$(echo "$_aws_in_history" | tail -1 | tr -dc '0-9')
   : "${_aws_in_history:=0}"
   if [[ "$_aws_in_history" -gt 0 ]]; then
