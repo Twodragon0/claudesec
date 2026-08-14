@@ -77,6 +77,44 @@ This guide maps ClaudeSec security controls to major compliance frameworks, help
 
 ---
 
+## What the Scanner Actually Renders for SOC 2
+
+The tables above are the full control-design reference. The scanner's dashboard
+renders a coarser, series-level view — the nine Common Criteria of the
+[AICPA Trust Services Criteria](https://www.aicpa-cima.com/resources/landing/system-and-organization-controls-soc-suite-of-services)
+(2017, revised 2022) — defined in `scanner/lib/compliance-map.py`.
+
+| Series | Status source | Keyword signals |
+|--------|---------------|-----------------|
+| CC1 Control environment | **N/A** (governance) | — |
+| CC2 Communication and information | **N/A** (governance) | — |
+| CC3 Risk assessment | PASS/FAIL | vulnerability, dependency, dependabot, scan |
+| CC4 Monitoring activities | PASS/FAIL | audit, monitoring, scan |
+| CC5 Control activities | PASS/FAIL | configuration, misconfigur, hardening, default |
+| CC6 Logical and physical access controls | PASS/FAIL | mfa, two_factor, sso, authentication, rbac, branch_protection, encrypt, secret |
+| CC7 System operations | PASS/FAIL | logging, incident, detection, alert, anomaly |
+| CC8 Change management | PASS/FAIL | code_scanning, codeql, sast, require_approval, branch_protection |
+| CC9 Risk mitigation | **N/A** (vendor/BCP program) | — |
+
+**Why CC1, CC2, and CC9 render N/A.** These are the COSO-derived governance
+criteria: control environment, communication of security responsibilities, and
+vendor/business-continuity risk mitigation. They are assessed from board
+minutes, training records, contracts, and DPAs — evidence no scanner can
+produce. Reporting them PASS merely because no finding matched would be false
+assurance, so `map_compliance()` reports them `N/A` and excludes them from the
+pass/fail totals. The same rule already governs ISO 27001 A.5.1 and the KISA
+ISMS-P 3.x privacy controls.
+
+**SOC 2 is keyword-driven, not Prowler-native.** Prowler tags almost every AWS
+check with a SOC 2 requirement, and ClaudeSec's native-compliance match is
+framework-level rather than control-level — one native hit would mark all nine
+series FAIL. The framework is therefore registered as `SOC 2 (TSC)`, which does
+not substring-match Prowler's bare `SOC2` key, keeping per-criterion signal
+intact. Renaming it would silently change that behavior; a regression test pins
+it.
+
+---
+
 ## AI-Specific Compliance
 
 ### NIST AI RMF + EU AI Act

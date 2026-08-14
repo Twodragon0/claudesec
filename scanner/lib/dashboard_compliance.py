@@ -54,6 +54,11 @@ COMPLIANCE_FRAMEWORKS = [
         "desc": "Privacy information management (PIMS) — certifiable",
     },
     {
+        "name": "SOC 2 (TSC)",
+        "url": "https://www.aicpa-cima.com/resources/landing/system-and-organization-controls-soc-suite-of-services",
+        "desc": "AICPA Trust Services Criteria — service organization attestation",
+    },
+    {
         "name": "PCI-DSS v4.0.1",
         "url": "https://www.pcisecuritystandards.org/document_library/?category=pcidss",
         "desc": "Payment Card Industry Data Security Standard",

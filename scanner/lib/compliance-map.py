@@ -669,6 +669,102 @@ COMPLIANCE_CONTROL_MAP = {
             "status": "",
         },
     ],
+    # AICPA Trust Services Criteria (2017, revised 2022) — the nine Common
+    # Criteria series. Named "SOC 2 (TSC)" rather than "SOC2" on purpose: see
+    # test_soc2_framework_key_does_not_native_match_prowler_soc2 in
+    # scanner/tests/test_compliance_map.py. Framework-level native matching
+    # would pin all nine series to FAIL on any Prowler scan.
+    "SOC 2 (TSC)": [
+        {
+            "control": "CC1",
+            "name": "Control environment",
+            # COSO governance — integrity, board oversight, org structure,
+            # competence, accountability. No automated NIST 800-53A Test method.
+            "desc": "Integrity, board oversight, organizational structure, competence, and accountability",
+            "action": "Document org chart and security roles; background checks; annual performance and accountability review.",
+            "checks": ["security_policy", "governance"],
+            "assessable": False,
+            "status": "",
+        },
+        {
+            "control": "CC2",
+            "name": "Communication and information",
+            # COSO governance — internal/external communication of control duties.
+            "desc": "Security responsibilities communicated internally and to external parties",
+            "action": "Publish SECURITY.md and disclosure contact; run security awareness training; brief the board periodically.",
+            "checks": ["awareness", "training"],
+            "assessable": False,
+            "status": "",
+        },
+        {
+            "control": "CC3",
+            "name": "Risk assessment",
+            "desc": "Risks to objectives identified and analyzed, including changes and fraud risk",
+            "action": "Maintain a risk register; threat model changes; track dependency and CVE exposure with severity ratings.",
+            "checks": ["vulnerability", "dependency", "dependabot", "scan"],
+            "status": "",
+        },
+        {
+            "control": "CC4",
+            "name": "Monitoring activities",
+            "desc": "Ongoing and separate evaluations confirm controls are present and operating",
+            "action": "Run continuous control scans; internal audit and evidence review; track deficiency remediation to closure.",
+            "checks": ["audit", "monitoring", "scan"],
+            "status": "",
+        },
+        {
+            "control": "CC5",
+            "name": "Control activities",
+            "desc": "Control activities and general technology controls selected and deployed",
+            "action": "Apply hardening baselines; enforce secure defaults; detect configuration drift automatically.",
+            "checks": ["configuration", "misconfigur", "hardening", "default"],
+            "status": "",
+        },
+        {
+            "control": "CC6",
+            "name": "Logical and physical access controls",
+            "desc": "Access restricted to authorized users; credentials and data protected at rest and in transit",
+            "action": "Enforce MFA and SSO; least-privilege RBAC and periodic access review; TLS and KMS; enable secret scanning.",
+            "checks": [
+                "mfa",
+                "two_factor",
+                "sso",
+                "authentication",
+                "rbac",
+                "branch_protection",
+                "encrypt",
+                "secret",
+            ],
+            "status": "",
+        },
+        {
+            "control": "CC7",
+            "name": "System operations",
+            "desc": "Anomalies and security incidents detected, evaluated, and responded to",
+            "action": "Centralize logs with retention and integrity protection; real-time alerting; maintain and exercise an incident response plan.",
+            "checks": ["logging", "incident", "detection", "alert", "anomaly"],
+            "status": "",
+        },
+        {
+            "control": "CC8",
+            "name": "Change management",
+            "desc": "Changes to infrastructure, data, software, and procedures are authorized, tested, and approved",
+            "action": "Require PR approval and CODEOWNERS review; run SAST/CodeQL in CI; block merges on failing security checks.",
+            "checks": ["code_scanning", "codeql", "sast", "require_approval", "branch_protection"],
+            "status": "",
+        },
+        {
+            "control": "CC9",
+            "name": "Risk mitigation",
+            # vendor/business-partner risk program — contractual and procedural
+            # evidence a scanner cannot produce.
+            "desc": "Risk mitigation activities for business disruption and vendor/business-partner relationships",
+            "action": "Maintain a vendor inventory with security reviews and DPAs; define business continuity and insurance coverage.",
+            "checks": ["governance", "third_party"],
+            "assessable": False,
+            "status": "",
+        },
+    ],
 }
 
 
