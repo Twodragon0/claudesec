@@ -128,6 +128,20 @@ class TestAugmentIsBestEffort(unittest.TestCase):
             _dgen._augment_scan_report(d, {}, {}, {})
             self.assertEqual([f for f in os.listdir(d) if f.endswith(".tmp")], [])
 
+    def test_unwritable_directory_returns_false_and_leaves_no_temp(self):
+        # The `except OSError` arm: the report exists and parses, but the write
+        # fails (read-only dir). A scan that already succeeded must not die here,
+        # and the half-written temp file must not survive to confuse the next run.
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_report(d, '{"passed":1}')
+            os.chmod(d, 0o500)
+            try:
+                self.assertFalse(_dgen._augment_scan_report(d, {}, {}, {}))
+            finally:
+                os.chmod(d, 0o700)
+            self.assertEqual(_read(path), '{"passed":1}')
+            self.assertEqual([f for f in os.listdir(d) if f.endswith(".tmp")], [])
+
     def test_result_is_valid_json_not_a_truncated_write(self):
         # os.replace makes the swap atomic; assert the observable consequence
         # rather than the mechanism.
