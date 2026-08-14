@@ -103,6 +103,48 @@ _CITED_GLOBS = (
 )
 
 
+def in_nested_checkout(path, root) -> bool:
+    """True when `path` lives inside a git checkout nested under `root`.
+
+    A linked worktree marks its root with a `.git` FILE (`gitdir: ...`), a
+    vendored clone with a `.git` DIRECTORY — `Path.exists()` covers both. The
+    walk stops at `root` itself, so the repo's own `.git` never matches.
+    """
+    root = Path(root)
+    node = Path(path).parent
+    while node != root and root in node.parents:
+        if (node / ".git").exists():
+            return True
+        node = node.parent
+    return False
+
+
+def cited_paths() -> list:
+    """Absolute paths of every file the citation scan reads — this repo's files only.
+
+    `.claude/**/*.md` reaches into `.claude/worktrees/<id>/`, where the agent
+    worktrees live. Those are gitignored checkouts of OTHER branches: scanning
+    them made both ADR guards report citation errors for files the current
+    commit does not contain, and the failure appeared ONLY on a developer's
+    machine because a CI checkout has no worktrees. A guard that fails for a
+    reason the tree cannot cause is a guard people learn to ignore.
+
+    The rule is structural rather than a `.claude/worktrees/` path literal, so a
+    checkout nested anywhere — a vendored clone, a worktree relocated by
+    `OMC_STATE_DIR` — is excluded by construction (ADR-001 §5).
+
+    Both guards enumerate through here. Sharing only the glob TUPLE was not
+    enough: the two `glob()` loops were separate code, which is exactly where an
+    exclusion added to one would fail to reach the other.
+    """
+    out = set()
+    for pattern in _CITED_GLOBS:
+        for path in glob(str(REPO_ROOT / pattern), recursive=True):
+            if not in_nested_checkout(path, REPO_ROOT):
+                out.add(path)
+    return sorted(out)
+
+
 def decision_section(text: str) -> str:
     """The text between the `## Decision` heading and the next `##` heading."""
     m = re.search(r"^## Decision\s*$(.*?)^## ", text, re.M | re.S)
@@ -125,17 +167,16 @@ def parsed_decisions(text: str) -> dict:
 def citation_numbers() -> dict:
     """`{number: [file:line, ...]}` for every `ADR-001 §N` in the repo."""
     out = {}
-    for pattern in _CITED_GLOBS:
-        for path in glob(str(REPO_ROOT / pattern), recursive=True):
-            p = Path(path)
-            try:
-                text = p.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, OSError):
-                continue
-            for lineno, line in enumerate(text.splitlines(), start=1):
-                for m in _CITE_RE.finditer(line):
-                    rel = p.relative_to(REPO_ROOT)
-                    out.setdefault(int(m.group(1)), []).append(f"{rel}:{lineno}")
+    for path in cited_paths():
+        p = Path(path)
+        try:
+            text = p.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for m in _CITE_RE.finditer(line):
+                rel = p.relative_to(REPO_ROOT)
+                out.setdefault(int(m.group(1)), []).append(f"{rel}:{lineno}")
     return out
 
 
