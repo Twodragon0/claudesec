@@ -47,7 +47,12 @@ map_compliance = _mod.map_compliance
 
 # Short (<=3 char) acronym keywords documented in #307's guard as intentional
 # and exempt from the "no short keywords" heuristic.
-SHORT_KEYWORDS = ["cve", "iam", "kms", "mfa", "pii", "ssl", "ssn", "sso", "tls", "vpc", "xss"]
+# `_sso`, not `sso`: the bare form is a substring of "a-sso-ciated", which made
+# 70 of 74 real Prowler-corpus hits false positives (2026-08-14 sweep). The
+# underscore-anchored form still matches every real SSO check id
+# (team_saml_sso_enforced, entra_seamless_sso_disabled,
+# sagemaker_domain_sso_configured) and matches no benign word.
+SHORT_KEYWORDS = ["cve", "iam", "kms", "mfa", "pii", "ssl", "ssn", "_sso", "tls", "vpc", "xss"]
 
 
 def _controls_with_keyword(keyword):
