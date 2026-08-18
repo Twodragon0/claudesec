@@ -168,24 +168,35 @@ FRAMEWORK_SOURCES = {
 }
 
 
-# framework -> the providers its native file can produce evidence for.
+# ── Provider scope ───────────────────────────────────────────────────────────
 #
 # WHY THIS EXISTS. `load_framework()` reads the INSTALLED Prowler package, not
-# the scan. Prowler ships 800-171 for AWS and nothing else, so the mapping is
-# populated with AWS check ids whenever Prowler is installed — including on a
-# Kubernetes-only run, where no finding can ever match one and all nine mapped
-# domains would fall through to `count == 0 -> PASS`. That is a perfect CMMC
-# score for an estate that produced no CMMC evidence, and the shipped image
-# makes it reachable: Dockerfile strips `prowler/providers/{azure,gcp,...}` but
-# never `prowler/compliance/**`, so a k8s scan carries the AWS 800-171 file.
+# the scan. Prowler ships each framework for some providers and not others, so
+# the mapping is populated whenever Prowler is installed — including on a run
+# that scanned none of those providers, where no finding can ever match a check
+# id and every natively-mapped control falls through to `count == 0 -> PASS`.
+# The shipped image makes this reachable: the Dockerfile strips
+# `prowler/providers/{azure,gcp,...}` but never `prowler/compliance/**`.
 #
-# A framework absent from this dict is unscoped and keeps the pre-existing
-# behaviour. `NIST 800-53 Rev5` is AWS-only in Prowler too and has the same
-# false-PASS today; it is deliberately NOT scoped here because it is a
-# pre-existing, separately-measured behaviour change, not part of adding CMMC.
-FRAMEWORK_NATIVE_PROVIDERS = {
-    "CMMC 2.0 Level 2": frozenset({"aws"}),
-}
+# Measured on a Kubernetes-only scan against Prowler 5.30.1 with 62 real k8s
+# check ids as FAIL findings:
+#
+#   NIST 800-53 Rev5   10 pass /  0 fail   all 10 from `prowler`, zero evidence
+#   SOC 2 (TSC)         6 pass /  0 fail   all 6 assessable, zero evidence
+#   KISA ISMS-P        16 of 42 controls decided by AWS check ids
+#   PCI-DSS v4.0.1      0 pass /  7 fail   correct — Prowler ships a k8s file
+#   ISO 27001:2022      3 pass /  3 fail   correct — ditto
+#
+# DERIVED, NOT DECLARED. This was a hand-written `{framework: providers}` dict
+# when #455 scoped CMMC alone. A dict cannot be right for long: the answer is
+# already on disk in the directory each file was loaded from, it differs per
+# Prowler version, and the measurement above shows a hand-list would have had
+# to name three more frameworks the moment it was written. Reading the layout
+# `load_framework()` already walks removes both the drift and the omission.
+
+
+# The scope itself is built by `load_framework_and_providers()` below, in the
+# same pass and by the same test as the mapping it scopes.
 
 
 # ── Loading ──────────────────────────────────────────────────────────────────
@@ -201,33 +212,85 @@ def _requirements(path):
     return reqs if isinstance(reqs, list) else []
 
 
-def load_framework(framework):
-    """`{control_id: frozenset(check_ids)}` for one framework, `{}` if unavailable.
+def load_framework_and_providers(framework):
+    """`({control: frozenset(checks)}, {control: frozenset(providers)})`.
 
     Merges every provider file for the framework (aws + azure + gcp + ...), since
     a control is satisfied by evidence from whichever provider was scanned.
     Requirements with no checks are omitted rather than stored empty: an empty
     set and "no native opinion" must not be confused, because the first would
     silently mark a control as having zero evidence.
+
+    The provider map is built PER CONTROL, in the same pass and by the same
+    test as the mapping: a provider is recorded for a control only once one of
+    its requirements survived into `merged`. Both properties are load-bearing.
+
+    Per control, because the merge is what hides the gap. A framework-level
+    scope says "ISO ships for kubernetes", which is true, while ISO `A.8.9`'s
+    twenty checks are all AWS — so on a Kubernetes run that control matches
+    nothing and reports PASS with no evidence it could ever have read. Measured
+    at 5.30.1, ISO alone has such controls in both directions: `A.8.9`, `A.8.4`,
+    `A.8.7` (aws-only) and `A.5.2` (kubernetes-only).
+
+    From content, because existence is not contribution. A file that parses to
+    no control (unparseable JSON, every requirement checkless, every id
+    unnormalizable) would otherwise widen the scope past the evidence.
     """
     source = FRAMEWORK_SOURCES.get(framework)
     if not source:
-        return {}
+        return {}, {}
     pattern, normalize = source
     merged = {}
+    providers = {}
     for directory in prowler_compliance_dirs():
         for path in sorted(glob.glob(os.path.join(directory, "*", pattern))):
+            provider = os.path.basename(os.path.dirname(path))
             for req in _requirements(path):
-                checks = req.get("Checks") or []
+                checks = [c for c in (req.get("Checks") or []) if isinstance(c, str) and c]
                 if not checks:
                     continue
                 control = normalize(str(req.get("Id", "")))
                 if not control:
                     continue
-                merged.setdefault(control, set()).update(
-                    c for c in checks if isinstance(c, str) and c
-                )
-    return {k: frozenset(v) for k, v in merged.items() if v}
+                merged.setdefault(control, set()).update(checks)
+                providers.setdefault(control, set()).add(provider)
+    return (
+        {k: frozenset(v) for k, v in merged.items() if v},
+        {k: frozenset(v) for k, v in providers.items() if merged.get(k)},
+    )
+
+
+def load_framework(framework):
+    """`{control_id: frozenset(check_ids)}` for one framework, `{}` if unavailable."""
+    return load_framework_and_providers(framework)[0]
+
+
+def control_providers(framework):
+    """`{control: frozenset(providers)}` — who can evidence each control."""
+    return load_framework_and_providers(framework)[1]
+
+
+def framework_providers(framework):
+    """Union of `control_providers()` — every provider this framework reads."""
+    out = set()
+    for provs in control_providers(framework).values():
+        out |= provs
+    return frozenset(out)
+
+
+def native_control_providers():
+    """`{framework: {control: frozenset(providers)}}` for every loaded framework.
+
+    A framework that contributed nothing is omitted rather than mapped empty:
+    it has no native mapping to gate, and an empty map would read as "reachable
+    by nobody" — which would gate a framework already running on keywords.
+    """
+    out = {}
+    for framework in FRAMEWORK_SOURCES:
+        mapping, providers = load_framework_and_providers(framework)
+        if mapping and providers:
+            out[framework] = providers
+    return out
 
 
 def load_all():

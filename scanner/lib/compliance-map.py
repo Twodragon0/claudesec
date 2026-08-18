@@ -840,9 +840,10 @@ COMPLIANCE_CONTROL_MAP = {
     # loaded from the installed package rather than from the scan — so on a
     # Kubernetes-only run it stays populated with AWS check ids, matches
     # nothing, and would score all nine mapped domains PASS on no evidence.
-    # `prowler_native_map.FRAMEWORK_NATIVE_PROVIDERS` scopes the source to aws
-    # so those domains report N/A instead; the limit is also stated in the
-    # dashboard under the framework heading (COMP_FW_NOTES).
+    # `prowler_native_map.native_control_providers()` records, per control, the
+    # providers that actually contributed a check, so those domains report N/A
+    # instead; the limit is also stated in the dashboard under the framework
+    # heading (COMP_FW_NOTES).
     #
     # Source: CMMC 2.0 Level 2 = NIST SP 800-171 Rev. 2 (32 CFR Part 170);
     # domain codes per NIST SP 800-171 Rev. 2 requirement families 3.1–3.14.
@@ -1032,28 +1033,27 @@ def _native_mapping():
         except Exception:
             _NATIVE_CACHE = {}
         # Read separately and defensively: a sibling predating
-        # FRAMEWORK_NATIVE_PROVIDERS must cost only the provider scope, not the
-        # whole mapping. Losing the scope re-opens the AWS-only false-PASS, so
-        # this degrades toward "unscoped", which is the pre-CMMC behaviour.
+        # `native_control_providers` must cost only the provider scope, not the
+        # whole mapping. Losing the scope re-opens the false-PASS, so this
+        # degrades toward "unscoped", which is the pre-#455 behaviour.
         try:
-            _NATIVE_PROVIDER_SCOPE = dict(
-                getattr(module, "FRAMEWORK_NATIVE_PROVIDERS", {}) or {}
-            )
+            scopes = getattr(module, "native_control_providers", None)
+            _NATIVE_PROVIDER_SCOPE = dict(scopes() if scopes else {})
         except Exception:
             _NATIVE_PROVIDER_SCOPE = {}
     return _NATIVE_CACHE
 
 
-def _native_provider_scope(framework):
-    """Providers this framework's native file can evidence, or None if unscoped.
+def _native_provider_scope(framework, control):
+    """Providers that can evidence this control, or None when nothing is known.
 
-    See `prowler_native_map.FRAMEWORK_NATIVE_PROVIDERS`: the mapping comes from
-    the installed Prowler package, not from the scan, so an AWS-only source
-    stays populated on a Kubernetes run and would score every mapped control
-    PASS on zero evidence.
+    See `prowler_native_map.native_control_providers()`: the mapping comes from
+    the installed Prowler package, not from the scan, so checks belonging to a
+    provider the run never touched stay in the control's list, match nothing,
+    and would score it PASS on evidence it could not have read.
     """
     _native_mapping()  # primes both caches
-    return (_NATIVE_PROVIDER_SCOPE or {}).get(framework)
+    return (_NATIVE_PROVIDER_SCOPE or {}).get(framework, {}).get(control)
 
 
 def map_compliance(all_findings, scanned_providers=None):
@@ -1074,13 +1074,22 @@ def map_compliance(all_findings, scanned_providers=None):
 
     `scanned_providers` is the set of provider slugs the run actually covered
     (e.g. `{"aws", "kubernetes"}`). It matters because the native mapping is
-    loaded from the INSTALLED Prowler package rather than from the scan: an
-    AWS-only source such as 800-171 stays fully populated on a Kubernetes run,
-    matches nothing, and would score every mapped control PASS on no evidence.
+    loaded from the INSTALLED Prowler package rather than from the scan: a
+    source Prowler ships for AWS only stays fully populated on a Kubernetes run,
+    matches nothing, and scores every natively-mapped control PASS on no
+    evidence. Measured on a k8s-only scan against Prowler 5.30.1, that was
+    NIST 800-53 at 10 pass / 0 fail and SOC 2 at 6 pass / 0 fail.
+
+    When a run reaches none of a framework's native providers, that framework's
+    mapping is dropped for the run. What each control does next is its existing
+    behaviour: a keyword-bearing control returns to keywords (NIST 800-53 goes
+    to 5 pass / 5 fail on the same scan), and a `native_only` control reports
+    "unmapped"/N/A. Gating never invents an N/A for a control that has keywords.
+
     Pass it from the caller when the provider list is known independently of the
     findings — a clean provider contributes zero FAIL findings, so deriving it
     from `all_findings` alone cannot distinguish "clean" from "not scanned" and
-    resolves that ambiguity conservatively, toward N/A.
+    resolves that ambiguity conservatively, away from the native path.
     """
     native = _native_mapping()
     if scanned_providers is None:
@@ -1092,14 +1101,15 @@ def map_compliance(all_findings, scanned_providers=None):
     result = {}
     for framework, controls in COMPLIANCE_CONTROL_MAP.items():
         fw_native = native.get(framework, {})
-        covered = _native_provider_scope(framework)
-        if covered is not None and not (scanned & set(covered)):
-            # No evidence can reach this framework's native mapping: drop it so
-            # `native_only` controls report "unmapped" instead of a free PASS.
-            fw_native = {}
         mapped = []
         for ctrl in controls:
             native_checks = fw_native.get(ctrl["control"])
+            covered = _native_provider_scope(framework, ctrl["control"])
+            if native_checks and covered and not (scanned & set(covered)):
+                # Every check evidencing this control belongs to a provider the
+                # run never touched, so the native list can only ever match
+                # zero. Drop it rather than let `count == 0` read as PASS.
+                native_checks = None
             matching = []
             if native_checks:
                 match_source = "prowler"

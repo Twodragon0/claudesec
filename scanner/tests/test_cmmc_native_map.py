@@ -348,8 +348,12 @@ class TestCmmcProviderScope(unittest.TestCase):
             ]
         }
 
-    def test_scope_is_declared_as_aws_only(self):
-        self.assertEqual(pnm.FRAMEWORK_NATIVE_PROVIDERS[FRAMEWORK], frozenset({"aws"}))
+    def test_scope_is_derived_from_the_file_that_supplied_the_mapping(self):
+        """Derived, not declared: the fixture lives in `aws/`, so that is the
+        scope. A hand-written constant would have to be kept in step with every
+        Prowler release."""
+        self.assertEqual(pnm.framework_providers(FRAMEWORK), frozenset({"aws"}))
+        self.assertEqual(pnm.framework_providers(FRAMEWORK), frozenset({"aws"}))
 
     def test_kubernetes_only_run_reports_na_not_a_perfect_score(self):
         findings = [
@@ -414,15 +418,16 @@ class TestCmmcProviderScope(unittest.TestCase):
         self.assertEqual(controls["AC"]["status"], "N/A")
         self.assertEqual(controls["SC"]["status"], "N/A")
 
-    def test_unscoped_frameworks_are_left_alone(self):
-        """Only CMMC is scoped. NIST 800-53 is AWS-only in Prowler too and has
-        the same latent false-PASS, deliberately not changed here."""
-        self.assertEqual(set(pnm.FRAMEWORK_NATIVE_PROVIDERS), {FRAMEWORK})
+    def test_a_framework_with_no_file_at_all_is_not_gated(self):
+        """Only frameworks that HAVE a native file get a scope. One running
+        purely on keywords must not be gated into silence by an empty set."""
+        self.assertEqual(set(pnm.native_control_providers()), {FRAMEWORK})
         result = self.cm.map_compliance(
             [{"check": "x", "title": "t", "message": "m", "provider": "kubernetes"}]
         )
         iso = {c["control"]: c for c in result["ISO 27001:2022"]}
         self.assertNotEqual(iso["A.8.9"]["status"], "N/A")
+        self.assertEqual(iso["A.8.9"]["match_source"], "keyword")
 
 
 class TestCmmcIsRendered(unittest.TestCase):

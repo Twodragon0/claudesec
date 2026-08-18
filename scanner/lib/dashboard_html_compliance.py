@@ -32,6 +32,49 @@ COMP_FW_NOTES = {
 }
 
 
+# How each `match_source` should read to an operator, and in what order.
+#
+# WHY THIS IS RENDERED. `map_compliance()` decides every control by one of three
+# routes and records which, but nothing used to display it — so a control scored
+# by Prowler's exact requirement->check data and one scored by substring
+# matching looked identical. They are not: the keyword path reproduces 41.5% of
+# Prowler's own mapping where both have an opinion. The provider scope moves a
+# control onto that path on any run that did not scan a provider its checks
+# belong to, which makes an unlabelled table actively misleading.
+_MATCH_SOURCE_LABELS = (
+    ("prowler", "exact", "Prowler requirement→check mapping"),
+    ("keyword", "keyword", "keyword approximation — no native mapping reachable for this run"),
+    ("unmapped", "not assessed", "no reachable mapping and no keyword list — reported N/A"),
+)
+
+
+def _evidence_source_html(controls) -> str:
+    """A one-line evidence-provenance breakdown for one framework's controls."""
+    counts = {}
+    for ctrl in controls:
+        source = ctrl.get("match_source")
+        if source:
+            counts[source] = counts.get(source, 0) + 1
+    if not counts:
+        return ""
+    parts = []
+    for key, label, title in _MATCH_SOURCE_LABELS:
+        count = counts.get(key)
+        if count:
+            parts.append(
+                f'<span class="comp-src-{key}" title="{h(title)}">{count} {h(label)}</span>'
+            )
+    # A source this renderer does not know about is still counted: dropping it
+    # would silently understate the framework's control count.
+    for key in sorted(set(counts) - {k for k, _, _ in _MATCH_SOURCE_LABELS}):
+        parts.append(f"<span>{counts[key]} {h(key)}</span>")
+    return (
+        '<div class="comp-fw-source"><span class="comp-src-label">Evidence source</span>'
+        + " · ".join(parts)
+        + "</div>"
+    )
+
+
 def _build_compliance_html(compliance_map) -> str:
     """Build the Compliance tab HTML from the compliance_map."""
     comp_html = '<div class="comp-frameworks">'
@@ -66,6 +109,7 @@ def _build_compliance_html(compliance_map) -> str:
         fw_note = COMP_FW_NOTES.get(framework)
         if fw_note:
             comp_html += f'<div class="comp-fw-note">{h(fw_note)}</div>'
+        comp_html += _evidence_source_html(controls)
         comp_html += '<div class="comp-body"><table><thead><tr><th>Control</th><th>Name</th><th>Status</th><th>Related</th><th>Summary · Remediation</th></tr></thead><tbody>'
         for ctrl in controls:
             if ctrl["status"] == "PASS":
