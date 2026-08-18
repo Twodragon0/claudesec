@@ -62,7 +62,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Technical vulnerability management",
             "desc": "Dependency, CVE detection, and patching in place",
             "action": "Dependabot and CVE scanning; patch policy and SBOM.",
-            "checks": ["dependabot", "cve", "vulnerability", "outdated"],
+            "checks": ["dependabot", "cve", "vulnerab", "outdated"],
             "status": "",
         },
     ],
@@ -91,7 +91,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "위험 평가 (Risk assessment)",
             "desc": "정보자산에 대한 위험을 평가하고 관리 계획 수립",
             "action": "연간 위험 평가; 위험 수용 기준; 잔여 위험 관리 및 경영진 승인.",
-            "checks": ["vulnerability", "risk", "assessment", "scan"],
+            "checks": ["vulnerab", "risk", "assessment", "scan"],
             "status": "",
         },
         # ── 2. 보호대책 요구사항 ──
@@ -280,7 +280,20 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "패치 관리 (Patch management)",
             "desc": "운영체제, 응용프로그램 보안 패치 적용",
             "action": "Dependabot/CVE 모니터링; 긴급 패치 절차; SBOM 관리.",
-            "checks": ["dependabot", "cve", "vulnerability", "outdated", "patch"],
+            "checks": [
+                "dependabot",
+                "cve",
+                "vulnerab",
+                "outdated",
+                "patch",
+                "latest",
+                "_upgrade",
+                "supported_version",
+                "extended_support",
+                "managed_updates",
+                "deprecated_engine",
+                "system_updates",
+            ],
             "status": "",
         },
         {
@@ -304,7 +317,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "취약점 점검 및 조치 (Vulnerability management)",
             "desc": "정기적 취약점 점검 및 조치 이행",
             "action": "분기별 취약점 점검; Prowler/OWASP 스캔; 조치 결과 보고.",
-            "checks": ["vulnerability", "scan", "prowler", "pentest", "assessment"],
+            "checks": ["vulnerab", "scan", "prowler", "pentest", "assessment"],
             "status": "",
         },
         {
@@ -429,7 +442,7 @@ COMPLIANCE_CONTROL_MAP = {
     "KISA ISMS Simple": [
         # governance — no automated NIST 800-53A Test method
         {"control": "S-1.1", "name": "관리체계 기반 마련", "desc": "정보보호 정책 수립 및 경영진 참여", "action": "정보보호 정책 승인; 담당자 지정; 예산 확보.", "checks": ["security_policy", "governance"], "assessable": False, "status": ""},
-        {"control": "S-1.2", "name": "위험 관리", "desc": "자산 식별 및 위험 평가·관리", "action": "자산 목록 관리; 위험 평가; 위험 처리 계획.", "checks": ["inventory", "asset", "vulnerability", "risk"], "status": ""},
+        {"control": "S-1.2", "name": "위험 관리", "desc": "자산 식별 및 위험 평가·관리", "action": "자산 목록 관리; 위험 평가; 위험 처리 계획.", "checks": ["inventory", "asset", "vulnerab", "risk"], "status": ""},
         # governance — no automated NIST 800-53A Test method
         {"control": "S-2.1", "name": "정보보호 정책", "desc": "정보보호 정책 수립·시행·검토", "action": "정책 문서화; 전 직원 숙지; 연 1회 이상 검토.", "checks": ["security_policy", "governance"], "assessable": False, "status": ""},
         {"control": "S-2.2", "name": "인적 보안", "desc": "직무 분리, 보안 서약, 교육", "action": "직무 분리(SoD); 입사/퇴사 절차; 연 1회 보안 교육.", "checks": ["admin", "permission", "training", "account"], "status": ""},
@@ -441,7 +454,7 @@ COMPLIANCE_CONTROL_MAP = {
         {"control": "S-2.8", "name": "시큐어 코딩", "desc": "안전한 소프트웨어 개발", "action": "SAST/CodeQL; 코드 리뷰; OWASP Top 10 대응.", "checks": ["code_scanning", "injection", "codeql"], "status": ""},
         {"control": "S-2.9", "name": "변경 관리", "desc": "시스템 변경 승인·이행·기록", "action": "PR 기반 변경; 변경 이력 추적; 롤백 절차.", "checks": ["review", "_approval", "branch_protection", "codeowners", "status_checks", "force_push", "signed_commits"], "status": ""},
         {"control": "S-2.10", "name": "로그 관리", "desc": "접근·이용 기록 수집·보관", "action": "감사 로그 6개월 보관; CloudTrail 활성화; 무결성 보장.", "checks": ["logging", "audit", "cloudtrail", "retention"], "status": ""},
-        {"control": "S-2.11", "name": "취약점 관리", "desc": "정기 취약점 점검 및 조치", "action": "Prowler/OWASP 스캔; 패치 관리; CVE 모니터링.", "checks": ["vulnerability", "scan", "prowler", "cve", "patch"], "status": ""},
+        {"control": "S-2.11", "name": "취약점 관리", "desc": "정기 취약점 점검 및 조치", "action": "Prowler/OWASP 스캔; 패치 관리; CVE 모니터링.", "checks": ["vulnerab", "scan", "prowler", "cve", "patch", "latest", "_upgrade", "owasp"], "status": ""},
         {"control": "S-2.12", "name": "침해사고 대응", "desc": "사고 탐지·대응·신고·복구", "action": "SIEM 모니터링; 24시간 내 신고(정보통신망법); 대응 플레이북.", "checks": ["monitoring", "alert", "incident", "logging"], "status": ""},
         {"control": "S-2.13", "name": "악성코드 대응", "desc": "악성코드 예방·탐지", "action": "EDR/AV 운영; 실시간 탐지; 격리 및 복구.", "checks": ["malware", "antivirus", "endpoint_protection", "antimalware", "wdatp"], "status": ""},
         {"control": "S-2.14", "name": "백업 및 복구", "desc": "주요 정보 백업 및 복구 절차", "action": "정기 백업; 복구 테스트; 백업 암호화.", "checks": ["backup", "recovery", "snapshot", "restore"], "status": ""},
@@ -484,7 +497,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Secure software development",
             "desc": "Secure SDLC and vulnerability management",
             "action": "SAST and dependency checks; patching and code review.",
-            "checks": ["code_scanning", "injection", "vulnerability"],
+            "checks": ["code_scanning", "injection", "vulnerab"],
             "status": "",
         },
         {
@@ -543,7 +556,7 @@ COMPLIANCE_CONTROL_MAP = {
             # stays assessable: monitoring/scan/vulnerability keywords carry real technical signal; only the strategy-doc half is unverifiable (accepted documented residual)
             "desc": "Develop a continuous monitoring strategy and implement a continuous monitoring program",
             "action": "Deploy SIEM/monitoring tools; continuous vulnerability scanning; automated alerts.",
-            "checks": ["monitoring", "alert", "scan", "vulnerability", "continuous"],
+            "checks": ["monitoring", "alert", "scan", "vulnerab", "continuous"],
             "status": "",
         },
         {
@@ -567,7 +580,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Vulnerability monitoring and scanning",
             "desc": "Monitor and scan for vulnerabilities in the system and hosted applications",
             "action": "Run SAST/DAST scans; dependency vulnerability checks; prioritize by CVSS severity.",
-            "checks": ["vulnerability", "code_scanning", "dependency", "cve"],
+            "checks": ["vulnerab", "code_scanning", "dependency", "cve"],
             "status": "",
         },
         {
@@ -633,7 +646,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Vulnerability management process",
             "desc": "Establish and maintain a vulnerability management process",
             "action": "Automate vulnerability scanning; track remediation SLAs; prioritize critical CVEs.",
-            "checks": ["vulnerability", "scan", "patch", "cve", "remediation"],
+            "checks": ["vulnerab", "scan", "patch", "cve", "remediation"],
             "status": "",
         },
         {
@@ -701,7 +714,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Risk assessment",
             "desc": "Risks to objectives identified and analyzed, including changes and fraud risk",
             "action": "Maintain a risk register; threat model changes; track dependency and CVE exposure with severity ratings.",
-            "checks": ["vulnerability", "dependency", "dependabot", "scan", "cve"],
+            "checks": ["vulnerab", "dependency", "dependabot", "scan", "cve"],
             "status": "",
         },
         {
