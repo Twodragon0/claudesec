@@ -133,10 +133,22 @@ class TestMapComplianceUsesNative(unittest.TestCase):
         self.cm = _load("compliance_map_native_under_test", "compliance-map.py")
 
     def _soc2(self, findings):
-        return {c["control"]: c for c in self.cm.map_compliance(findings)["SOC 2 (TSC)"]}
+        # The fixture is `aws/soc2_aws.json`, so the native mapping is scoped to
+        # aws and only an aws run can reach it (TestNativeProviderScope below).
+        return {
+            c["control"]: c
+            for c in self.cm.map_compliance(findings, scanned_providers={"aws"})[
+                "SOC 2 (TSC)"
+            ]
+        }
 
     def test_native_control_matches_by_check_id(self):
-        f = {"check": "s3_bucket_public_access", "title": "", "message": ""}
+        f = {
+            "check": "s3_bucket_public_access",
+            "title": "",
+            "message": "",
+            "provider": "aws",
+        }
         ctrl = self._soc2([f])["CC6"]
         self.assertEqual(ctrl["status"], "FAIL")
         self.assertEqual(ctrl["match_source"], "prowler")
@@ -149,6 +161,7 @@ class TestMapComplianceUsesNative(unittest.TestCase):
             "check": "some_unrelated_check",
             "title": "mfa and encrypt and publicly accessible",
             "message": "unrestricted ingress 0.0.0.0/0",
+            "provider": "aws",
         }
         ctrl = self._soc2([f])["CC6"]
         self.assertEqual(ctrl["status"], "PASS")
@@ -157,7 +170,12 @@ class TestMapComplianceUsesNative(unittest.TestCase):
     def test_controls_without_native_data_still_use_keywords(self):
         # Only CC6 is in the fixture. CC7 must keep working on keywords, or the
         # sparse half of every framework goes dark.
-        f = {"check": "cloudtrail_x", "title": "logging disabled", "message": ""}
+        f = {
+            "check": "cloudtrail_x",
+            "title": "logging disabled",
+            "message": "",
+            "provider": "aws",
+        }
         ctrl = self._soc2([f])["CC7"]
         self.assertEqual(ctrl["match_source"], "keyword")
         self.assertEqual(ctrl["status"], "FAIL")
@@ -169,7 +187,7 @@ class TestMapComplianceUsesNative(unittest.TestCase):
         ])
         cm = _load("compliance_map_na_under_test", "compliance-map.py")
         ctrl = {c["control"]: c for c in cm.map_compliance(
-            [{"check": "some_check", "title": "", "message": ""}]
+            [{"check": "some_check", "title": "", "message": "", "provider": "aws"}]
         )["SOC 2 (TSC)"]}["CC1"]
         self.assertEqual(ctrl["status"], "N/A")
 
@@ -307,7 +325,9 @@ class TestNativeLoadFailureIsInert(unittest.TestCase):
 
     def test_a_module_that_raises_degrades_to_empty_not_a_crash(self):
         class Exploding:
-            FRAMEWORK_NATIVE_PROVIDERS = {}
+            @staticmethod
+            def native_control_providers():
+                return {}
 
             @staticmethod
             def load_all():
@@ -317,11 +337,13 @@ class TestNativeLoadFailureIsInert(unittest.TestCase):
         cm._NATIVE_CACHE = None
         cm._load_native_module = lambda: Exploding()
         self.assertEqual(cm._native_mapping(), {})
-        self.assertIsNone(cm._native_provider_scope("CMMC 2.0 Level 2"))
+        self.assertIsNone(cm._native_provider_scope("CMMC 2.0 Level 2", "AC"))
 
-    def test_a_malformed_provider_scope_table_degrades_to_unscoped(self):
+    def test_a_raising_provider_scope_degrades_to_unscoped(self):
         class Malformed:
-            FRAMEWORK_NATIVE_PROVIDERS = ["not", "a", "mapping"]
+            @staticmethod
+            def native_control_providers():
+                raise RuntimeError("compliance tree vanished mid-scan")
 
             @staticmethod
             def load_all():
@@ -331,9 +353,9 @@ class TestNativeLoadFailureIsInert(unittest.TestCase):
         cm._NATIVE_CACHE = None
         cm._load_native_module = lambda: Malformed()
         self.assertEqual(cm._native_mapping(), {"SOC 2 (TSC)": {"CC6": frozenset({"x"})}})
-        self.assertIsNone(cm._native_provider_scope("CMMC 2.0 Level 2"))
+        self.assertIsNone(cm._native_provider_scope("SOC 2 (TSC)", "CC6"))
 
-    def test_a_module_without_the_provider_scope_table_keeps_its_mapping(self):
+    def test_a_module_without_the_provider_scope_helper_keeps_its_mapping(self):
         """Version skew between the two sibling files costs the provider scope
         and nothing else — discarding the whole mapping would blank every
         natively-mapped control across all frameworks."""
@@ -347,7 +369,7 @@ class TestNativeLoadFailureIsInert(unittest.TestCase):
         cm._NATIVE_CACHE = None
         cm._load_native_module = lambda: OldModule()
         self.assertEqual(cm._native_mapping(), {"SOC 2 (TSC)": {"CC6": frozenset({"x"})}})
-        self.assertIsNone(cm._native_provider_scope("CMMC 2.0 Level 2"))
+        self.assertIsNone(cm._native_provider_scope("CMMC 2.0 Level 2", "AC"))
 
 
 class TestAbsenceIsInert(unittest.TestCase):

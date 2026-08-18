@@ -153,18 +153,96 @@ mapping reports **N/A** (`match_source: "unmapped"`) instead of taking the
 compliant. That is why AT/MA/MP/PE/PS are always N/A today.
 
 **Coverage limit: AWS only.** Prowler ships 800-171 for AWS and no other
-provider, and the mapping is read from the installed Prowler package rather
-than from the scan — so on a Kubernetes-only run it stays fully populated with
-AWS check ids, matches nothing, and would otherwise score all nine mapped
-domains PASS on zero evidence. The framework is therefore scoped to the `aws`
-provider: a run that did not scan AWS reports **every** domain N/A, and the
-dashboard states the limit under the framework heading.
-
-The same false-PASS exists today for **NIST 800-53 Rev5**, which is also
-AWS-only in Prowler. It is left unscoped for now because changing it is a
-separate, separately-measured behaviour change.
+provider, so a run that did not scan AWS reports **every** CMMC domain N/A and
+the dashboard states the limit under the framework heading. This is one case of
+the general rule in [Native provider scope](#native-provider-scope) below.
 
 [sp800-171]: https://csrc.nist.gov/pubs/sp/800/171/r2/upd1/final
+
+---
+
+## Native provider scope
+
+The native mapping is read from the **installed Prowler package**, not from the
+scan. Prowler ships each framework for some providers and not others, so a
+mapping is populated whenever Prowler is installed — including on a run that
+scanned none of those providers. Every natively-mapped control then matches
+zero findings and takes the `count == 0 → PASS` default.
+
+Provider coverage at the pinned Prowler 5.30.1:
+
+| Framework | Providers Prowler ships it for |
+|-----------|-------------------------------|
+| ISO 27001:2022 | aws, azure, gcp, kubernetes, m365, nhn |
+| PCI-DSS v4.0.1 | aws, azure, gcp, kubernetes |
+| SOC 2 (TSC) | aws, azure, gcp |
+| KISA ISMS-P | aws |
+| NIST 800-53 Rev5 | aws |
+| CMMC 2.0 Level 2 (800-171) | aws |
+
+Measured on a Kubernetes-only scan, with 62 real Kubernetes check ids from
+Prowler's own `pci_4.0_kubernetes.json` and `iso27001_2022_kubernetes.json`
+supplied as FAIL findings:
+
+| Framework | Before scoping | After scoping |
+|-----------|----------------|---------------|
+| NIST 800-53 Rev5 | **10 pass / 0 fail** (all `prowler`) | 5 pass / 5 fail (all `keyword`) |
+| SOC 2 (TSC) | **6 pass / 0 fail** (all `prowler`) | 3 pass / 3 fail (all `keyword`) |
+| KISA ISMS-P | 20 pass / 7 fail (16 controls on `prowler`) | 9 pass / 18 fail |
+| PCI-DSS v4.0.1 | 0 pass / 7 fail | totals unchanged — Prowler ships a k8s file |
+| ISO 27001:2022 | 3 pass / 3 fail | totals unchanged, but one more control moves to `keyword` (see below) |
+
+NIST 800-53 and SOC 2 were reporting a perfect score on an estate whose
+evidence they could never read. Five NIST failures, three SOC 2 failures, and
+eleven KISA failures were hidden.
+
+**The gate is per control, not per framework.** The loader *merges* every
+provider file into one check set per control, so "ISO ships for kubernetes" can
+be true while an individual control's checks are all AWS. A framework-level
+scope would leave that case wide open, and it is not hypothetical — it reaches
+the flagship provider. Measured at 5.30.1, of the repo's seven ISO controls:
+
+| ISO control | Evidenced by |
+|-------------|--------------|
+| A.8.2 | aws, azure, gcp, kubernetes, m365, nhn |
+| A.5.1 | aws, azure, gcp, kubernetes, m365 |
+| A.8.5 | aws, azure, kubernetes, m365 |
+| A.8.24 | aws, azure, gcp, kubernetes |
+| A.8.9 | aws, azure, gcp, nhn |
+| **A.8.8** | **m365 only** |
+| A.8.28 | *(no native mapping — keywords)* |
+
+So on an **AWS** run, `A.8.8` used to report `PASS` from Prowler's exact
+mapping while every check backing it belongs to m365. It now reports `keyword`.
+On a Kubernetes run, `A.8.9` is gated the same way.
+
+**The scope is derived, not declared.** It is built in the same pass, from the
+same parsed content, as the mapping it scopes: a provider is recorded for a
+control only once one of its requirements survived the merge. Deriving it from
+filenames instead would let a file that exists but contributes nothing widen
+the scope past the evidence. A hand-written list — the shape #455 used for CMMC
+alone — would have to be revised on every Prowler release, and the table above
+shows it would have been incomplete from the day it was written.
+
+**Gating never invents an N/A.** A gated control falls back to its existing
+behaviour: keyword-bearing controls return to keywords, and `native_only`
+controls (CMMC's) report N/A. A GitHub-only run is out of scope for every
+framework — the only file under Prowler's `compliance/github/` is
+`cis_1.0_github.json`, and CIS is deliberately not registered as a native
+source — so it keeps the keyword path, which is the case that path exists for.
+
+**The dashboard says which path a framework took.** Each framework renders an
+*Evidence source* line counting its controls by provenance — `exact` (Prowler's
+requirement→check mapping), `keyword` (approximation, no reachable native
+mapping for this run), `not assessed` (N/A). Gating that nothing displays is
+gating an operator cannot audit, and the keyword path reproduces only 41.5% of
+Prowler's own mapping where both have an opinion.
+
+**Known limitation, not addressed by the scope.** On a *mixed* run (e.g. AWS +
+GitHub), a control whose native providers include AWS keeps its native mapping,
+and GitHub findings can never match an AWS check id — so they stay invisible to
+that control. Restoring them means matching per finding rather than gating per
+control, which is a separate change.
 
 ---
 
