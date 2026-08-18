@@ -164,8 +164,15 @@ REMOVED_TOKENS = [
     ("KISA ISMS-P", "2.7.2", "hsm"),
     ("KISA ISMS-P", "2.10.1", "waf"),
     ("KISA ISMS-P", "2.10.1", "endpoint"),
-    ("KISA ISMS-P", "2.10.8", "endpoint"),
-    ("KISA ISMS-P", "2.10.8", "edr"),
+    # Retargeted 2.10.8 -> 2.10.9. These two pin `endpoint`/`edr` out of the
+    # MALWARE control, which moved to its standard id when 2.10.8 was corrected
+    # to 패치관리. Left on 2.10.8 the pins went vacuous — they asserted absence
+    # from a control the tokens had never been on, and re-adding `edr` (24/24
+    # corpus hits unrelated) to the malware control passed the whole file.
+    # The collision detector cannot catch either: `endpoint` equals a BENIGN
+    # word rather than being a proper substring of one, so the pin IS the guard.
+    ("KISA ISMS-P", "2.10.9", "endpoint"),
+    ("KISA ISMS-P", "2.10.9", "edr"),
     ("KISA ISMS-P", "3.3.4", "transfer"),
     ("CIS Benchmarks", "CIS-4.1", "port"),
     ("CIS Benchmarks", "CIS-K8s-4.1", "node"),

@@ -18,11 +18,21 @@ COMPLIANCE_CONTROL_MAP = {
             "status": "",
         },
         {
+            # ISO/IEC 27001:2022 Annex A.8.2 is "Privileged access rights".
+            # Plain "Access control" is A.5.15 — this control was mislabelled,
+            # and since #451 its 58 native checks (Prowler ships A.8.2 for six
+            # providers) were scored against a control naming a different Annex
+            # A requirement. Same defect class as the KISA realignment.
             "control": "A.8.2",
-            "name": "Access control",
-            "desc": "Access to resources and systems restricted by role and need",
-            "action": "Apply RBAC, branch protection, PR approval; minimize admin rights.",
-            "checks": ["branch_protection", "require_approval", "admin"],
+            "name": "Privileged access rights",
+            "desc": "Allocation and use of privileged access rights restricted and managed",
+            "action": "Minimise standing admin rights; require approval and review for privilege grants; separate privileged identities from day-to-day ones.",
+            # Measured at Prowler 5.30.1 against A.8.2's 56 native checks:
+            # 27/56 at 56 unrelated catalog hits, versus 18/56 at 36 for the
+            # pre-realignment set. `root` (3 covered / 14 noise), `_owner` (2/6)
+            # and `elevated`/`branch_protection`/`require_approval` (0 covered)
+            # were measured and rejected.
+            "checks": ["admin", "privilege", "rbac"],
             "status": "",
         },
         {
@@ -156,11 +166,39 @@ COMPLIANCE_CONTROL_MAP = {
             "status": "",
         },
         {
+            # Added with the realignment. 2.6.1 used to carry the framework's
+            # access-rights keywords under the wrong label; correcting it to
+            # 네트워크 접근 left KISA with no access-rights control at all, while
+            # Prowler maps 28 and 36 checks to these two standard ids.
+            # Measured at 5.30.1: 11/28 at 31 unrelated catalog hits. `admin`
+            # (10 covered / 43 noise) was rejected — it is A.8.2's token.
+            "control": "2.5.5",
+            "name": "특수 계정 및 권한 관리 (Management of special accounts and privileges)",
+            "desc": "관리자 등 특수 권한 계정의 최소 부여 및 별도 관리",
+            "action": "관리자 권한을 최소화하고 별도 승인 절차로 부여; 특수 계정을 개인 계정과 분리하고 사용 이력을 기록.",
+            "checks": ["privilege", "root", "policy_attached"],
+            "status": "",
+        },
+        {
+            # Measured at 5.30.1: 25/36 at 56 unrelated catalog hits. `access`
+            # (17/126) and `policy` (18/93) were rejected as over-broad; the
+            # orphaned `restrict`/`rbac`/`permission` cover ZERO of this
+            # control's checks, so they were not re-homed here.
+            "control": "2.5.6",
+            "name": "접근권한 검토 (Review of access rights)",
+            "desc": "부여된 접근권한의 적정성을 주기적으로 검토하고 조정",
+            "action": "IAM 정책과 교차 계정 신뢰관계를 주기적으로 검토; 미사용·과다 권한을 회수하고 검토 이력을 남길 것.",
+            "checks": ["iam_", "cross_account", "principal"],
+            "status": "",
+        },
+        {
+            # KISA ISMS-P 2023 2.6.1 is 네트워크 접근 (Network access), NOT
+            # 접근권한 관리 — see the realignment note above the framework.
             "control": "2.6.1",
-            "name": "접근권한 관리 (Access control policy)",
-            "desc": "접근권한 정책 수립 및 권한 최소 부여",
-            "action": "RBAC 적용; 최소 권한 원칙; 주기적 권한 검토.",
-            "checks": ["branch_protection", "access", "permission", "restrict", "rbac"],
+            "name": "네트워크 접근 (Network access)",
+            "desc": "네트워크 분리·구간별 접근통제 및 비인가 단말 접속 차단",
+            "action": "네트워크 영역을 분리하고 DMZ를 설계; 보안그룹·NACL로 구간 접근을 제한; 관리 포트의 인터넷 노출 차단.",
+            "checks": ["security_group", "securitygroup", "ingress", "unrestricted", "0.0.0.0", "publicly", "public_access", "subnet"],
             "status": "",
         },
         {
@@ -242,19 +280,23 @@ COMPLIANCE_CONTROL_MAP = {
             "status": "",
         },
         {
+            # 2.9.3 is 백업 및 복구관리 and 2.9.4 is 로그 및 접속기록 관리 — the
+            # two were swapped here relative to the standard, so since #451 the
+            # logging control was being scored by Prowler's 24 backup checks and
+            # the backup control by its 59 logging checks.
             "control": "2.9.3",
-            "name": "로그 및 접근기록 관리 (Logging)",
-            "desc": "정보시스템 접근·이용 기록 관리 및 보관",
-            "action": "접근 로그 6개월 이상 보관; CloudTrail/감사 로그 활성화; 로그 무결성 보장.",
-            "checks": ["logging", "audit", "log_maxage", "cloudtrail", "retention"],
+            "name": "백업 및 복구관리 (Backup and recovery management)",
+            "desc": "백업 대상·주기·보관기간 및 복구 절차 수립·이행",
+            "action": "주기적 백업; 복구 테스트; 백업 데이터 암호화 및 격리 보관.",
+            "checks": ["backup", "recovery", "snapshot", "restore", "pitr", "failover"],
             "status": "",
         },
         {
             "control": "2.9.4",
-            "name": "백업 관리 (Backup management)",
-            "desc": "주요 정보의 백업 및 복구 절차 수립·이행",
-            "action": "주기적 백업; 복구 테스트; 백업 데이터 암호화 및 격리 보관.",
-            "checks": ["backup", "recovery", "snapshot", "restore"],
+            "name": "로그 및 접속기록 관리 (Log and access record management)",
+            "desc": "정보시스템 접근·이용 기록의 생성·보관·보호",
+            "action": "접근 로그 6개월 이상 보관; CloudTrail/감사 로그 활성화; 로그 무결성 보장.",
+            "checks": ["logging", "log_maxage", "cloudtrail", "retention", "flow_log", "log_file_validation"],
             "status": "",
         },
         {
@@ -282,28 +324,31 @@ COMPLIANCE_CONTROL_MAP = {
             "status": "",
         },
         {
-            "control": "2.10.7",
-            "name": "패치 관리 (Patch management)",
-            "desc": "운영체제, 응용프로그램 보안 패치 적용",
-            "action": "Dependabot/CVE 모니터링; 긴급 패치 절차; SBOM 관리.",
-            "checks": [
-                "dependabot",
-                "cve",
-                "vulnerab",
-                "outdated",
-                "patch",
-                "latest",
-                "_upgrade",
-                "supported_version",
-                "extended_support",
-                "managed_updates",
-                "deprecated_engine",
-                "system_updates",
-            ],
+            # 2.10.8 is 패치관리; 악성코드 통제 is 2.10.9, added below. Before the
+            # realignment the malware control sat on 2.10.8 and collected
+            # Prowler's 14 patch checks.
+            "control": "2.10.8",
+            "name": "패치관리 (Patch management)",
+            "desc": "운영체제·소프트웨어·보안시스템의 최신 패치 적용",
+            "action": "지원 종료 버전을 제거하고 관리형 서비스의 엔진 버전을 최신 유지; 패치 적용 절차와 예외 승인 기록.",
+            # Measured against Prowler 5.30.1: covers 14/14 of its mapped checks
+            # with 9 unrelated catalog hits. `version` alone would take 10/14 at
+            # 17 noise, so the narrower compounds are preferred.
+            # `patch`/`outdated`/`extended_support`/`system_updates` moved here
+            # from the removed duplicate at 2.10.7 — they are on-requirement and
+            # cheap (2/2/1/1 catalog hits). `cve` and `dependabot` went to 2.11.2
+            # (취약점 점검) instead: they match ZERO Prowler check ids, so they
+            # only ever fire on finding text, which is that control's job.
+            "checks": ["upgrade", "latest", "patching", "patch", "deprecated", "outdated",
+                       "managed_updates", "supported_runtimes", "supported_version",
+                       "extended_support", "system_updates"],
             "status": "",
         },
         {
-            "control": "2.10.8",
+            # Restored at its standard id. Prowler maps exactly one check here
+            # (`guardduty_ec2_malware_protection_enabled`), which `malware`
+            # matches — 1/1.
+            "control": "2.10.9",
             "name": "악성코드 통제 (Malware control)",
             "desc": "악성코드 감염 예방·탐지·대응",
             "action": "EDR/SentinelOne 운영; 실시간 탐지; 격리 및 복구 절차.",
@@ -323,12 +368,15 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "취약점 점검 및 조치 (Vulnerability management)",
             "desc": "정기적 취약점 점검 및 조치 이행",
             "action": "분기별 취약점 점검; Prowler/OWASP 스캔; 조치 결과 보고.",
-            "checks": ["vulnerab", "scan", "prowler", "pentest", "assessment"],
+            "checks": ["vulnerab", "scan", "prowler", "pentest", "assessment", "cve", "dependabot"],
             "status": "",
         },
         {
+            # 2.11.5 is 사고 대응 및 복구; 사고 대응 훈련 및 개선 is 2.11.4.
+            # (docs/compliance/isms-p.md had these two swapped as well, and is
+            # corrected in the same change.)
             "control": "2.11.5",
-            "name": "사고 분석 및 공유 (Post-incident analysis)",
+            "name": "사고 대응 및 복구 (Incident response and recovery)",
             "desc": "침해사고 원인 분석 및 재발 방지 대책 수립",
             "action": "사고 보고서 작성; 원인 분석; 재발 방지 대책; 교훈 공유.",
             "checks": ["incident", "ssmincidents", "detection"],

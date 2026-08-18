@@ -147,7 +147,8 @@ def _load_map_without_prowler():
 # below is correspondingly a check against `scanner/checks/**` emission, NOT proof
 # that a control can never match in production. Separately measured and confirmed:
 # no assessable KISA control is a pure never-matcher against the real corpus
-# either (lowest is 2.10.8 at 12 hits).
+# either (lowest was 12 hits on the malware control, which the KISA
+# realignment moved from 2.10.8 to its standard id 2.10.9).
 NEVER_EMITTED_TOKENS = {
     "security_policy", "governance", "training", "awareness", "education",
     "deletion", "retention", "destroy", "lifecycle", "data_subject",
@@ -359,11 +360,14 @@ class TestComplianceSummaryExcludesNa(unittest.TestCase):
         self.assertEqual(stats["total"], stats["pass"] + stats["fail"])
         total_controls = len(COMPLIANCE_CONTROL_MAP["KISA ISMS-P"])
         self.assertEqual(stats["total"], total_controls - stats["na"])
-        self.assertEqual(total_controls, 42)
+        # 44 after the KISA realignment — 2.10.9 restored, duplicate 2.10.7
+        # removed, 2.5.5/2.5.6 added. The N/A set is unchanged: the realignment
+        # touched only assessable 2.x technical controls.
+        self.assertEqual(total_controls, 44)
         # 15, not 14: 2.8.1 (SDLC security requirements) joined the governance
         # carve-out on measurement — 23 corpus hits, ~0 relevant.
         self.assertEqual(stats["na"], 15)
-        self.assertEqual(stats["total"], 27)
+        self.assertEqual(stats["total"], 29)
 
     def test_totals_are_allowlist_aware_for_every_framework(self):
         cm = _load_map_without_prowler()

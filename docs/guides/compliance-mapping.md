@@ -38,6 +38,17 @@ This guide maps ClaudeSec security controls to major compliance frameworks, help
 
 ### Secure Development
 
+> **The KISA column of this table is wrong and has not been re-derived.** It
+> cites 2.9.1/2.9.2/2.9.3, but ISMS-P 2.9 is 시스템 및 서비스 운영관리 (change
+> management, performance, **backup**, logging) — secure development is
+> **2.8.x** (2.8.1 보안 요구사항 정의 … 2.8.6 운영환경 이관). Found while
+> realigning the scanner's own KISA control ids; flagged rather than rewritten,
+> because correcting a design cross-reference needs a source, not a
+> measurement. The scanner's map (`compliance-map.py`) is unaffected — it is
+> separate from this table and is now pinned against
+> [`docs/compliance/isms-p.md`](../compliance/isms-p.md) by
+> `scanner/tests/test_ci_kisa_control_alignment.py`.
+
 | ClaudeSec Control | SOC 2 | ISO 27001 | NIST 800-53 | PCI-DSS | KISA ISMS-P |
 |-------------------|-------|-----------|-------------|---------|-------------|
 | SAST in CI/CD | CC8.1 | A.14.2.8 | SA-11 | 6.3.2 | 2.9.1 |

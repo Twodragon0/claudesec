@@ -2,10 +2,15 @@
 Tests for `scanner/lib/prowler_native_map.py` and its use by `map_compliance()`.
 
 Prowler assigns checks to requirements by intent, in data it ships; the keyword
-map approximates that with substrings. Measured on the 16 KISA ISMS-P controls
-where both have an opinion, the keywords reproduced 41.5% — `2.9.4` (백업·복구)
-scoring 0 of 58 while listing `backup`, `snapshot` and `restore`, because
-Prowler's backup checks contain none of those literal substrings.
+map approximates that with substrings. Measured on the KISA ISMS-P controls
+where both have an opinion, the keywords reproduce 48.8% of Prowler's mapping
+(276 of 565, at 5.30.1).
+
+SCOPE CORRECTION (2026-08-18). This said 41.5%, illustrated by `2.9.4`
+(백업·복구) "scoring 0 of 58". Both were artifacts of a control-id
+misalignment: `compliance-map.py` had 2.9.3 and 2.9.4 swapped relative to KISA
+ISMS-P 2023, so backup keywords were scored against Prowler's logging checks.
+Relabelling moved the framework from 31.5% to 48.8%.
 
 These tests pin the three properties that make the native path safe to prefer:
 
