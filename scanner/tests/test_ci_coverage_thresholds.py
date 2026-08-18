@@ -67,6 +67,36 @@ class TestCiCoverageThresholds(unittest.TestCase):
             f"CI workflow not found at {LINT_YML} — path assumption broke",
         )
 
+    def test_python_cov_precision_makes_the_floor_real(self):
+        """`--cov-fail-under=99` alone enforces 98.5%, not 99%.
+
+        coverage compares the DISPLAYED percentage, and at the default precision
+        of 0 anything from 98.50% up prints as "99%" and satisfies the flag.
+        Measured 2026-08-14 on main: 98.79% printed "FAIL Required test coverage
+        of 99% not reached", pytest STILL EXITED 0, the re-raise step saw
+        test_exit_code=0 and skipped, and the job went green.
+
+        This guard's sibling above pins the NUMBER. That was not enough — the
+        number was right and inert for as long as it has existed. This pins the
+        thing that makes the number mean something.
+        """
+        self.assertIn(
+            "--cov-precision=2",
+            self.text,
+            "lint.yml sets --cov-fail-under without --cov-precision. At the "
+            "default precision the floor rounds, so a 99 floor accepts 98.50% "
+            "and pytest exits 0 while printing FAIL.",
+        )
+
+    def test_precision_is_at_least_as_fine_as_the_floor_implies(self):
+        # precision=1 would still accept 98.95%. Two decimals is what makes a
+        # whole-number floor exact.
+        matches = [int(m) for m in re.findall(r"--cov-precision=(\d+)", self.text)]
+        self.assertTrue(matches, "no --cov-precision=N found")
+        self.assertGreaterEqual(
+            min(matches), 2, f"--cov-precision lowered to {min(matches)}"
+        )
+
     def test_python_cov_fail_under_present_and_not_lowered(self):
         matches = [int(m) for m in re.findall(r"--cov-fail-under=(\d+)", self.text)]
         self.assertTrue(

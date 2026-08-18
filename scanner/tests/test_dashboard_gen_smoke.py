@@ -137,6 +137,11 @@ class DashboardGenSmokeTest(unittest.TestCase):
                             datetime.now(timezone.utc) + timedelta(hours=36)
                         ).isoformat(),
                         "CLAUDESEC_DASHBOARD_OFFLINE": "1",
+                        # Exercise the scan-scope disclosure. Without this the
+                        # whole `scan_coverage_html` block is unreachable in the
+                        # suite — it only runs when the scanner reports which
+                        # categories executed, which no other test does.
+                        "CLAUDESEC_SCAN_CATEGORIES": "access-control,cicd,code",
                     },
                     clear=False,
                 ),
@@ -158,6 +163,11 @@ class DashboardGenSmokeTest(unittest.TestCase):
             self.assertIn("Best-practice flow", html)
             self.assertIn("Critical / High Queue", html)
             self.assertIn("Local scanner", html)
+            # The narrowed default must say what it did not scan: eight of the
+            # eleven categories did not run here, and a headline grade over 3/11
+            # of the checks reads as full coverage without this line.
+            self.assertIn("Not scanned in this run", html)
+            self.assertIn("8 of 11 categories", html)
             self.assertIn("scannerSearchInput", html)
             self.assertIn("prowlerSearchInput", html)
             self.assertIn("githubSearchInput", html)
