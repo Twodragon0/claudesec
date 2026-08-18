@@ -97,6 +97,12 @@ BENIGN_WORDS = [
     # extend it whenever a real corpus turns up a new collision.
     "associated",
     "disaster",
+    # 2026-08-18: `review` is embedded in Vercel "preview deployment" checks —
+    # 4 of its 51 corpus hits. Far smaller than sso/associated (70/74), and
+    # `review` is still carrying real signal, so this is registered to keep the
+    # token honest rather than to force its removal: if someone later shortens
+    # `review`, the collision surfaces instead of quietly widening.
+    "preview",
 ]
 
 # Intentional short acronyms that are ALLOWED to be a proper substring of a
@@ -105,7 +111,16 @@ BENIGN_WORDS = [
 # BENIGN_WORDS entry. Kept as an explicit hook so a future benign-word addition
 # that legitimately collides has a documented place to be recorded.
 ALLOWLIST = {
-    # token: reason  (currently none needed)
+    # `review` is a proper substring of "preview", but only 4 of its 51 real
+    # corpus hits are Vercel preview-deployment checks — 8%, against 70/74 for
+    # `sso`/"associated" and 308/316 for `change`. It carries real
+    # code-review signal for KISA 2.9.1 / S-2.9, so removing it would cost more
+    # than the noise it admits. Recorded here rather than dropped, which is what
+    # this hook exists for; `preview` stays in BENIGN_WORDS so that shortening
+    # `review` to anything narrower surfaces the collision instead of widening
+    # it quietly.
+    "review": "8% collision with 'preview' (4/51), measured 2026-08-18; "
+    "the other 47 hits are genuine code-review signal",
 }
 
 

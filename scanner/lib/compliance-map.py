@@ -208,7 +208,13 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "보안 요구사항 정의 (Security requirements)",
             "desc": "정보시스템 도입·개발 시 보안 요구사항 명세",
             "action": "보안 요구사항 체크리스트; 위협 모델링; 보안 설계 검토.",
-            "checks": ["security_policy", "requirement", "design"],
+            # SDLC security-requirements documentation — structurally the same
+            # governance control as 1.1.1 / 2.1.1 / 2.2.4, which are already
+            # carved out. Measured: 23 corpus hits, ~0 relevant. `design` is 6/7
+            # "designated"/"by design" (a homonym, same class as sso/associated)
+            # and `requirement` is 15/15 generic "requires X" policy phrasing.
+            "checks": ["security_policy", "requirement"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -325,7 +331,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "사고 분석 및 공유 (Post-incident analysis)",
             "desc": "침해사고 원인 분석 및 재발 방지 대책 수립",
             "action": "사고 보고서 작성; 원인 분석; 재발 방지 대책; 교훈 공유.",
-            "checks": ["incident", "post_mortem", "analysis"],
+            "checks": ["incident", "ssmincidents", "detection"],
             "status": "",
         },
         {
@@ -445,7 +451,7 @@ COMPLIANCE_CONTROL_MAP = {
         {"control": "S-1.2", "name": "위험 관리", "desc": "자산 식별 및 위험 평가·관리", "action": "자산 목록 관리; 위험 평가; 위험 처리 계획.", "checks": ["inventory", "asset", "vulnerab", "risk"], "status": ""},
         # governance — no automated NIST 800-53A Test method
         {"control": "S-2.1", "name": "정보보호 정책", "desc": "정보보호 정책 수립·시행·검토", "action": "정책 문서화; 전 직원 숙지; 연 1회 이상 검토.", "checks": ["security_policy", "governance"], "assessable": False, "status": ""},
-        {"control": "S-2.2", "name": "인적 보안", "desc": "직무 분리, 보안 서약, 교육", "action": "직무 분리(SoD); 입사/퇴사 절차; 연 1회 보안 교육.", "checks": ["admin", "permission", "training", "account"], "status": ""},
+        {"control": "S-2.2", "name": "인적 보안", "desc": "직무 분리, 보안 서약, 교육", "action": "직무 분리(SoD); 입사/퇴사 절차; 연 1회 보안 교육.", "checks": ["admin", "permission", "account"], "status": ""},
         {"control": "S-2.3", "name": "외부자 보안", "desc": "외부자(위탁, 협력사) 보안 관리", "action": "위탁 계약 시 보안 요구사항; 접근 통제; 주기적 점검.", "checks": ["third_party", "vendor", "external"], "status": ""},
         {"control": "S-2.4", "name": "사용자 인증 관리", "desc": "계정·비밀번호·인증 관리", "action": "MFA 적용; 비밀번호 복잡도; 미사용 계정 비활성화.", "checks": ["mfa", "authentication", "password", "account", "_sso"], "status": ""},
         {"control": "S-2.5", "name": "접근권한 관리", "desc": "최소 권한 부여 및 주기적 검토", "action": "RBAC; 권한 검토; 퇴직자 즉시 회수.", "checks": ["branch_protection", "access", "permission", "restrict", "rbac"], "status": ""},
@@ -678,7 +684,15 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "ArgoCD RBAC and security configuration",
             "desc": "Verify ArgoCD RBAC policies, SSO integration, and project-level access restrictions",
             "action": "Enforce ArgoCD RBAC with least privilege; enable SSO; restrict project sources and destinations; disable anonymous access.",
-            "checks": ["argocd", "argo", "gitops", "rbac", "_sso", "project"],
+            # Prowler 5.38 ships NO ArgoCD provider — measured across all 1561
+            # checks. So `argocd`/`argo`/`gitops` have zero corpus hits, and the
+            # three survivors (`rbac`, `_sso`, `project`) matched 88 checks with
+            # ZERO true positives: Vercel `project_*`, GCP `compute_project_*`,
+            # Azure Key Vault RBAC, AWS CodeBuild projects. A control deciding
+            # PASS/FAIL on 100% wrong evidence is worse than one with none, so
+            # it renders N/A until something can actually scan ArgoCD.
+            "checks": ["argocd", "argo", "gitops"],
+            "assessable": False,
             "status": "",
         },
     ],

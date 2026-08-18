@@ -48,7 +48,9 @@ ISMSP_PII_CONTROL_IDS = {
 # Frameworks absent from this dict MUST have zero non-assessable controls.
 EXPECTED_NON_ASSESSABLE = {
     # 11 PII 3.x controls + management commitment, policy management, awareness.
-    "KISA ISMS-P": ISMSP_PII_CONTROL_IDS | {"1.1.1", "2.1.1", "2.2.4"},
+    # 2.8.1 (SDLC security requirements) joins the governance set on measurement:
+    # 23 corpus hits, ~0 relevant — `design` is 6/7 "designated"/"by design".
+    "KISA ISMS-P": ISMSP_PII_CONTROL_IDS | {"1.1.1", "2.1.1", "2.2.4", "2.8.1"},
     # governance/policy + PII/legal.
     "KISA ISMS Simple": {"S-1.1", "S-2.1", "S-3.1", "S-3.2", "S-3.3", "S-3.4"},
     # the sole Organizational-theme ISO control (all others are A.8 Technological).
@@ -57,6 +59,12 @@ EXPECTED_NON_ASSESSABLE = {
     # (CC2), and vendor/business-partner risk mitigation (CC9) are assessed by an
     # auditor from evidence a scanner cannot produce.
     "SOC 2 (TSC)": {"CC1", "CC2", "CC9"},
+    # Not governance — UNSCANNABLE. Prowler 5.38 ships no ArgoCD provider at all,
+    # so this control had 88 corpus hits and ZERO true positives: its three intent
+    # tokens are dead and the survivors matched Vercel/GCP/Azure "project" and
+    # "rbac" text. Deciding PASS/FAIL on 100% wrong evidence is worse than
+    # deciding nothing. Revisit if Prowler adds ArgoCD checks.
+    "CIS Benchmarks": {"CIS-K8s-ArgoCD"},
 }
 
 # Tokens verified 0-emission across `scanner/checks/**`.
@@ -253,8 +261,10 @@ class TestComplianceSummaryExcludesNa(unittest.TestCase):
         total_controls = len(COMPLIANCE_CONTROL_MAP["KISA ISMS-P"])
         self.assertEqual(stats["total"], total_controls - stats["na"])
         self.assertEqual(total_controls, 42)
-        self.assertEqual(stats["na"], 14)
-        self.assertEqual(stats["total"], 28)
+        # 15, not 14: 2.8.1 (SDLC security requirements) joined the governance
+        # carve-out on measurement — 23 corpus hits, ~0 relevant.
+        self.assertEqual(stats["na"], 15)
+        self.assertEqual(stats["total"], 27)
 
     def test_totals_are_allowlist_aware_for_every_framework(self):
         summary = compliance_summary(map_compliance([]))
