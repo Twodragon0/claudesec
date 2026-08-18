@@ -293,6 +293,62 @@ class TestNativeLoadFailureIsInert(unittest.TestCase):
         finally:
             os.path.dirname = original
 
+    def test_a_missing_sibling_module_yields_none_not_an_exception(self):
+        """Directly, because the path-rewriting test above passes vacuously on a
+        host with no Prowler installed — `load_all()` returns {} either way, so
+        it cannot tell a broken loader from an absent Prowler."""
+        cm = _load("compliance_map_missing_sibling", "compliance-map.py")
+        original = os.path.abspath
+        os.path.abspath = lambda p: "/nonexistent-lib-dir/compliance-map.py"
+        try:
+            self.assertIsNone(cm._load_native_module())
+        finally:
+            os.path.abspath = original
+
+    def test_a_module_that_raises_degrades_to_empty_not_a_crash(self):
+        class Exploding:
+            FRAMEWORK_NATIVE_PROVIDERS = {}
+
+            @staticmethod
+            def load_all():
+                raise RuntimeError("prowler package is half-installed")
+
+        cm = _load("compliance_map_exploding_loader", "compliance-map.py")
+        cm._NATIVE_CACHE = None
+        cm._load_native_module = lambda: Exploding()
+        self.assertEqual(cm._native_mapping(), {})
+        self.assertIsNone(cm._native_provider_scope("CMMC 2.0 Level 2"))
+
+    def test_a_malformed_provider_scope_table_degrades_to_unscoped(self):
+        class Malformed:
+            FRAMEWORK_NATIVE_PROVIDERS = ["not", "a", "mapping"]
+
+            @staticmethod
+            def load_all():
+                return {"SOC 2 (TSC)": {"CC6": frozenset({"x"})}}
+
+        cm = _load("compliance_map_malformed_scope", "compliance-map.py")
+        cm._NATIVE_CACHE = None
+        cm._load_native_module = lambda: Malformed()
+        self.assertEqual(cm._native_mapping(), {"SOC 2 (TSC)": {"CC6": frozenset({"x"})}})
+        self.assertIsNone(cm._native_provider_scope("CMMC 2.0 Level 2"))
+
+    def test_a_module_without_the_provider_scope_table_keeps_its_mapping(self):
+        """Version skew between the two sibling files costs the provider scope
+        and nothing else — discarding the whole mapping would blank every
+        natively-mapped control across all frameworks."""
+
+        class OldModule:
+            @staticmethod
+            def load_all():
+                return {"SOC 2 (TSC)": {"CC6": frozenset({"x"})}}
+
+        cm = _load("compliance_map_old_sibling", "compliance-map.py")
+        cm._NATIVE_CACHE = None
+        cm._load_native_module = lambda: OldModule()
+        self.assertEqual(cm._native_mapping(), {"SOC 2 (TSC)": {"CC6": frozenset({"x"})}})
+        self.assertIsNone(cm._native_provider_scope("CMMC 2.0 Level 2"))
+
 
 class TestAbsenceIsInert(unittest.TestCase):
     def test_without_prowler_every_control_uses_keywords(self):
@@ -300,8 +356,19 @@ class TestAbsenceIsInert(unittest.TestCase):
         self.addCleanup(os.environ.pop, "CLAUDESEC_PROWLER_COMPLIANCE_DIR", None)
         cm = _load("compliance_map_absent_under_test", "compliance-map.py")
         result = cm.map_compliance([])
-        sources = {c["match_source"] for controls in result.values() for c in controls}
-        self.assertEqual(sources, {"keyword"})
+        # Two sources, and only two: every keyword-bearing control falls back to
+        # keywords, and every `native_only` control reports "unmapped". A third
+        # value here would mean a control found some other way to be decided.
+        by_source = {}
+        for controls in result.values():
+            for c in controls:
+                by_source.setdefault(c["match_source"], []).append(c)
+        self.assertEqual(set(by_source), {"keyword", "unmapped"})
+        for c in by_source["unmapped"]:
+            self.assertTrue(c.get("native_only"))
+            self.assertEqual(c["status"], "N/A")
+        for c in by_source["keyword"]:
+            self.assertFalse(c.get("native_only"))
 
 
 if __name__ == "__main__":

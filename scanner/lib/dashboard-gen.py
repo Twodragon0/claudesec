@@ -204,7 +204,11 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     prov_summary, all_findings = analyze_prowler(providers)
     history = load_scan_history(history_dir)
     owasp_map = map_findings_to_owasp(all_findings)
-    compliance_map = map_compliance(all_findings)
+    # Pass the scanned provider list explicitly: a provider with zero FAIL
+    # findings is invisible in `all_findings`, and a provider-scoped native
+    # source (800-171 is AWS-only) must not be credited to a run that could
+    # not have produced its evidence.
+    compliance_map = map_compliance(all_findings, scanned_providers=set(providers))
     arch_domains = map_architecture(all_findings)
     gh_finds = github_findings(all_findings)
     aws_finds = aws_findings(all_findings)

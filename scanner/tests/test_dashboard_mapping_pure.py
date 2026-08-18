@@ -314,13 +314,25 @@ class TestMapCompliance(unittest.TestCase):
 
     def test_empty_findings_every_control_passes(self):
         """Assessable controls PASS with no findings; non-assessable controls
-        (the 11 ISMS-P 3.x PII controls) are always N/A."""
+        (the 11 ISMS-P 3.x PII controls) and unmapped `native_only` controls
+        (the CMMC domains, when Prowler ships no mapping) are always N/A."""
         result = dm.map_compliance([])
+        # Independent anchor: `status` and `match_source` are co-produced, so
+        # the derived check below alone would stay green if native_only were
+        # deleted entirely and the CMMC domains reverted to a keyword PASS.
+        cmmc = result["CMMC 2.0 Level 2"]
+        assert len(cmmc) == 14
+        assert all(c["status"] == "N/A" for c in cmmc)
+        assert all(c["match_source"] == "unmapped" for c in cmmc)
+
         for framework, controls in result.items():
             assert framework in dm.COMPLIANCE_CONTROL_MAP
             for ctrl in controls:
-                expected_status = "N/A" if not ctrl.get("assessable", True) else "PASS"
-                assert ctrl["status"] == expected_status
+                na = (
+                    not ctrl.get("assessable", True)
+                    or ctrl["match_source"] == "unmapped"
+                )
+                assert ctrl["status"] == ("N/A" if na else "PASS")
                 assert ctrl["count"] == 0
                 assert ctrl["findings"] == []
 

@@ -823,6 +823,157 @@ COMPLIANCE_CONTROL_MAP = {
             "status": "",
         },
     ],
+    # CMMC 2.0 Level 2, mapped at DOMAIN granularity (14 domains, not the 110
+    # individual practices) because that is the granularity Prowler's evidence
+    # supports: its `nist_800_171_revision_2_aws.json` carries 50 of the 110
+    # requirements, so a practice-level table would be 60 rows of "no data".
+    #
+    # Every control here is `native_only` with an EMPTY keyword list. That is
+    # deliberate and is the whole point of the framework's design: a prototype
+    # keyword set built from the vocabulary of the target checks themselves
+    # measured 34.2% coverage (CM 1/22, SI 1/13 — denominators from the Prowler
+    # 5.38 survey in the plan doc, not the 5.30.1 counts below), so keywords
+    # here would manufacture wrong answers rather than approximate right ones.
+    # With no Prowler mapping loaded, these report N/A — never PASS.
+    #
+    # COVERAGE LIMIT: Prowler ships 800-171 for AWS ONLY, and the mapping is
+    # loaded from the installed package rather than from the scan — so on a
+    # Kubernetes-only run it stays populated with AWS check ids, matches
+    # nothing, and would score all nine mapped domains PASS on no evidence.
+    # `prowler_native_map.FRAMEWORK_NATIVE_PROVIDERS` scopes the source to aws
+    # so those domains report N/A instead; the limit is also stated in the
+    # dashboard under the framework heading (COMP_FW_NOTES).
+    #
+    # Source: CMMC 2.0 Level 2 = NIST SP 800-171 Rev. 2 (32 CFR Part 170);
+    # domain codes per NIST SP 800-171 Rev. 2 requirement families 3.1–3.14.
+    "CMMC 2.0 Level 2": [
+        {
+            "control": "AC",
+            "name": "Access Control (800-171 §3.1)",
+            "desc": "Limit system access to authorized users, processes, and devices, and to the transactions they are permitted to execute",
+            "action": "Enforce least-privilege IAM, remove wildcard and unused permissions, and restrict public network exposure of data stores.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "AT",
+            "name": "Awareness and Training (800-171 §3.2)",
+            "desc": "Ensure personnel are aware of security risks and trained to carry out their assigned security duties",
+            "action": "Run role-based security awareness and insider-threat training; retain completion records for assessment.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "AU",
+            "name": "Audit and Accountability (800-171 §3.3)",
+            "desc": "Create, protect, and retain audit records sufficient to trace unlawful or unauthorized system activity",
+            "action": "Enable and centralize provider audit logs, protect them from modification, and set retention to the contractual period.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "CM",
+            "name": "Configuration Management (800-171 §3.4)",
+            "desc": "Establish and maintain baseline configurations and enforce security configuration settings",
+            "action": "Track a baseline inventory, block drift from it, and disable nonessential programs, ports, and services.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "IA",
+            "name": "Identification and Authentication (800-171 §3.5)",
+            "desc": "Identify users, processes, and devices and authenticate them as a prerequisite to system access",
+            "action": "Require MFA for privileged and network access; rotate or eliminate long-lived static credentials.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "IR",
+            "name": "Incident Response (800-171 §3.6)",
+            "desc": "Establish an operational incident-handling capability and track, document, and report incidents",
+            "action": "Wire detection findings into an on-call channel and exercise the reporting path against the contractual deadline.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "MA",
+            "name": "Maintenance (800-171 §3.7)",
+            "desc": "Perform maintenance on systems and control the tools, techniques, mechanisms, and personnel used",
+            "action": "Approve and log maintenance access, and require MFA plus session termination for remote maintenance.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "MP",
+            "name": "Media Protection (800-171 §3.8)",
+            "desc": "Protect, control, and sanitize system media containing controlled unclassified information",
+            "action": "Encrypt media at rest, control removable media, and sanitize or destroy media before disposal or reuse.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "PS",
+            "name": "Personnel Security (800-171 §3.9)",
+            "desc": "Screen individuals prior to authorizing access, and protect systems during personnel transfer and termination",
+            "action": "Screen before granting access and revoke all credentials as part of the offboarding checklist.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "PE",
+            "name": "Physical Protection (800-171 §3.10)",
+            "desc": "Limit physical access to systems, equipment, and the operating environments they reside in",
+            "action": "Rely on the provider's audited facility controls and apply equivalent controls to any self-managed site.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "RA",
+            "name": "Risk Assessment (800-171 §3.11)",
+            "desc": "Periodically assess risk, scan for vulnerabilities, and remediate in accordance with the assessment",
+            "action": "Run recurring vulnerability scans and remediate on a documented, risk-ranked schedule.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "CA",
+            "name": "Security Assessment (800-171 §3.12)",
+            "desc": "Assess security controls periodically, remediate deficiencies, and monitor controls on an ongoing basis",
+            "action": "Keep a system security plan and POA&M current, and monitor controls continuously rather than at audit time.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "SC",
+            "name": "System and Communications Protection (800-171 §3.13)",
+            "desc": "Monitor, control, and protect communications at external and key internal system boundaries",
+            "action": "Terminate TLS with current ciphers, encrypt data at rest, and segment boundaries away from default-open access.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "SI",
+            "name": "System and Information Integrity (800-171 §3.14)",
+            "desc": "Identify, report, and correct system flaws, and provide protection from malicious code",
+            "action": "Patch on a defined timeline, enable provider threat detection, and monitor for malicious code and unauthorized change.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+    ],
 }
 
 
@@ -844,36 +995,68 @@ def _match_prowler_compliance(finding, framework_key):
 
 
 _NATIVE_CACHE = None
+_NATIVE_PROVIDER_SCOPE = None
 
 
-def _native_mapping():
-    """Prowler's own requirement->check data, loaded once. `{}` when unavailable.
+def _load_native_module():
+    """Import the sibling `prowler_native_map.py`, or None when unavailable.
 
     Import is deferred and failure is swallowed on purpose: compliance-map.py is
     loaded by output.sh via importlib in a bare scan, where a missing sibling or
     a missing Prowler install must not break the run.
     """
-    global _NATIVE_CACHE
-    if _NATIVE_CACHE is None:
-        try:
-            import importlib.util
-            import os
+    try:
+        import importlib.util
+        import os
 
-            spec = importlib.util.spec_from_file_location(
-                "prowler_native_map",
-                os.path.join(
-                    os.path.dirname(os.path.abspath(__file__)), "prowler_native_map.py"
-                ),
-            )
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            _NATIVE_CACHE = module.load_all()
+        spec = importlib.util.spec_from_file_location(
+            "prowler_native_map",
+            os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "prowler_native_map.py"
+            ),
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
+
+
+def _native_mapping():
+    """Prowler's own requirement->check data, loaded once. `{}` when unavailable."""
+    global _NATIVE_CACHE, _NATIVE_PROVIDER_SCOPE
+    if _NATIVE_CACHE is None:
+        module = _load_native_module()
+        try:
+            _NATIVE_CACHE = module.load_all() if module else {}
         except Exception:
             _NATIVE_CACHE = {}
+        # Read separately and defensively: a sibling predating
+        # FRAMEWORK_NATIVE_PROVIDERS must cost only the provider scope, not the
+        # whole mapping. Losing the scope re-opens the AWS-only false-PASS, so
+        # this degrades toward "unscoped", which is the pre-CMMC behaviour.
+        try:
+            _NATIVE_PROVIDER_SCOPE = dict(
+                getattr(module, "FRAMEWORK_NATIVE_PROVIDERS", {}) or {}
+            )
+        except Exception:
+            _NATIVE_PROVIDER_SCOPE = {}
     return _NATIVE_CACHE
 
 
-def map_compliance(all_findings):
+def _native_provider_scope(framework):
+    """Providers this framework's native file can evidence, or None if unscoped.
+
+    See `prowler_native_map.FRAMEWORK_NATIVE_PROVIDERS`: the mapping comes from
+    the installed Prowler package, not from the scan, so an AWS-only source
+    stays populated on a Kubernetes run and would score every mapped control
+    PASS on zero evidence.
+    """
+    _native_mapping()  # primes both caches
+    return (_NATIVE_PROVIDER_SCOPE or {}).get(framework)
+
+
+def map_compliance(all_findings, scanned_providers=None):
     """Map findings to compliance framework controls. Returns {framework: [ctrl_with_status]}.
 
     A control is matched by EXACT check-id membership when Prowler ships a
@@ -881,11 +1064,39 @@ def map_compliance(all_findings):
     — its KISA file maps only 26 of 101 requirements — so the keyword path is a
     fallback, not dead code. Each control reports which source decided it via
     `match_source`, so a reader can tell an exact mapping from an approximation.
+
+    A control tagged `native_only` opts OUT of the keyword fallback: with no
+    Prowler mapping it reports `match_source="unmapped"` and status N/A. Falling
+    through to keywords would be the failure the CMMC framework exists to avoid
+    — a prototype keyword set built from the target checks' own vocabulary
+    measured 34.2% coverage — and defaulting to PASS on zero matches would read
+    as "compliant" when it means "never looked".
+
+    `scanned_providers` is the set of provider slugs the run actually covered
+    (e.g. `{"aws", "kubernetes"}`). It matters because the native mapping is
+    loaded from the INSTALLED Prowler package rather than from the scan: an
+    AWS-only source such as 800-171 stays fully populated on a Kubernetes run,
+    matches nothing, and would score every mapped control PASS on no evidence.
+    Pass it from the caller when the provider list is known independently of the
+    findings — a clean provider contributes zero FAIL findings, so deriving it
+    from `all_findings` alone cannot distinguish "clean" from "not scanned" and
+    resolves that ambiguity conservatively, toward N/A.
     """
     native = _native_mapping()
+    if scanned_providers is None:
+        scanned = {
+            str(f.get("provider", "")) for f in all_findings if f.get("provider")
+        }
+    else:
+        scanned = {str(p) for p in scanned_providers if p}
     result = {}
     for framework, controls in COMPLIANCE_CONTROL_MAP.items():
         fw_native = native.get(framework, {})
+        covered = _native_provider_scope(framework)
+        if covered is not None and not (scanned & set(covered)):
+            # No evidence can reach this framework's native mapping: drop it so
+            # `native_only` controls report "unmapped" instead of a free PASS.
+            fw_native = {}
         mapped = []
         for ctrl in controls:
             native_checks = fw_native.get(ctrl["control"])
@@ -895,6 +1106,8 @@ def map_compliance(all_findings):
                 for f in all_findings:
                     if str(f.get("check", "")) in native_checks:
                         matching.append(f)
+            elif ctrl.get("native_only"):
+                match_source = "unmapped"
             else:
                 match_source = "keyword"
                 for f in all_findings:
@@ -903,7 +1116,7 @@ def map_compliance(all_findings):
                     native_match = _match_prowler_compliance(f, framework)
                     if keyword_match or native_match:
                         matching.append(f)
-            if not ctrl.get("assessable", True):
+            if not ctrl.get("assessable", True) or match_source == "unmapped":
                 status = "N/A"
             else:
                 status = "PASS" if len(matching) == 0 else "FAIL"

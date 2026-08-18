@@ -37,6 +37,7 @@ normalizer:
     SOC 2 (TSC)      `cc_6_1`     -> `CC6`   (the repo maps at series level)
     NIST 800-53      `ac_2_1`     -> `AC-2`
     PCI-DSS v4.0.1   `1.2.5.1`    -> `Req 1`
+    CMMC 2.0 L2      `3_1_1`      -> `AC`    (800-171 family -> CMMC domain)
 
 stdlib only. No network.
 """
@@ -103,6 +104,39 @@ def _pci_requirement(rid):
     return f"Req {m.group(1)}" if m else None
 
 
+# 800-171 requirement family -> CMMC 2.0 domain. CMMC 2.0 Level 2's 110
+# practices ARE NIST SP 800-171 rev2's requirements, so the family number is the
+# domain — no interpretation step, unlike the CIS case rejected below.
+CMMC_DOMAINS = {
+    "3_1": "AC",   # Access Control
+    "3_2": "AT",   # Awareness and Training
+    "3_3": "AU",   # Audit and Accountability
+    "3_4": "CM",   # Configuration Management
+    "3_5": "IA",   # Identification and Authentication
+    "3_6": "IR",   # Incident Response
+    "3_7": "MA",   # Maintenance
+    "3_8": "MP",   # Media Protection
+    "3_9": "PS",   # Personnel Security
+    "3_10": "PE",  # Physical Protection
+    "3_11": "RA",  # Risk Assessment
+    "3_12": "CA",  # Security Assessment
+    "3_13": "SC",  # System and Communications Protection
+    "3_14": "SI",  # System and Information Integrity
+}
+
+
+def _cmmc_domain(rid):
+    """`3_1_1` -> `AC`. The repo maps CMMC at domain granularity.
+
+    Prowler writes 800-171 ids with underscores (`3_13_5`), not the dotted form
+    the standard prints (`3.13.5`); both are accepted so a future Prowler
+    re-spelling does not silently drop every requirement. The family is taken
+    greedily so `3_13_*` reads as family 13 (SC) and not family 1 (AC).
+    """
+    m = re.match(r"3[_.](\d+)[_.]", rid.strip())
+    return CMMC_DOMAINS.get(f"3_{m.group(1)}") if m else None
+
+
 # framework name -> (filename glob, requirement-id normalizer)
 FRAMEWORK_SOURCES = {
     "KISA ISMS-P": ("kisa_isms_p_*_[!k]*.json", _identity),
@@ -110,6 +144,15 @@ FRAMEWORK_SOURCES = {
     "SOC 2 (TSC)": ("soc2_*.json", _soc2_series),
     "NIST 800-53 Rev5": ("nist_800_53_revision_5_*.json", _nist_control),
     "PCI-DSS v4.0.1": ("pci_4.0_*.json", _pci_requirement),
+    # CMMC has no `cmmc_*.json` of its own — 800-171 rev2 IS its practice set.
+    # Measured against the pinned Prowler 5.30.1 file (50 requirements, 49 with
+    # checks, 87 distinct checks): 9 of the 14 domains carry checks — SC 50,
+    # AC 43, AU 21, CM 21, IA 21, IR 14, SI 13, CA 9, RA 3 — and AT/MA/MP/PE/PS
+    # carry none, which is why the repo's CMMC controls are `native_only` and
+    # report N/A rather than a keyword guess. See
+    # docs/plans/compliance-native-mapping-and-cmmc.md (its per-family counts
+    # were measured on 5.38 and differ slightly from the pinned version).
+    "CMMC 2.0 Level 2": ("nist_800_171_revision_2_*.json", _cmmc_domain),
     # DELIBERATELY ABSENT: "CIS Benchmarks".
     #
     # Prowler ships 34 `cis_*.json` files with real check arrays, so wiring this
@@ -122,6 +165,26 @@ FRAMEWORK_SOURCES = {
     #
     # Adding CIS needs a control-id remap pass first, done against a named CIS
     # Controls version. See docs/plans/compliance-native-mapping-and-cmmc.md.
+}
+
+
+# framework -> the providers its native file can produce evidence for.
+#
+# WHY THIS EXISTS. `load_framework()` reads the INSTALLED Prowler package, not
+# the scan. Prowler ships 800-171 for AWS and nothing else, so the mapping is
+# populated with AWS check ids whenever Prowler is installed — including on a
+# Kubernetes-only run, where no finding can ever match one and all nine mapped
+# domains would fall through to `count == 0 -> PASS`. That is a perfect CMMC
+# score for an estate that produced no CMMC evidence, and the shipped image
+# makes it reachable: Dockerfile strips `prowler/providers/{azure,gcp,...}` but
+# never `prowler/compliance/**`, so a k8s scan carries the AWS 800-171 file.
+#
+# A framework absent from this dict is unscoped and keeps the pre-existing
+# behaviour. `NIST 800-53 Rev5` is AWS-only in Prowler too and has the same
+# false-PASS today; it is deliberately NOT scoped here because it is a
+# pre-existing, separately-measured behaviour change, not part of adding CMMC.
+FRAMEWORK_NATIVE_PROVIDERS = {
+    "CMMC 2.0 Level 2": frozenset({"aws"}),
 }
 
 

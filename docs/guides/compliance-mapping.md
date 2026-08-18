@@ -20,6 +20,7 @@ This guide maps ClaudeSec security controls to major compliance frameworks, help
 | **GDPR** | EU personal data | Mandatory (EU) | Any org handling EU data |
 | **HIPAA** | Health information | Mandatory (US healthcare) | Healthcare, Healthtech |
 | **KISA ISMS-P** | Information security (Korea) | Mandatory (Korea, conditions) | Korean organizations |
+| **CMMC 2.0 Level 2** | Controlled unclassified information (CUI) | Mandatory (US DoD contracts handling CUI) | Defense industrial base |
 
 ---
 
@@ -112,6 +113,58 @@ series FAIL. The framework is therefore registered as `SOC 2 (TSC)`, which does
 not substring-match Prowler's bare `SOC2` key, keeping per-criterion signal
 intact. Renaming it would silently change that behavior; a regression test pins
 it.
+
+---
+
+## CMMC 2.0 Level 2 domain coverage
+
+CMMC 2.0 Level 2's 110 practices are NIST SP 800-171 Rev. 2's requirements
+verbatim ([NIST SP 800-171 Rev. 2][sp800-171], incorporated by the CMMC program
+rule at 32 CFR Part 170), so ClaudeSec maps the framework from
+Prowler's `nist_800_171_revision_2_aws.json` rather than a CMMC-specific file.
+Controls are rendered per **domain** (800-171 requirement family), not per
+practice: Prowler's file carries 50 of the 110 requirements, so a
+practice-level table would be 60 rows of "no data".
+
+Measured against the pinned Prowler 5.30.1 file — 50 requirements, 49 with
+checks, 87 distinct checks:
+
+| Domain | 800-171 family | Mapped checks |
+|--------|----------------|---------------|
+| SC — System and Communications Protection | 3.13 | 50 |
+| AC — Access Control | 3.1 | 43 |
+| AU — Audit and Accountability | 3.3 | 21 |
+| CM — Configuration Management | 3.4 | 21 |
+| IA — Identification and Authentication | 3.5 | 21 |
+| IR — Incident Response | 3.6 | 14 |
+| SI — System and Information Integrity | 3.14 | 13 |
+| CA — Security Assessment | 3.12 | 9 |
+| RA — Risk Assessment | 3.11 | 3 |
+| AT, MA, MP, PE, PS | 3.2, 3.7, 3.8, 3.9, 3.10 | **none** |
+
+**These controls carry no keywords, deliberately.** Every other framework in
+`COMPLIANCE_CONTROL_MAP` falls back to substring matching when Prowler ships no
+mapping. CMMC does not: a prototype keyword set built from the vocabulary of the
+target checks themselves measured 34.2% coverage (CM 1/22, SI 1/13), so keywords
+here would manufacture wrong answers rather than approximate right ones. The
+controls are tagged `native_only`, and a `native_only` control with no Prowler
+mapping reports **N/A** (`match_source: "unmapped"`) instead of taking the
+`count == 0 → PASS` default — a domain that was never evaluated must not read as
+compliant. That is why AT/MA/MP/PE/PS are always N/A today.
+
+**Coverage limit: AWS only.** Prowler ships 800-171 for AWS and no other
+provider, and the mapping is read from the installed Prowler package rather
+than from the scan — so on a Kubernetes-only run it stays fully populated with
+AWS check ids, matches nothing, and would otherwise score all nine mapped
+domains PASS on zero evidence. The framework is therefore scoped to the `aws`
+provider: a run that did not scan AWS reports **every** domain N/A, and the
+dashboard states the limit under the framework heading.
+
+The same false-PASS exists today for **NIST 800-53 Rev5**, which is also
+AWS-only in Prowler. It is left unscoped for now because changing it is a
+separate, separately-measured behaviour change.
+
+[sp800-171]: https://csrc.nist.gov/pubs/sp/800/171/r2/upd1/final
 
 ---
 

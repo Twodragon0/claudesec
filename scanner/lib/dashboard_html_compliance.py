@@ -18,6 +18,19 @@ if _LIB_DIR not in sys.path:
 from dashboard_utils import h, sev_badge, comp_slug
 from dashboard_mapping import COMPLIANCE_FRAMEWORKS, ARCH_DOMAINS
 
+# Framework-level coverage caveats, rendered under the heading. A limit that
+# only lives in a source comment is a limit the reader of the dashboard never
+# sees, and an unevidenced domain reads as a passing one.
+COMP_FW_NOTES = {
+    "CMMC 2.0 Level 2": (
+        "Evidence comes from Prowler's NIST SP 800-171 Rev. 2 mapping, which "
+        "Prowler ships for AWS only. A run that did not scan AWS reports every "
+        "domain N/A — it cannot produce CMMC evidence, and a domain that was "
+        "never evaluated must not read as passing. On an AWS run, the five "
+        "domains Prowler maps no check to (AT, MA, MP, PE, PS) stay N/A."
+    ),
+}
+
 
 def _build_compliance_html(compliance_map) -> str:
     """Build the Compliance tab HTML from the compliance_map."""
@@ -50,6 +63,9 @@ def _build_compliance_html(compliance_map) -> str:
         comp_html += f'<div class="comp-section" id="{comp_id}"><div class="comp-title" data-action="toggleComp">{h(framework)} <span class="comp-stat"><span class="cs-pass">{pass_c} pass</span> / <span class="cs-fail">{fail_c} fail</span>{na_stat_html}</span><span class="comp-arrow">▸</span></div>'
         if comp_arch_row:
             comp_html += comp_arch_row
+        fw_note = COMP_FW_NOTES.get(framework)
+        if fw_note:
+            comp_html += f'<div class="comp-fw-note">{h(fw_note)}</div>'
         comp_html += '<div class="comp-body"><table><thead><tr><th>Control</th><th>Name</th><th>Status</th><th>Related</th><th>Summary · Remediation</th></tr></thead><tbody>'
         for ctrl in controls:
             if ctrl["status"] == "PASS":
