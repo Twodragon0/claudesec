@@ -356,6 +356,145 @@ class TestEvidenceSourceIsVisible(unittest.TestCase):
             self.assertIn(cls, template)
 
 
+class TestSoc2IsNativeNotKeywordDriven(_ScopedFixture):
+    """Pins what `docs/guides/compliance-mapping.md` claims about SOC 2.
+
+    That guide said "SOC 2 is keyword-driven, not Prowler-native" for weeks
+    after #451 registered `soc2_*.json` and made it native — a claim no test
+    contradicted, because the two Prowler mechanisms are independent and only
+    the other one (`_match_prowler_compliance`, which reads the compliance tags
+    on a finding) was pinned.
+
+    WHAT THIS PINS, AND WHAT IT DOES NOT. These assertions run on a synthetic
+    fixture, so they pin the MECHANISM — that SOC 2 is registered, that all nine
+    series resolve natively, that an AWS run leaves exactly the gcp-only series
+    on keywords. They do NOT pin the doc's measured check counts
+    (30/23/55/28/29/136/113/15/1): those are a property of the installed Prowler
+    package, and truncating the merge to `checks[:1]` falsifies every one of
+    them while this class stays green. Two other tests cover that gap —
+    `test_prowler_native_map.py::test_every_check_of_a_requirement_is_merged_
+    not_just_the_first` catches the truncation hermetically, and
+    `TestSoc2CountsAgainstRealProwler` below checks the numbers themselves
+    wherever Prowler is actually installed.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # CC9's only check lives in the gcp file, which is what makes an AWS run
+        # measure 8 exact / 1 keyword rather than 9 exact.
+        for provider in ("aws", "azure", "gcp"):
+            reqs = [{"Id": f"cc_{n}_1", "Checks": [f"{provider}_c{n}"]} for n in range(1, 9)]
+            if provider == "gcp":
+                reqs.append({"Id": "cc_9_1", "Checks": ["gcp_c9"]})
+            _write_fixture(self.root, provider, f"soc2_{provider}.json", reqs)
+        self.cm = _load("compliance_map_soc2_native", "compliance-map.py")
+
+    def test_soc2_is_registered_as_a_native_source(self):
+        self.assertIn("SOC 2 (TSC)", pnm.FRAMEWORK_SOURCES)
+        pattern, normalize = pnm.FRAMEWORK_SOURCES["SOC 2 (TSC)"]
+        self.assertEqual(pattern, "soc2_*.json")
+        self.assertIs(normalize, pnm._soc2_series)
+
+    def test_every_series_carries_a_native_mapping(self):
+        native = pnm.load_framework("SOC 2 (TSC)")
+        self.assertEqual(sorted(native), [f"CC{n}" for n in range(1, 10)])
+
+    def test_an_aws_run_is_mostly_exact_not_keyword(self):
+        controls = {
+            c["control"]: c
+            for c in self.cm.map_compliance([], scanned_providers={"aws"})["SOC 2 (TSC)"]
+        }
+        sources = [c["match_source"] for c in controls.values()]
+        self.assertEqual(sources.count("prowler"), 8)
+        self.assertEqual(sources.count("keyword"), 1)
+        # The one keyword series is CC9, whose only check is gcp's.
+        self.assertEqual(controls["CC9"]["match_source"], "keyword")
+
+    def test_the_two_prowler_mechanisms_stay_independent(self):
+        """The native mapping reads Prowler's compliance FILE; the other reads
+        the finding's own tags. A framework can be native and still rely on the
+        name to keep the tag matcher quiet on its keyword path."""
+        finding = {"check": "x", "title": "t", "message": "m",
+                   "compliance": {"SOC2": ["cc_6_1"]}}
+        self.assertFalse(self.cm._match_prowler_compliance(finding, "SOC 2 (TSC)"))
+        self.assertTrue(self.cm._match_prowler_compliance(finding, "SOC2"))
+
+
+def _prowler_compliance_available():
+    """True when a real Prowler compliance tree is importable.
+
+    Deliberately ignores `CLAUDESEC_PROWLER_COMPLIANCE_DIR`: the override is how
+    every other test points at a fixture, and a fixture is exactly what must not
+    satisfy a real-data check.
+    """
+    import importlib
+
+    try:
+        spec = importlib.util.find_spec("prowler")
+    except Exception:
+        return False
+    if spec is None:
+        return False
+    roots = list(getattr(spec, "submodule_search_locations", []) or [])
+    return any(os.path.isdir(os.path.join(r, "compliance")) for r in roots)
+
+
+@unittest.skipUnless(
+    _prowler_compliance_available(),
+    "Prowler is not installed — CI does not install it, so this runs in the "
+    "scanner image and for developers who have it. The hermetic tests above "
+    "cover the mechanism; this covers the published numbers.",
+)
+class TestSoc2CountsAgainstRealProwler(unittest.TestCase):
+    """The measured figures `docs/guides/compliance-mapping.md` publishes.
+
+    Every other test in `scanner/tests/` runs against a fixture, so a change
+    that alters what the real files produce — a truncated merge, a normalizer
+    that drops ids, a Prowler bump that moves checks between series — is
+    invisible. These are the numbers an operator reads, so they get checked
+    against the thing they describe.
+
+    Measured at Prowler 5.30.1. A bump that moves them should fail here and
+    update both this list and the guide, rather than let the guide rot.
+    """
+
+    EXPECTED_CHECK_COUNTS = {
+        "CC1": 30, "CC2": 23, "CC3": 55, "CC4": 28, "CC5": 29,
+        "CC6": 136, "CC7": 113, "CC8": 15, "CC9": 1,
+    }
+
+    def setUp(self):
+        prev = os.environ.pop("CLAUDESEC_PROWLER_COMPLIANCE_DIR", None)
+        if prev is not None:
+            self.addCleanup(
+                os.environ.__setitem__, "CLAUDESEC_PROWLER_COMPLIANCE_DIR", prev
+            )
+        self.pnm = _load("prowler_native_map_realdata", "prowler_native_map.py")
+
+    def test_check_counts_per_series_match_the_guide(self):
+        native = self.pnm.load_framework("SOC 2 (TSC)")
+        actual = {k: len(v) for k, v in native.items()}
+        self.assertEqual(
+            actual,
+            self.EXPECTED_CHECK_COUNTS,
+            "SOC 2 native check counts moved. Update both this test and the "
+            "table in docs/guides/compliance-mapping.md.",
+        )
+
+    def test_cc9_is_evidenced_only_by_gcp(self):
+        """The guide's `1 (gcp only)` cell, and the reason an AWS run measures
+        8 exact / 1 keyword rather than 9 exact."""
+        self.assertEqual(
+            self.pnm.control_providers("SOC 2 (TSC)")["CC9"], frozenset({"gcp"})
+        )
+
+    def test_soc2_ships_for_exactly_aws_azure_gcp(self):
+        self.assertEqual(
+            self.pnm.framework_providers("SOC 2 (TSC)"),
+            frozenset({"aws", "azure", "gcp"}),
+        )
+
+
 class TestProviderSlugsAgreeOnBothSides(_ScopedFixture):
     """The scope speaks Prowler's COMPLIANCE DIRECTORY names; `scanned_providers`
     speaks ClaudeSec's finding slugs. A pair that should match but does not
