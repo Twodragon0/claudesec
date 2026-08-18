@@ -110,6 +110,18 @@ FRAMEWORK_SOURCES = {
     "SOC 2 (TSC)": ("soc2_*.json", _soc2_series),
     "NIST 800-53 Rev5": ("nist_800_53_revision_5_*.json", _nist_control),
     "PCI-DSS v4.0.1": ("pci_4.0_*.json", _pci_requirement),
+    # DELIBERATELY ABSENT: "CIS Benchmarks".
+    #
+    # Prowler ships 34 `cis_*.json` files with real check arrays, so wiring this
+    # in looks like a one-line win. It is not. The repo's CIS control ids are a
+    # hand-rolled scheme that matches no real CIS Controls version: `CIS-6.1`
+    # here is "Audit log management", which in CIS Controls v8 is Safeguard
+    # **8.1** — v8's 6.1 is "Establish an Access Granting Process". An identity
+    # normalizer would therefore attach real checks to the WRONG controls
+    # silently, which is worse than the keyword approximation it replaced.
+    #
+    # Adding CIS needs a control-id remap pass first, done against a named CIS
+    # Controls version. See docs/plans/compliance-native-mapping-and-cmmc.md.
 }
 
 

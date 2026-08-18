@@ -194,11 +194,20 @@ class TestMapCompliance(unittest.TestCase):
         self.assertEqual(pci["Req 1"]["status"], "FAIL")
         self.assertEqual(nist["SC-8"]["status"], "FAIL")
 
-    def test_argocd_rbac_triggers_cis_k8s_argocd(self):
+    def test_argocd_finding_is_recorded_but_control_stays_na(self):
+        """CIS-K8s-ArgoCD renders N/A: Prowler ships no ArgoCD provider.
+
+        Measured against the real 5.38 catalog, this control had 88 hits and
+        ZERO true positives — its `argocd`/`argo`/`gitops` tokens match nothing
+        in the corpus, and the `rbac`/`_sso`/`project` tokens it used to carry
+        matched Vercel/GCP/Azure text instead. A synthetic ArgoCD finding still
+        matches its keywords and is still recorded as evidence for a human, but
+        the control no longer claims a PASS/FAIL it cannot support.
+        """
         findings = [_make_finding(check="argocd_rbac", title="ArgoCD default admin", message="ArgoCD RBAC allows admin to all projects")]
         result = map_compliance(findings)
         cis_controls = {c["control"]: c for c in result["CIS Benchmarks"]}
-        self.assertEqual(cis_controls["CIS-K8s-ArgoCD"]["status"], "FAIL")
+        self.assertEqual(cis_controls["CIS-K8s-ArgoCD"]["status"], "N/A")
         self.assertGreaterEqual(cis_controls["CIS-K8s-ArgoCD"]["count"], 1)
 
     def test_result_preserves_control_metadata(self):
