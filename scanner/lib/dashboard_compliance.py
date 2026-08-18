@@ -59,6 +59,15 @@ COMPLIANCE_FRAMEWORKS = [
         "desc": "AICPA Trust Services Criteria — service organization attestation",
     },
     {
+        "name": "CMMC 2.0 Level 2",
+        # NIST SP 800-171 Rev. 2 — the normative source for Level 2's practices,
+        # and the only candidate that answers cleanly to an automated client.
+        # Measured 2026-08-18: dodcio.defense.gov/CMMC 403s even with a browser
+        # UA, and ecfr.gov 302s Part 170 to a federalregister.gov unblock page.
+        "url": "https://csrc.nist.gov/pubs/sp/800/171/r2/upd1/final",
+        "desc": "US DoD contractor cybersecurity maturity — NIST SP 800-171 Rev. 2 practices",
+    },
+    {
         "name": "PCI-DSS v4.0.1",
         "url": "https://www.pcisecuritystandards.org/document_library/?category=pcidss",
         "desc": "Payment Card Industry Data Security Standard",

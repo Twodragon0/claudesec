@@ -80,6 +80,24 @@ mapping for KISA ISMS-P and SOC 2, versus 41.5% today.
 
 ### Phase 2 — CMMC 2.0 Level 2 on that foundation
 
+**Status: landed.** `CMMC 2.0 Level 2` is registered in `FRAMEWORK_SOURCES` and
+renders 14 domain controls, all `native_only` with empty keyword lists. Two
+corrections to what is written below, both from re-measuring against the pinned
+Prowler **5.30.1** rather than the 5.38 used for the original survey:
+
+- Prowler writes 800-171 requirement ids with **underscores** (`3_13_5`), not
+  the dotted form the standard prints. The normalizer accepts both.
+- 5.30.1 carries 50 requirements / 49 with checks / **87** distinct checks, and
+  the per-family counts differ slightly: SC 50 (not 52), IA 21 (not 25), CM 21
+  (not 22), AU 21, AC 43, IR 14, SI 13, CA 9, RA 3. The nine-domain shape and
+  the five empty domains (AT/MA/MP/PE/PS) are unchanged.
+
+The "do not hand-write keywords" instruction was followed literally: a
+`native_only` control skips the keyword branch entirely and reports N/A
+(`match_source: "unmapped"`) when Prowler ships no mapping, rather than falling
+through to the `count == 0 → PASS` default. The AWS-only caveat is rendered in
+the dashboard under the framework heading.
+
 CMMC 2.0 Level 2's 110 practices are drawn directly from NIST SP 800-171, so
 `nist_800_171_revision_2_aws.json` is the mapping basis. It carries 50 requirements
 over 94 distinct checks, grouped by 800-171 family:

@@ -43,14 +43,35 @@ def _load_compliance_map():
     return module
 
 
+def _provider_of(file_path):
+    """`.../prowler-aws.ocsf.json` -> `aws`, with k8s variants merged.
+
+    Mirrors `dashboard_data_loader._normalize_provider` so a provider-scoped
+    compliance source (800-171 is AWS-only) sees the same slugs on both the
+    dashboard path and this one.
+    """
+    name = os.path.basename(file_path)
+    name = name[len("prowler-"):] if name.startswith("prowler-") else name
+    name = name.split(".ocsf.json")[0]
+    if name.startswith("k8s") or name.startswith("kubernetes") or "eks" in name:
+        return "kubernetes"
+    return name
+
+
 def _read_findings(prowler_dir):
     """Collect FAIL findings from every prowler-*.ocsf.json file in prowler_dir.
 
     Each OCSF file may be a JSON array or newline-delimited JSON (NDJSON).
     A malformed or unreadable file is skipped rather than aborting the whole
     scan — one bad Prowler artifact should not blank the compliance summary.
+
+    Returns `(findings, providers)`. `providers` is every provider that produced
+    a readable artifact, including ones with zero FAIL findings: a clean
+    provider is invisible in the findings list, and a provider-scoped native
+    mapping must be able to tell "clean" from "not scanned".
     """
     findings = []
+    providers = set()
     for file_path in glob.glob(os.path.join(prowler_dir, "prowler-*.ocsf.json")):
         try:
             with open(file_path, encoding="utf-8") as fh:
@@ -60,6 +81,8 @@ def _read_findings(prowler_dir):
                 if raw.startswith("[")
                 else [json.loads(line) for line in raw.splitlines() if line.strip()]
             )
+            provider = _provider_of(file_path)
+            providers.add(provider)
             for item in data:
                 if item.get("status_code") != "FAIL":
                     continue
@@ -69,11 +92,12 @@ def _read_findings(prowler_dir):
                         "title": item.get("finding_info", {}).get("title", ""),
                         "message": item.get("message", ""),
                         "compliance": item.get("unmapped", {}).get("compliance", {}),
+                        "provider": provider,
                     }
                 )
         except Exception:
             pass
-    return findings
+    return findings, providers
 
 
 def build_summary(prowler_dir):
@@ -82,11 +106,13 @@ def build_summary(prowler_dir):
     Returns "" when there are no FAIL findings — no OCSF artifacts, only
     PASS findings, or every file was malformed.
     """
-    findings = _read_findings(prowler_dir)
+    findings, providers = _read_findings(prowler_dir)
     if not findings:
         return ""
     compliance_map = _load_compliance_map()
-    summary = compliance_map.compliance_summary(compliance_map.map_compliance(findings))
+    summary = compliance_map.compliance_summary(
+        compliance_map.map_compliance(findings, scanned_providers=providers)
+    )
     return json.dumps(summary, separators=(",", ":"))
 
 
