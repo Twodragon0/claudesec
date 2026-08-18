@@ -804,19 +804,66 @@ def _match_prowler_compliance(finding, framework_key):
     return False
 
 
+_NATIVE_CACHE = None
+
+
+def _native_mapping():
+    """Prowler's own requirement->check data, loaded once. `{}` when unavailable.
+
+    Import is deferred and failure is swallowed on purpose: compliance-map.py is
+    loaded by output.sh via importlib in a bare scan, where a missing sibling or
+    a missing Prowler install must not break the run.
+    """
+    global _NATIVE_CACHE
+    if _NATIVE_CACHE is None:
+        try:
+            import importlib.util
+            import os
+
+            spec = importlib.util.spec_from_file_location(
+                "prowler_native_map",
+                os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), "prowler_native_map.py"
+                ),
+            )
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            _NATIVE_CACHE = module.load_all()
+        except Exception:
+            _NATIVE_CACHE = {}
+    return _NATIVE_CACHE
+
+
 def map_compliance(all_findings):
-    """Map findings to compliance framework controls. Returns {framework: [ctrl_with_status]}."""
+    """Map findings to compliance framework controls. Returns {framework: [ctrl_with_status]}.
+
+    A control is matched by EXACT check-id membership when Prowler ships a
+    mapping for it, and by keyword substring otherwise. Prowler's data is sparse
+    — its KISA file maps only 26 of 101 requirements — so the keyword path is a
+    fallback, not dead code. Each control reports which source decided it via
+    `match_source`, so a reader can tell an exact mapping from an approximation.
+    """
+    native = _native_mapping()
     result = {}
     for framework, controls in COMPLIANCE_CONTROL_MAP.items():
+        fw_native = native.get(framework, {})
         mapped = []
         for ctrl in controls:
+            native_checks = fw_native.get(ctrl["control"])
             matching = []
-            for f in all_findings:
-                text = f"{f['check']} {f['title']} {f['message']}".lower()
-                keyword_match = any(kw in text for kw in ctrl["checks"])
-                native_match = _match_prowler_compliance(f, framework)
-                if keyword_match or native_match:
-                    matching.append(f)
+            if native_checks:
+                match_source = "prowler"
+                for f in all_findings:
+                    if str(f.get("check", "")) in native_checks:
+                        matching.append(f)
+            else:
+                match_source = "keyword"
+                for f in all_findings:
+                    text = f"{f['check']} {f['title']} {f['message']}".lower()
+                    keyword_match = any(kw in text for kw in ctrl["checks"])
+                    native_match = _match_prowler_compliance(f, framework)
+                    if keyword_match or native_match:
+                        matching.append(f)
             if not ctrl.get("assessable", True):
                 status = "N/A"
             else:
@@ -827,6 +874,7 @@ def map_compliance(all_findings):
                     "status": status,
                     "count": len(matching),
                     "findings": matching[:5],
+                    "match_source": match_source,
                 }
             )
         result[framework] = mapped

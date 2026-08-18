@@ -322,12 +322,20 @@ jobs:
           # CLOSED (an unset output is `!= '0'`), so a lost GITHUB_OUTPUT write
           # still blocks. What would be silently lost: deleting that final step,
           # which is the ONLY thing turning pytest + the 99% floor into a verdict.
+          # --cov-precision=2 is LOAD-BEARING, not cosmetic. coverage compares the
+          # DISPLAYED percentage, and at the default precision of 0 anything from
+          # 98.50% up prints as "99%" and satisfies --cov-fail-under=99. Measured
+          # 2026-08-14 on main: 98.79% printed "FAIL Required test coverage of 99%
+          # not reached", pytest still exited 0, the re-raise step below saw
+          # test_exit_code=0 and skipped, and the job went green. The floor had
+          # been decorative — its real value was 98.5%.
           set +e
           python3 -m pytest scanner/tests/ \
             --junitxml=test-reports/pytest-junit.xml \
             --cov=scanner/lib \
             --cov-report=term \
             --cov-report=xml:test-reports/coverage.xml \
+            --cov-precision=2 \
             --cov-fail-under=99 \
             -q
           test_exit_code=$?
