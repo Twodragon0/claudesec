@@ -73,7 +73,12 @@ class TestComplianceControlMap(unittest.TestCase):
     def test_control_counts_per_framework(self):
         counts = {fw: len(ctrls) for fw, ctrls in COMPLIANCE_CONTROL_MAP.items()}
         self.assertEqual(counts["ISO 27001:2022"], 7)
-        self.assertEqual(counts["KISA ISMS-P"], 42)
+        # 44 after the KISA realignment: 2.10.9 악성코드 통제 restored at its
+        # standard id, the duplicate 2.10.7 패치 관리 removed, and 2.5.5/2.5.6
+        # added to re-home the access-rights coverage that correcting 2.6.1 to
+        # 네트워크 접근 would otherwise have dropped from the framework.
+        # See test_ci_kisa_control_alignment.py.
+        self.assertEqual(counts["KISA ISMS-P"], 44)
         self.assertEqual(counts["PCI-DSS v4.0.1"], 7)
         self.assertEqual(counts["NIST 800-53 Rev5"], 10)
         self.assertEqual(counts["CIS Benchmarks"], 9)

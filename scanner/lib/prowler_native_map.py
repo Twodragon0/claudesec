@@ -6,10 +6,17 @@ WHY
 `COMPLIANCE_CONTROL_MAP` assigns a finding to a control by substring-matching
 keywords against the finding's text. Prowler assigns checks to requirements by
 INTENT, in data it ships. Those are different functions, and measurement showed
-how different: on the 16 KISA ISMS-P controls where both have an opinion, the
-keyword lists reproduce 41.5% of Prowler's mapping — with `2.9.4` (백업·복구)
-scoring 0 of 58 despite listing `backup`, `snapshot` and `restore`, because
-Prowler's backup checks do not contain those literal substrings.
+how different: on the KISA ISMS-P controls where both have an opinion, the
+keyword lists reproduce roughly half of Prowler's mapping (48.8% over 565
+mappings, measured at 5.30.1 after the control realignment below).
+
+The figure used to be quoted as 41.5%, with `2.9.4` (백업·복구) "scoring 0 of
+58". That example was wrong: `compliance-map.py` had 2.9.3/2.9.4 swapped
+relative to the standard, so the backup keywords were being scored against
+Prowler's *logging* checks. Relabelling the four affected controls
+(2.6.1, 2.9.3, 2.9.4, 2.10.8, plus 2.10.9 restored) moved framework agreement
+31.5% -> 48.8%. The approximation is still an approximation — but measure a
+miss rate against the requirement the id actually names.
 
 Every miss rate and every false positive found in this file's history is a
 symptom of that approximation: `sso` inside "associated", `sast` inside

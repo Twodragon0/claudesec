@@ -40,12 +40,44 @@ Prowler's. On those 16, the repo's keywords reproduce **237 of 571 mappings —
 | 2.6.3 세션·토큰 | `token, session, application, oauth` | **0 / 2** |
 | 2.6.2 인증 | `mfa, authentication, _sso, two_factor` | 4 / 64 (6%) |
 | 2.10.1 네트워크 | `firewall, security_group, antivirus` | 9 / 89 (10%) |
-| 2.9.3 로깅 | `logging, audit, log_maxage, cloudtrail` | 9 / 24 (38%) |
+| 2.9.3 로깅 | `logging, audit, log_maxage, cloudtrail` | 9 / 24 (38%) — see correction |
 
-2.9.4 scoring 0/58 is the clearest case: the keywords are the *right words*
-(`backup`, `snapshot`, `restore`) and Prowler's 58 backup checks are the *right
-checks* — they simply do not share literal substrings, because Prowler maps by
-intent and the map matches by text.
+> **CORRECTION (2026-08-18).** The first two rows of that table are not keyword
+> failures. They are **control-id misalignment**, found while executing this
+> plan's Phase 0.
+>
+> `compliance-map.py` had 2.9.3 labelled 로깅 and 2.9.4 labelled 백업, which is
+> **swapped** relative to KISA ISMS-P 2023 — and relative to this repo's own
+> `docs/compliance/isms-p.md`, and to Prowler, whose `2.9.3` is "Backup and
+> Recovery Management" and whose `2.9.4` is "Log and Access Record Management".
+> Likewise `2.6.1` is 네트워크 접근 (not 접근권한 관리) and `2.10.8` is 패치관리
+> (악성코드 통제 is `2.10.9`). The scanner also carried 패치 관리 at `2.10.7`,
+> one id early — that duplicate was removed. 2.5.5/2.5.6 were added to re-home
+> the access-rights coverage that correcting 2.6.1 would otherwise have dropped,
+> so the framework goes 42 -> 44 controls. Separately, ISO 27001 `A.8.2` was
+> mislabelled "Access control" (that is A.5.15) when Annex A.8.2 is "Privileged
+> access rights" — 58 native checks, same defect class, corrected in the same
+> change.
+>
+> The `2.9.3 로깅 9/24` row is wrong the same way and by the same cause: at both
+> 5.30.1 and 5.38 that control measures **0/24**, because Prowler's 2.9.3 is
+> backup, not logging. Two further rows of this table also failed to reproduce
+> on re-measurement at 5.38 (`2.6.2 인증` measures 1/64, not 4/64; `2.10.1
+> 네트워크` measures 8/90, not 9/89), and the **41.5% headline could not be
+> reproduced under either methodology** — check-id matching gives 31.8% and
+> full-text matching 49.9% at 5.38. Treat the table as indicative of the
+> direction only; the reproducible figures are the 5.30.1 ones below.
+>
+> So "2.9.4 백업·복구 scored 0/58" means the backup keywords were being scored
+> against Prowler's 58 **logging** checks, and "2.10.8 악성코드 0/14" against its
+> 14 **patch** checks. Both zeros were arithmetic on the wrong requirement.
+>
+> After relabelling the four controls, measured at Prowler 5.30.1:
+> 2.9.3 **0/24 → 20/24**, 2.9.4 **0/59 → 41/59**, 2.10.8 **0/14 → 14/14**,
+> 2.6.1 **21/106 → 44/106**; framework-wide agreement
+> **31.4% → 49.6%** (16 shared ids before, 19 after). The keyword approach is still an approximation — that
+> conclusion stands — but its two most dramatic pieces of evidence were not
+> evidence for it.
 
 ### Why keywords structurally cannot close this
 
