@@ -119,14 +119,28 @@ class TestMatchProwlerCompliance(unittest.TestCase):
     def test_soc2_framework_key_does_not_native_match_prowler_soc2(self):
         """Deliberate: 'SOC 2 (TSC)' must NOT native-match Prowler's bare 'SOC2'.
 
-        `_match_prowler_compliance` is framework-level, not control-level: one
-        native hit marks EVERY control of that framework FAIL. Prowler tags
-        nearly every AWS check with a SOC2 requirement, so a native match would
-        pin all nine CC series to FAIL on any scan and destroy the per-criterion
-        signal. The spaced/parenthesised name keeps SOC 2 keyword-driven, which
-        is how ISO/CIS/NIST already behave against real Prowler output (their
-        display names do not match Prowler's 'CIS-1.5'/'ISO27001-2013' keys
-        either). Renaming the framework to 'SOC2' would silently flip this.
+        `_match_prowler_compliance` reads the compliance TAGS ON A FINDING and is
+        framework-level, not control-level: one hit marks EVERY control it is
+        consulted for. Prowler tags 160 of its 605 AWS checks (26%) with a SOC2
+        requirement, so a match would pin those CC series to FAIL on a single
+        finding and destroy the per-criterion signal. The spaced/parenthesised
+        name does not substring-match Prowler's bare 'SOC2' key, which is also
+        why ISO/CIS/NIST are unaffected (their display names do not match
+        Prowler's 'CIS-1.5'/'ISO27001-2013' keys either).
+
+        SCOPE CORRECTION (2026-08-18). This used to conclude "the name keeps
+        SOC 2 keyword-driven". That is no longer what SOC 2 is: #451 registered
+        `soc2_*.json` in `prowler_native_map.FRAMEWORK_SOURCES`, so all nine
+        series carry an exact requirement->check mapping and an AWS scan
+        measures 8 exact / 1 keyword. The two mechanisms are independent — the
+        native mapping reads Prowler's compliance FILE, this one reads the
+        finding's own tags.
+
+        The name still matters because this function runs ONLY on the keyword
+        path, so what it protects is a run reaching none of aws/azure/gcp.
+        Measured on a Kubernetes-only run with one SOC2-tagged finding, renaming
+        the key flips CC3/CC5/CC6/CC7/CC8 from PASS to FAIL. CC9 is the wrong
+        example to reach for: `assessable: False` pins it N/A either way.
         """
         finding = {"compliance": {"SOC2": ["cc_6_1"]}}
         self.assertFalse(_match_prowler_compliance(finding, "SOC 2 (TSC)"))

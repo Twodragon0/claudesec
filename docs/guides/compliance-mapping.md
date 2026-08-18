@@ -85,34 +85,95 @@ renders a coarser, series-level view — the nine Common Criteria of the
 [AICPA Trust Services Criteria](https://www.aicpa-cima.com/resources/landing/system-and-organization-controls-soc-suite-of-services)
 (2017, revised 2022) — defined in `scanner/lib/compliance-map.py`.
 
-| Series | Status source | Keyword signals |
-|--------|---------------|-----------------|
-| CC1 Control environment | **N/A** (governance) | — |
-| CC2 Communication and information | **N/A** (governance) | — |
-| CC3 Risk assessment | PASS/FAIL | vulnerability, dependency, dependabot, scan |
-| CC4 Monitoring activities | PASS/FAIL | audit, monitoring, scan |
-| CC5 Control activities | PASS/FAIL | configuration, misconfigur, hardening, default |
-| CC6 Logical and physical access controls | PASS/FAIL | mfa, two_factor, sso, authentication, rbac, branch_protection, encrypt, secret |
-| CC7 System operations | PASS/FAIL | logging, incident, detection, alert, anomaly |
-| CC8 Change management | PASS/FAIL | code_scanning, codeql, sast, require_approval, branch_protection |
-| CC9 Risk mitigation | **N/A** (vendor/BCP program) | — |
+Since [#451] SOC 2 reads Prowler's own `soc2_{aws,azure,gcp}.json`
+requirement→check data, so a series with a reachable native mapping is decided
+by **exact check-id membership**, not by its keyword list. CC1, CC2 and CC9 are
+decided by neither — they are tagged `assessable: False` and report N/A
+whatever the source says (see below).
+
+Native check counts are measured at the pinned Prowler 5.30.1. Keyword lists
+are copied from `COMPLIANCE_CONTROL_MAP` and pinned against it by
+`scanner/tests/test_ci_compliance_doc_table.py`, because this table has rotted
+twice: it published `sso` and `vulnerability` after #447/#452 narrowed them to
+`_sso`/`vulnerab`, and `default` on CC5 after CI started rejecting it outright.
+
+| Series | Status source | Native checks | Keyword fallback |
+|--------|---------------|---------------|------------------|
+| CC1 Control environment | **N/A** (governance) | 30 | `security_policy`, `governance` |
+| CC2 Communication and information | **N/A** (governance) | 23 | `awareness`, `training` |
+| CC3 Risk assessment | PASS/FAIL | 55 | `vulnerab`, `dependency`, `dependabot`, `scan`, `cve` |
+| CC4 Monitoring activities | PASS/FAIL | 28 | `audit`, `monitoring`, `scan`, `guardduty`, `securityhub`, `config_recorder` |
+| CC5 Control activities | PASS/FAIL | 29 | `configuration`, `misconfigur`, `hardening`, `benchmark` |
+| CC6 Logical and physical access controls | PASS/FAIL | 136 | `mfa`, `two_factor`, `_sso`, `authentication`, `rbac`, `encrypt`, `secret`, `public_access`, `publicly`, `0.0.0.0`, `security_group`, `securitygroup`, `ingress`, `unrestricted` |
+| CC7 System operations | PASS/FAIL | 113 | `logging`, `incident`, `detection`, `alert`, `anomaly`, `cloudtrail`, `flow_log`, `log_file_validation` |
+| CC8 Change management | PASS/FAIL | 15 | `branch_protection`, `_approval`, `codeowners`, `status_checks`, `force_push`, `signed_commits`, `code_scanning` |
+| CC9 Risk mitigation | **N/A** (vendor/BCP program) | 1 (gcp only) | `governance`, `third_party` |
+
+The keyword column is not dead: a series falls back to it whenever no check in
+its native list belongs to a provider the run actually scanned (see
+[Native provider scope](#native-provider-scope)). An AWS-only scan measures
+`8 exact / 1 keyword` — the one is CC9, whose single native check
+(`gemini_api_disabled`) exists only in `soc2_gcp.json`. The dashboard's
+**Evidence source** line reports that split per framework.
+
+[#451]: https://github.com/Twodragon0/claudesec/pull/451
 
 **Why CC1, CC2, and CC9 render N/A.** These are the COSO-derived governance
 criteria: control environment, communication of security responsibilities, and
-vendor/business-continuity risk mitigation. They are assessed from board
-minutes, training records, contracts, and DPAs — evidence no scanner can
-produce. Reporting them PASS merely because no finding matched would be false
-assurance, so `map_compliance()` reports them `N/A` and excludes them from the
-pass/fail totals. The same rule already governs ISO 27001 A.5.1 and the KISA
-ISMS-P 3.x privacy controls.
+vendor/business-continuity risk mitigation. An auditor assesses them from board
+minutes, training records, contracts, and DPAs. They are tagged
+`assessable: False`, so `map_compliance()` reports them `N/A` whatever the
+evidence says and excludes them from the pass/fail totals. The same rule governs
+ISO 27001 A.5.1 and the KISA ISMS-P 3.x privacy controls.
 
-**SOC 2 is keyword-driven, not Prowler-native.** Prowler tags almost every AWS
-check with a SOC 2 requirement, and ClaudeSec's native-compliance match is
-framework-level rather than control-level — one native hit would mark all nine
-series FAIL. The framework is therefore registered as `SOC 2 (TSC)`, which does
-not substring-match Prowler's bare `SOC2` key, keeping per-criterion signal
-intact. Renaming it would silently change that behavior; a regression test pins
-it.
+Note what that now suppresses. Before #451 these criteria had no native mapping,
+so the case being avoided was a **vacuous PASS** — a control reported compliant
+merely because no keyword happened to match. That is no longer the case: Prowler
+maps 30 checks to CC1 and 23 to CC2, and they match real findings. Measured on
+an AWS run with two genuine FAIL findings:
+
+```text
+CC1  N/A  prowler  count=1     # entra_non_privileged_user_has_mfa
+CC2  N/A  prowler  count=1     # cloudtrail_multi_region_enabled
+```
+
+So an exact-mapped **FAIL** is what the tag now drops from the totals, not an
+unevidenced pass. The count is still recorded and the findings still render, so
+the signal is visible rather than lost — but "no automated test method exists"
+is a weaker claim for CC1/CC2 than it is for, say, KISA's PII controls, and
+Prowler evidently disagrees with it. Revisiting that classification is a policy
+question this guide does not settle.
+
+**Why the framework is named `SOC 2 (TSC)` and not `SOC2`.** Two different
+mechanisms read Prowler data, and only one of them is the requirement→check
+mapping above:
+
+- `prowler_native_map.load_framework()` reads the **compliance file** Prowler
+  ships and matches a control by exact check id. This is per control, and it is
+  what decides SOC 2 today.
+- `_match_prowler_compliance()` reads the **compliance tags on the finding
+  itself** (`unmapped.compliance`, whose key is literally `SOC2`) and is
+  **framework-level**: one hit marks every control it is consulted for. Prowler
+  tags 160 of its 605 AWS checks with a SOC 2 requirement (26%), so a framework
+  named `SOC2` would substring-match that tag and pin every affected series to
+  FAIL on a single finding.
+
+The spaced, parenthesised name does not substring-match `SOC2`, which keeps the
+per-criterion signal intact. That still matters even though SOC 2 is natively
+mapped, because `_match_prowler_compliance()` runs only on the **keyword** path
+— so the load-bearing case is a run that reaches **none** of aws/azure/gcp and
+sends every series there. Measured on a Kubernetes-only run with one
+SOC2-tagged finding:
+
+| Framework key | CC3 | CC4 | CC5 | CC6 | CC7 | CC8 |
+|---------------|-----|-----|-----|-----|-----|-----|
+| `SOC 2 (TSC)` | PASS | FAIL | PASS | PASS | PASS | PASS |
+| `SOC2` | FAIL | FAIL | FAIL | FAIL | FAIL | FAIL |
+
+Five of the six assessable series flip on one finding. (CC9 is *not* the
+example to use: it is `assessable: False`, so it reads N/A either way — only
+its `match_source` label changes.) Renaming the framework would silently flip
+this; `test_compliance_map.py::TestMatchProwlerCompliance` pins it.
 
 ---
 

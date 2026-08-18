@@ -699,8 +699,16 @@ COMPLIANCE_CONTROL_MAP = {
     # AICPA Trust Services Criteria (2017, revised 2022) — the nine Common
     # Criteria series. Named "SOC 2 (TSC)" rather than "SOC2" on purpose: see
     # test_soc2_framework_key_does_not_native_match_prowler_soc2 in
-    # scanner/tests/test_compliance_map.py. Framework-level native matching
-    # would pin all nine series to FAIL on any Prowler scan.
+    # scanner/tests/test_compliance_map.py.
+    #
+    # The reason is `_match_prowler_compliance()`, which reads the compliance
+    # TAGS on a finding and is framework-level — not `load_framework()`, which
+    # reads Prowler's compliance file per control and is what decides these
+    # series today (#451). The tag matcher runs only on the keyword path, so the
+    # case the name protects is a run reaching none of aws/azure/gcp: measured
+    # on a Kubernetes-only run with one SOC2-tagged finding, renaming the key
+    # flips CC3/CC5/CC6/CC7/CC8 from PASS to FAIL. CC1/CC2/CC9 are unaffected —
+    # `assessable: False` pins them N/A whatever the source.
     "SOC 2 (TSC)": [
         {
             "control": "CC1",

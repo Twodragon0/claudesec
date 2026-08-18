@@ -91,6 +91,25 @@ class TestLoader(unittest.TestCase):
         native = pnm.load_framework("SOC 2 (TSC)")
         self.assertEqual(native["CC6"], frozenset({"a_check", "b_check"}))
 
+    def test_every_check_of_a_requirement_is_merged_not_just_the_first(self):
+        """Truncation is invisible to a one-check-per-requirement fixture.
+
+        Measured 2026-08-18: changing `update(checks)` to `update(checks[:1])`
+        left the whole scope suite at `39 passed` while collapsing the real SOC 2
+        mapping from 30/23/55/28/29/136/113/15/1 checks per series to
+        3/3/10/3/3/18/13/3/1 — i.e. every count this repo documents becomes
+        false, silently. Real Prowler requirements carry many checks each; the
+        fixtures elsewhere carry one.
+        """
+        _write_fixture(self.root, "aws", "soc2_aws.json", [
+            {"Id": "cc_6_1", "Checks": ["first", "second", "third"]},
+            {"Id": "cc_6_2", "Checks": ["fourth"]},
+        ])
+        native = pnm.load_framework("SOC 2 (TSC)")
+        self.assertEqual(
+            native["CC6"], frozenset({"first", "second", "third", "fourth"})
+        )
+
     def test_requirements_without_checks_are_omitted_not_stored_empty(self):
         # An empty set and "no native opinion" must not be confused: the first
         # would mark a control as having zero evidence, the second falls back to
