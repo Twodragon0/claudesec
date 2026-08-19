@@ -146,7 +146,10 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "사용자 식별 (User identification)",
             "desc": "개인별 고유한 사용자 계정 부여",
             "action": "공용 계정 금지; 개인별 고유 ID 부여; 특수권한 계정 별도 관리.",
-            "checks": ["authentication", "identity", "shared_account", "root"],
+            # `authentication` pruned: 0 of this control's mapped checks — 2.5.2 is
+            # 사용자 식별, and 5 of the checks the token pulls in belong to 2.5.3
+            # (사용자 인증), which owns it.
+            "checks": ["identity", "shared_account", "root"],
             "status": "",
         },
         {
@@ -154,7 +157,10 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "사용자 인증 (User authentication)",
             "desc": "안전한 인증 수단 사용 (MFA, SSO 등)",
             "action": "MFA 적용; SSO 통합; 비밀번호 복잡도 및 주기적 변경.",
-            "checks": ["mfa", "two_factor", "_sso", "authentication", "password"],
+            # `password` pruned: 0 of this control's 33 mapped checks, and 13 of
+            # the checks it drags in belong to 2.5.4 (비밀번호 관리), which owns
+            # that vocabulary.
+            "checks": ["mfa", "two_factor", "_sso", "authentication"],
             "status": "",
         },
         {
@@ -360,7 +366,11 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "사고 예방 및 대응체계 구축 (Incident response)",
             "desc": "침해사고 예방, 탐지, 대응, 복구 체계 수립",
             "action": "SIEM/모니터링; 대응 플레이북; 24시간 내 신고(정보통신망법 2024 개정); 사후 분석.",
-            "checks": ["monitoring", "logging", "alert", "audit", "incident"],
+            # `logging` and `audit` pruned on measurement: neither matches ANY of
+            # this control's 2 Prowler-mapped checks, while between them they
+            # drag in 81 checks Prowler assigns elsewhere in the framework —
+            # 33 of those to 2.9.4, which IS the logging control.
+            "checks": ["monitoring", "alert", "incident"],
             "status": "",
         },
         {
@@ -817,7 +827,10 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Monitoring activities",
             "desc": "Ongoing and separate evaluations confirm controls are present and operating",
             "action": "Run continuous control scans; internal audit and evidence review; track deficiency remediation to closure.",
-            "checks": ["audit", "monitoring", "scan", "guardduty", "securityhub", "config_recorder"],
+            # `audit` pruned: 0 of CC4's 28 mapped checks, and 5 of the checks it
+            # drags in are CC7's. Same shape as the CC4 + `alert` rejection
+            # already pinned in test_ci_compliance_keyword_guard.py.
+            "checks": ["monitoring", "scan", "guardduty", "securityhub", "config_recorder"],
             "status": "",
         },
         {
