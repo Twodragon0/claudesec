@@ -113,7 +113,7 @@ twice: it published `sso` and `vulnerability` after #447/#452 narrowed them to
 | CC1 Control environment | **N/A** (governance) | 30 | `security_policy`, `governance` |
 | CC2 Communication and information | **N/A** (governance) | 23 | `awareness`, `training` |
 | CC3 Risk assessment | PASS/FAIL | 55 | `vulnerab`, `dependency`, `dependabot`, `scan`, `cve` |
-| CC4 Monitoring activities | PASS/FAIL | 28 | `audit`, `monitoring`, `scan`, `guardduty`, `securityhub`, `config_recorder` |
+| CC4 Monitoring activities | PASS/FAIL | 28 | `monitoring`, `scan`, `guardduty`, `securityhub`, `config_recorder` |
 | CC5 Control activities | PASS/FAIL | 29 | `configuration`, `misconfigur`, `hardening`, `benchmark` |
 | CC6 Logical and physical access controls | PASS/FAIL | 136 | `mfa`, `two_factor`, `_sso`, `authentication`, `rbac`, `encrypt`, `secret`, `public_access`, `publicly`, `0.0.0.0`, `security_group`, `securitygroup`, `ingress`, `unrestricted` |
 | CC7 System operations | PASS/FAIL | 113 | `logging`, `incident`, `detection`, `alert`, `anomaly`, `cloudtrail`, `flow_log`, `log_file_validation` |

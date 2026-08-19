@@ -187,6 +187,37 @@ REMOVED_TOKENS = [
     ("PCI-DSS v4.0.1", "Req 8", "sso"),
     ("NIST 800-53 Rev5", "IA-2", "sso"),
     ("CIS Benchmarks", "CIS-K8s-ArgoCD", "sso"),
+    # 2026-08-19, THIRD class — tokens that STEAL A SIBLING CONTROL'S checks.
+    #
+    # Found by Phase 0 of docs/plans/compliance-status-model.md, and only
+    # findable once the KISA/ISO control ids were realigned (#459) — before
+    # that, "which control does Prowler assign this check to" was itself wrong.
+    # The measurement here is stronger than raw corpus noise: it counts the
+    # checks a token drags in that Prowler assigns to a DIFFERENT control OF
+    # THE SAME FRAMEWORK, which is misattribution with ground truth rather than
+    # an unattributable hit. Each of these covers ZERO of its own control's
+    # Prowler-mapped checks. Measured at 5.30.1:
+    #
+    #   2.11.1 + logging  0/2   covered; 69 misattributed, 30 of them to 2.9.4
+    #                           — the actual 로그 및 접속기록 관리 control
+    #   2.11.1 + audit    0/2   covered; 12 misattributed, 3 to 2.9.4
+    #   2.5.3  + password 0/33  covered; 28 misattributed, 13 to 2.5.4
+    #                           (비밀번호 관리), which owns that vocabulary
+    #   2.5.2  + auth…    0/1   covered; 22 misattributed, 5 to 2.5.3
+    #                           (사용자 인증) — 2.5.2 is 사용자 식별
+    #   CC4    + audit    0/28  covered; 7 misattributed, 5 to CC7. Same shape
+    #                           as the CC4 + `alert` rejection pinned below.
+    #
+    # Nine further candidates (`restrict`, `alert` on 2.11.1/Req 10/CA-7/SI-4,
+    # `identity`, `authentication` on IA-2/CC6) were measured and KEPT: their
+    # noise is checks Prowler assigns to no control at all, which is far weaker
+    # evidence of harm, and check-id matching cannot see the finding-text path
+    # those tokens plausibly serve.
+    ("KISA ISMS-P", "2.11.1", "logging"),
+    ("KISA ISMS-P", "2.11.1", "audit"),
+    ("KISA ISMS-P", "2.5.3", "password"),
+    ("KISA ISMS-P", "2.5.2", "authentication"),
+    ("SOC 2 (TSC)", "CC4", "audit"),
     # 2026-08-14, SECOND class — over-broad WHOLE WORDS. These are correctly
     # spelled, correctly meaning English words that are simply too common in
     # Prowler's risk narratives. The collision detector below CANNOT catch them:
