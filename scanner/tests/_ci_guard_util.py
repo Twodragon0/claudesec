@@ -401,6 +401,42 @@ _KEY_LINE_RE = re.compile(
 )
 
 
+# The same generic reader as `_KEY_LINE_RE`, plus an optional sequence dash and a
+# captured remainder. Kept separate because `keys_at_column` only needs the NAME
+# and compares an externally supplied column, whereas a line-at-a-time scanner
+# needs the key's OWN column and its value.
+_ANY_KEY_LINE_RE = re.compile(
+    r"""^(?P<prefix>\s*(?:-\s+)?)"""
+    r"""(?:"(?P<dq>[^"]+)"|'(?P<sq>[^']+)'|(?P<bare>[^\s:#]+))"""
+    r"""\s*:(?P<rest>\s.*|$)"""
+)
+
+
+def key_line(line: str):
+    """`(col, name, rest)` if `line` DECLARES a YAML mapping key, else None.
+
+    `col` is the key's own column (the sequence dash, when present, is part of the
+    prefix — a `- run:` item's key sits one level in from its dash, and deriving
+    that rather than assuming two characters is the `keys_at_column` lesson).
+    `name` is unquoted, so `"run":` and `'run':` read the same as `run:`
+    (#391/#393's quoted-key class). `rest` is the raw text after the colon.
+
+    Whitespace or end-of-line is REQUIRED after the colon, because YAML only opens
+    a mapping there: `a:b` and `a:|` are the plain scalars `"a:b"` / `"a:|"`
+    (verified with PyYAML), not keys, and treating them as keys would invent
+    structure a runner never sees.
+
+    Exists so a scanner that must react to ANY key — for example to consume a
+    block scalar belonging to some OTHER key before it can be mistaken for the one
+    under inspection — does not hand-roll a key matcher and reinherit the quoted-key
+    blindness this module was created to end."""
+    m = _ANY_KEY_LINE_RE.match(line)
+    if not m:
+        return None
+    name = m.group("dq") or m.group("sq") or m.group("bare")
+    return len(m.group("prefix")), name, m.group("rest")
+
+
 def keys_at_column(block: str, col: int) -> list:
     """The mapping keys declared at EXACTLY `col` spaces of indent in `block`.
 

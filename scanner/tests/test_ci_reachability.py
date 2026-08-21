@@ -44,18 +44,32 @@ fails. A test that legitimately cannot run on the `scanner-unit-tests` runner go
 in `RUNS_ELSEWHERE` with the workflow that does run it, and that claim is checked
 too — the table is not a place to park an unrun test.
 
+The denominator is `scanner/tests/test_*.sh`, NON-recursively, matching the kcov
+loop's own glob. A test one directory down is therefore reached by neither runner
+AND absent from the denominator, so `test_no_shell_test_hides_in_a_subdirectory`
+keeps the directory flat rather than silently changing which files CI runs.
+
 WHAT COUNTS AS "REGISTERED" — and why it is not a substring search
 -----------------------------------------------------------------
-Only text that the runner EXECUTES: the value of a `run:` key inside the
-`scanner-unit-tests` job, with YAML comment lines dropped and, inside a `run:`
-block scalar, bash comments stripped as well. That distinction is the whole
-guard, not a detail. `lint.yml` on `main` at the time of writing MENTIONED
-`test_output_coverage.sh` and `test_print_summary_score_to_grade.sh` in the kcov
-job's explanatory comments while executing neither of them from the fast path — a
-raw substring guard would have read those two comments as registration and
-reported the exact opposite of the truth. Every mutation self-test below plants
-the filename somewhere non-executing (a comment, a step `name:`, a commented-out
-step) and requires it to still be reported missing.
+An INVOCATION inside text the runner EXECUTES. Two independent narrowings, each
+of which was found to be load-bearing by adversarial review:
+
+1. EXECUTED text only — the value of a `run:` key inside the `scanner-unit-tests`
+   job, with YAML comment lines dropped, bash comments stripped inside a `run:`
+   block scalar, and any OTHER key's block scalar consumed and discarded.
+   `lint.yml` on `main` at the time of writing MENTIONED `test_output_coverage.sh`
+   and `test_print_summary_score_to_grade.sh` in the kcov job's explanatory
+   comments while executing neither from the fast path, and a `NOTE: |` body
+   holding a `run:`-shaped line reads as a step to a line matcher while PyYAML
+   reports the step's shell as `true`.
+2. An INVOCATION, not an appearance — the path must sit at a command position
+   after an interpreter or `./`. The runner really does execute
+   `run: echo "TEMPORARILY DISABLED: bash scanner/tests/test_checks_helpers.sh"`;
+   nothing in it executes the test, and the earlier bare-path matcher counted it.
+
+Every mutation self-test below plants the filename somewhere non-executing (a
+comment, a step `name:`, a commented-out step, another key's block scalar, an
+`echo`) and requires it to still be reported missing.
 
 CONSTRAINTS (repo guard conventions)
 ------------------------------------
@@ -81,14 +95,29 @@ scalar content — which is exactly what the runner does with it. If a future
 invariant here needs real step boundaries, use the shared primitive rather than
 growing this collector into one.
 
-KNOWN LIMITATIONS, both in the FALSE-ALARM direction (the guard sees less than the
-runner, so it over-reports; neither can hide an unregistered test):
+KNOWN LIMITATIONS
+-----------------
+FALSE-ALARM direction (the guard sees less than the runner, so it over-reports;
+none of these can hide an unregistered test):
 - A `run:` written as a multi-line FOLDED PLAIN scalar (`run: bash` on one line,
   the path on the next) is read as only its first line, so the path would be
   missed and the test reported unregistered. No such step exists; the fix is to
   write it on one line or use `run: |`.
 - The path must carry its `scanner/tests/` prefix, which is how every step in the
   job invokes it. `cd scanner/tests && bash test_x.sh` would be missed.
+- The interpreter must be at a command position, or be `pty_run.py bash` — the one
+  launcher in use. Another wrapper (`timeout 30 bash x.sh`) is not recognized; add
+  the specific wrapper to `_INVOCATION_PREFIX` rather than admitting arbitrary
+  leading words, which would re-admit `echo bash x.sh`.
+
+FALSE-NEGATIVE direction (can hide an unrun test), documented rather than closed:
+- HEREDOC bodies inside a real `run: |` are not modelled, so an invocation quoted
+  in one (`cat <<'EOF'` / `bash scanner/tests/test_x.sh` / `EOF`) counts as
+  registration. Same limitation `strip_inline_comment_sh` documents; no step in
+  this repo writes one, and closing it needs a heredoc state machine.
+- The command-position test is not quote-aware, so `echo "DISABLED; bash
+  scanner/tests/test_x.sh"` counts. See `_INVOCATION_PREFIX` for why masking
+  quoted spans would be a worse trade.
 
 =============================================================================
 B. GUARDED WORKFLOWS MUST BE IN THE `scanner` DIFF BUCKET
@@ -119,12 +148,20 @@ CI minutes; narrowing it trips this guard.
 
 KNOWN GAP, ENUMERATED RATHER THAN CLOSED
 ----------------------------------------
-Eleven further workflows are named by guards and remain outside the bucket
-(`KNOWN_BUCKET_GAP`). Closing all of them would make every workflow-only PR — most
-of them Dependabot action bumps — run the full scanner + kcov set, and this repo
-path-gates deliberately for CI cost (#180/#181). The two admitted here are the ones
-where a skipped guard silently weakens a BRANCH-PROTECTION-REQUIRED check
-(`Lint`, `Security Scan Gate`).
+Eleven further workflows and the two composite actions under `.github/actions/`
+are named by guards and remain outside the bucket (`KNOWN_BUCKET_GAP`). Closing
+all of them would make every workflow-only PR — most of them Dependabot action
+bumps — run the full scanner + kcov set, and this repo path-gates deliberately for
+CI cost (#180/#181). The two admitted here are the ones where a skipped guard
+silently weakens a BRANCH-PROTECTION-REQUIRED check (`Lint`,
+`Security Scan Gate`).
+
+The composite actions used to be `continue`d out of the derived set with the
+reason "not path-gated by this bucket", which restated the hole instead of
+deciding it — so, alone among executable Actions files, they got no in-or-out
+decision. They are now keyed by PATH (both are named `action.yml`, so a basename
+key would collide them) and classified, which also means a NEW composite action
+lands in neither table and fails until someone classifies it.
 
 That is a shipped false negative, so it carries the cost argument the guard
 conventions require, plus a mechanism so it cannot rot: `MUST_BE_IN_BUCKET` and
@@ -138,6 +175,7 @@ them failing to catch a real regression because it did not run.
 import glob
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -150,7 +188,7 @@ from _ci_guard_util import (  # noqa: E402
     explicit_key_lines,
     job_block,
     key_column,
-    on_key_inline,
+    key_line,
     step_blocks,
     strip_comment_lines,
     strip_inline_comment,
@@ -162,7 +200,12 @@ from _ci_guard_util import (  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LINT_YML = REPO_ROOT / ".github" / "workflows" / "lint.yml"
-SHELL_TEST_GLOB = "scanner/tests/test_*.sh"
+SHELL_TEST_DIR = "scanner/tests"
+SHELL_TEST_GLOB = f"{SHELL_TEST_DIR}/test_*.sh"
+# The same names at ANY depth. The glob above is non-recursive and so is the kcov
+# loop's `for sh in scanner/tests/test_*.sh`, so a nested test is invisible to
+# BOTH — see `test_no_shell_test_hides_in_a_subdirectory`.
+RECURSIVE_SHELL_TEST_GLOB = f"{SHELL_TEST_DIR}/**/test_*.sh"
 JOB = "scanner-unit-tests"
 
 # Tests that CANNOT run in `scanner-unit-tests` (ubuntu-latest, no browser) mapped
@@ -176,8 +219,10 @@ JOB = "scanner-unit-tests"
 # note NEITHER is a branch-protection-required context (required today: `Lint`,
 # `Security Scan Gate`), so the gate is weaker than the fast path. Do not add an
 # entry here to silence this guard: `test_runs_elsewhere_table_has_no_ghosts`
-# rejects a name that is not on disk, and `test_runs_elsewhere_is_really_run_there`
-# rejects one its owner workflow does not reference outside the trigger block.
+# rejects a name that is not on disk, `test_runs_elsewhere_is_really_run_there`
+# rejects one no step of its owner INVOKES (directly or through the verified
+# matrix indirection), and `test_exemptions_run_in_a_step_that_can_fail` rejects
+# one whose step or job can swallow the verdict.
 RUNS_ELSEWHERE = {
     "test_check_macos_cis_security_live.sh": "cross-os-checks.yml",
     "test_check_windows_kisa_security_live.sh": "cross-os-checks.yml",
@@ -185,13 +230,6 @@ RUNS_ELSEWHERE = {
     "test_asset_dashboard_control_liveness.sh": "dashboard-control-smoke.yml",
 }
 
-# `run:` bare or quoted, optionally introduced by a sequence dash. `prefix` is
-# captured so the KEY's own column is derived rather than assumed — a `steps:`
-# list may legally sit at its parent key's indent, which walks every step out from
-# under a fixed anchor (the `keys_at_column` lesson).
-_RUN_KEY_RE = re.compile(
-    rf"^(?P<prefix>\s*(?:-\s+)?){yaml_key_pattern('run')}\s*:(?P<rest>.*)$"
-)
 # A block-scalar HEADER: `|` or `>` followed by the chomping (`+`/`-`) and explicit
 # indentation (a digit) indicators IN EITHER ORDER — the YAML spec permits both
 # `|2-` and `|-2`, and an adversarial pass found the first draft
@@ -202,12 +240,66 @@ _RUN_KEY_RE = re.compile(
 # the grammar rather than enumerate the orderings. Over-accepting a malformed
 # header like `|+-2` is harmless: such a document does not parse, so it never runs.
 _BLOCK_SCALAR_RE = re.compile(r"^[|>][0-9+-]*\s*$")
-_SHELL_TEST_TOKEN_RE = re.compile(r"scanner/tests/(test_[A-Za-z0-9_]+\.sh)")
+
+# An INVOCATION, not a mention. The path must sit where a shell would actually
+# run it: at a command position (start of line, or after `;`, `&`, `|`, `(`,
+# `&&`, `||`), introduced by an interpreter or by `./`.
+#
+# The bare-path version this replaces counted any appearance of the path in an
+# executed `run:`, so
+#
+#     run: echo "TEMPORARILY DISABLED: bash scanner/tests/test_checks_helpers.sh"
+#
+# read as registration at `47 passed` — the runner really does execute that step,
+# and nothing in it executes the test. Requiring an interpreter is not sufficient
+# on its own (the string above CONTAINS `bash `); the command position is what
+# rejects it, because `:` and `"` are not command separators.
+#
+# `pty_run.py` is admitted explicitly because it is the one launcher this repo
+# uses (`python3 scanner/tests/pty_run.py bash scanner/tests/test_aws_sso_tty.sh`),
+# where `bash` is an ARGUMENT and not at a command position.
+#
+# KNOWN LIMITATION, false-alarm direction: any OTHER wrapper before the
+# interpreter (`timeout 30 bash x.sh`, `env FOO=1 bash x.sh`) is not recognized
+# and would be reported unregistered. No step in `scanner-unit-tests` uses one;
+# admitting arbitrary leading words would re-admit `echo bash x.sh`, so the
+# remedy is to add the specific wrapper here, as `pty_run.py` was.
+#
+# KNOWN LIMITATION, false-negative direction: the command-position test is not
+# quote-aware, so a separator INSIDE a string still reads as one —
+# `run: echo "DISABLED; bash scanner/tests/test_x.sh"` counts as registration
+# (measured). Strictly narrower than the bare-path matcher this replaced, which
+# needed no separator at all. NOT closed on purpose: masking quoted spans before
+# matching trades it for a worse false-alarm class, since an apostrophe in
+# ordinary prose (`echo don't && bash x.sh`) would swallow the rest of the line
+# and hide a real invocation (#414 — a guard broken by ordinary authoring gets
+# weakened by its users).
+_INVOCATION_PREFIX = (
+    r"(?:^|[;&|(]|&&|\|\|)[ \t]*"          # command position
+    r"(?:python3\s+\S*pty_run\.py\s+)?"    # the one launcher in use
+    r"(?:(?:bash|sh)[ \t]+|\./)"           # interpreter, or direct execution
+    r"(?:\./)?"
+)
+_SHELL_TEST_INVOCATION_RE = re.compile(
+    _INVOCATION_PREFIX + rf"{SHELL_TEST_DIR}/(test_[A-Za-z0-9_]+\.sh)", re.M
+)
 
 
 def shell_tests_on_disk() -> list:
     """Every shell test file name, sorted. The denominator of the whole guard."""
     return sorted(Path(p).name for p in glob.glob(str(REPO_ROOT / SHELL_TEST_GLOB)))
+
+
+def nested_shell_tests() -> list:
+    """`test_*.sh` files BELOW `scanner/tests/`, repo-relative, sorted.
+
+    Must stay empty: see `test_no_shell_test_hides_in_a_subdirectory`."""
+    top = set(glob.glob(str(REPO_ROOT / SHELL_TEST_GLOB)))
+    return sorted(
+        str(Path(p).relative_to(REPO_ROOT))
+        for p in glob.glob(str(REPO_ROOT / RECURSIVE_SHELL_TEST_GLOB), recursive=True)
+        if p not in top
+    )
 
 
 def executed_shell(text: str) -> str:
@@ -219,10 +311,36 @@ def executed_shell(text: str) -> str:
     - a plain inline value has its trailing YAML comment stripped;
     - a block scalar (`run: |`, `run: >-`, `run: |2`) contributes its indented
       body, each line passed through the bash-aware comment stripper, because that
-      body is SHELL and a `#` line in it does not run.
+      body is SHELL and a `#` line in it does not run;
+    - a block scalar belonging to ANY OTHER key is consumed and DISCARDED.
 
-    The block-scalar branch is what keeps the kcov job's long explanatory comments
-    — which name two shell tests verbatim — from counting as execution.
+    That last clause is not symmetry for its own sake. Tracking scalar state only
+    for `run:` let the scanner walk into every other key's scalar body and match a
+    `run:`-shaped line inside it — a real step, at `47 passed`, while PyYAML
+    reported the executed shell as `true`:
+
+        - name: Note about the helpers test
+          env:
+            NOTE: |
+              run: bash scanner/tests/test_checks_helpers.sh
+          run: true
+
+    `key_line` is used rather than a `run:`-only matcher so the consume-and-discard
+    arm cannot be bypassed by quoting the owning key (`"env":`).
+
+    The block-scalar branch is also what keeps the kcov job's long explanatory
+    comments — which name two shell tests verbatim — from counting as execution.
+
+    KNOWN LIMITATIONS, all in the guard-sees-LESS direction except the last:
+    - a `run:` written as a multi-line FOLDED PLAIN scalar is read as only its
+      first line;
+    - the path must carry its `scanner/tests/` prefix (`cd scanner/tests && bash
+      test_x.sh` is missed);
+    - HEREDOC bodies inside a real `run: |` are not modelled, so an invocation
+      quoted in a heredoc (`cat <<'EOF'` / `bash scanner/tests/test_x.sh` / `EOF`)
+      still counts as registration. This one CAN hide an unrun test. It is the same
+      limitation `strip_inline_comment_sh` documents, no step in this repo writes
+      one, and closing it needs a heredoc state machine rather than a line matcher.
     """
     lines = text.splitlines()
     out = []
@@ -232,21 +350,30 @@ def executed_shell(text: str) -> str:
         i += 1
         if raw.lstrip().startswith("#"):
             continue
-        m = _RUN_KEY_RE.match(raw)
-        if not m:
+        parsed = key_line(raw)
+        if parsed is None:
             continue
-        key_col = len(m.group("prefix"))
-        rest = m.group("rest").strip()
+        key_col, name, rest = parsed
+        rest = strip_inline_comment(rest).strip()
+        is_run = name == "run"
         if _BLOCK_SCALAR_RE.match(rest):
+            body = []
             while i < n:
-                body = lines[i]
-                if body.strip() and (len(body) - len(body.lstrip())) <= key_col:
+                line = lines[i]
+                if line.strip() and (len(line) - len(line.lstrip())) <= key_col:
                     break  # dedent ends the scalar
                 i += 1
-                out.append(strip_inline_comment_sh(body))
-        else:
-            out.append(strip_inline_comment(rest))
+                body.append(line)
+            if is_run:
+                out += [strip_inline_comment_sh(b) for b in body]
+        elif is_run:
+            out.append(rest)
     return "\n".join(out)
+
+
+def invoked_shell_tests(shell: str) -> set:
+    """The shell tests `shell` actually INVOKES, by basename."""
+    return set(_SHELL_TEST_INVOCATION_RE.findall(shell))
 
 
 def registered_in_job(lint_text: str):
@@ -273,40 +400,22 @@ def registered_in_job(lint_text: str):
             "the shell-test fast path may be gone entirely."
         )
         return set(), problems
-    return set(_SHELL_TEST_TOKEN_RE.findall(executed_shell(block))), problems
-
-
-def _strip_trigger_block(text: str) -> str:
-    """`text` with whole-line comments AND the top-level `on:` block removed.
-
-    A filename under `on.pull_request.paths` is a TRIGGER FILTER, not execution.
-    `cross-os-checks.yml` lists both `_live.sh` tests in its `paths:` as well as in
-    its matrix, so without this subtraction the ownership check below would still
-    pass after the matrix entry — the thing that actually runs the test — was
-    deleted. Verified by mutation (`test_paths_only_mention_is_not_ownership`).
-    """
-    out, in_on = [], False
-    for line in text.splitlines():
-        if line.lstrip().startswith("#"):
-            continue
-        if not in_on:
-            if on_key_inline(line) is not None:
-                in_on = True
-                continue
-            out.append(line)
-            continue
-        if line.strip() and not line[0].isspace():  # dedent to the next top-level key
-            in_on = False
-            out.append(line)
-    return "\n".join(out)
+    return invoked_shell_tests(executed_shell(block)), problems
 
 
 # RUNS_ELSEWHERE entries whose owner reaches the test through a matrix VALUE
 # (`run: bash ${{ matrix.test }}`) instead of naming it in a `run:`. ENUMERATED,
 # never inferred, so a NEW exemption this guard cannot locate FAILS rather than
-# silently opting out of the rc-swallow check below.
+# silently opting out of the checks below.
 #
-# The indirection itself is still only reference-checked — see KNOWN LIMITATIONS.
+# The entry no longer WAIVES the invocation check, it SELECTS the mechanism to
+# verify: `_matrix_running_steps` must find both halves of the indirection (a
+# matrix key whose value is the test, and a step that invokes
+# `${{ matrix.<key> }}` as a command), and the steps it finds then go through the
+# same rc-swallow checks as a directly-invoked one. Under the previous
+# reference-only treatment, rewriting `cross-os-checks.yml`'s
+# `run: bash ${{ matrix.test }}` to `run: echo "skipping ${{ matrix.test }}"` left
+# both exempted `*_live.sh` tests running NOWHERE at `47 passed`.
 MATRIX_INDIRECTION = {
     "test_check_macos_cis_security_live.sh",
     "test_check_windows_kisa_security_live.sh",
@@ -358,27 +467,97 @@ def _enclosing_job_block(owner_text: str, step_block: str):
     return None
 
 
+def _matrix_keys_naming(owner_text: str, test_name: str) -> list:
+    """Matrix keys whose VALUE is `scanner/tests/<test_name>`, sorted.
+
+    Read with `key_line` over the comment-stripped text, so a quoted key
+    (`"test": scanner/tests/x.sh`) is seen and a `paths:` sequence item — which is
+    not a mapping key at all — is not."""
+    out = set()
+    wanted = {f"{SHELL_TEST_DIR}/{test_name}", f"./{SHELL_TEST_DIR}/{test_name}"}
+    for raw in strip_comment_lines(owner_text).splitlines():
+        parsed = key_line(raw)
+        if parsed is None:
+            continue
+        _, name, rest = parsed
+        if strip_inline_comment(rest).strip().strip("\"'") in wanted:
+            out.add(name)
+    return sorted(out)
+
+
+def _matrix_invocation_re(key: str):
+    """`${{ matrix.<key> }}` INVOKED as a command, not merely interpolated.
+
+    Same command-position rule as `_SHELL_TEST_INVOCATION_RE`, and for the same
+    reason: `run: echo "skipping ${{ matrix.test }}"` interpolates the key while
+    executing nothing, and a plain presence check reads it as the invocation."""
+    return re.compile(
+        _INVOCATION_PREFIX + r"\$\{\{\s*matrix\." + re.escape(key) + r"\s*\}\}", re.M
+    )
+
+
+def _matrix_running_steps(owner_text: str, owner: str, test_name: str):
+    """`(steps, problems)` for a test reached through a matrix value.
+
+    BOTH halves of the indirection must be present: a matrix key carrying the
+    test's path, and a step that invokes that key. Verifying only the first is
+    what let the `run:` be rewritten to an `echo` with the guard green."""
+    keys = _matrix_keys_naming(owner_text, test_name)
+    if not keys:
+        return [], [
+            f"{owner} is the documented MATRIX_INDIRECTION owner of {test_name} but "
+            "no matrix key carries that path any more, so the test runs nowhere. "
+            f"Restore the matrix entry or register the test in `{JOB}`."
+        ]
+    steps = [
+        blk for blk in step_blocks(owner_text)
+        for key in keys
+        if _matrix_invocation_re(key).search(executed_shell(blk))
+    ]
+    if not steps:
+        return [], [
+            f"{owner} names {test_name} only as the value of matrix key(s) {keys}, "
+            "and no step INVOKES that key as a command (`run: bash ${{ matrix."
+            f"{keys[0]} }}}}`). Interpolating it in an `echo` runs the step and not "
+            "the test — the exemption survives while the verdict disappears."
+        ]
+    return steps, []
+
+
+def locate_exemption_steps(owner_text: str, owner: str, test_name: str):
+    """`(steps, problems)` — the steps of `owner_text` that RUN `test_name`.
+
+    Fails CLOSED: a test invoked by no executed `run:` and reachable through no
+    documented indirection is reported rather than treated as run."""
+    steps = [
+        blk for blk in step_blocks(owner_text)
+        if test_name in invoked_shell_tests(executed_shell(blk))
+    ]
+    if steps:
+        return steps, []
+    if test_name in MATRIX_INDIRECTION:
+        return _matrix_running_steps(owner_text, owner, test_name)
+    return [], [
+        f"{owner} names {test_name} but no step's `run:` invokes it, and it is "
+        "not in MATRIX_INDIRECTION. Either the step was dropped (the test now "
+        "runs nowhere) or the invocation moved behind an indirection this guard "
+        "cannot read — add it to MATRIX_INDIRECTION with a reason, or register "
+        f"the test in `{JOB}`."
+    ]
+
+
 def exemption_swallow_problems(owner_text: str, owner: str, test_name: str) -> list:
     """Problems with HOW `owner_text` runs `test_name`: located, and can it fail?
 
-    Fails CLOSED in both directions — a test named by no executed `run:` is
-    reported (unless it is a documented matrix indirection), and so is one whose
-    step or job can swallow its exit code."""
-    running = [
-        blk for blk in step_blocks(owner_text)
-        if test_name in executed_shell(blk)
-    ]
-    if not running:
-        if test_name in MATRIX_INDIRECTION:
-            return []
-        return [
-            f"{owner} names {test_name} but no step's `run:` invokes it, and it is "
-            "not in MATRIX_INDIRECTION. Either the step was dropped (the test now "
-            "runs nowhere) or the invocation moved behind an indirection this guard "
-            "cannot read — add it to MATRIX_INDIRECTION with a reason, or register "
-            f"the test in `{JOB}`."
-        ]
-    problems = []
+    Fails CLOSED in both directions — a test no step invokes is reported, and so
+    is one whose step or job can swallow its exit code. Matrix-reached tests get
+    the SAME swallow checks as directly-invoked ones; exempting them was the other
+    half of the asymmetry that made the two `cross-os-checks.yml` entries less
+    protected than the two `dashboard-control-smoke.yml` ones while this table
+    presented them as equivalent."""
+    running, problems = locate_exemption_steps(owner_text, owner, test_name)
+    if problems:
+        return problems
     for blk in running:
         col = _seq_item_key_column(blk)
         if col is None:
@@ -433,7 +612,23 @@ MUST_BE_IN_BUCKET = {
 # Named by guards, deliberately NOT in the bucket: none reports a required context,
 # and admitting them would run the full scanner + kcov set on every workflow-only
 # PR. Reason is the workflow's role, not a promise about its guards.
+#
+# The two `.github/actions/**/action.yml` entries are keyed by PATH, not basename,
+# because both composite actions are named `action.yml` and a basename key would
+# collide. They used to be `continue`d out of the derived set entirely, with the
+# reason "composite actions are not path-gated by this bucket" — which restated the
+# hole instead of deciding it. They ARE guarded (`workflow_and_action_files()`
+# scans `.github/actions/**`, and `test_ci_injection_surface` /
+# `test_ci_template_pin_policy` scan them), and the bucket does not match them:
+#
+#     .github/actions/token-expiry-gate/action.yml   -> False
+#     .github/actions/datadog-ci-collect/action.yml  -> False
+#
 KNOWN_BUCKET_GAP = {
+    ".github/actions/datadog-ci-collect/action.yml":
+        "guards reached via the `ci-guards` job, not the `scanner` bucket",
+    ".github/actions/token-expiry-gate/action.yml":
+        "guards reached via the `ci-guards` job, not the `scanner` bucket",
     "cross-os-checks.yml": "non-required macOS/Windows matrix (weekly + path-gated)",
     "dashboard-control-smoke.yml": "non-required headless-Chrome smoke",
     "dast-baseline.yml": "non-required DAST",
@@ -549,24 +744,53 @@ def scanner_bucket_pattern(lint_text: str):
     return m.group("pattern") if m else None
 
 
+COMPOSITE_ENTRYPOINTS = ("action.yml", "action.yaml")
+
+
+def _bucket_key(path: Path) -> str:
+    """The table key for an executable Actions file.
+
+    A workflow is keyed by BASENAME (unique under `.github/workflows/`); a
+    composite action by its repo-relative PATH, because every composite action is
+    named `action.yml` and a basename key would make the two collide into one
+    entry — silently classifying both by whichever was seen last."""
+    if path.name in COMPOSITE_ENTRYPOINTS:
+        return f".github/actions/{path.parent.name}/{path.name}"
+    return path.name
+
+
+def _bucket_path(key: str) -> str:
+    """The repo-relative path the `changes` job's `grep -E` would see for `key`."""
+    return key if "/" in key else f".github/workflows/{key}"
+
+
 def guarded_workflows() -> dict:
-    """`{workflow filename: [guard files naming it]}`, DERIVED, not listed.
+    """`{table key: [guard files naming it]}`, DERIVED, not listed.
 
     Any `test_ci_*.py` mentioning a workflow's filename is treated as guarding it.
     Deliberately generous: the question is "would a reviewer expect this guard to
     run when that workflow changes", and a mention is the cheapest complete proxy.
     Over-inclusion only forces an in-or-out decision, never hides one.
-    """
+
+    Composite actions used to be skipped here, which meant a PR editing only
+    `.github/actions/<name>/action.yml` got no in-or-out decision at all — a
+    silent `continue` where every workflow gets a classified entry. They are
+    matched on their ENTRYPOINT NAME as well as their directory name, because that
+    is how a guard reaches them: none lists them individually, they arrive through
+    `workflow_and_action_files()`, which enumerates `action.yml`/`action.yaml`. The
+    consequence is intended — a NEW composite action is guarded by construction, so
+    it lands in neither table and fails until someone classifies it."""
     out = {}
     guards = sorted(Path(REPO_ROOT / "scanner" / "tests").glob("test_ci_*.py"))
     texts = {g.name: g.read_text(encoding="utf-8") for g in guards}
     for wf in workflow_and_action_files():
-        name = Path(wf).name
-        if name == "action.yml" or name == "action.yaml":
-            continue  # composite actions are not path-gated by this bucket
-        namers = sorted(g for g, t in texts.items() if name in t)
+        path = Path(wf)
+        tokens = {path.name}
+        if path.name in COMPOSITE_ENTRYPOINTS:
+            tokens.add(path.parent.name)
+        namers = sorted(g for g, t in texts.items() if any(tok in t for tok in tokens))
         if namers:
-            out[name] = namers
+            out[_bucket_key(path)] = namers
     return out
 
 
@@ -604,7 +828,7 @@ class TestGuardedWorkflowsAreInTheScannerBucket(unittest.TestCase):
         bucket = re.compile(self.pattern)
         for name, why in sorted(MUST_BE_IN_BUCKET.items()):
             with self.subTest(workflow=name):
-                path = f".github/workflows/{name}"
+                path = _bucket_path(name)
                 self.assertTrue(
                     bucket.match(path),
                     f"{path} does not match lint.yml's `scanner` diff bucket, so a "
@@ -648,6 +872,47 @@ class TestGuardedWorkflowsAreInTheScannerBucket(unittest.TestCase):
         """A gap entry with an empty reason is a heading, not a cost argument."""
         blank = sorted(k for k, v in KNOWN_BUCKET_GAP.items() if not v.strip())
         self.assertEqual(blank, [], f"gap entries missing a reason: {blank}")
+
+    def test_composite_actions_get_a_classification(self):
+        """Composite actions were `continue`d out of the derived set, so a PR
+        editing only `.github/actions/<name>/action.yml` got no in-or-out decision
+        at all — while every workflow got one. They are guarded
+        (`test_ci_injection_surface`, `test_ci_template_pin_policy`) and the bucket
+        does not match them, so the honest outcome is a classified entry.
+
+        Asserted on the DERIVED set rather than on the literal table, so this fails
+        for a new composite action too (via
+        `test_bucket_membership_lists_cover_every_guarded_workflow`) instead of
+        pinning today's two names."""
+        derived = guarded_workflows()
+        composites = sorted(k for k in derived if k.startswith(".github/actions/"))
+        self.assertTrue(
+            composites,
+            "no composite action appears in the derived guarded set — this repo has "
+            "two, so either they moved or they are being skipped again",
+        )
+        for key in composites:
+            with self.subTest(action=key):
+                self.assertIn(
+                    key, set(MUST_BE_IN_BUCKET) | set(KNOWN_BUCKET_GAP),
+                    f"{key} is scanned by {derived[key]} and is classified nowhere.",
+                )
+
+    def test_composite_actions_really_are_outside_the_bucket(self):
+        """The gap entries' premise, measured with the REAL regex. If the bucket
+        ever starts matching `.github/actions/**`, these two belong in
+        MUST_BE_IN_BUCKET instead and this fails to say so."""
+        self.assertIsNotNone(self.pattern, "bucket not found")
+        bucket = re.compile(self.pattern)
+        for key in sorted(KNOWN_BUCKET_GAP):
+            if not key.startswith(".github/actions/"):
+                continue
+            with self.subTest(action=key):
+                self.assertFalse(
+                    bucket.match(key),
+                    f"{key} now MATCHES the `scanner` bucket, so it is no longer a "
+                    "gap — move it to MUST_BE_IN_BUCKET with the reason.",
+                )
 
 
 class TestBucketDetectorIsNonVacuous(unittest.TestCase):
@@ -709,7 +974,38 @@ class TestBucketDetectorIsNonVacuous(unittest.TestCase):
         derived = guarded_workflows()
         self.assertIn("security-scan.yml", derived)
         self.assertIn("lint.yml", derived)
+        self.assertIn(".github/actions/token-expiry-gate/action.yml", derived)
         self.assertGreaterEqual(len(derived), 10, f"only found {sorted(derived)}")
+
+    def test_a_new_composite_action_is_unclassified_and_caught(self):
+        """The forcing mechanism, driven. A second composite action named
+        `action.yml` must produce its OWN key — a basename key would collide the two
+        into one entry and classify both by whichever was seen last — and must be
+        reported as unclassified until someone decides it.
+
+        Same tempdir + `_ci_guard_util.ACTION_DIR` swap
+        `test_ci_injection_surface` uses, so the live files do not leak in."""
+        import _ci_guard_util
+
+        original = _ci_guard_util.ACTION_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                act = Path(tmp, "actions")
+                for name in ("token-expiry-gate", "brand-new-thing"):
+                    (act / name).mkdir(parents=True)
+                    Path(act, name, "action.yml").write_text(
+                        "runs: {}\n", encoding="utf-8"
+                    )
+                _ci_guard_util.ACTION_DIR = act
+                derived = guarded_workflows()
+        finally:
+            _ci_guard_util.ACTION_DIR = original
+        self.assertIn(".github/actions/brand-new-thing/action.yml", derived)
+        self.assertIn(".github/actions/token-expiry-gate/action.yml", derived)
+        unclassified = sorted(
+            set(derived) - (set(MUST_BE_IN_BUCKET) | set(KNOWN_BUCKET_GAP))
+        )
+        self.assertEqual(unclassified, [".github/actions/brand-new-thing/action.yml"])
 
     # --- the bucket must be WIRED to the job, not merely correct ---------------
 
@@ -802,7 +1098,7 @@ class TestExemptionVerdictIsNonVacuous(unittest.TestCase):
 
     Anchored on `dashboard-control-smoke.yml`, whose steps name their tests in a
     `run:` directly. `cross-os-checks.yml` reaches its two through a matrix value
-    and is covered only by the reference check (MATRIX_INDIRECTION)."""
+    and gets the same checks via `TestRunsElsewhereOwnershipIsNonVacuous`."""
 
     OWNER = "dashboard-control-smoke.yml"
     TEST = "test_asset_dashboard_control_liveness.sh"
@@ -923,6 +1219,36 @@ class TestShellTestRegistration(unittest.TestCase):
             "that does run it.",
         )
 
+    def test_no_shell_test_hides_in_a_subdirectory(self):
+        """A `test_*.sh` below `scanner/tests/` runs NOWHERE and is invisible here.
+
+        `SHELL_TEST_GLOB` is non-recursive, and so is the kcov loop's
+        `for sh in scanner/tests/test_*.sh` (and its `chmod +x` line). Planting
+        `scanner/tests/unit/test_nested_thing.sh` — a script that exits 1 — left
+        this guard at `47 passed` while nothing in CI ran it: not the fast path
+        (explicit list), not the kcov backstop (flat glob), and not the denominator
+        that would have demanded registration.
+
+        WHY THIS AND NOT A RECURSIVE GLOB: making only this guard recursive would
+        demand registration for a file the kcov backstop still cannot see, and
+        making the kcov loop recursive too would SILENTLY CHANGE WHICH TESTS CI
+        RUNS — every future nested script would join the coverage loop by side
+        effect. Asserting the directory stays flat changes no CI behaviour, is
+        green today (`scanner/tests/` has `fixtures/` and `__pycache__/` and zero
+        nested `*.sh`), and leaves the recursion decision to whoever actually wants
+        a subdirectory, with both globs to update.
+        """
+        nested = nested_shell_tests()
+        self.assertEqual(
+            nested, [],
+            "these shell tests live BELOW `scanner/tests/`, where neither the "
+            f"`{JOB}` explicit list nor the `scanner-shell-coverage` kcov glob "
+            f"(`{SHELL_TEST_GLOB}`, non-recursive) can reach them, so they run "
+            f"nowhere:\n" + "\n".join(f"  - {p}" for p in nested)
+            + "\n\nMove them up to `scanner/tests/`, or make BOTH the kcov loop in "
+            "lint.yml and this guard's globs recursive in the same change.",
+        )
+
     def test_runs_elsewhere_table_has_no_ghosts(self):
         """A stale entry is a hole: it exempts a name nothing checks."""
         gone = sorted(set(RUNS_ELSEWHERE) - set(self.disk))
@@ -933,15 +1259,18 @@ class TestShellTestRegistration(unittest.TestCase):
         )
 
     def test_runs_elsewhere_is_really_run_there(self):
-        """The exemption must name a workflow that really references the test.
+        """The exemption must name a workflow that really INVOKES the test.
 
-        Weaker than the `run:`-scoped rule used for the fast path, and
-        deliberately so: `cross-os-checks.yml` invokes `bash ${{ matrix.test }}`,
-        so the filename lives in a matrix VALUE, and modelling that indirection
-        buys nothing for four hand-maintained entries. What it does catch is the
-        realistic decay — the owner workflow dropping the test, or keeping only a
-        `paths:` trigger mention (subtracted above). Residual: a mention in a
-        `name:` would satisfy it.
+        It used to require only a mention outside the trigger block, which is the
+        same mention-vs-invocation confusion the fast path was hardened against —
+        and for `cross-os-checks.yml` the mention lives in a matrix VALUE, so
+        rewriting the step that consumes it to `run: echo "skipping ${{ matrix.test
+        }}"` left both `*_live.sh` tests running nowhere at `47 passed`. The
+        invocation is now located for real (directly, or through the two documented
+        halves of the matrix indirection), so a `paths:` mention, a `name:` mention
+        and an `echo` all fail — the trigger-block subtraction this test used to
+        need is gone with them, because a `paths:` entry is a sequence item and
+        never an executed `run:` value.
         """
         known = {Path(p).name for p in workflow_and_action_files()}
         for test_name, owner in sorted(RUNS_ELSEWHERE.items()):
@@ -952,11 +1281,13 @@ class TestShellTestRegistration(unittest.TestCase):
                     "workflow or composite action file GitHub Actions executes.",
                 )
                 text = (LINT_YML.parent / owner).read_text(encoding="utf-8")
-                self.assertIn(
-                    test_name, _strip_trigger_block(text),
-                    f"{owner} no longer references {test_name} outside its trigger "
-                    "block, so that test now runs nowhere. Register it in "
-                    f"`{JOB}` or restore its step in {owner}.",
+                steps, problems = locate_exemption_steps(text, owner, test_name)
+                self.assertEqual(problems, [], "; ".join(problems))
+                self.assertTrue(
+                    steps,
+                    f"no step of {owner} invokes {test_name}, so that test runs "
+                    f"nowhere. Register it in `{JOB}` or restore its step in "
+                    f"{owner}.",
                 )
 
     def test_the_124_carve_out_requires_the_cap_to_have_fired(self):
@@ -1142,6 +1473,101 @@ class TestRegistrationDetectorIsNonVacuous(unittest.TestCase):
         )
         self.assertFalse(self._missing(mutant))
 
+    def test_a_block_scalar_header_with_a_trailing_comment_still_registers(self):
+        """`run: |  # note` is valid YAML — PyYAML reads the body — and the guard
+        dropped it, returning the header `'|'` as the whole executed shell and
+        reporting the step's test unregistered (`2 failed, 45 passed` on a real-file
+        mutation, from an ordinary authoring style). A guard people have to fight
+        gets weakened by its users rather than repaired (#414), and
+        `test_ci_injection_surface` already handles this shape, so the header is
+        comment-stripped before the block-scalar match."""
+        mutant = apply_mutation(
+            self.lint, self.step,
+            "      - name: Run bash unit tests (print_summary score-to-grade)\n"
+            "        run: |  # slowest of the three\n"
+            f"          bash scanner/tests/{self.TARGET}\n",
+        )
+        self.assertFalse(
+            self._missing(mutant),
+            "`run: |  # comment` must still collect its body — PyYAML does",
+        )
+
+    def test_a_mention_inside_an_executed_command_is_not_registration(self):
+        """The step RUNS, and what it runs is an `echo`. The path is present in an
+        executed `run:` value, which is all the bare-path matcher asked for:
+        `47 passed`, with nothing executing the test."""
+        mutant = apply_mutation(
+            self.lint, self.step,
+            "      - name: Run bash unit tests (print_summary score-to-grade)\n"
+            "        run: echo \"TEMPORARILY DISABLED: bash scanner/tests/"
+            f"{self.TARGET}\"\n",
+        )
+        self.assertIn(self.TARGET, mutant, "fixture must keep the token in the file")
+        self.assertTrue(self._missing(mutant))
+
+    def test_a_block_scalar_of_another_key_is_not_registration(self):
+        """A `run:`-shaped line inside a DIFFERENT key's block scalar. PyYAML reads
+        this step's executed shell as `true`; the guard read the `env:` body and
+        called the test registered at `47 passed`. The owning key is quoted here as
+        well, since the consume-and-discard arm must not be bypassable by `"env":`.
+        """
+        mutant = apply_mutation(
+            self.lint, self.step,
+            "      - name: Note about the score-to-grade test\n"
+            '        "env":\n'
+            "          NOTE: |\n"
+            f"            run: bash scanner/tests/{self.TARGET}\n"
+            "        run: true\n",
+        )
+        self.assertIn(self.TARGET, mutant, "fixture must keep the token in the file")
+        self.assertTrue(self._missing(mutant))
+
+    def test_the_pty_launcher_spelling_still_counts(self):
+        """Direction, and a real spelling: `scanner-unit-tests` invokes
+        `test_aws_sso_tty.sh` through `pty_run.py`. Narrowing a mention to an
+        invocation must not reject the launcher forms actually in use, or the guard
+        would false-alarm on the file it ships with."""
+        mutant = apply_mutation(
+            self.lint, self.step,
+            "      - name: Run bash unit tests (print_summary score-to-grade)\n"
+            "        run: python3 scanner/tests/pty_run.py bash scanner/tests/"
+            f"{self.TARGET}\n",
+        )
+        self.assertFalse(self._missing(mutant))
+
+    def test_a_chained_invocation_still_counts(self):
+        """Direction: `&&`/`;` are command positions, so a chained invocation in a
+        block scalar registers. Pins that the command-position rule is not
+        accidentally 'start of line only'."""
+        mutant = apply_mutation(
+            self.lint, self.step,
+            "      - name: Run bash unit tests (print_summary score-to-grade)\n"
+            "        run: |\n"
+            f"          echo start && bash scanner/tests/{self.TARGET}\n",
+        )
+        self.assertFalse(self._missing(mutant))
+
+    def test_nested_shell_test_detector_is_non_vacuous(self):
+        """`nested_shell_tests()` is asserted to be EMPTY on the real tree, so it
+        needs its own proof that it can be non-empty: a flat test must be ignored
+        and a nested one reported."""
+        original = globals()["REPO_ROOT"]
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                flat = Path(tmp, SHELL_TEST_DIR)
+                (flat / "unit").mkdir(parents=True)
+                Path(flat, "test_flat.sh").write_text("exit 0\n", encoding="utf-8")
+                Path(flat, "unit", "test_nested_thing.sh").write_text(
+                    "exit 1\n", encoding="utf-8"
+                )
+                globals()["REPO_ROOT"] = Path(tmp)
+                self.assertEqual(
+                    nested_shell_tests(),
+                    [f"{SHELL_TEST_DIR}/unit/test_nested_thing.sh"],
+                )
+        finally:
+            globals()["REPO_ROOT"] = original
+
     def test_a_new_unregistered_test_file_is_caught(self):
         """The forward-looking case: a file appears on disk with no step. Uses the
         real detector against a disk list with one extra name, since the guard's
@@ -1190,37 +1616,99 @@ class TestRegistrationDetectorIsNonVacuous(unittest.TestCase):
 
 class TestRunsElsewhereOwnershipIsNonVacuous(unittest.TestCase):
     """The ownership check needs its own mutation proof: it is the only thing
-    standing between `RUNS_ELSEWHERE` and a parking lot for unrun tests."""
+    standing between `RUNS_ELSEWHERE` and a parking lot for unrun tests.
+
+    Anchored on `cross-os-checks.yml`, the MATRIX-indirection owner, so both halves
+    of the indirection are driven. `dashboard-control-smoke.yml`, whose steps name
+    their tests directly, is covered by `TestExemptionVerdictIsNonVacuous`."""
 
     OWNER = "cross-os-checks.yml"
     TEST = "test_check_macos_cis_security_live.sh"
+    MATRIX_ENTRY = "            test: scanner/tests/test_check_macos_cis_security_live.sh\n"
+    CONSUMER = "run: bash ${{ matrix.test }}"
 
     def setUp(self):
         self.text = (LINT_YML.parent / self.OWNER).read_text(encoding="utf-8")
 
-    def test_control_owner_really_references_the_test(self):
-        self.assertIn(self.TEST, _strip_trigger_block(self.text))
+    def _problems(self, text):
+        return locate_exemption_steps(text, self.OWNER, self.TEST)[1]
+
+    def test_control_owner_really_invokes_the_test(self):
+        """Item 6: GREEN on the real file, and a located step — not an empty list
+        of steps with an empty list of problems, which would read the same at the
+        call sites and prove nothing."""
+        steps, problems = locate_exemption_steps(self.text, self.OWNER, self.TEST)
+        self.assertEqual(problems, [])
+        self.assertTrue(steps, "no step located on the real file")
 
     def test_dropping_the_matrix_entry_is_caught(self):
-        mutant = apply_mutation(
-            self.text, f"            test: scanner/tests/{self.TEST}\n", ""
+        assert_disables(
+            self._problems,
+            self.text,
+            apply_mutation(self.text, self.MATRIX_ENTRY, ""),
+            "matrix value naming the test deleted",
         )
-        self.assertNotIn(self.TEST, _strip_trigger_block(mutant))
 
     def test_paths_only_mention_is_not_ownership(self):
-        """POSITIVE CONTROL for `_strip_trigger_block`. The matrix entry is gone but
-        the `on.pull_request.paths` mention remains, so the raw file still contains
-        the name — only the subtraction distinguishes them. Without it this
-        assertion would pass with the test running nowhere."""
-        mutant = apply_mutation(
-            self.text, f"            test: scanner/tests/{self.TEST}\n", ""
-        )
+        """POSITIVE CONTROL. The matrix entry is gone but the
+        `on.pull_request.paths` mention remains, so the raw file still contains the
+        name. A presence check over the file would pass here with the test running
+        nowhere."""
+        mutant = apply_mutation(self.text, self.MATRIX_ENTRY, "")
         self.assertIn(
             self.TEST, mutant,
             "fixture must leave the `paths:` mention in place, or it proves nothing",
         )
         self.assertIn(f"- 'scanner/tests/{self.TEST}'", mutant)
-        self.assertNotIn(self.TEST, _strip_trigger_block(mutant))
+        self.assertTrue(self._problems(mutant))
+
+    def test_a_consumer_that_only_interpolates_the_matrix_key_is_caught(self):
+        """THE MEDIUM-1 bypass. The matrix entry is untouched and the step still
+        runs and still mentions `${{ matrix.test }}` — it just no longer executes
+        it. Under reference-only ownership this read `47 passed` with BOTH
+        `*_live.sh` tests running nowhere in the repo."""
+        assert_disables(
+            self._problems,
+            self.text,
+            apply_mutation(
+                self.text, self.CONSUMER, 'run: echo "skipping ${{ matrix.test }}"'
+            ),
+            "matrix consumer downgraded to an echo",
+        )
+
+    def test_deleting_the_consumer_step_is_caught(self):
+        self.assertTrue(self._problems(apply_mutation(self.text, self.CONSUMER, "run: true")))
+
+    def test_a_matrix_reached_test_gets_the_swallow_checks_too(self):
+        """The other half of the asymmetry: `continue-on-error` on the step that
+        consumes the matrix value. `exemption_swallow_problems` used to return `[]`
+        for a MATRIX_INDIRECTION entry before it ever reached these checks, so the
+        two cross-os entries had none of the protection the two
+        dashboard-control-smoke entries had."""
+        assert_disables(
+            lambda t: exemption_swallow_problems(t, self.OWNER, self.TEST),
+            self.text,
+            apply_mutation(
+                self.text,
+                "      - name: Run OS-specific structural integration test\n",
+                "      - name: Run OS-specific structural integration test\n"
+                "        continue-on-error: true\n",
+            ),
+            "matrix consumer step swallows its rc",
+        )
+
+    def test_job_level_continue_on_error_on_the_matrix_owner_is_caught(self):
+        self.assertTrue(
+            exemption_swallow_problems(
+                apply_mutation(
+                    self.text,
+                    "  live-os-checks:\n",
+                    "  live-os-checks:\n    continue-on-error: true\n",
+                ),
+                self.OWNER,
+                self.TEST,
+            )
+        )
 
 
 if __name__ == "__main__":
