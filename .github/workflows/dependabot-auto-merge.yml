@@ -68,13 +68,36 @@ jobs:
       #
       # ELIGIBLE (auto-arm) only when ALL hold:
       #   - update-type is semver-patch or semver-minor
-      #   - ecosystem is pip, docker, or github-actions
+      #   - ecosystem is pip or docker
       #   - no hard-excluded path pattern matches
       #
-      # NOTE: bot approval is intentionally absent. Branch protection requires
-      # a code-owner review (* @Twodragon0) which GITHUB_TOKEN cannot satisfy.
-      # Auto-merge fires ONLY after the human code-owner approves AND required
-      # checks (Lint, Security Scan Gate) pass AND the branch is up-to-date.
+      # `github-actions` USED TO BE LISTED HERE AND WAS UNREACHABLE, twice over.
+      # First observed live on PR #460 (a `codeql-action` patch bump), the first
+      # real Dependabot PR this workflow ever evaluated:
+      #
+      #   1. Every github-actions bump edits a `uses:` line under `.github/` by
+      #      definition, and the `.github/**` hard-exclude below is evaluated
+      #      BEFORE the ecosystem check. #460's log: "PR touches a hard-excluded
+      #      path ... Requires human code-owner review", then exit 0.
+      #   2. The allowlist arm read `github-actions` with a HYPHEN, while the
+      #      metadata action emits an UNDERSCORE — #460's log again:
+      #      `outputs.package-ecosystem: github_actions`. So even with the path
+      #      exclude removed, the arm could not have matched.
+      #
+      # Removing the entry rather than repairing it: an actions bump changes what
+      # CI itself runs, so human review is the deliberate policy (OWASP CICD-SEC-3
+      # — a repointable ref is a supply-chain exposure). Keeping a dead arm that
+      # advertises auto-merge for actions patches is worse than not offering it.
+      # If that policy ever changes, the `.github/**` exclude must be narrowed in
+      # the same commit, and the ecosystem spelled `github_actions`.
+      #
+      # NOTE: bot approval is intentionally absent, and auto-merge is armed
+      # SERVER-SIDE so branch protection remains the only gate. Required checks
+      # (Lint, Security Scan Gate) must pass and the branch must be up-to-date
+      # (strict mode). Approval is NOT part of that gate: re-verified 2026-08-21,
+      # `require_code_owner_reviews=false`, `required_approving_review_count=0`,
+      # no repo rulesets. An earlier version of this note asserted a code-owner
+      # requirement; that was true when written and is not true now.
       - name: Evaluate eligibility and arm auto-merge
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -126,18 +149,25 @@ jobs:
           esac
 
           # ── Eligible ecosystems ───────────────────────────────────────────
+          # `github_actions` is deliberately absent — see the note above. It is
+          # already unreachable via the `.github/**` hard-exclude, so this is a
+          # second, independent refusal rather than the only one.
           case "$ECOSYSTEM" in
-            pip|docker|github-actions) ;;
+            pip|docker) ;;
             *)
-              echo "Ecosystem '$ECOSYSTEM' is not in the auto-arm allowlist (pip, docker, github-actions) — skipping."
+              echo "Ecosystem '$ECOSYSTEM' is not in the auto-arm allowlist (pip, docker) — skipping."
               exit 0
               ;;
           esac
 
           # ── Arm auto-merge ────────────────────────────────────────────────
-          # This only ARMS GitHub's server-side auto-merge feature. The actual
-          # merge will not execute until the human code-owner (@Twodragon0)
-          # approves the PR AND all required status checks pass AND the branch
-          # is up-to-date with main (strict mode).
+          # This only ARMS GitHub's server-side auto-merge feature. The merge
+          # will not execute until all required status checks pass AND the
+          # branch is up-to-date with main (strict mode). It does NOT wait for a
+          # review: `require_code_owner_reviews` and
+          # `required_approving_review_count` are both off as of 2026-08-21, so
+          # branch protection is the whole gate. That is exactly why the
+          # hard-excludes above, not an approval step, are what keep sensitive
+          # paths on human review.
           echo "PR is eligible ($UPDATE_TYPE / $ECOSYSTEM). Arming auto-merge (squash)."
           gh pr merge --auto --squash "$PR_URL"

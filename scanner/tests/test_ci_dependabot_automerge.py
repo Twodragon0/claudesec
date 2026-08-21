@@ -23,7 +23,7 @@ Control / CICD-SEC-4 Poisoned Pipeline Execution; NIST SSDF PW.4/PO.3):
   3. **Update-type allowlist** — only `version-update:semver-patch` /
      `semver-minor` may auto-arm; `semver-major` is hard-excluded. Broadening
      this would auto-merge breaking bumps.
-  4. **Ecosystem allowlist** — only `pip|docker|github-actions`. Adding e.g.
+  4. **Ecosystem allowlist** — only `pip|docker`. Adding e.g.
      `npm` here is a policy change that must be reviewed, not slipped in.
   5. **No bypass** — the arm must stay `gh pr merge --auto` (server-side, still
      gated by branch protection + the human code-owner review). `--admin` must
@@ -81,8 +81,10 @@ REQUIRED_TOKENS = {
     "eligible_update_types": (
         "version-update:semver-patch|version-update:semver-minor)"
     ),
-    # 4. Ecosystem allowlist
-    "eligible_ecosystems": "pip|docker|github-actions)",
+    # 4. Ecosystem allowlist. `github-actions` was REMOVED, not narrowed — it
+    #    was unreachable twice over (see
+    #    `test_actions_ecosystem_stays_out_of_the_allowlist`).
+    "eligible_ecosystems": "pip|docker)",
     # 5. The arm must be server-side auto-merge (gated by branch protection)
     "arm_is_auto_merge": "gh pr merge --auto",
     # Sanity: this is the pull_request_target workflow we think it is
@@ -205,9 +207,61 @@ class TestDependabotAutoMergeGuard(unittest.TestCase):
         )
         self.assertIn(
             REQUIRED_TOKENS["eligible_ecosystems"], self.scan,
-            "Ecosystem allowlist changed from pip|docker|github-actions — a policy "
+            "Ecosystem allowlist changed from pip|docker — a policy "
             "change that must be reviewed, not slipped in.",
         )
+
+    def test_actions_ecosystem_stays_out_of_the_allowlist(self):
+        """An allowlist must not advertise a path the policy forbids.
+
+        `github-actions` sat in this allowlist while being unreachable for TWO
+        independent reasons, and the first live Dependabot PR this workflow ever
+        evaluated (#460, a `codeql-action` patch bump) demonstrated both:
+
+        1. every github-actions bump edits a `uses:` line under `.github/` by
+           definition, and the `.github/**` hard-exclude is evaluated BEFORE the
+           ecosystem check — #460 exited there;
+        2. the arm was spelled with a HYPHEN while the metadata action emits an
+           UNDERSCORE (`outputs.package-ecosystem: github_actions` in #460's
+           log), so it could not have matched even without the path exclude.
+
+        DIRECTION, stated as it actually behaves rather than as the first draft
+        of this docstring claimed. Both spellings are rejected while the
+        `.github/**` exclude is present, and if that exclude is REMOVED this test
+        does not silently permit the ecosystem — it fails too, on its own opening
+        assertion, because it cannot judge an allowlist whose ordering premise is
+        gone. Measured: narrowing the exclude and adding `github_actions` trips
+        FOUR guards at once (this one, `test_hard_exclude_paths_present`,
+        `test_all_invariants_hold`, `test_real_workflow_clean`). So re-enabling
+        actions auto-arm is deliberately a multi-guard change, not a one-line
+        edit — which is the right cost for a policy that decides whether CI's own
+        definition can merge itself.
+
+        What this is NOT is a claim that actions bumps must never auto-merge. It
+        is a consistency rule: the allowlist must not advertise a capability the
+        evaluation order forbids. A dead arm reads as a capability the repo has,
+        and reason 2 above means nobody would have noticed it was dead even if
+        reason 1 were fixed alone.
+        """
+        active = _active_scan(self.text)
+        github_excluded = REQUIRED_TOKENS["exclude_github"] in active
+        self.assertTrue(
+            github_excluded,
+            "the `.github/**` hard-exclude is gone; that is a separate "
+            "regression and `test_hard_exclude_paths_present` owns it. This test "
+            "cannot judge the allowlist without it.",
+        )
+        for spelling in ("github-actions", "github_actions"):
+            with self.subTest(spelling=spelling):
+                self.assertNotIn(
+                    f"{spelling})",
+                    active,
+                    f"`{spelling}` appears as a case arm while `.github/**` is "
+                    "hard-excluded ahead of the ecosystem check, so it can never "
+                    "match. Either narrow the hard-exclude in this same change, "
+                    "or leave the ecosystem out. Note the emitted value uses an "
+                    "UNDERSCORE: a hyphenated arm is dead even on its own.",
+                )
 
     def test_no_bypass_tokens(self):
         for key, tok in FORBIDDEN_TOKENS.items():
@@ -241,7 +295,7 @@ class TestDependabotAutoMergeGuardMutation(unittest.TestCase):
             "  scripts/*|scripts)",
             'if [ "$UPDATE_TYPE" = "version-update:semver-major" ]; then',
             "  version-update:semver-patch|version-update:semver-minor) ;;",
-            "  pip|docker|github-actions) ;;",
+            "  pip|docker) ;;",
             'gh pr merge --auto --squash "$PR_URL"',
         ]
     )
@@ -338,8 +392,8 @@ class TestDependabotAutoMergeGuardMutation(unittest.TestCase):
 
     def test_broadening_ecosystems_is_detected(self):
         mutant = self._GOOD.replace(
-            "  pip|docker|github-actions) ;;",
-            "  pip|docker|github-actions|npm) ;;",
+            "  pip|docker) ;;",
+            "  pip|docker|npm) ;;",
         )
         self.assertTrue(
             any("eligible_ecosystems" in p for p in _violations(mutant)),
