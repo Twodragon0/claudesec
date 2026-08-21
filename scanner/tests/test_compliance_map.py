@@ -29,8 +29,8 @@ def _make_finding(check="chk", title="", message="", compliance=None):
 class TestComplianceControlMap(unittest.TestCase):
     """Verify the structure of the compliance control map."""
 
-    def test_has_six_frameworks(self):
-        self.assertEqual(len(COMPLIANCE_CONTROL_MAP), 6)
+    def test_has_eight_frameworks(self):
+        self.assertEqual(len(COMPLIANCE_CONTROL_MAP), 8)
 
     def test_expected_framework_names(self):
         expected = {
@@ -40,6 +40,8 @@ class TestComplianceControlMap(unittest.TestCase):
             "NIST 800-53 Rev5",
             "CIS Benchmarks",
             "KISA ISMS Simple",
+            "SOC 2 (TSC)",
+            "CMMC 2.0 Level 2",
         }
         self.assertEqual(set(COMPLIANCE_CONTROL_MAP.keys()), expected)
 
@@ -53,16 +55,37 @@ class TestComplianceControlMap(unittest.TestCase):
                         f"Missing fields in {fw}/{ctrl['control']}",
                     )
                     self.assertIsInstance(ctrl["checks"], list)
-                    self.assertGreater(len(ctrl["checks"]), 0)
+                    if ctrl.get("native_only"):
+                        # The inverse of the rule below, and load-bearing: a
+                        # native_only control that grew a keyword list would
+                        # still never consult it (map_compliance skips the
+                        # keyword branch), so the list would be silent dead
+                        # data that reads like an active matcher.
+                        self.assertEqual(
+                            ctrl["checks"],
+                            [],
+                            f"{fw}/{ctrl['control']} is native_only but carries "
+                            "keywords, which map_compliance will never read.",
+                        )
+                    else:
+                        self.assertGreater(len(ctrl["checks"]), 0)
 
     def test_control_counts_per_framework(self):
         counts = {fw: len(ctrls) for fw, ctrls in COMPLIANCE_CONTROL_MAP.items()}
         self.assertEqual(counts["ISO 27001:2022"], 7)
-        self.assertEqual(counts["KISA ISMS-P"], 42)
+        # 44 after the KISA realignment: 2.10.9 악성코드 통제 restored at its
+        # standard id, the duplicate 2.10.7 패치 관리 removed, and 2.5.5/2.5.6
+        # added to re-home the access-rights coverage that correcting 2.6.1 to
+        # 네트워크 접근 would otherwise have dropped from the framework.
+        # See test_ci_kisa_control_alignment.py.
+        self.assertEqual(counts["KISA ISMS-P"], 44)
         self.assertEqual(counts["PCI-DSS v4.0.1"], 7)
         self.assertEqual(counts["NIST 800-53 Rev5"], 10)
         self.assertEqual(counts["CIS Benchmarks"], 9)
         self.assertEqual(counts["KISA ISMS Simple"], 20)
+        self.assertEqual(counts["SOC 2 (TSC)"], 9)
+        # 14 CMMC domains = NIST SP 800-171 Rev. 2 requirement families 3.1–3.14.
+        self.assertEqual(counts["CMMC 2.0 Level 2"], 14)
 
 
 class TestMatchProwlerCompliance(unittest.TestCase):
@@ -98,6 +121,35 @@ class TestMatchProwlerCompliance(unittest.TestCase):
         finding = {"compliance": {"SOC2": ["CC6.1"]}}
         self.assertFalse(_match_prowler_compliance(finding, "ISO 27001:2022"))
 
+    def test_soc2_framework_key_does_not_native_match_prowler_soc2(self):
+        """Deliberate: 'SOC 2 (TSC)' must NOT native-match Prowler's bare 'SOC2'.
+
+        `_match_prowler_compliance` reads the compliance TAGS ON A FINDING and is
+        framework-level, not control-level: one hit marks EVERY control it is
+        consulted for. Prowler tags 160 of its 605 AWS checks (26%) with a SOC2
+        requirement, so a match would pin those CC series to FAIL on a single
+        finding and destroy the per-criterion signal. The spaced/parenthesised
+        name does not substring-match Prowler's bare 'SOC2' key, which is also
+        why ISO/CIS/NIST are unaffected (their display names do not match
+        Prowler's 'CIS-1.5'/'ISO27001-2013' keys either).
+
+        SCOPE CORRECTION (2026-08-18). This used to conclude "the name keeps
+        SOC 2 keyword-driven". That is no longer what SOC 2 is: #451 registered
+        `soc2_*.json` in `prowler_native_map.FRAMEWORK_SOURCES`, so all nine
+        series carry an exact requirement->check mapping and an AWS scan
+        measures 8 exact / 1 keyword. The two mechanisms are independent — the
+        native mapping reads Prowler's compliance FILE, this one reads the
+        finding's own tags.
+
+        The name still matters because this function runs ONLY on the keyword
+        path, so what it protects is a run reaching none of aws/azure/gcp.
+        Measured on a Kubernetes-only run with one SOC2-tagged finding, renaming
+        the key flips CC3/CC5/CC6/CC7/CC8 from PASS to FAIL. CC9 is the wrong
+        example to reach for: `assessable: False` pins it N/A either way.
+        """
+        finding = {"compliance": {"SOC2": ["cc_6_1"]}}
+        self.assertFalse(_match_prowler_compliance(finding, "SOC 2 (TSC)"))
+
 
 class TestMapCompliance(unittest.TestCase):
     """Test map_compliance with various finding sets."""
@@ -106,12 +158,30 @@ class TestMapCompliance(unittest.TestCase):
         """With no findings, every assessable control is PASS; every
         non-assessable control (e.g. the 11 ISMS-P 3.x PII controls) is
         always N/A regardless of findings."""
+        # No findings means no provider was scanned, so a provider-scoped
+        # native source cannot apply: every CMMC domain must be unmapped.
+        # Anchored on the framework rather than derived from the output —
+        # `status`/`match_source` are co-produced, so asserting only their
+        # mutual consistency stays green if the whole native_only path is
+        # deleted and the domains revert to a keyword PASS.
         result = map_compliance([])
+        cmmc = result["CMMC 2.0 Level 2"]
+        self.assertEqual(len(cmmc), 14)
+        self.assertTrue(all(c["match_source"] == "unmapped" for c in cmmc))
+        self.assertTrue(all(c["status"] == "N/A" for c in cmmc))
+
         for fw, controls in result.items():
             for ctrl in controls:
                 with self.subTest(framework=fw, control=ctrl["control"]):
-                    expected_status = "N/A" if not ctrl.get("assessable", True) else "PASS"
-                    self.assertEqual(ctrl["status"], expected_status)
+                    # Two routes to N/A: declared non-assessable, or a
+                    # `native_only` control with no Prowler mapping to consult
+                    # (match_source "unmapped"). Both are pinned in detail by
+                    # test_compliance_map_ismsp_na.py.
+                    na = (
+                        not ctrl.get("assessable", True)
+                        or ctrl["match_source"] == "unmapped"
+                    )
+                    self.assertEqual(ctrl["status"], "N/A" if na else "PASS")
                     self.assertEqual(ctrl["count"], 0)
                     self.assertEqual(ctrl["findings"], [])
 
@@ -177,11 +247,20 @@ class TestMapCompliance(unittest.TestCase):
         self.assertEqual(pci["Req 1"]["status"], "FAIL")
         self.assertEqual(nist["SC-8"]["status"], "FAIL")
 
-    def test_argocd_rbac_triggers_cis_k8s_argocd(self):
+    def test_argocd_finding_is_recorded_but_control_stays_na(self):
+        """CIS-K8s-ArgoCD renders N/A: Prowler ships no ArgoCD provider.
+
+        Measured against the real 5.38 catalog, this control had 88 hits and
+        ZERO true positives — its `argocd`/`argo`/`gitops` tokens match nothing
+        in the corpus, and the `rbac`/`_sso`/`project` tokens it used to carry
+        matched Vercel/GCP/Azure text instead. A synthetic ArgoCD finding still
+        matches its keywords and is still recorded as evidence for a human, but
+        the control no longer claims a PASS/FAIL it cannot support.
+        """
         findings = [_make_finding(check="argocd_rbac", title="ArgoCD default admin", message="ArgoCD RBAC allows admin to all projects")]
         result = map_compliance(findings)
         cis_controls = {c["control"]: c for c in result["CIS Benchmarks"]}
-        self.assertEqual(cis_controls["CIS-K8s-ArgoCD"]["status"], "FAIL")
+        self.assertEqual(cis_controls["CIS-K8s-ArgoCD"]["status"], "N/A")
         self.assertGreaterEqual(cis_controls["CIS-K8s-ArgoCD"]["count"], 1)
 
     def test_result_preserves_control_metadata(self):
@@ -207,7 +286,12 @@ class TestComplianceSummary(unittest.TestCase):
             with self.subTest(framework=fw):
                 self.assertEqual(stats["fail"], 0)
                 self.assertEqual(stats["pass"], stats["total"])
-                self.assertGreater(stats["total"], 0)
+                # total is 0 only when EVERY control is N/A — true for a
+                # fully `native_only` framework with no Prowler mapping loaded.
+                if any(c["status"] != "N/A" for c in cmap[fw]):
+                    self.assertGreater(stats["total"], 0)
+                else:
+                    self.assertEqual(stats["total"], 0)
 
     def test_mixed_pass_fail(self):
         findings = [_make_finding(check="mfa_off", title="MFA disabled", message="No MFA")]
@@ -218,15 +302,15 @@ class TestComplianceSummary(unittest.TestCase):
         self.assertTrue(any_fail)
 
     def test_summary_totals_match_controls(self):
-        """total = pass + fail, excluding non-assessable (N/A) controls."""
+        """total = pass + fail, excluding every N/A control."""
         cmap = map_compliance([])
         summary = compliance_summary(cmap)
         for fw, controls in COMPLIANCE_CONTROL_MAP.items():
-            assessable_count = sum(1 for c in controls if c.get("assessable", True))
-            na_count = len(controls) - assessable_count
-            self.assertEqual(summary[fw]["total"], assessable_count)
+            na_count = sum(1 for c in cmap[fw] if c["status"] == "N/A")
+            scored = len(controls) - na_count
+            self.assertEqual(summary[fw]["total"], scored)
             self.assertEqual(summary[fw]["na"], na_count)
-            self.assertEqual(summary[fw]["pass"] + summary[fw]["fail"], assessable_count)
+            self.assertEqual(summary[fw]["pass"] + summary[fw]["fail"], scored)
 
     def test_summary_keys_match_frameworks(self):
         cmap = map_compliance([])

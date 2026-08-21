@@ -274,12 +274,13 @@ class TestOcsfDashboardE2E(unittest.TestCase):
                 tmpdir, {"prowler-kubernetes.ocsf.json": findings}
             )
 
-            # All five frameworks should be rendered
+            # All six mapped frameworks should be rendered
             self.assertIn("ISO 27001:2022", html)
             self.assertIn("KISA ISMS-P", html)
             self.assertIn("PCI-DSS v4.0.1", html)
             self.assertIn("NIST 800-53 Rev5", html)
             self.assertIn("CIS Benchmarks", html)
+            self.assertIn("SOC 2 (TSC)", html)
 
     def test_compliance_keyword_matching(self):
         """Findings matching compliance keywords should trigger FAIL status."""
@@ -437,13 +438,14 @@ class TestOcsfDashboardE2E(unittest.TestCase):
             self.assertIn("compliance", latest)
             compliance = latest["compliance"]
 
-            # All 5 frameworks should be present
+            # All 6 mapped frameworks should be present
             for fw in [
                 "ISO 27001:2022",
                 "KISA ISMS-P",
                 "PCI-DSS v4.0.1",
                 "NIST 800-53 Rev5",
                 "CIS Benchmarks",
+                "SOC 2 (TSC)",
             ]:
                 self.assertIn(fw, compliance, f"Missing framework: {fw}")
                 self.assertIn("pass", compliance[fw])

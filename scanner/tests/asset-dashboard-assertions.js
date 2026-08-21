@@ -419,6 +419,70 @@
     );
   })();
 
+  /* ── Folded-in scan summary: compliance / OWASP / freshness ─────────────── */
+
+  /* /scan.html no longer exists — its compliance and OWASP rollups are rendered
+     here from scan-report.json. These are RENDER assertions, not click ones: the
+     regression they catch is the summary silently disappearing from the only
+     page that still shows it. Selected structurally (panel id + card ordinal),
+     never by data-action, per the discipline above. */
+  (function () {
+    if (!openTab("sec")) { rec("scanSummary", false, "sec tab did not open"); return; }
+    var panel = document.getElementById("p-sec");
+    var html = panel ? panel.innerHTML : "";
+
+    /* Compliance card: one row per framework in the fixture, and the N/A count
+       rendered as its own column. N/A specifically, because a framework whose
+       governance controls are non-assessable must not read as all-pass. */
+    var tables = panel ? panel.querySelectorAll("table") : [];
+    var compRows = 0, naCell = "";
+    for (var i = 0; i < tables.length; i++) {
+      var head = tables[i].querySelector("thead");
+      if (head && head.textContent.indexOf("N/A") !== -1) {
+        var rows = tables[i].querySelectorAll("tbody tr");
+        compRows = rows.length;
+        if (rows.length) {
+          var tds = rows[0].querySelectorAll("td");
+          naCell = tds.length >= 4 ? tds[3].textContent.trim() : "";
+        }
+        break;
+      }
+    }
+    rec(
+      "complianceCard",
+      compRows === 2 && naCell === "1",
+      "framework rows=" + compRows + " (want 2), first-row N/A='" + naCell + "' (want '1')"
+    );
+
+    /* OWASP card: zero-count categories are filtered out, so the badge reads
+       hits/total. A card that listed all ten would hide which ones actually hit. */
+    var owaspHit = html.indexOf("A01:2025") !== -1;
+    var owaspZeroHidden = html.indexOf("A02:2025") === -1;
+    rec(
+      "owaspCard",
+      owaspHit && owaspZeroHidden,
+      "A01 (count 2) shown=" + owaspHit + ", A02 (count 0) hidden=" + owaspZeroHidden
+    );
+
+    /* Freshness: the fixture stamps every source at 2026-01-01, far past
+       TS_OLD_DAYS, so the bar must carry a red dot AND say how stale it is.
+       `.ts-dot.stale`/`.old` were in the stylesheet from the start with nothing
+       applying them — every source rendered green regardless of age. */
+    var oldDots = panel ? panel.querySelectorAll(".ts-bar .ts-dot.old").length : 0;
+    var hasAge = /경과/.test(html);
+    rec(
+      "staleSourceFlagged",
+      oldDots > 0 && hasAge,
+      "red dots=" + oldDots + ", age note rendered=" + hasAge
+    );
+
+    /* No link may point at the removed page. nginx 301s /scan.html to /, so a
+       leftover would not 404 — it would silently bounce the user back to the
+       page they are already on, which is worse to notice. */
+    var dead = document.querySelectorAll('a[href*="scan.html"]').length;
+    rec("noScanHtmlLinks", dead === 0, "anchors pointing at scan.html: " + dead);
+  })();
+
   /* ── EXPLICIT SKIPS (recorded, not silently omitted) ─────────────────────── */
 
   /* _fPS2: the dispatcher carries a `_fPS2` case, but the only markup that emits

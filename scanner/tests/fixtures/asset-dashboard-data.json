@@ -53,6 +53,32 @@
         "category": "docs",
         "details": "Add a policy"
       }
+    ],
+    "compliance": {
+      "ISO 27001:2022": {
+        "pass": 6,
+        "fail": 1,
+        "na": 1,
+        "total": 7
+      },
+      "KISA ISMS-P": {
+        "pass": 28,
+        "fail": 0,
+        "na": 14,
+        "total": 28
+      }
+    },
+    "owasp": [
+      {
+        "id": "A01:2025",
+        "name": "Broken Access Control",
+        "count": 2
+      },
+      {
+        "id": "A02:2025",
+        "name": "Security Misconfiguration",
+        "count": 0
+      }
     ]
   },
   "prowler": {
@@ -123,7 +149,9 @@
         "severity": "medium",
         "status": "open",
         "title": "Sample suspicious login",
-        "tags": ["source:sample"]
+        "tags": [
+          "source:sample"
+        ]
       }
     ]
   },
@@ -222,8 +250,18 @@
   ],
   "saas_cost": {
     "summary": [
-      {"software": "Sample CRM", "jan": 100000, "feb": 120000, "total": 220000},
-      {"software": "Sample Chat", "jan": 50000, "feb": 50000, "total": 100000}
+      {
+        "software": "Sample CRM",
+        "jan": 100000,
+        "feb": 120000,
+        "total": 220000
+      },
+      {
+        "software": "Sample Chat",
+        "jan": 50000,
+        "feb": 50000,
+        "total": 100000
+      }
     ],
     "details": {
       "2026-01": [
@@ -250,10 +288,20 @@
       ]
     },
     "by_department": [
-      {"department": "Sales", "jan": 100000, "feb": 120000, "total": 220000}
+      {
+        "department": "Sales",
+        "jan": 100000,
+        "feb": 120000,
+        "total": 220000
+      }
     ],
     "by_user": [
-      {"user": "user-a", "jan": 100000, "feb": 120000, "total": 220000}
+      {
+        "user": "user-a",
+        "jan": 100000,
+        "feb": 120000,
+        "total": 220000
+      }
     ]
   },
   "renewals": {
@@ -270,7 +318,11 @@
     ],
     "watch": [],
     "expired": [],
-    "counts": {"urgent": 1, "watch": 0, "expired": 0}
+    "counts": {
+      "urgent": 1,
+      "watch": 0,
+      "expired": 0
+    }
   },
   "jamf_pcs": [
     {
@@ -306,20 +358,46 @@
       "last_seen": "2026-01-01T00:00:00Z"
     }
   ],
-  "s1_threats": [{"name": "Sample threat", "severity": "high"}],
+  "s1_threats": [
+    {
+      "name": "Sample threat",
+      "severity": "high"
+    }
+  ],
   "policies": [
     {
       "name": "Sample Access Control Policy",
       "url": "",
       "total_chapters": 2,
       "total_articles": 3,
-      "isms_controls": ["2.5.1"],
+      "isms_controls": [
+        "2.5.1"
+      ],
       "compliance_pct": 66,
-      "compliance_summary": {"done": 2, "partial": 1, "todo": 0},
+      "compliance_summary": {
+        "done": 2,
+        "partial": 1,
+        "todo": 0
+      },
       "articles": [
-        {"chapter": "Chapter 1", "num": "Article 1", "title": "Purpose", "status": "done"},
-        {"chapter": "Chapter 1", "num": "Article 2", "title": "Scope", "status": "partial"},
-        {"chapter": "Chapter 2", "num": "Article 3", "title": "Access review", "status": "done"}
+        {
+          "chapter": "Chapter 1",
+          "num": "Article 1",
+          "title": "Purpose",
+          "status": "done"
+        },
+        {
+          "chapter": "Chapter 1",
+          "num": "Article 2",
+          "title": "Scope",
+          "status": "partial"
+        },
+        {
+          "chapter": "Chapter 2",
+          "num": "Article 3",
+          "title": "Access review",
+          "status": "done"
+        }
       ]
     }
   ],
@@ -331,11 +409,19 @@
       "priority": "높음",
       "status": "완료",
       "summary": "Sample summary text",
-      "tags": ["security"],
+      "tags": [
+        "security"
+      ],
       "url": ""
     }
   ],
-  "cross_verify": {"karpenter_count": 2},
-  "endpoint_crossverify": {"jamf_only_count": 1},
-  "sheet_xref": {"available": true}
+  "cross_verify": {
+    "karpenter_count": 2
+  },
+  "endpoint_crossverify": {
+    "jamf_only_count": 1
+  },
+  "sheet_xref": {
+    "available": true
+  }
 }

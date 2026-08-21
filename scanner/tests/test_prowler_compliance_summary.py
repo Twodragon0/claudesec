@@ -74,6 +74,30 @@ def _write(tmp_path, name, content):
     return path
 
 
+def test_provider_of_matches_the_dashboard_loaders_slugs():
+    """A provider-scoped compliance source (800-171 is AWS-only) must see the
+    same slug here as on the dashboard path, or the same scan would score
+    differently depending on which caller ran it."""
+    assert pcs._provider_of("/x/prowler-aws.ocsf.json") == "aws"
+    assert pcs._provider_of("/x/prowler-gcp.ocsf.json") == "gcp"
+    for name in ("prowler-k8s.ocsf.json", "prowler-kubernetes.ocsf.json",
+                 "prowler-eks-prod.ocsf.json"):
+        assert pcs._provider_of("/x/" + name) == "kubernetes", name
+    # No `prowler-` prefix: keep the stem rather than inventing a provider.
+    assert pcs._provider_of("/x/aws.ocsf.json") == "aws"
+
+
+def test_read_findings_reports_a_clean_provider_that_has_no_fail_findings(tmp_path):
+    """A clean provider is invisible in the findings list, so the provider set
+    is what tells "scanned and clean" from "not scanned at all"."""
+    _write(tmp_path, "prowler-aws.ocsf.json", PASS_ONLY_ARRAY)
+
+    findings, providers = pcs._read_findings(str(tmp_path))
+
+    assert findings == []
+    assert providers == {"aws"}
+
+
 def test_build_summary_json_array_fail_findings(tmp_path):
     _write(tmp_path, "prowler-aws.ocsf.json", FAIL_ARRAY)
 

@@ -198,12 +198,20 @@ class TestMainEntrypoint(unittest.TestCase):
 
     def test_main_runs_as_subprocess(self):
         script = Path(__file__).resolve().parents[1] / "lib" / "audit-points-scan.py"
+        # CLAUDESEC_DASHBOARD_OFFLINE=1 is REQUIRED, not tidiness. The script
+        # importlib-loads a sibling that reaches `dashboard_api_client`, so
+        # without it this makes live GitHub API calls: measured 22.4s wall for
+        # 0.16s of CPU (0% CPU — pure network wait), which blows the 15s timeout
+        # and fails on any host that can reach the network. With it, 0.13s.
+        # Same class as the #190 kcov hang, and the same repo rule.
+        env = {**os.environ, "CLAUDESEC_DASHBOARD_OFFLINE": "1"}
         with tempfile.TemporaryDirectory() as d:
             result = subprocess.run(
                 [sys.executable, str(script), d],
                 capture_output=True,
                 text=True,
                 timeout=15,
+                env=env,
             )
         # Must exit 0 and emit a JSON line on stdout
         self.assertEqual(result.returncode, 0)
