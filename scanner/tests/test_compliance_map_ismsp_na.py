@@ -15,7 +15,8 @@ compliance assurance. Such controls are tagged `"assessable": False` in
 This started as an ISMS-P 3.x PII/privacy pilot (#309) and now extends
 framework-wide to governance/legal/human controls in the frameworks where the
 gap actually exists: KISA ISMS-P (11 PII 3.x + management/policy/training),
-KISA ISMS Simple (governance/policy + PII/legal), and ISO 27001:2022 (A.5.1).
+KISA ISMS Simple (governance/policy + PII/legal), ISO 27001:2022 (A.5.1), and
+SOC 2 (TSC) (the COSO-derived CC1/CC2/CC9 governance criteria).
 NIST 800-53 stays fully assessable (CA-7 keeps genuine monitoring signal).
 
 stdlib-only (importlib to load the hyphenated `compliance-map.py` module, same
@@ -47,16 +48,107 @@ ISMSP_PII_CONTROL_IDS = {
 # Frameworks absent from this dict MUST have zero non-assessable controls.
 EXPECTED_NON_ASSESSABLE = {
     # 11 PII 3.x controls + management commitment, policy management, awareness.
-    "KISA ISMS-P": ISMSP_PII_CONTROL_IDS | {"1.1.1", "2.1.1", "2.2.4"},
+    # 2.8.1 (SDLC security requirements) joins the governance set on measurement:
+    # 23 corpus hits, ~0 relevant — `design` is 6/7 "designated"/"by design".
+    "KISA ISMS-P": ISMSP_PII_CONTROL_IDS | {"1.1.1", "2.1.1", "2.2.4", "2.8.1"},
     # governance/policy + PII/legal.
     "KISA ISMS Simple": {"S-1.1", "S-2.1", "S-3.1", "S-3.2", "S-3.3", "S-3.4"},
     # the sole Organizational-theme ISO control (all others are A.8 Technological).
     "ISO 27001:2022": {"A.5.1"},
+    # COSO-derived governance criteria: control environment (CC1), communication
+    # (CC2), and vendor/business-partner risk mitigation (CC9) are assessed by an
+    # auditor from evidence a scanner cannot produce.
+    "SOC 2 (TSC)": {"CC1", "CC2", "CC9"},
+    # Not governance — UNSCANNABLE. Prowler 5.38 ships no ArgoCD provider at all,
+    # so this control had 88 corpus hits and ZERO true positives: its three intent
+    # tokens are dead and the survivors matched Vercel/GCP/Azure "project" and
+    # "rbac" text. Deciding PASS/FAIL on 100% wrong evidence is worse than
+    # deciding nothing. Revisit if Prowler adds ArgoCD checks.
+    "CIS Benchmarks": {"CIS-K8s-ArgoCD"},
 }
 
-# Keyword tokens that never appear in any scanner finding text (verified 0-emission
-# across scanner/checks/**). A KISA control whose entire `checks` set is a subset
-# of these can only ever render as a false-PASS, so it MUST be non-assessable.
+# ── The SECOND source of N/A ─────────────────────────────────────────────────
+#
+# `assessable: False` above declares "no automated test method exists". A
+# `native_only` control declares something different: "decided by Prowler's
+# requirement->check data or not at all". It carries no keyword list, so with no
+# Prowler mapping loaded it has nothing to match and reports N/A
+# (`match_source == "unmapped"`) instead of the `count==0 -> PASS` default,
+# which would read as "compliant" when it means "never looked".
+#
+# Unlike EXPECTED_NON_ASSESSABLE, this N/A is CONDITIONAL: the same control is
+# PASS/FAIL once Prowler's mapping is present. Every count-based assertion over
+# it therefore pins the Prowler-absent condition explicitly via
+# `_load_map_without_prowler()` rather than inheriting it from whether the test
+# host happens to have Prowler installed — inside the scanner image it does.
+EXPECTED_NATIVE_ONLY = {
+    # All 14 CMMC 2.0 domains. Prowler's 800-171 rev2 file maps 9 of them
+    # (AC/AU/CA/CM/IA/IR/RA/SC/SI); AT/MA/MP/PE/PS carry no checks at all.
+    "CMMC 2.0 Level 2": {
+        "AC", "AT", "AU", "CM", "IA", "IR", "MA",
+        "MP", "PS", "PE", "RA", "CA", "SC", "SI",
+    },
+}
+
+
+def _expected_na_ids(framework):
+    """Control ids that are N/A when Prowler's mapping is absent."""
+    return EXPECTED_NON_ASSESSABLE.get(framework, set()) | EXPECTED_NATIVE_ONLY.get(
+        framework, set()
+    )
+
+
+def _load_map_without_prowler():
+    """A fresh compliance-map module with Prowler's data pinned absent.
+
+    `map_compliance` caches the native mapping per module instance, so the
+    override must be in place before the module is loaded and a fresh instance
+    is needed per call. The cache is primed here, while the override still
+    holds, so the caller cannot observe a differently-configured environment.
+    """
+    prev = os.environ.get("CLAUDESEC_PROWLER_COMPLIANCE_DIR")
+    os.environ["CLAUDESEC_PROWLER_COMPLIANCE_DIR"] = os.path.join(
+        os.path.dirname(__file__), "no-such-prowler-compliance-dir"
+    )
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "compliance_map_no_prowler",
+            os.path.join(os.path.dirname(__file__), "..", "lib", "compliance-map.py"),
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod._native_mapping()
+        return mod
+    finally:
+        if prev is None:
+            os.environ.pop("CLAUDESEC_PROWLER_COMPLIANCE_DIR", None)
+        else:
+            os.environ["CLAUDESEC_PROWLER_COMPLIANCE_DIR"] = prev
+
+# Tokens verified 0-emission across `scanner/checks/**`.
+#
+# SCOPE CORRECTION (2026-08-14). This list said "never appear in any scanner
+# finding text". That claim is FALSE for the corpus `map_compliance()` actually
+# consumes. It is fed ONLY Prowler OCSF findings — `dashboard-gen.py` and
+# `prowler_compliance_summary.py` are its two callers — and the bash scanner's
+# own findings never reach it. Measured against the real Prowler 5.38 catalog
+# (1561 checks), 8 of these 13 DO match:
+#
+#   deletion 41 · retention 31 · lifecycle 17 · governance 5 · training 4 ·
+#   security_policy 1 · awareness 1 · destroy 1
+#
+# All 8 are homonyms — `training` hits `sagemaker_training_jobs_*`, `awareness`
+# hits OpenSearch "Zone Awareness", `governance` hits a Defender CSPM feature —
+# so no control's N/A status is wrong today. But the EVIDENCE was wrong: these
+# controls are not "never matched", they are "matched only by unrelated noise".
+# The distinction matters if one is ever reclassified assessable.
+#
+# The set is retained under its true, narrower meaning. `TestSelectionCompleteness`
+# below is correspondingly a check against `scanner/checks/**` emission, NOT proof
+# that a control can never match in production. Separately measured and confirmed:
+# no assessable KISA control is a pure never-matcher against the real corpus
+# either (lowest was 12 hits on the malware control, which the KISA
+# realignment moved from 2.10.8 to its standard id 2.10.9).
 NEVER_EMITTED_TOKENS = {
     "security_policy", "governance", "training", "awareness", "education",
     "deletion", "retention", "destroy", "lifecycle", "data_subject",
@@ -104,6 +196,27 @@ class TestNonAssessableControlsTagged(unittest.TestCase):
                         "— it is not in EXPECTED_NON_ASSESSABLE.",
                     )
 
+    def test_each_framework_native_only_set_matches_expected(self):
+        for fw, controls in COMPLIANCE_CONTROL_MAP.items():
+            with self.subTest(framework=fw):
+                actual = {c["control"] for c in controls if c.get("native_only")}
+                self.assertEqual(
+                    actual,
+                    EXPECTED_NATIVE_ONLY.get(fw, set()),
+                    f"{fw} native_only set drifted from EXPECTED_NATIVE_ONLY.",
+                )
+
+    def test_native_only_and_non_assessable_never_overlap(self):
+        """The two N/A sources answer different questions; a control claiming
+        both would make its N/A unattributable."""
+        for fw in COMPLIANCE_CONTROL_MAP:
+            with self.subTest(framework=fw):
+                self.assertEqual(
+                    EXPECTED_NON_ASSESSABLE.get(fw, set())
+                    & EXPECTED_NATIVE_ONLY.get(fw, set()),
+                    set(),
+                )
+
     def test_nist_ca7_stays_assessable(self):
         nist = {c["control"]: c for c in COMPLIANCE_CONTROL_MAP["NIST 800-53 Rev5"]}
         self.assertTrue(nist["CA-7"].get("assessable", True))
@@ -144,12 +257,32 @@ class TestMapComplianceNaStatus(unittest.TestCase):
                     self.assertEqual(controls[control_id]["status"], "N/A")
 
     def test_assessable_control_never_reports_na(self):
+        """An assessable control is N/A only when it is `native_only` and Prowler
+        shipped no mapping for it — never from the keyword path."""
         result = map_compliance([])
         for fw, controls in result.items():
             for ctrl in controls:
-                if ctrl.get("assessable", True):
-                    with self.subTest(framework=fw, control=ctrl["control"]):
-                        self.assertNotEqual(ctrl["status"], "N/A")
+                if not ctrl.get("assessable", True) or ctrl.get("native_only"):
+                    continue
+                with self.subTest(framework=fw, control=ctrl["control"]):
+                    self.assertNotEqual(ctrl["status"], "N/A")
+
+    def test_na_comes_from_exactly_two_declared_sources(self):
+        """No third route to N/A. A control is N/A iff it is tagged
+        non-assessable or it is an unmapped `native_only` control."""
+        result = map_compliance([])
+        for fw, controls in result.items():
+            for ctrl in controls:
+                with self.subTest(framework=fw, control=ctrl["control"]):
+                    declared = not ctrl.get("assessable", True)
+                    unmapped = ctrl["match_source"] == "unmapped"
+                    self.assertEqual(ctrl["status"] == "N/A", declared or unmapped)
+                    if unmapped:
+                        self.assertTrue(
+                            ctrl.get("native_only"),
+                            f"{fw}/{ctrl['control']} reports match_source="
+                            "'unmapped' without being native_only.",
+                        )
 
     def test_matching_keyword_does_not_flip_na_control_to_fail(self):
         """A finding whose text contains an N/A control's own keyword must not
@@ -215,11 +348,11 @@ class TestComplianceSummaryExcludesNa(unittest.TestCase):
     N/A controls from total (total = pass + fail)."""
 
     def test_na_counts_match_expected_per_framework(self):
-        summary = compliance_summary(map_compliance([]))
+        cm = _load_map_without_prowler()
+        summary = cm.compliance_summary(cm.map_compliance([]))
         for fw in COMPLIANCE_CONTROL_MAP:
             with self.subTest(framework=fw):
-                expected_na = len(EXPECTED_NON_ASSESSABLE.get(fw, set()))
-                self.assertEqual(summary[fw]["na"], expected_na)
+                self.assertEqual(summary[fw]["na"], len(_expected_na_ids(fw)))
 
     def test_ismsp_total_excludes_na_controls(self):
         summary = compliance_summary(map_compliance([]))
@@ -227,16 +360,22 @@ class TestComplianceSummaryExcludesNa(unittest.TestCase):
         self.assertEqual(stats["total"], stats["pass"] + stats["fail"])
         total_controls = len(COMPLIANCE_CONTROL_MAP["KISA ISMS-P"])
         self.assertEqual(stats["total"], total_controls - stats["na"])
-        self.assertEqual(total_controls, 42)
-        self.assertEqual(stats["na"], 14)
-        self.assertEqual(stats["total"], 28)
+        # 44 after the KISA realignment — 2.10.9 restored, duplicate 2.10.7
+        # removed, 2.5.5/2.5.6 added. The N/A set is unchanged: the realignment
+        # touched only assessable 2.x technical controls.
+        self.assertEqual(total_controls, 44)
+        # 15, not 14: 2.8.1 (SDLC security requirements) joined the governance
+        # carve-out on measurement — 23 corpus hits, ~0 relevant.
+        self.assertEqual(stats["na"], 15)
+        self.assertEqual(stats["total"], 29)
 
     def test_totals_are_allowlist_aware_for_every_framework(self):
-        summary = compliance_summary(map_compliance([]))
+        cm = _load_map_without_prowler()
+        summary = cm.compliance_summary(cm.map_compliance([]))
         for fw, controls in COMPLIANCE_CONTROL_MAP.items():
             with self.subTest(framework=fw):
                 stats = summary[fw]
-                expected_na = len(EXPECTED_NON_ASSESSABLE.get(fw, set()))
+                expected_na = len(_expected_na_ids(fw))
                 self.assertEqual(stats["na"], expected_na)
                 self.assertEqual(stats["total"], stats["pass"] + stats["fail"])
                 self.assertEqual(stats["total"], len(controls) - expected_na)

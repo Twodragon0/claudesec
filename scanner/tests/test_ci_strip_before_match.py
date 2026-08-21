@@ -27,8 +27,8 @@ AND on the consumer guard:
   returned `[]`.
 
 A comment can move a BLOCK BOUNDARY exactly as it can satisfy a token check, and
-a boundary that moves silently enlarges or shrinks the haystack. That is ADR-001
-§2 ("scope the haystack, strip then match") applied to the helper layer.
+a boundary that moves silently enlarges or shrinks the haystack. That is
+ADR-001 §2 ("scope the haystack, strip then match") applied to the helper layer.
 
 What this guard does NOT claim
 ------------------------------

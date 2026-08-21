@@ -182,13 +182,15 @@ for entry in "${SECRET_PATTERNS[@]}"; do
     -not -path "*/dist/*" -not -path "*/.env.example" -not -path "*/scanner/*" \
     -not -path "*/hooks/*" -not -path "*/.venv*/*" -not -path "*/venv/*" \
     -not -path "*/.claudesec-prowler/*" -not -path "*/.claudesec-history/*" \
-    -not -path "*/.claudesec-assets/*" \
+    -not -path "*/.claudesec-assets/*" -not -path "*/.claude/worktrees/*" \
     -exec grep -lE "$secret_pattern" {} \; 2>/dev/null | head -3 || true)
 
   if [[ -n "$hit" ]]; then
     _found_secrets=$((_found_secrets + 1))
     _hit_files=$(echo "$hit" | tr '\n' ', ' | sed 's/,$//')
-    _secret_details="${_secret_details}\n    ${secret_name}: ${_hit_files}"
+    # Real newline — see the SECRETS-004 accumulator below for why `"\n"` here
+    # ends up as visible `\n` text in scan-report.json and the dashboard.
+    _secret_details="${_secret_details}"$'\n'"    ${secret_name}: ${_hit_files}"
   fi
 done
 
@@ -296,8 +298,22 @@ if is_git_repo; then
     _git_secrets=$((_git_secrets + 1))
   fi
 
-  # Check for AWS keys in git history
-  _aws_in_history=$(git -C "$SCAN_DIR" log -p --all -20 2>/dev/null | grep -cE 'AKIA[0-9A-Z]{16}' 2>/dev/null || true)
+  # Check for AWS keys in git history.
+  #
+  # `scanner/tests/` is excluded for the same reason the file-content scan above
+  # already excludes `*/scanner/*`: the fixtures there deliberately contain
+  # key-SHAPED strings so the detectors can be tested, and the history scan was
+  # flagging the scanner's own AKIA test fixture as a leaked credential.
+  #
+  # It surfaced as an ENVIRONMENT-DEPENDENT result, which is the worse symptom:
+  # `-20` bounds the scan to the last twenty commits, so whether this fires
+  # depends on which files happen to have been touched recently. The same tree
+  # passed locally (0 hits) and failed in CI (1 hit) on 2026-08-14 — a check
+  # that answers differently per checkout cannot serve as a baseline.
+  #
+  # Pathspec, not a grep filter: `git log -p -- <pathspec>` never emits the
+  # excluded diffs, so there is nothing for the pattern to match against.
+  _aws_in_history=$(git -C "$SCAN_DIR" log -p --all -20 -- . ':(exclude)scanner/tests' 2>/dev/null | grep -cE 'AKIA[0-9A-Z]{16}' 2>/dev/null || true)
   _aws_in_history=$(echo "$_aws_in_history" | tail -1 | tr -dc '0-9')
   : "${_aws_in_history:=0}"
   if [[ "$_aws_in_history" -gt 0 ]]; then
@@ -346,31 +362,44 @@ for cp in "${_cred_patterns[@]}"; do
     \( -name "*.py" -o -name "*.js" -o -name "*.ts" -o -name "*.yaml" -o -name "*.yml" \
        -o -name "*.sh" -o -name "*.tf" -o -name "Dockerfile*" \) \
     -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/scanner/*" \
+    -not -path "*/.claude/worktrees/*" \
     -exec grep -lE "$cred_pattern" {} \; 2>/dev/null || true)
 
   if [[ -n "$cred_hits" ]]; then
     while IFS= read -r cred_hit; do
       [[ -z "$cred_hit" ]] && continue
       _cred_rel_path="$(_relative_path "$cred_hit")"
+      # A REAL newline, not the two-character "\n": inside double quotes bash
+      # leaves `\n` literal, which collapsed the whole blob into ONE line. The
+      # awk dedup/count below then always returned 1 (so the title said "1
+      # reference" above twenty listed paths), and `_json_escape_str` escaped
+      # the backslash, emitting `\\n` — rendered as visible `\n` garbage in the
+      # dashboard. Findings are stored NUL-separated (_write_findings_file) and
+      # printed with `echo -e`, so an embedded newline is safe in both paths.
       if _is_allowlisted_path "$_cred_rel_path"; then
         _cred_warn_count=$((_cred_warn_count + 1))
-        _cred_warn_details="${_cred_warn_details}\n    $cred_desc: $_cred_rel_path"
+        _cred_warn_details="${_cred_warn_details}"$'\n'"    $cred_desc: $_cred_rel_path"
       else
         _cred_fail_count=$((_cred_fail_count + 1))
-        _cred_fail_details="${_cred_fail_details}\n    $cred_desc: $_cred_rel_path"
+        _cred_fail_details="${_cred_fail_details}"$'\n'"    $cred_desc: $_cred_rel_path"
       fi
     done <<< "$cred_hits"
   fi
 done
 
 # Deduplicate repeated detail lines (same file can match multiple patterns)
+# `awk NF` drops the leading blank line and `$( )` strips the trailing one, so
+# the blob comes back with no leading newline — which would glue the first
+# detail onto the summary line in the title. Re-add it.
 if [[ -n "$_cred_warn_details" ]]; then
   _cred_warn_details="$(echo "$_cred_warn_details" | awk 'NF{if(!seen[$0]++) print}')"
   _cred_warn_count="$(echo "$_cred_warn_details" | awk 'NF{c++} END{print c+0}')"
+  _cred_warn_details=$'\n'"$_cred_warn_details"
 fi
 if [[ -n "$_cred_fail_details" ]]; then
   _cred_fail_details="$(echo "$_cred_fail_details" | awk 'NF{if(!seen[$0]++) print}')"
   _cred_fail_count="$(echo "$_cred_fail_details" | awk 'NF{c++} END{print c+0}')"
+  _cred_fail_details=$'\n'"$_cred_fail_details"
 fi
 
 if [[ $_cred_fail_count -gt 0 ]]; then

@@ -208,8 +208,27 @@ the sweeps read the line, resolved its `§1` (correctly), and never saw the `/§
 It then sat in the untriaged §1 bucket looking done.
 
 Write new citations as `ADR-001 §N` for that reason, and when you cite two decisions
-write them out (`§1 and §4`) rather than chaining (`§1/§4`) — a chain hides its tail
-from the only scanner that reads these.
+**repeat the prefix** (`ADR-001 §1 and ADR-001 §4`) rather than chaining (`§1/§4`) —
+a chain hides its tail from the only scanner that reads these. Correcting this
+paragraph's own first version, measured against `_CITE_RE` while
+`test_ci_adr_citation_spelling.py` was being written: writing the pair out as
+`§1 and §4` does **not** fix it either. That regex requires the `ADR-001` anchor
+before every `§N`, so it returns `['1']` for the chained form and for
+`ADR-001 §1 and §4` alike, and `['1', '4']` only when the prefix is repeated.
+Un-chaining improves readability; it does not restore visibility. The three-row
+transcript is in the catalog's backlog.
+
+That distinction is not mechanizable in the other direction, which is why the
+spelling guard flags the chain and permits the un-repeated pair. Measured on
+`b382641` with the pattern recorded in that guard's docstring, all **three** live
+instances of "a canonical citation with a bare `§M` later on the same line" were
+drift notes quoting a number as *data* (*"26 `ADR-001 §4` citations of which 23
+meant §5"*), not second citations. A rule broad enough to catch the pair would
+over-report on exactly the prose that documents this class.
+
+The count is anchored to a commit on purpose: the same pattern gives 7 on
+`dc3a959`, because prose *about* the class is itself an instance of it. Re-derive
+before quoting it.
 
 A count taken on a later commit will not be 81: this PR's own fixes add three
 `ADR-001 §N` matches (69 → 72 by that regex), two from normalising `ADR §N` in

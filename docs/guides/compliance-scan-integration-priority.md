@@ -16,7 +16,7 @@ ISMS-P, ISO 27001, SOC2, PCI-DSS 등 컴플라이언스에 준수하는 보안 �
 |------|------|
 | **Prowler** | 이미 통합됨 (`scanner/checks/prowler/integration.sh`). AWS/Azure/GCP/K8s/GitHub 스캔 지원. |
 | **CLI `--compliance`** | `iso27001`, `isms-p`, `soc2`, `pci-dss` 등 옵션 존재하나, **Prowler 실행 시 `--compliance` 인자로 전달되지 않음**. |
-| **대시보드** | `dashboard-gen.py`에 ISO 27001, KISA ISMS-P, PCI-DSS 제어 매핑 존재. **SOC2**는 프레임워크 목록에 없음. |
+| **대시보드** | `compliance-map.py`에 8개 프레임워크 제어 매핑 존재 — ISO 27001, KISA ISMS-P(+Simple), PCI-DSS, NIST 800-53, CIS, **SOC 2 (TSC)**(#441), **CMMC 2.0 Level 2**(#455). SOC 2·ISO·PCI·NIST·CMMC는 Prowler의 requirement→check 데이터로 정확 매핑됨(#451). 자세한 내용은 [컴플라이언스 매핑 가이드](./compliance-mapping.md) 참조. |
 | **문서** | `docs/compliance/` 에 iso27001, isms-p, nist-csf, iso42001 등 가이드 있음. |
 
 **결론**: Prowler 한 도구만으로도 ISO 27001, SOC2, PCI-DSS, KISA ISMS-P를 지원한다. 우선 **Prowler에 `--compliance` 연동**을 완료하고, 대시보드·문서를 정리하는 것이 효율적이다.
@@ -47,13 +47,19 @@ ISMS-P, ISO 27001, SOC2, PCI-DSS 등 컴플라이언스에 준수하는 보안 �
   - `scanner/checks/prowler/integration.sh`: `_prowler_compliance_id()`로 CLI/설정값을 Prowler ID로 매핑(iso27001→iso27001_2022, isms-p/kisa→kisa_isms_p, soc2, pci-dss→pci_dss_v4, nist-csf, nist-800-53 등). `_prowler_scan()`에서 `CLAUDESEC_COMPLIANCE`가 있으면 `--compliance <id>`를 Prowler 인자에 추가.
 - **근거**: 한 번의 연동으로 ISO/ISMS-P/SOC2/PCI-DSS 모두 활용 가능.
 
-### 우선순위 2 (단기) — 대시보드 SOC2 반영
+### 우선순위 2 (단기) — 대시보드 SOC2 반영 — **완료**
 
 - **목표**: 대시보드 Compliance 탭에 SOC2 프레임워크 및 제어 매핑 추가.
-- **작업**:
-  - `scanner/lib/dashboard-gen.py`: `COMPLIANCE_FRAMEWORKS`에 SOC2 항목 추가.
-  - `COMPLIANCE_CONTROL_MAP`에 SOC2 Trust Services Criteria 기반 제어 추가 (예: CC6.1, CC6.2, CC7.1 등). Prowler OCSF 결과의 `compliance` 필드와 매핑 가능한 키워드로 연결.
-- **근거**: SOC2는 클라우드·SaaS 감사에서 요구 비중이 커서 대시보드에서 시각화할 필요가 있음.
+- **결과**: #441에서 `SOC 2 (TSC)`를 9개 Common Criteria 시리즈로 추가했고,
+  #451에서 Prowler의 `soc2_{aws,azure,gcp}.json` requirement→check 데이터를
+  읽도록 전환했다.
+- **당초 설계에서 바뀐 점**: 이 항목은 "Prowler OCSF 결과의 `compliance` 필드와
+  **키워드로** 연결"을 제안했으나, 실제로는 그렇게 하지 않았다. 그 필드를 읽는
+  `_match_prowler_compliance()`는 **프레임워크 단위**라 한 번만 맞아도 해당
+  프레임워크의 모든 제어가 FAIL로 찍히고, Prowler는 AWS 체크 605개 중 160개
+  (26%)에 SOC 2 태그를 단다. 대신 Prowler가 배포하는 컴플라이언스 **파일**을
+  제어 단위로 정확 매칭한다. 프레임워크 이름이 `SOC2`가 아니라 `SOC 2 (TSC)`인
+  이유도 이것이다 — [컴플라이언스 매핑 가이드](./compliance-mapping.md) 참조.
 
 ### 우선순위 3 (단기) — 설정·템플릿 정리
 

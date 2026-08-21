@@ -18,6 +18,62 @@ if _LIB_DIR not in sys.path:
 from dashboard_utils import h, sev_badge, comp_slug
 from dashboard_mapping import COMPLIANCE_FRAMEWORKS, ARCH_DOMAINS
 
+# Framework-level coverage caveats, rendered under the heading. A limit that
+# only lives in a source comment is a limit the reader of the dashboard never
+# sees, and an unevidenced domain reads as a passing one.
+COMP_FW_NOTES = {
+    "CMMC 2.0 Level 2": (
+        "Evidence comes from Prowler's NIST SP 800-171 Rev. 2 mapping, which "
+        "Prowler ships for AWS only. A run that did not scan AWS reports every "
+        "domain N/A — it cannot produce CMMC evidence, and a domain that was "
+        "never evaluated must not read as passing. On an AWS run, the five "
+        "domains Prowler maps no check to (AT, MA, MP, PE, PS) stay N/A."
+    ),
+}
+
+
+# How each `match_source` should read to an operator, and in what order.
+#
+# WHY THIS IS RENDERED. `map_compliance()` decides every control by one of three
+# routes and records which, but nothing used to display it — so a control scored
+# by Prowler's exact requirement->check data and one scored by substring
+# matching looked identical. They are not: the keyword path reproduces 41.5% of
+# Prowler's own mapping where both have an opinion. The provider scope moves a
+# control onto that path on any run that did not scan a provider its checks
+# belong to, which makes an unlabelled table actively misleading.
+_MATCH_SOURCE_LABELS = (
+    ("prowler", "exact", "Prowler requirement→check mapping"),
+    ("keyword", "keyword", "keyword approximation — no native mapping reachable for this run"),
+    ("unmapped", "not assessed", "no reachable mapping and no keyword list — reported N/A"),
+)
+
+
+def _evidence_source_html(controls) -> str:
+    """A one-line evidence-provenance breakdown for one framework's controls."""
+    counts = {}
+    for ctrl in controls:
+        source = ctrl.get("match_source")
+        if source:
+            counts[source] = counts.get(source, 0) + 1
+    if not counts:
+        return ""
+    parts = []
+    for key, label, title in _MATCH_SOURCE_LABELS:
+        count = counts.get(key)
+        if count:
+            parts.append(
+                f'<span class="comp-src-{key}" title="{h(title)}">{count} {h(label)}</span>'
+            )
+    # A source this renderer does not know about is still counted: dropping it
+    # would silently understate the framework's control count.
+    for key in sorted(set(counts) - {k for k, _, _ in _MATCH_SOURCE_LABELS}):
+        parts.append(f"<span>{counts[key]} {h(key)}</span>")
+    return (
+        '<div class="comp-fw-source"><span class="comp-src-label">Evidence source</span>'
+        + " · ".join(parts)
+        + "</div>"
+    )
+
 
 def _build_compliance_html(compliance_map) -> str:
     """Build the Compliance tab HTML from the compliance_map."""
@@ -50,6 +106,10 @@ def _build_compliance_html(compliance_map) -> str:
         comp_html += f'<div class="comp-section" id="{comp_id}"><div class="comp-title" data-action="toggleComp">{h(framework)} <span class="comp-stat"><span class="cs-pass">{pass_c} pass</span> / <span class="cs-fail">{fail_c} fail</span>{na_stat_html}</span><span class="comp-arrow">▸</span></div>'
         if comp_arch_row:
             comp_html += comp_arch_row
+        fw_note = COMP_FW_NOTES.get(framework)
+        if fw_note:
+            comp_html += f'<div class="comp-fw-note">{h(fw_note)}</div>'
+        comp_html += _evidence_source_html(controls)
         comp_html += '<div class="comp-body"><table><thead><tr><th>Control</th><th>Name</th><th>Status</th><th>Related</th><th>Summary · Remediation</th></tr></thead><tbody>'
         for ctrl in controls:
             if ctrl["status"] == "PASS":

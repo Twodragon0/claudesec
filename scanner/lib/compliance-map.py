@@ -18,11 +18,21 @@ COMPLIANCE_CONTROL_MAP = {
             "status": "",
         },
         {
+            # ISO/IEC 27001:2022 Annex A.8.2 is "Privileged access rights".
+            # Plain "Access control" is A.5.15 — this control was mislabelled,
+            # and since #451 its 58 native checks (Prowler ships A.8.2 for six
+            # providers) were scored against a control naming a different Annex
+            # A requirement. Same defect class as the KISA realignment.
             "control": "A.8.2",
-            "name": "Access control",
-            "desc": "Access to resources and systems restricted by role and need",
-            "action": "Apply RBAC, branch protection, PR approval; minimize admin rights.",
-            "checks": ["branch_protection", "require_approval", "admin"],
+            "name": "Privileged access rights",
+            "desc": "Allocation and use of privileged access rights restricted and managed",
+            "action": "Minimise standing admin rights; require approval and review for privilege grants; separate privileged identities from day-to-day ones.",
+            # Measured at Prowler 5.30.1 against A.8.2's 56 native checks:
+            # 27/56 at 56 unrelated catalog hits, versus 18/56 at 36 for the
+            # pre-realignment set. `root` (3 covered / 14 noise), `_owner` (2/6)
+            # and `elevated`/`branch_protection`/`require_approval` (0 covered)
+            # were measured and rejected.
+            "checks": ["admin", "privilege", "rbac"],
             "status": "",
         },
         {
@@ -30,7 +40,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Secure authentication",
             "desc": "Strong authentication (MFA, SSO) in use",
             "action": "Adopt MFA and SSO; strengthen password policy and session management.",
-            "checks": ["mfa", "two_factor", "sso", "authentication"],
+            "checks": ["mfa", "two_factor", "_sso", "authentication"],
             "status": "",
         },
         {
@@ -54,7 +64,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Secure coding",
             "desc": "Secure coding and SAST for vulnerability management",
             "action": "Adopt CodeQL/SAST, code review; prevent injection and XSS.",
-            "checks": ["code_scanning", "sast", "injection", "codeql"],
+            "checks": ["code_scanning", "injection", "codeql"],
             "status": "",
         },
         {
@@ -62,7 +72,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Technical vulnerability management",
             "desc": "Dependency, CVE detection, and patching in place",
             "action": "Dependabot and CVE scanning; patch policy and SBOM.",
-            "checks": ["dependabot", "cve", "vulnerability", "outdated"],
+            "checks": ["dependabot", "cve", "vulnerab", "outdated"],
             "status": "",
         },
     ],
@@ -91,7 +101,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "위험 평가 (Risk assessment)",
             "desc": "정보자산에 대한 위험을 평가하고 관리 계획 수립",
             "action": "연간 위험 평가; 위험 수용 기준; 잔여 위험 관리 및 경영진 승인.",
-            "checks": ["vulnerability", "risk", "assessment", "scan"],
+            "checks": ["vulnerab", "risk", "assessment", "scan"],
             "status": "",
         },
         # ── 2. 보호대책 요구사항 ──
@@ -136,7 +146,10 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "사용자 식별 (User identification)",
             "desc": "개인별 고유한 사용자 계정 부여",
             "action": "공용 계정 금지; 개인별 고유 ID 부여; 특수권한 계정 별도 관리.",
-            "checks": ["authentication", "identity", "shared_account", "root"],
+            # `authentication` pruned: 0 of this control's mapped checks — 2.5.2 is
+            # 사용자 식별, and 5 of the checks the token pulls in belong to 2.5.3
+            # (사용자 인증), which owns it.
+            "checks": ["identity", "shared_account", "root"],
             "status": "",
         },
         {
@@ -144,7 +157,10 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "사용자 인증 (User authentication)",
             "desc": "안전한 인증 수단 사용 (MFA, SSO 등)",
             "action": "MFA 적용; SSO 통합; 비밀번호 복잡도 및 주기적 변경.",
-            "checks": ["mfa", "two_factor", "sso", "authentication", "password"],
+            # `password` pruned: 0 of this control's 33 mapped checks, and 13 of
+            # the checks it drags in belong to 2.5.4 (비밀번호 관리), which owns
+            # that vocabulary.
+            "checks": ["mfa", "two_factor", "_sso", "authentication"],
             "status": "",
         },
         {
@@ -156,11 +172,39 @@ COMPLIANCE_CONTROL_MAP = {
             "status": "",
         },
         {
+            # Added with the realignment. 2.6.1 used to carry the framework's
+            # access-rights keywords under the wrong label; correcting it to
+            # 네트워크 접근 left KISA with no access-rights control at all, while
+            # Prowler maps 28 and 36 checks to these two standard ids.
+            # Measured at 5.30.1: 11/28 at 31 unrelated catalog hits. `admin`
+            # (10 covered / 43 noise) was rejected — it is A.8.2's token.
+            "control": "2.5.5",
+            "name": "특수 계정 및 권한 관리 (Management of special accounts and privileges)",
+            "desc": "관리자 등 특수 권한 계정의 최소 부여 및 별도 관리",
+            "action": "관리자 권한을 최소화하고 별도 승인 절차로 부여; 특수 계정을 개인 계정과 분리하고 사용 이력을 기록.",
+            "checks": ["privilege", "root", "policy_attached"],
+            "status": "",
+        },
+        {
+            # Measured at 5.30.1: 25/36 at 56 unrelated catalog hits. `access`
+            # (17/126) and `policy` (18/93) were rejected as over-broad; the
+            # orphaned `restrict`/`rbac`/`permission` cover ZERO of this
+            # control's checks, so they were not re-homed here.
+            "control": "2.5.6",
+            "name": "접근권한 검토 (Review of access rights)",
+            "desc": "부여된 접근권한의 적정성을 주기적으로 검토하고 조정",
+            "action": "IAM 정책과 교차 계정 신뢰관계를 주기적으로 검토; 미사용·과다 권한을 회수하고 검토 이력을 남길 것.",
+            "checks": ["iam_", "cross_account", "principal"],
+            "status": "",
+        },
+        {
+            # KISA ISMS-P 2023 2.6.1 is 네트워크 접근 (Network access), NOT
+            # 접근권한 관리 — see the realignment note above the framework.
             "control": "2.6.1",
-            "name": "접근권한 관리 (Access control policy)",
-            "desc": "접근권한 정책 수립 및 권한 최소 부여",
-            "action": "RBAC 적용; 최소 권한 원칙; 주기적 권한 검토.",
-            "checks": ["branch_protection", "access", "permission", "restrict", "rbac"],
+            "name": "네트워크 접근 (Network access)",
+            "desc": "네트워크 분리·구간별 접근통제 및 비인가 단말 접속 차단",
+            "action": "네트워크 영역을 분리하고 DMZ를 설계; 보안그룹·NACL로 구간 접근을 제한; 관리 포트의 인터넷 노출 차단.",
+            "checks": ["security_group", "securitygroup", "ingress", "unrestricted", "0.0.0.0", "publicly", "public_access", "subnet"],
             "status": "",
         },
         {
@@ -168,7 +212,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "정보시스템 접근 (System access control)",
             "desc": "정보시스템 접근 통제 및 인증·권한 관리",
             "action": "서버·DB 접근통제; 관리자 접근 이력 관리; 원격접근 보안.",
-            "checks": ["mfa", "authentication", "sso", "two_factor", "admin"],
+            "checks": ["mfa", "authentication", "_sso", "two_factor", "admin"],
             "status": "",
         },
         {
@@ -208,7 +252,13 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "보안 요구사항 정의 (Security requirements)",
             "desc": "정보시스템 도입·개발 시 보안 요구사항 명세",
             "action": "보안 요구사항 체크리스트; 위협 모델링; 보안 설계 검토.",
-            "checks": ["security_policy", "requirement", "design"],
+            # SDLC security-requirements documentation — structurally the same
+            # governance control as 1.1.1 / 2.1.1 / 2.2.4, which are already
+            # carved out. Measured: 23 corpus hits, ~0 relevant. `design` is 6/7
+            # "designated"/"by design" (a homonym, same class as sso/associated)
+            # and `requirement` is 15/15 generic "requires X" policy phrasing.
+            "checks": ["security_policy", "requirement"],
+            "assessable": False,
             "status": "",
         },
         {
@@ -216,7 +266,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "시큐어 코딩 (Secure coding)",
             "desc": "시큐어 코딩 표준 준수 및 소스코드 검증",
             "action": "SAST/CodeQL 적용; 코드 리뷰 필수; OWASP Top 10 대응; 인젝션 방지.",
-            "checks": ["code_scanning", "sast", "injection", "codeql", "xss"],
+            "checks": ["code_scanning", "injection", "codeql", "xss"],
             "status": "",
         },
         {
@@ -232,23 +282,27 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "변경관리 (Change management)",
             "desc": "정보시스템 변경 요청·검토·승인·이행·기록",
             "action": "PR 기반 변경 승인; 변경 이력 추적; 롤백 절차 수립.",
-            "checks": ["require_approval", "review", "pull_request", "change"],
+            "checks": ["review", "_approval", "branch_protection", "codeowners", "status_checks", "force_push", "signed_commits"],
             "status": "",
         },
         {
+            # 2.9.3 is 백업 및 복구관리 and 2.9.4 is 로그 및 접속기록 관리 — the
+            # two were swapped here relative to the standard, so since #451 the
+            # logging control was being scored by Prowler's 24 backup checks and
+            # the backup control by its 59 logging checks.
             "control": "2.9.3",
-            "name": "로그 및 접근기록 관리 (Logging)",
-            "desc": "정보시스템 접근·이용 기록 관리 및 보관",
-            "action": "접근 로그 6개월 이상 보관; CloudTrail/감사 로그 활성화; 로그 무결성 보장.",
-            "checks": ["logging", "audit", "log_maxage", "cloudtrail", "retention"],
+            "name": "백업 및 복구관리 (Backup and recovery management)",
+            "desc": "백업 대상·주기·보관기간 및 복구 절차 수립·이행",
+            "action": "주기적 백업; 복구 테스트; 백업 데이터 암호화 및 격리 보관.",
+            "checks": ["backup", "recovery", "snapshot", "restore", "pitr", "failover"],
             "status": "",
         },
         {
             "control": "2.9.4",
-            "name": "백업 관리 (Backup management)",
-            "desc": "주요 정보의 백업 및 복구 절차 수립·이행",
-            "action": "주기적 백업; 복구 테스트; 백업 데이터 암호화 및 격리 보관.",
-            "checks": ["backup", "recovery", "snapshot", "restore"],
+            "name": "로그 및 접속기록 관리 (Log and access record management)",
+            "desc": "정보시스템 접근·이용 기록의 생성·보관·보호",
+            "action": "접근 로그 6개월 이상 보관; CloudTrail/감사 로그 활성화; 로그 무결성 보장.",
+            "checks": ["logging", "log_maxage", "cloudtrail", "retention", "flow_log", "log_file_validation"],
             "status": "",
         },
         {
@@ -276,15 +330,31 @@ COMPLIANCE_CONTROL_MAP = {
             "status": "",
         },
         {
-            "control": "2.10.7",
-            "name": "패치 관리 (Patch management)",
-            "desc": "운영체제, 응용프로그램 보안 패치 적용",
-            "action": "Dependabot/CVE 모니터링; 긴급 패치 절차; SBOM 관리.",
-            "checks": ["dependabot", "cve", "vulnerability", "outdated", "patch"],
+            # 2.10.8 is 패치관리; 악성코드 통제 is 2.10.9, added below. Before the
+            # realignment the malware control sat on 2.10.8 and collected
+            # Prowler's 14 patch checks.
+            "control": "2.10.8",
+            "name": "패치관리 (Patch management)",
+            "desc": "운영체제·소프트웨어·보안시스템의 최신 패치 적용",
+            "action": "지원 종료 버전을 제거하고 관리형 서비스의 엔진 버전을 최신 유지; 패치 적용 절차와 예외 승인 기록.",
+            # Measured against Prowler 5.30.1: covers 14/14 of its mapped checks
+            # with 9 unrelated catalog hits. `version` alone would take 10/14 at
+            # 17 noise, so the narrower compounds are preferred.
+            # `patch`/`outdated`/`extended_support`/`system_updates` moved here
+            # from the removed duplicate at 2.10.7 — they are on-requirement and
+            # cheap (2/2/1/1 catalog hits). `cve` and `dependabot` went to 2.11.2
+            # (취약점 점검) instead: they match ZERO Prowler check ids, so they
+            # only ever fire on finding text, which is that control's job.
+            "checks": ["upgrade", "latest", "patching", "patch", "deprecated", "outdated",
+                       "managed_updates", "supported_runtimes", "supported_version",
+                       "extended_support", "system_updates"],
             "status": "",
         },
         {
-            "control": "2.10.8",
+            # Restored at its standard id. Prowler maps exactly one check here
+            # (`guardduty_ec2_malware_protection_enabled`), which `malware`
+            # matches — 1/1.
+            "control": "2.10.9",
             "name": "악성코드 통제 (Malware control)",
             "desc": "악성코드 감염 예방·탐지·대응",
             "action": "EDR/SentinelOne 운영; 실시간 탐지; 격리 및 복구 절차.",
@@ -296,7 +366,11 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "사고 예방 및 대응체계 구축 (Incident response)",
             "desc": "침해사고 예방, 탐지, 대응, 복구 체계 수립",
             "action": "SIEM/모니터링; 대응 플레이북; 24시간 내 신고(정보통신망법 2024 개정); 사후 분석.",
-            "checks": ["monitoring", "logging", "alert", "audit", "incident"],
+            # `logging` and `audit` pruned on measurement: neither matches ANY of
+            # this control's 2 Prowler-mapped checks, while between them they
+            # drag in 81 checks Prowler assigns elsewhere in the framework —
+            # 33 of those to 2.9.4, which IS the logging control.
+            "checks": ["monitoring", "alert", "incident"],
             "status": "",
         },
         {
@@ -304,15 +378,18 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "취약점 점검 및 조치 (Vulnerability management)",
             "desc": "정기적 취약점 점검 및 조치 이행",
             "action": "분기별 취약점 점검; Prowler/OWASP 스캔; 조치 결과 보고.",
-            "checks": ["vulnerability", "scan", "prowler", "pentest", "assessment"],
+            "checks": ["vulnerab", "scan", "prowler", "pentest", "assessment", "cve", "dependabot"],
             "status": "",
         },
         {
+            # 2.11.5 is 사고 대응 및 복구; 사고 대응 훈련 및 개선 is 2.11.4.
+            # (docs/compliance/isms-p.md had these two swapped as well, and is
+            # corrected in the same change.)
             "control": "2.11.5",
-            "name": "사고 분석 및 공유 (Post-incident analysis)",
+            "name": "사고 대응 및 복구 (Incident response and recovery)",
             "desc": "침해사고 원인 분석 및 재발 방지 대책 수립",
             "action": "사고 보고서 작성; 원인 분석; 재발 방지 대책; 교훈 공유.",
-            "checks": ["incident", "forensic", "post_mortem", "analysis"],
+            "checks": ["incident", "ssmincidents", "detection"],
             "status": "",
         },
         {
@@ -347,7 +424,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "민감정보·고유식별정보 제한 (Sensitive data, 2023.10 개정)",
             "desc": "민감정보 및 고유식별정보 처리 시 별도 동의·보호조치",
             "action": "별도 동의 획득; 암호화 필수; 접근 제한; 처리 현황 관리.",
-            "checks": ["sensitive", "biometric", "health", "encrypt", "pii"],
+            "checks": ["sensitive", "biometric", "encrypt", "pii"],
             "assessable": False,
             "status": "",
         },
@@ -429,21 +506,21 @@ COMPLIANCE_CONTROL_MAP = {
     "KISA ISMS Simple": [
         # governance — no automated NIST 800-53A Test method
         {"control": "S-1.1", "name": "관리체계 기반 마련", "desc": "정보보호 정책 수립 및 경영진 참여", "action": "정보보호 정책 승인; 담당자 지정; 예산 확보.", "checks": ["security_policy", "governance"], "assessable": False, "status": ""},
-        {"control": "S-1.2", "name": "위험 관리", "desc": "자산 식별 및 위험 평가·관리", "action": "자산 목록 관리; 위험 평가; 위험 처리 계획.", "checks": ["inventory", "asset", "vulnerability", "risk"], "status": ""},
+        {"control": "S-1.2", "name": "위험 관리", "desc": "자산 식별 및 위험 평가·관리", "action": "자산 목록 관리; 위험 평가; 위험 처리 계획.", "checks": ["inventory", "asset", "vulnerab", "risk"], "status": ""},
         # governance — no automated NIST 800-53A Test method
         {"control": "S-2.1", "name": "정보보호 정책", "desc": "정보보호 정책 수립·시행·검토", "action": "정책 문서화; 전 직원 숙지; 연 1회 이상 검토.", "checks": ["security_policy", "governance"], "assessable": False, "status": ""},
-        {"control": "S-2.2", "name": "인적 보안", "desc": "직무 분리, 보안 서약, 교육", "action": "직무 분리(SoD); 입사/퇴사 절차; 연 1회 보안 교육.", "checks": ["admin", "permission", "training", "account"], "status": ""},
+        {"control": "S-2.2", "name": "인적 보안", "desc": "직무 분리, 보안 서약, 교육", "action": "직무 분리(SoD); 입사/퇴사 절차; 연 1회 보안 교육.", "checks": ["admin", "permission", "account"], "status": ""},
         {"control": "S-2.3", "name": "외부자 보안", "desc": "외부자(위탁, 협력사) 보안 관리", "action": "위탁 계약 시 보안 요구사항; 접근 통제; 주기적 점검.", "checks": ["third_party", "vendor", "external"], "status": ""},
-        {"control": "S-2.4", "name": "사용자 인증 관리", "desc": "계정·비밀번호·인증 관리", "action": "MFA 적용; 비밀번호 복잡도; 미사용 계정 비활성화.", "checks": ["mfa", "authentication", "password", "account", "sso"], "status": ""},
+        {"control": "S-2.4", "name": "사용자 인증 관리", "desc": "계정·비밀번호·인증 관리", "action": "MFA 적용; 비밀번호 복잡도; 미사용 계정 비활성화.", "checks": ["mfa", "authentication", "password", "account", "_sso"], "status": ""},
         {"control": "S-2.5", "name": "접근권한 관리", "desc": "최소 권한 부여 및 주기적 검토", "action": "RBAC; 권한 검토; 퇴직자 즉시 회수.", "checks": ["branch_protection", "access", "permission", "restrict", "rbac"], "status": ""},
         {"control": "S-2.6", "name": "네트워크 접근통제", "desc": "네트워크 영역 분리 및 접근 제어", "action": "방화벽; VPC/서브넷; Security Group 최소 오픈.", "checks": ["firewall", "network", "segmentation", "vpc", "security_group"], "status": ""},
         {"control": "S-2.7", "name": "암호화 적용", "desc": "전송·저장 시 암호화", "action": "TLS 1.2+; 저장 암호화(AES-256); KMS 키 관리.", "checks": ["encrypt", "tls", "ssl", "kms", "certificate"], "status": ""},
-        {"control": "S-2.8", "name": "시큐어 코딩", "desc": "안전한 소프트웨어 개발", "action": "SAST/CodeQL; 코드 리뷰; OWASP Top 10 대응.", "checks": ["code_scanning", "sast", "injection", "codeql"], "status": ""},
-        {"control": "S-2.9", "name": "변경 관리", "desc": "시스템 변경 승인·이행·기록", "action": "PR 기반 변경; 변경 이력 추적; 롤백 절차.", "checks": ["require_approval", "review", "pull_request", "change"], "status": ""},
+        {"control": "S-2.8", "name": "시큐어 코딩", "desc": "안전한 소프트웨어 개발", "action": "SAST/CodeQL; 코드 리뷰; OWASP Top 10 대응.", "checks": ["code_scanning", "injection", "codeql"], "status": ""},
+        {"control": "S-2.9", "name": "변경 관리", "desc": "시스템 변경 승인·이행·기록", "action": "PR 기반 변경; 변경 이력 추적; 롤백 절차.", "checks": ["review", "_approval", "branch_protection", "codeowners", "status_checks", "force_push", "signed_commits"], "status": ""},
         {"control": "S-2.10", "name": "로그 관리", "desc": "접근·이용 기록 수집·보관", "action": "감사 로그 6개월 보관; CloudTrail 활성화; 무결성 보장.", "checks": ["logging", "audit", "cloudtrail", "retention"], "status": ""},
-        {"control": "S-2.11", "name": "취약점 관리", "desc": "정기 취약점 점검 및 조치", "action": "Prowler/OWASP 스캔; 패치 관리; CVE 모니터링.", "checks": ["vulnerability", "scan", "prowler", "cve", "patch"], "status": ""},
+        {"control": "S-2.11", "name": "취약점 관리", "desc": "정기 취약점 점검 및 조치", "action": "Prowler/OWASP 스캔; 패치 관리; CVE 모니터링.", "checks": ["vulnerab", "scan", "prowler", "cve", "patch", "latest", "_upgrade", "owasp"], "status": ""},
         {"control": "S-2.12", "name": "침해사고 대응", "desc": "사고 탐지·대응·신고·복구", "action": "SIEM 모니터링; 24시간 내 신고(정보통신망법); 대응 플레이북.", "checks": ["monitoring", "alert", "incident", "logging"], "status": ""},
-        {"control": "S-2.13", "name": "악성코드 대응", "desc": "악성코드 예방·탐지", "action": "EDR/AV 운영; 실시간 탐지; 격리 및 복구.", "checks": ["malware", "antivirus", "endpoint", "edr"], "status": ""},
+        {"control": "S-2.13", "name": "악성코드 대응", "desc": "악성코드 예방·탐지", "action": "EDR/AV 운영; 실시간 탐지; 격리 및 복구.", "checks": ["malware", "antivirus", "endpoint_protection", "antimalware", "wdatp"], "status": ""},
         {"control": "S-2.14", "name": "백업 및 복구", "desc": "주요 정보 백업 및 복구 절차", "action": "정기 백업; 복구 테스트; 백업 암호화.", "checks": ["backup", "recovery", "snapshot", "restore"], "status": ""},
         # PII/legal — no automated NIST 800-53A Test method
         {"control": "S-3.1", "name": "개인정보 수집·이용", "desc": "목적 명시, 동의 획득, 최소 수집", "action": "필수/선택 동의 분리; 최소 수집; 법적 근거 확인.", "checks": ["personal_data", "pii", "consent", "privacy"], "assessable": False, "status": ""},
@@ -484,7 +561,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Secure software development",
             "desc": "Secure SDLC and vulnerability management",
             "action": "SAST and dependency checks; patching and code review.",
-            "checks": ["code_scanning", "sast", "injection", "vulnerability"],
+            "checks": ["code_scanning", "injection", "vulnerab"],
             "status": "",
         },
         {
@@ -500,7 +577,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "User identification and authentication",
             "desc": "Strong authentication and account management",
             "action": "MFA; password policy; account lockout and session management.",
-            "checks": ["mfa", "authentication", "two_factor", "sso"],
+            "checks": ["mfa", "authentication", "two_factor", "_sso"],
             "status": "",
         },
         {
@@ -543,7 +620,7 @@ COMPLIANCE_CONTROL_MAP = {
             # stays assessable: monitoring/scan/vulnerability keywords carry real technical signal; only the strategy-doc half is unverifiable (accepted documented residual)
             "desc": "Develop a continuous monitoring strategy and implement a continuous monitoring program",
             "action": "Deploy SIEM/monitoring tools; continuous vulnerability scanning; automated alerts.",
-            "checks": ["monitoring", "alert", "scan", "vulnerability", "continuous"],
+            "checks": ["monitoring", "alert", "scan", "vulnerab", "continuous"],
             "status": "",
         },
         {
@@ -559,7 +636,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Identification and authentication",
             "desc": "Uniquely identify and authenticate organizational users and processes",
             "action": "Enforce MFA for all users; implement SSO; strong password and session policies.",
-            "checks": ["mfa", "authentication", "two_factor", "sso", "identity"],
+            "checks": ["mfa", "authentication", "two_factor", "_sso", "identity"],
             "status": "",
         },
         {
@@ -567,7 +644,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Vulnerability monitoring and scanning",
             "desc": "Monitor and scan for vulnerabilities in the system and hosted applications",
             "action": "Run SAST/DAST scans; dependency vulnerability checks; prioritize by CVSS severity.",
-            "checks": ["vulnerability", "code_scanning", "sast", "dependency", "cve"],
+            "checks": ["vulnerab", "code_scanning", "dependency", "cve"],
             "status": "",
         },
         {
@@ -633,7 +710,7 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "Vulnerability management process",
             "desc": "Establish and maintain a vulnerability management process",
             "action": "Automate vulnerability scanning; track remediation SLAs; prioritize critical CVEs.",
-            "checks": ["vulnerability", "scan", "patch", "cve", "remediation"],
+            "checks": ["vulnerab", "scan", "patch", "cve", "remediation"],
             "status": "",
         },
         {
@@ -665,7 +742,305 @@ COMPLIANCE_CONTROL_MAP = {
             "name": "ArgoCD RBAC and security configuration",
             "desc": "Verify ArgoCD RBAC policies, SSO integration, and project-level access restrictions",
             "action": "Enforce ArgoCD RBAC with least privilege; enable SSO; restrict project sources and destinations; disable anonymous access.",
-            "checks": ["argocd", "argo", "gitops", "rbac", "sso", "project"],
+            # Prowler 5.38 ships NO ArgoCD provider — measured across all 1561
+            # checks. So `argocd`/`argo`/`gitops` have zero corpus hits, and the
+            # three survivors (`rbac`, `_sso`, `project`) matched 88 checks with
+            # ZERO true positives: Vercel `project_*`, GCP `compute_project_*`,
+            # Azure Key Vault RBAC, AWS CodeBuild projects. A control deciding
+            # PASS/FAIL on 100% wrong evidence is worse than one with none, so
+            # it renders N/A until something can actually scan ArgoCD.
+            "checks": ["argocd", "argo", "gitops"],
+            "assessable": False,
+            "status": "",
+        },
+    ],
+    # AICPA Trust Services Criteria (2017, revised 2022) — the nine Common
+    # Criteria series. Named "SOC 2 (TSC)" rather than "SOC2" on purpose: see
+    # test_soc2_framework_key_does_not_native_match_prowler_soc2 in
+    # scanner/tests/test_compliance_map.py.
+    #
+    # The reason is `_match_prowler_compliance()`, which reads the compliance
+    # TAGS on a finding and is framework-level — not `load_framework()`, which
+    # reads Prowler's compliance file per control and is what decides these
+    # series today (#451). The tag matcher runs only on the keyword path, so the
+    # case the name protects is a run reaching none of aws/azure/gcp: measured
+    # on a Kubernetes-only run with one SOC2-tagged finding, renaming the key
+    # flips CC3/CC5/CC6/CC7/CC8 from PASS to FAIL. CC1/CC2/CC9 are unaffected —
+    # `assessable: False` pins them N/A whatever the source.
+    "SOC 2 (TSC)": [
+        {
+            "control": "CC1",
+            "name": "Control environment",
+            # COSO governance — integrity, board oversight, org structure,
+            # competence, accountability. No automated NIST 800-53A Test method.
+            "desc": "Integrity, board oversight, organizational structure, competence, and accountability",
+            "action": "Document org chart and security roles; background checks; annual performance and accountability review.",
+            "checks": ["security_policy", "governance"],
+            "assessable": False,
+            "status": "",
+        },
+        {
+            "control": "CC2",
+            "name": "Communication and information",
+            # COSO governance — internal/external communication of control duties.
+            "desc": "Security responsibilities communicated internally and to external parties",
+            "action": "Publish SECURITY.md and disclosure contact; run security awareness training; brief the board periodically.",
+            "checks": ["awareness", "training"],
+            "assessable": False,
+            "status": "",
+        },
+        {
+            "control": "CC3",
+            "name": "Risk assessment",
+            "desc": "Risks to objectives identified and analyzed, including changes and fraud risk",
+            "action": "Maintain a risk register; threat model changes; track dependency and CVE exposure with severity ratings.",
+            "checks": ["vulnerab", "dependency", "dependabot", "scan", "cve"],
+            "status": "",
+        },
+        # CC4 and CC5 both retain a high miss rate against Prowler's own SOC 2
+        # mapping (75% and 72%), and BOTH are structural rather than a keyword
+        # defect. Measured 2026-08-14 against the real 5.38 catalog:
+        #
+        #   CC5's 21 missed checks are ALL CloudWatch / Azure-Monitor alarm
+        #   checks (`cloudwatch_changes_to_network_acls_alarm_configured`,
+        #   `logging_log_metric_filter_and_alert_for_*_changes_enabled`).
+        #   Prowler maps that same alarm family to CC4, CC5 AND CC7
+        #   simultaneously. A keyword set cannot separate what the ground truth
+        #   itself conflates.
+        #
+        # Two edits were proposed by review and both were REJECTED on measurement:
+        #
+        #   CC5 + `default`  -> recovers 0 of the 21 missed checks, while newly
+        #                       lighting 158 corpus-wide. Pure dilution. (The
+        #                       token's 169 corpus hits are real; none of them
+        #                       are CC5's mapped checks.)
+        #   CC4 + `alert`    -> recovers 3 of 24 (miss 85.7% -> 75.0%) but takes
+        #                       CC4's corpus matches 137 -> 182 and its overlap
+        #                       with CC7 from 38% -> 52% of CC4. Buying 3 checks
+        #                       by making half of CC4 indistinguishable from CC7
+        #                       is a bad trade for a per-criterion breakdown.
+        #
+        # Pinned in test_ci_compliance_keyword_guard.py so a future pass does not
+        # re-propose either without re-measuring.
+        {
+            "control": "CC4",
+            "name": "Monitoring activities",
+            "desc": "Ongoing and separate evaluations confirm controls are present and operating",
+            "action": "Run continuous control scans; internal audit and evidence review; track deficiency remediation to closure.",
+            # `audit` pruned: 0 of CC4's 28 mapped checks, and 5 of the checks it
+            # drags in are CC7's. Same shape as the CC4 + `alert` rejection
+            # already pinned in test_ci_compliance_keyword_guard.py.
+            "checks": ["monitoring", "scan", "guardduty", "securityhub", "config_recorder"],
+            "status": "",
+        },
+        {
+            "control": "CC5",
+            "name": "Control activities",
+            "desc": "Control activities and general technology controls selected and deployed",
+            "action": "Apply hardening baselines; enforce secure defaults; detect configuration drift automatically.",
+            "checks": ["configuration", "misconfigur", "hardening", "benchmark"],
+            "status": "",
+        },
+        {
+            "control": "CC6",
+            "name": "Logical and physical access controls",
+            "desc": "Access restricted to authorized users; credentials and data protected at rest and in transit",
+            "action": "Enforce MFA and SSO; least-privilege RBAC and periodic access review; TLS and KMS; enable secret scanning.",
+            "checks": [
+                "mfa",
+                "two_factor",
+                "_sso",
+                "authentication",
+                "rbac",
+                "encrypt",
+                "secret",
+                "public_access",
+                "publicly",
+                "0.0.0.0",
+                "security_group",
+                "securitygroup",
+                "ingress",
+                "unrestricted",
+            ],
+            "status": "",
+        },
+        {
+            "control": "CC7",
+            "name": "System operations",
+            "desc": "Anomalies and security incidents detected, evaluated, and responded to",
+            "action": "Centralize logs with retention and integrity protection; real-time alerting; maintain and exercise an incident response plan.",
+            "checks": ["logging", "incident", "detection", "alert", "anomaly", "cloudtrail", "flow_log", "log_file_validation"],
+            "status": "",
+        },
+        {
+            "control": "CC8",
+            "name": "Change management",
+            "desc": "Changes to infrastructure, data, software, and procedures are authorized, tested, and approved",
+            "action": "Require PR approval and CODEOWNERS review; run SAST/CodeQL in CI; block merges on failing security checks.",
+            "checks": ["branch_protection", "_approval", "codeowners", "status_checks", "force_push", "signed_commits", "code_scanning"],
+            "status": "",
+        },
+        {
+            "control": "CC9",
+            "name": "Risk mitigation",
+            # vendor/business-partner risk program — contractual and procedural
+            # evidence a scanner cannot produce.
+            "desc": "Risk mitigation activities for business disruption and vendor/business-partner relationships",
+            "action": "Maintain a vendor inventory with security reviews and DPAs; define business continuity and insurance coverage.",
+            "checks": ["governance", "third_party"],
+            "assessable": False,
+            "status": "",
+        },
+    ],
+    # CMMC 2.0 Level 2, mapped at DOMAIN granularity (14 domains, not the 110
+    # individual practices) because that is the granularity Prowler's evidence
+    # supports: its `nist_800_171_revision_2_aws.json` carries 50 of the 110
+    # requirements, so a practice-level table would be 60 rows of "no data".
+    #
+    # Every control here is `native_only` with an EMPTY keyword list. That is
+    # deliberate and is the whole point of the framework's design: a prototype
+    # keyword set built from the vocabulary of the target checks themselves
+    # measured 34.2% coverage (CM 1/22, SI 1/13 — denominators from the Prowler
+    # 5.38 survey in the plan doc, not the 5.30.1 counts below), so keywords
+    # here would manufacture wrong answers rather than approximate right ones.
+    # With no Prowler mapping loaded, these report N/A — never PASS.
+    #
+    # COVERAGE LIMIT: Prowler ships 800-171 for AWS ONLY, and the mapping is
+    # loaded from the installed package rather than from the scan — so on a
+    # Kubernetes-only run it stays populated with AWS check ids, matches
+    # nothing, and would score all nine mapped domains PASS on no evidence.
+    # `prowler_native_map.native_control_providers()` records, per control, the
+    # providers that actually contributed a check, so those domains report N/A
+    # instead; the limit is also stated in the dashboard under the framework
+    # heading (COMP_FW_NOTES).
+    #
+    # Source: CMMC 2.0 Level 2 = NIST SP 800-171 Rev. 2 (32 CFR Part 170);
+    # domain codes per NIST SP 800-171 Rev. 2 requirement families 3.1–3.14.
+    "CMMC 2.0 Level 2": [
+        {
+            "control": "AC",
+            "name": "Access Control (800-171 §3.1)",
+            "desc": "Limit system access to authorized users, processes, and devices, and to the transactions they are permitted to execute",
+            "action": "Enforce least-privilege IAM, remove wildcard and unused permissions, and restrict public network exposure of data stores.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "AT",
+            "name": "Awareness and Training (800-171 §3.2)",
+            "desc": "Ensure personnel are aware of security risks and trained to carry out their assigned security duties",
+            "action": "Run role-based security awareness and insider-threat training; retain completion records for assessment.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "AU",
+            "name": "Audit and Accountability (800-171 §3.3)",
+            "desc": "Create, protect, and retain audit records sufficient to trace unlawful or unauthorized system activity",
+            "action": "Enable and centralize provider audit logs, protect them from modification, and set retention to the contractual period.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "CM",
+            "name": "Configuration Management (800-171 §3.4)",
+            "desc": "Establish and maintain baseline configurations and enforce security configuration settings",
+            "action": "Track a baseline inventory, block drift from it, and disable nonessential programs, ports, and services.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "IA",
+            "name": "Identification and Authentication (800-171 §3.5)",
+            "desc": "Identify users, processes, and devices and authenticate them as a prerequisite to system access",
+            "action": "Require MFA for privileged and network access; rotate or eliminate long-lived static credentials.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "IR",
+            "name": "Incident Response (800-171 §3.6)",
+            "desc": "Establish an operational incident-handling capability and track, document, and report incidents",
+            "action": "Wire detection findings into an on-call channel and exercise the reporting path against the contractual deadline.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "MA",
+            "name": "Maintenance (800-171 §3.7)",
+            "desc": "Perform maintenance on systems and control the tools, techniques, mechanisms, and personnel used",
+            "action": "Approve and log maintenance access, and require MFA plus session termination for remote maintenance.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "MP",
+            "name": "Media Protection (800-171 §3.8)",
+            "desc": "Protect, control, and sanitize system media containing controlled unclassified information",
+            "action": "Encrypt media at rest, control removable media, and sanitize or destroy media before disposal or reuse.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "PS",
+            "name": "Personnel Security (800-171 §3.9)",
+            "desc": "Screen individuals prior to authorizing access, and protect systems during personnel transfer and termination",
+            "action": "Screen before granting access and revoke all credentials as part of the offboarding checklist.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "PE",
+            "name": "Physical Protection (800-171 §3.10)",
+            "desc": "Limit physical access to systems, equipment, and the operating environments they reside in",
+            "action": "Rely on the provider's audited facility controls and apply equivalent controls to any self-managed site.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "RA",
+            "name": "Risk Assessment (800-171 §3.11)",
+            "desc": "Periodically assess risk, scan for vulnerabilities, and remediate in accordance with the assessment",
+            "action": "Run recurring vulnerability scans and remediate on a documented, risk-ranked schedule.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "CA",
+            "name": "Security Assessment (800-171 §3.12)",
+            "desc": "Assess security controls periodically, remediate deficiencies, and monitor controls on an ongoing basis",
+            "action": "Keep a system security plan and POA&M current, and monitor controls continuously rather than at audit time.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "SC",
+            "name": "System and Communications Protection (800-171 §3.13)",
+            "desc": "Monitor, control, and protect communications at external and key internal system boundaries",
+            "action": "Terminate TLS with current ciphers, encrypt data at rest, and segment boundaries away from default-open access.",
+            "checks": [],
+            "native_only": True,
+            "status": "",
+        },
+        {
+            "control": "SI",
+            "name": "System and Information Integrity (800-171 §3.14)",
+            "desc": "Identify, report, and correct system flaws, and provide protection from malicious code",
+            "action": "Patch on a defined timeline, enable provider threat detection, and monitor for malicious code and unauthorized change.",
+            "checks": [],
+            "native_only": True,
             "status": "",
         },
     ],
@@ -689,20 +1064,138 @@ def _match_prowler_compliance(finding, framework_key):
     return False
 
 
-def map_compliance(all_findings):
-    """Map findings to compliance framework controls. Returns {framework: [ctrl_with_status]}."""
+_NATIVE_CACHE = None
+_NATIVE_PROVIDER_SCOPE = None
+
+
+def _load_native_module():
+    """Import the sibling `prowler_native_map.py`, or None when unavailable.
+
+    Import is deferred and failure is swallowed on purpose: compliance-map.py is
+    loaded by output.sh via importlib in a bare scan, where a missing sibling or
+    a missing Prowler install must not break the run.
+    """
+    try:
+        import importlib.util
+        import os
+
+        spec = importlib.util.spec_from_file_location(
+            "prowler_native_map",
+            os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "prowler_native_map.py"
+            ),
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
+
+
+def _native_mapping():
+    """Prowler's own requirement->check data, loaded once. `{}` when unavailable."""
+    global _NATIVE_CACHE, _NATIVE_PROVIDER_SCOPE
+    if _NATIVE_CACHE is None:
+        module = _load_native_module()
+        try:
+            _NATIVE_CACHE = module.load_all() if module else {}
+        except Exception:
+            _NATIVE_CACHE = {}
+        # Read separately and defensively: a sibling predating
+        # `native_control_providers` must cost only the provider scope, not the
+        # whole mapping. Losing the scope re-opens the false-PASS, so this
+        # degrades toward "unscoped", which is the pre-#455 behaviour.
+        try:
+            scopes = getattr(module, "native_control_providers", None)
+            _NATIVE_PROVIDER_SCOPE = dict(scopes() if scopes else {})
+        except Exception:
+            _NATIVE_PROVIDER_SCOPE = {}
+    return _NATIVE_CACHE
+
+
+def _native_provider_scope(framework, control):
+    """Providers that can evidence this control, or None when nothing is known.
+
+    See `prowler_native_map.native_control_providers()`: the mapping comes from
+    the installed Prowler package, not from the scan, so checks belonging to a
+    provider the run never touched stay in the control's list, match nothing,
+    and would score it PASS on evidence it could not have read.
+    """
+    _native_mapping()  # primes both caches
+    return (_NATIVE_PROVIDER_SCOPE or {}).get(framework, {}).get(control)
+
+
+def map_compliance(all_findings, scanned_providers=None):
+    """Map findings to compliance framework controls. Returns {framework: [ctrl_with_status]}.
+
+    A control is matched by EXACT check-id membership when Prowler ships a
+    mapping for it, and by keyword substring otherwise. Prowler's data is sparse
+    — its KISA file maps only 26 of 101 requirements — so the keyword path is a
+    fallback, not dead code. Each control reports which source decided it via
+    `match_source`, so a reader can tell an exact mapping from an approximation.
+
+    A control tagged `native_only` opts OUT of the keyword fallback: with no
+    Prowler mapping it reports `match_source="unmapped"` and status N/A. Falling
+    through to keywords would be the failure the CMMC framework exists to avoid
+    — a prototype keyword set built from the target checks' own vocabulary
+    measured 34.2% coverage — and defaulting to PASS on zero matches would read
+    as "compliant" when it means "never looked".
+
+    `scanned_providers` is the set of provider slugs the run actually covered
+    (e.g. `{"aws", "kubernetes"}`). It matters because the native mapping is
+    loaded from the INSTALLED Prowler package rather than from the scan: a
+    source Prowler ships for AWS only stays fully populated on a Kubernetes run,
+    matches nothing, and scores every natively-mapped control PASS on no
+    evidence. Measured on a k8s-only scan against Prowler 5.30.1, that was
+    NIST 800-53 at 10 pass / 0 fail and SOC 2 at 6 pass / 0 fail.
+
+    When a run reaches none of a framework's native providers, that framework's
+    mapping is dropped for the run. What each control does next is its existing
+    behaviour: a keyword-bearing control returns to keywords (NIST 800-53 goes
+    to 5 pass / 5 fail on the same scan), and a `native_only` control reports
+    "unmapped"/N/A. Gating never invents an N/A for a control that has keywords.
+
+    Pass it from the caller when the provider list is known independently of the
+    findings — a clean provider contributes zero FAIL findings, so deriving it
+    from `all_findings` alone cannot distinguish "clean" from "not scanned" and
+    resolves that ambiguity conservatively, away from the native path.
+    """
+    native = _native_mapping()
+    if scanned_providers is None:
+        scanned = {
+            str(f.get("provider", "")) for f in all_findings if f.get("provider")
+        }
+    else:
+        scanned = {str(p) for p in scanned_providers if p}
     result = {}
     for framework, controls in COMPLIANCE_CONTROL_MAP.items():
+        fw_native = native.get(framework, {})
         mapped = []
         for ctrl in controls:
+            native_checks = fw_native.get(ctrl["control"])
+            covered = _native_provider_scope(framework, ctrl["control"])
+            if native_checks and covered and not (scanned & set(covered)):
+                # Every check evidencing this control belongs to a provider the
+                # run never touched, so the native list can only ever match
+                # zero. Drop it rather than let `count == 0` read as PASS.
+                native_checks = None
             matching = []
-            for f in all_findings:
-                text = f"{f['check']} {f['title']} {f['message']}".lower()
-                keyword_match = any(kw in text for kw in ctrl["checks"])
-                native_match = _match_prowler_compliance(f, framework)
-                if keyword_match or native_match:
-                    matching.append(f)
-            if not ctrl.get("assessable", True):
+            if native_checks:
+                match_source = "prowler"
+                for f in all_findings:
+                    if str(f.get("check", "")) in native_checks:
+                        matching.append(f)
+            elif ctrl.get("native_only"):
+                match_source = "unmapped"
+            else:
+                match_source = "keyword"
+                for f in all_findings:
+                    text = f"{f['check']} {f['title']} {f['message']}".lower()
+                    keyword_match = any(kw in text for kw in ctrl["checks"])
+                    native_match = _match_prowler_compliance(f, framework)
+                    if keyword_match or native_match:
+                        matching.append(f)
+            if not ctrl.get("assessable", True) or match_source == "unmapped":
                 status = "N/A"
             else:
                 status = "PASS" if len(matching) == 0 else "FAIL"
@@ -712,6 +1205,7 @@ def map_compliance(all_findings):
                     "status": status,
                     "count": len(matching),
                     "findings": matching[:5],
+                    "match_source": match_source,
                 }
             )
         result[framework] = mapped

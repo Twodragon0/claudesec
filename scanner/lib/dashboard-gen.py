@@ -117,6 +117,65 @@ from dashboard_template import (
 )
 
 
+def _augment_scan_report(scan_dir, compliance_summary, owasp_map, prov_summary):
+    """Write the compliance / OWASP / Prowler rollups back into scan-report.json.
+
+    These summaries are computed here and, until now, only ever rendered into
+    the standalone HTML dashboard — `scan-report.json` (written by output.sh
+    BEFORE this module runs) carried nine keys, none of them compliance. So the
+    ISMS dashboard at `/`, which already fetches that file, had no way to show a
+    framework posture without opening a second page.
+
+    ADDITIVE ONLY. The existing keys are rewritten verbatim; the other consumer
+    (diagram-gen.py) reads named keys and ignores extras.
+
+    Best-effort by design, matching the diagram generation in output.sh: a
+    missing or unreadable report must not fail a scan that already succeeded.
+    Writes via a temp file + os.replace so a crash mid-write cannot truncate the
+    report the dashboard reads.
+    """
+    report_path = os.path.join(scan_dir, "scan-report.json")
+    try:
+        with open(report_path, encoding="utf-8") as fh:
+            report = json.load(fh)
+        if not isinstance(report, dict):
+            return False
+    except (OSError, ValueError):
+        return False
+
+    report["scanner_version"] = VERSION
+    report["generated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    report["compliance"] = compliance_summary
+    report["owasp"] = [
+        {
+            "id": entry["id"],
+            "name": entry["name"],
+            "count": len(owasp_map.get(entry["id"], [])),
+        }
+        for entry in OWASP_2025
+    ]
+    report["prowler"] = {
+        "providers": len(prov_summary),
+        "fail": sum(v["total_fail"] for v in prov_summary.values()),
+        "pass": sum(v["total_pass"] for v in prov_summary.values()),
+        "critical": sum(v["critical"] for v in prov_summary.values()),
+        "high": sum(v["high"] for v in prov_summary.values()),
+    }
+
+    tmp_path = report_path + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            json.dump(report, fh, separators=(",", ":"))
+        os.replace(tmp_path, report_path)
+    except OSError:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return False
+    return True
+
+
 def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     network_dir = os.environ.get("CLAUDESEC_NETWORK_DIR", "")
     scan_dir = os.environ.get("CLAUDESEC_SCAN_DIR", "") or os.environ.get(
@@ -145,7 +204,11 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     prov_summary, all_findings = analyze_prowler(providers)
     history = load_scan_history(history_dir)
     owasp_map = map_findings_to_owasp(all_findings)
-    compliance_map = map_compliance(all_findings)
+    # Pass the scanned provider list explicitly: a provider with zero FAIL
+    # findings is invisible in `all_findings`, and a provider-scoped native
+    # source (800-171 is AWS-only) must not be credited to a run that could
+    # not have produced its evidence.
+    compliance_map = map_compliance(all_findings, scanned_providers=set(providers))
     arch_domains = map_architecture(all_findings)
     gh_finds = github_findings(all_findings)
     aws_finds = aws_findings(all_findings)
@@ -179,6 +242,10 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
 
     # Compliance summary for history tracking (canonical source: compliance-map.py)
     compliance_summary = _compliance_summary(compliance_map)
+
+    # Publish the same rollups to scan-report.json so the ISMS dashboard at `/`
+    # can show framework posture without a second page to open.
+    _augment_scan_report(scan_dir, compliance_summary, owasp_map, prov_summary)
 
     history_json = json.dumps(
         history
@@ -432,6 +499,42 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         if scanner_cat_labels
         else "No fail/warn categories in this run (checks may be pass/skip only)."
     )
+    # Which categories actually EXECUTED. Distinct from the "detected" list
+    # above, which is derived from findings and therefore cannot distinguish a
+    # category that ran and was clean from one that never ran at all. Without
+    # this, `claudesec dashboard` narrowing an unqualified `all` to a fast local
+    # subset produced a headline grade over a fraction of the checks with
+    # nothing on screen saying so.
+    _ran_raw = os.environ.get("CLAUDESEC_SCAN_CATEGORIES", "").strip()
+    scan_coverage_html = ""
+    if _ran_raw:
+        _ran = {c.strip().lower() for c in _ran_raw.split(",") if c.strip()}
+        # "other" is a display bucket for uncategorized findings, not a
+        # scannable category — see test_dashboard_mapping_pure's parity test,
+        # which pins the rest of CATEGORY_META against the scanner's own
+        # CLAUDESEC_ALL_CATEGORIES array.
+        _all = [c for c in CATEGORY_META if c != "other"]
+        _not_run = [] if "all" in _ran else [c for c in _all if c not in _ran]
+        if _not_run:
+            _labels = ", ".join(
+                (CATEGORY_META[c] or {}).get("label", c) for c in _not_run
+            )
+            scan_coverage_html = (
+                '<div style="margin-top:.25rem">'
+                '<strong style="color:var(--text)">Not scanned in this run:</strong> '
+                f"{h(len(_not_run))} of {h(len(_all))} categories &mdash; {h(_labels)}. "
+                "The score below covers only the categories that ran; "
+                "use <code>claudesec dashboard --all</code> for full scope."
+                "</div>"
+            )
+        else:
+            scan_coverage_html = (
+                '<div style="margin-top:.25rem">'
+                '<strong style="color:var(--text)">Scan coverage:</strong> '
+                f"all {h(len(_all))} categories ran."
+                "</div>"
+            )
+
     scan_root_short = _middle_ellipsis(scan_dir, 68)
     scan_root_badge = (
         '<span class="trust-badge trust-ms" style="margin-left:.35rem">Repo root</span>'
@@ -466,6 +569,7 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         + f'<div style="margin-top:.25rem"><strong style="color:var(--text)">Local scanner categories detected:</strong> {cat_count_html} '
         + (scanner_cat_links_html if scanner_cat_links_html else h(scanner_cat_text))
         + "</div>"
+        + scan_coverage_html
         + f'<div style="margin-top:.25rem"><strong style="color:var(--text)">Scan root:</strong> <code class="scan-root-path" title="{h(scan_dir)}">{h(scan_root_short)}</code>{scan_root_badge}</div>'
         + '<div style="margin-top:.4rem;display:flex;flex-wrap:wrap;gap:.75rem;align-items:center"><a href="#scanner-section" data-action="scroll-to" data-target="scanner-section" style="color:var(--accent);text-decoration:underline;font-weight:600">View scanner results ↓</a><label style="display:flex;align-items:center;gap:.35rem"><span style="color:var(--text);font-weight:600">Prowler summary</span><select class="scope-select" data-change="openProwler">'
         + prowler_selector_options_html

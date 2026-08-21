@@ -13,6 +13,7 @@ test exercises. No internal IPs, no network, no shared state.
 
 import importlib
 import os
+import re
 import sys
 import unittest
 from unittest.mock import patch
@@ -313,13 +314,25 @@ class TestMapCompliance(unittest.TestCase):
 
     def test_empty_findings_every_control_passes(self):
         """Assessable controls PASS with no findings; non-assessable controls
-        (the 11 ISMS-P 3.x PII controls) are always N/A."""
+        (the 11 ISMS-P 3.x PII controls) and unmapped `native_only` controls
+        (the CMMC domains, when Prowler ships no mapping) are always N/A."""
         result = dm.map_compliance([])
+        # Independent anchor: `status` and `match_source` are co-produced, so
+        # the derived check below alone would stay green if native_only were
+        # deleted entirely and the CMMC domains reverted to a keyword PASS.
+        cmmc = result["CMMC 2.0 Level 2"]
+        assert len(cmmc) == 14
+        assert all(c["status"] == "N/A" for c in cmmc)
+        assert all(c["match_source"] == "unmapped" for c in cmmc)
+
         for framework, controls in result.items():
             assert framework in dm.COMPLIANCE_CONTROL_MAP
             for ctrl in controls:
-                expected_status = "N/A" if not ctrl.get("assessable", True) else "PASS"
-                assert ctrl["status"] == expected_status
+                na = (
+                    not ctrl.get("assessable", True)
+                    or ctrl["match_source"] == "unmapped"
+                )
+                assert ctrl["status"] == ("N/A" if na else "PASS")
                 assert ctrl["count"] == 0
                 assert ctrl["findings"] == []
 
@@ -581,6 +594,60 @@ class TestHardFailOnLoadError(unittest.TestCase):
         self.assertEqual(
             fresh.COMPLIANCE_CONTROL_MAP, canonical.COMPLIANCE_CONTROL_MAP
         )
+
+
+class TestCategoryMetaParity(unittest.TestCase):
+    """`CATEGORY_META` must cover exactly the scanner's own category list.
+
+    The dashboard computes "not scanned in this run" as CATEGORY_META minus the
+    categories the scanner reports having executed. If the two lists drift, a
+    category the scanner CAN run would either be silently omitted from that
+    warning (under-reporting missed coverage — the failure this feature exists
+    to prevent) or reported as permanently unscannable.
+
+    `other` is excluded: it is the display bucket for findings whose category is
+    empty or unrecognized, not something `-c` accepts.
+    """
+
+    CLAUDESEC = os.path.join(os.path.dirname(__file__), "..", "claudesec")
+
+    def _scanner_categories(self):
+        """The `CLAUDESEC_ALL_CATEGORIES=( ... )` array from the scanner CLI."""
+        with open(self.CLAUDESEC, encoding="utf-8") as fh:
+            text = fh.read()
+        m = re.search(
+            r"^readonly -a CLAUDESEC_ALL_CATEGORIES=\((.*?)\)", text, re.M | re.S
+        )
+        self.assertIsNotNone(m, "CLAUDESEC_ALL_CATEGORIES array not found")
+        return {c for c in m.group(1).split() if c}
+
+    def test_category_meta_matches_scanner_category_list(self):
+        scanner_cats = self._scanner_categories()
+        self.assertTrue(scanner_cats, "parsed an empty category list — vacuous")
+        meta_cats = set(dm.CATEGORY_META) - {"other"}
+        self.assertEqual(
+            meta_cats,
+            scanner_cats,
+            "CATEGORY_META and CLAUDESEC_ALL_CATEGORIES drifted:\n"
+            f"  only in CATEGORY_META: {sorted(meta_cats - scanner_cats)}\n"
+            f"  only in the scanner:   {sorted(scanner_cats - meta_cats)}",
+        )
+
+    def test_other_is_present_and_is_not_a_scannable_category(self):
+        # Pins the one deliberate asymmetry, so removing `other` from
+        # CATEGORY_META (or adding it to the scanner) is a visible diff.
+        self.assertIn("other", dm.CATEGORY_META)
+        self.assertNotIn("other", self._scanner_categories())
+
+    def test_parser_rejects_a_mutated_array(self):
+        # Mutation self-test: the regex must actually be able to miss, or the
+        # equality above would be comparing against a stale hand-copy.
+        mutated = re.search(
+            r"^readonly -a CLAUDESEC_ALL_CATEGORIES=\((.*?)\)",
+            "readonly -a SOMETHING_ELSE=(\n  infra ai\n)",
+            re.M | re.S,
+        )
+        self.assertIsNone(mutated)
 
 
 if __name__ == "__main__":
