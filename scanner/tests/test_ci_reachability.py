@@ -183,6 +183,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _ci_guard_util import (  # noqa: E402
     apply_mutation,
+    apply_regex_mutation,
     assert_disables,
     block_ends_at,
     explicit_key_lines,
@@ -275,9 +276,11 @@ _BLOCK_SCALAR_RE = re.compile(r"^[|>][0-9+-]*\s*$")
 # and hide a real invocation (#414 — a guard broken by ordinary authoring gets
 # weakened by its users).
 _INVOCATION_PREFIX = (
-    r"(?:^|[;&|(]|&&|\|\|)[ \t]*"          # command position
+    r"(?:^|[;&|({]|&&|\|\|)[ \t]*"         # command position, incl. a brace group
+    r"['\"]?"                               # a quoted `run:` VALUE
     r"(?:python3\s+\S*pty_run\.py\s+)?"    # the one launcher in use
-    r"(?:(?:bash|sh)[ \t]+|\./)"           # interpreter, or direct execution
+    r"(?:(?:bash|sh)[ \t]+(?:-\S+[ \t]+)*|\./)"  # interpreter (+options), or ./
+    r"['\"]?"                               # a quoted path
     r"(?:\./)?"
 )
 _SHELL_TEST_INVOCATION_RE = re.compile(
@@ -342,7 +345,35 @@ def executed_shell(text: str) -> str:
       limitation `strip_inline_comment_sh` documents, no step in this repo writes
       one, and closing it needs a heredoc state machine rather than a line matcher.
     """
-    lines = text.splitlines()
+    blocks = step_blocks(text)
+    if not blocks:
+        # `text` is already a single step block (the exemption helpers pass one),
+        # or it contains no `steps:` at all — in which case the scan below finds
+        # no step column and credits nothing, which is the fail-safe answer.
+        blocks = [text]
+    return "\n".join(_executed_shell_of_step(b) for b in blocks)
+
+
+def _executed_shell_of_step(step: str) -> str:
+    """The shell ONE step executes, crediting `run:` only at the step's own column.
+
+    The column restriction is the whole point. Before it, `is_run = name == "run"`
+    fired at ANY nesting depth, so a `run:` one level in — under `with:`, `env:`
+    or `outputs:` — counted as execution. Adversarial review of #465 measured six
+    shapes; the sharpest needs no block scalar at all:
+
+        - name: a
+          uses: ./.github/actions/token-expiry-gate
+          with:
+            run: bash scanner/tests/test_x.sh
+
+    PyYAML: the step has keys `['name', 'uses', 'with']` and NO `run` key. The
+    guard reported the test as registered on the fast path, at `61 passed`.
+    A step's `run:` is a direct child of its own sequence item, never deeper, so
+    the column IS the discriminator.
+    """
+    col = _seq_item_key_column(step)
+    lines = step.splitlines()
     out = []
     i, n = 0, len(lines)
     while i < n:
@@ -355,7 +386,9 @@ def executed_shell(text: str) -> str:
             continue
         key_col, name, rest = parsed
         rest = strip_inline_comment(rest).strip()
-        is_run = name == "run"
+        # `col is None` means the caller handed us something that is not a
+        # sequence item; credit nothing rather than guess a column.
+        is_run = name == "run" and col is not None and key_col == col
         if _BLOCK_SCALAR_RE.match(rest):
             body = []
             while i < n:
@@ -376,6 +409,44 @@ def invoked_shell_tests(shell: str) -> set:
     return set(_SHELL_TEST_INVOCATION_RE.findall(shell))
 
 
+# A line whose value OPENS a block scalar. Used to find keys `key_line` cannot
+# read, whose scalar body would otherwise be walked into as if it were shell.
+_BLOCK_SCALAR_TAIL_RE = re.compile(r":\s*[|>][0-9+-]*\s*$")
+
+
+def unreadable_block_scalar_keys(text: str) -> list:
+    """Lines that OPEN a block scalar but whose key `key_line` cannot read.
+
+    `key_line`'s bare-key class is `[^\\s:#]+`, so a REAL YAML key containing a
+    space, a `:` or a `#` — and the explicit `? key` / `: |` form — come back as
+    None. `executed_shell` then never enters its consume-and-discard arm for that
+    key and walks straight into the scalar BODY, where a `run:`-shaped line used
+    to read as execution. Adversarial review of #465 measured four such spellings
+    (`MY NOTE: |`, `a:b: |`, `a#b: |`, `? env` / `: |`), each making an
+    unregistered test read as registered while PyYAML reported the step executing
+    `true`.
+
+    The step-column restriction in `_executed_shell_of_step` already closes the
+    execution side of that. This is the second half: a scalar whose OWNER cannot
+    be identified is a scalar whose body cannot be safely classified, so it is
+    REPORTED rather than silently skipped — the same fail-closed convention this
+    file already applies to the explicit-key `? run` / `? steps` form.
+
+    Direction: presence of an unreadable owner, not presence of a `run:` inside
+    it. Reporting only the ones that happen to contain a shell-test path today
+    would make the tripwire depend on the payload it is meant to be blind to.
+    """
+    out = []
+    for lineno, raw in enumerate(text.splitlines(), 1):
+        if raw.lstrip().startswith("#"):
+            continue
+        if not _BLOCK_SCALAR_TAIL_RE.search(strip_inline_comment(raw)):
+            continue
+        if key_line(raw) is None:
+            out.append(f"line {lineno}: {raw.strip()!r}")
+    return out
+
+
 def registered_in_job(lint_text: str):
     """`(set_of_registered_basenames, problems)` for the `scanner-unit-tests` job.
 
@@ -391,6 +462,14 @@ def registered_in_job(lint_text: str):
             "YAML explicit-key form found, which no line matcher can read: "
             f"{unscannable!r}. Rewrite as `key: value` so registration stays "
             "verifiable."
+        )
+    opaque = unreadable_block_scalar_keys(lint_text)
+    if opaque:
+        problems.append(
+            "block scalar opened by a key this scanner cannot read: "
+            f"{opaque!r}. Its body cannot be classified, so a `run:`-shaped line "
+            "inside it would read as execution. Rewrite the key as a plain, "
+            "quoted or unspaced `key: value` so ownership stays verifiable."
         )
     block = job_block(lint_text, JOB)
     if block is None:
@@ -458,13 +537,25 @@ def _keys_at(block: str, col: int, keys) -> list:
 
 
 def _enclosing_job_block(owner_text: str, step_block: str):
-    """The job block containing `step_block`, or None."""
-    anchor = step_block.splitlines()[0]
+    """`(job_key, block)` for the job containing `step_block`, or `(None, None)`.
+
+    Matched on the WHOLE step block, and required to be UNIQUE. The first version
+    matched the step's first LINE as a substring anywhere in the file, so a second
+    job with a byte-identical `- name:` line — a retry job, a split matrix —
+    redirected the check. Adversarial review of #465 measured it: with a decoy job
+    added, `top_level_jobs` read `['decoy', 'changes', 'smoke']`, the guard picked
+    `decoy:`, inspected its `['runs-on', 'steps']`, and reported GREEN while
+    PyYAML had `jobs.smoke.continue-on-error = True`.
+
+    Ambiguity is returned as "not found" rather than resolved by guessing, so the
+    caller reports a problem instead of validating the wrong job."""
+    needle = strip_comment_lines(step_block).strip()
+    hits = []
     for job in top_level_jobs(owner_text):
         block = job_block(owner_text, job)
-        if block is not None and anchor in strip_comment_lines(block):
-            return block
-    return None
+        if block is not None and needle and needle in strip_comment_lines(block):
+            hits.append((job, block))
+    return hits[0] if len(hits) == 1 else (None, None)
 
 
 def _matrix_keys_naming(owner_text: str, test_name: str) -> list:
@@ -509,11 +600,26 @@ def _matrix_running_steps(owner_text: str, owner: str, test_name: str):
             "no matrix key carries that path any more, so the test runs nowhere. "
             f"Restore the matrix entry or register the test in `{JOB}`."
         ]
-    steps = [
-        blk for blk in step_blocks(owner_text)
-        for key in keys
-        if _matrix_invocation_re(key).search(executed_shell(blk))
-    ]
+    # SAME JOB, both halves. `_matrix_keys_naming` and `step_blocks` are both
+    # whole-file, so before this the matrix entry and the step consuming it could
+    # sit in two unrelated jobs and still satisfy "both halves present".
+    # Adversarial review of #465 moved the macOS matrix entry verbatim into a
+    # second, parked job and measured `61 passed` / `Ran 903 tests OK` while the
+    # test ran nowhere. A matrix value only reaches a step through its OWN job's
+    # `strategy:`, so co-location is the invariant, not co-existence.
+    steps = []
+    for job in top_level_jobs(owner_text):
+        block = job_block(owner_text, job)
+        if block is None:
+            continue
+        job_keys = _matrix_keys_naming(block, test_name)
+        if not job_keys:
+            continue
+        steps += [
+            blk for blk in step_blocks(block)
+            for key in job_keys
+            if _matrix_invocation_re(key).search(executed_shell(blk))
+        ]
     if not steps:
         return [], [
             f"{owner} names {test_name} only as the value of matrix key(s) {keys}, "
@@ -558,6 +664,20 @@ def exemption_swallow_problems(owner_text: str, owner: str, test_name: str) -> l
     running, problems = locate_exemption_steps(owner_text, owner, test_name)
     if problems:
         return problems
+    # Fail closed on the explicit-key form for every swallow key. `_keys_at` reads
+    # bare and quoted keys but cannot see `? continue-on-error` / `: true`, which
+    # adversarial review of #465 measured GREEN at both step and job level while
+    # PyYAML reported the key set. Same tripwire convention this file already uses
+    # for `run` / `steps` / `if`.
+    opaque = explicit_key_lines(
+        owner_text, *_SWALLOW_STEP_KEYS, *_SWALLOW_JOB_KEYS
+    )
+    if opaque:
+        return [
+            f"{owner}: YAML explicit-key form found for a swallow key, which no "
+            f"line matcher can read: {opaque!r}. Rewrite as `key: value` so the "
+            f"exemption for {test_name} stays verifiable."
+        ]
     for blk in running:
         col = _seq_item_key_column(blk)
         if col is None:
@@ -575,10 +695,13 @@ def exemption_swallow_problems(owner_text: str, owner: str, test_name: str) -> l
                 "exemption while the verdict disappears — the same 'runs but cannot "
                 "fail' defect this guard was written for."
             )
-        job = _enclosing_job_block(owner_text, blk)
+        job_key, job = _enclosing_job_block(owner_text, blk)
         if job is None:
             problems.append(
-                f"{owner}: the step running {test_name} is in no locatable job."
+                f"{owner}: the step running {test_name} is in no UNIQUELY locatable "
+                "job. Either no job block contains it, or more than one does — a "
+                "second job with an identical step would make this check inspect "
+                "the wrong one, so it refuses to guess."
             )
             continue
         job_col = key_column(job)
@@ -590,7 +713,51 @@ def exemption_swallow_problems(owner_text: str, owner: str, test_name: str) -> l
                 f"{owner}: the JOB running {test_name} carries {bad_job} at job "
                 "level, which makes every step in it non-fatal."
             )
+        problems += _disabled_job_problems(owner_text, owner, test_name, job_key)
     return problems
+
+
+# A job `if:` that references NEITHER of these is a constant, and a constant gate
+# is a disabled job rather than a conditional one.
+_LIVE_GATE_REFS = ("needs.", "github.", "inputs.", "vars.", "env.")
+
+
+def _disabled_job_problems(owner_text: str, owner: str, test_name: str, job_key):
+    """Problems if the exemption's job is switched OFF rather than gated.
+
+    `if` is a step-level swallow key but was NOT a job-level one, even though
+    `test_job_level_continue_on_error_is_caught` says "one level out, the same
+    defect". Adversarial review of #465 put `if: false` on `cross-os-checks.yml`'s
+    matrix job and measured `61 passed` / `Ran 903 tests OK` with both `*_live.sh`
+    exemptions running nowhere on the platform they exist for. Reproduced here
+    before the fix.
+
+    It cannot simply be added to `_SWALLOW_JOB_KEYS`: `dashboard-control-smoke.yml`
+    legitimately carries a job-level `if: needs.changes.outputs.dashboard == 'true'`
+    path gate, and presence-matching would redden the real file. So the rule is
+    about the EXPRESSION — a gate that consults something (`needs.`, `github.`,
+    `inputs.`, `vars.`, `env.`) is a path/event gate and fine; one that consults
+    nothing is a constant, and a constant gate is an off switch.
+
+    Deliberately conservative in the other direction: an expression this cannot
+    classify is treated as LIVE, because a false alarm on a legitimate gate is the
+    failure mode that gets a guard deleted (#414)."""
+    if job_key is None:
+        return []
+    expr, gate_problems = job_gate_expression(owner_text, job_key)
+    if gate_problems:
+        return [f"{owner}: {p}" for p in gate_problems]
+    if expr is None:
+        return []
+    if any(ref in expr for ref in _LIVE_GATE_REFS):
+        return []
+    return [
+        f"{owner}: the JOB running {test_name} is gated on `if: {expr}`, which "
+        f"references none of {list(_LIVE_GATE_REFS)} — it is a CONSTANT, so the job "
+        f"never runs. `{test_name}` is EXEMPT from registration in `{JOB}` on the "
+        "promise that this job gates it; a job switched off keeps the exemption "
+        "while the verdict disappears."
+    ]
 
 
 # --- B. guarded workflows must be in the `scanner` diff bucket ----------------
@@ -755,7 +922,25 @@ def _bucket_key(path: Path) -> str:
     named `action.yml` and a basename key would make the two collide into one
     entry — silently classifying both by whichever was seen last."""
     if path.name in COMPOSITE_ENTRYPOINTS:
-        return f".github/actions/{path.parent.name}/{path.name}"
+        # `path.parent.name` was the LEAF directory only, which reproduced the
+        # very collision this docstring claims to fix: adversarial review of #465
+        # showed `actions/aws/deploy/action.yml` and `actions/gcp/deploy/action.yml`
+        # both keying to `.github/actions/deploy/action.yml` — one classification
+        # silently covering two actions, and `_bucket_path` then measuring the
+        # bucket regex against a path that does not exist. `uses: ./.github/
+        # actions/aws/deploy` is valid and `workflow_and_action_files()` globs
+        # `**/action.yml` recursively, so nesting is reachable.
+        # Every directory level from the `actions` component down, so
+        # `actions/aws/deploy/action.yml` and `actions/gcp/deploy/action.yml` key
+        # DISTINCTLY. Anchored on the component rather than on `REPO_ROOT` or
+        # `ACTION_DIR` because the self-tests swap `ACTION_DIR` to a tempdir, and
+        # a module-level import of it would be a stale snapshot while
+        # `relative_to(REPO_ROOT)` would raise on the tempdir path.
+        parts = path.parts
+        if "actions" in parts:
+            start = len(parts) - 1 - parts[::-1].index("actions")
+            return ".github/" + "/".join(parts[start:])
+        return path.as_posix()
     return path.name
 
 
@@ -1093,6 +1278,146 @@ class TestBucketDetectorIsNonVacuous(unittest.TestCase):
         self.assertTrue(bucket_gate_problems(mutant2))
 
 
+class TestRound2ReviewFindingsAreClosed(unittest.TestCase):
+    """Mutation self-tests for the six findings of the independent adversarial
+    review of #465. Every one was measured GREEN on `5063c25` before the fix and
+    is pinned here; none was a live hole, all six were one edit away."""
+
+    T = "scanner/tests/test_x.sh"
+
+    def _step(self, body):
+        return "jobs:\n  j:\n    steps:\n" + body
+
+    def _credited(self, doc):
+        return bool(invoked_shell_tests(executed_shell(doc)))
+
+    # --- H3: a `run:` at any nesting depth counted as execution -------------
+
+    def test_run_nested_under_with_is_not_execution(self):
+        """The sharpest of the six: the step has NO `run:` key at all (PyYAML
+        confirms `['name', 'uses', 'with']`) and the guard reported the test as
+        registered on the fast path."""
+        doc = self._step(
+            f"      - name: a\n        uses: ./.github/actions/token-expiry-gate\n"
+            f"        with:\n          run: bash {self.T}\n"
+        )
+        self.assertFalse(self._credited(doc))
+
+    def test_run_nested_under_env_is_not_execution(self):
+        doc = self._step(
+            f"      - name: a\n        env:\n          run: bash {self.T}\n"
+            f"        run: true\n"
+        )
+        self.assertFalse(self._credited(doc))
+
+    def test_a_step_level_run_is_still_execution(self):
+        """The positive control. Column-restricting must not stop crediting the
+        real thing — 50 registrations depend on it."""
+        for body in (
+            f"      - name: a\n        run: bash {self.T}\n",
+            f"      - name: a\n        run: |\n          bash {self.T}\n",
+        ):
+            with self.subTest(body=body):
+                doc = self._step(body)
+                self.assertTrue(self._credited(doc))
+
+    def test_unreadable_block_scalar_owners_fail_closed(self):
+        """`key_line`'s bare class is `[^\\s:#]+`, so a key with a space, a `:` or
+        a `#`, and the explicit `? key` form, read as NOT-a-key — and the scanner
+        walked into their scalar bodies. Four spellings, each measured crediting
+        an unregistered test while PyYAML reported the step executing `true`."""
+        for owner in ("MY NOTE", "a:b", "a#b"):
+            with self.subTest(owner=owner):
+                doc = self._step(
+                    f"      - name: a\n        env:\n          {owner}: |\n"
+                    f"            run: bash {self.T}\n        run: true\n"
+                )
+                self.assertFalse(self._credited(doc))
+                self.assertTrue(
+                    unreadable_block_scalar_keys(doc),
+                    f"`{owner}: |` must be REPORTED, not silently skipped",
+                )
+        explicit = self._step(
+            f"      - name: a\n        ? env\n        : |\n"
+            f"            run: bash {self.T}\n        run: true\n"
+        )
+        self.assertFalse(self._credited(explicit))
+        self.assertTrue(unreadable_block_scalar_keys(explicit))
+
+    def test_a_readable_owner_is_not_reported(self):
+        """Direction. A quoted or plain owner is readable, so the tripwire must
+        stay quiet — it fires on unreadable OWNERS, never on the payload."""
+        for owner in ('"NOTE"', "NOTE", "'NOTE'"):
+            with self.subTest(owner=owner):
+                doc = self._step(
+                    f"      - name: a\n        env:\n          {owner}: |\n"
+                    f"            run: bash {self.T}\n        run: true\n"
+                )
+                self.assertEqual(unreadable_block_scalar_keys(doc), [])
+
+    def test_the_real_lint_yml_has_no_unreadable_owners(self):
+        """Canary: the tripwire must be quiet on the file it guards, or it is a
+        blanket failure rather than a detector."""
+        self.assertEqual(unreadable_block_scalar_keys(LINT_YML.read_text("utf-8")), [])
+
+    # --- M2: nested composite actions collided into one key ----------------
+
+    def test_nested_composite_actions_key_distinctly(self):
+        """`path.parent.name` keyed by the LEAF directory, so `aws/deploy` and
+        `gcp/deploy` collided — the exact collision `_bucket_key`'s docstring
+        claims to fix, and `_bucket_path` then measured the bucket regex against a
+        path that does not exist."""
+        import _ci_guard_util
+
+        original = _ci_guard_util.ACTION_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                act = Path(tmp, "actions")
+                for rel in ("aws/deploy", "gcp/deploy", "flat-thing"):
+                    (act / rel).mkdir(parents=True)
+                    Path(act, rel, "action.yml").write_text("runs: {}\n", "utf-8")
+                _ci_guard_util.ACTION_DIR = act
+                keys = [
+                    _bucket_key(Path(f))
+                    for f in workflow_and_action_files()
+                    if Path(f).name in COMPOSITE_ENTRYPOINTS
+                ]
+        finally:
+            _ci_guard_util.ACTION_DIR = original
+        self.assertEqual(
+            len(keys), len(set(keys)),
+            f"two composite actions collided into one key: {sorted(keys)}",
+        )
+        self.assertIn(".github/actions/aws/deploy/action.yml", keys)
+        self.assertIn(".github/actions/gcp/deploy/action.yml", keys)
+
+    # --- L1: false ALARMS narrower than the command-position model needs ----
+
+    def test_invocation_shapes_the_runner_really_executes(self):
+        for text, want, label in (
+            (f'"bash {self.T}"', True, "quoted run: value"),
+            (f"'bash {self.T}'", True, "single-quoted value"),
+            (f"bash -x {self.T}", True, "dash option run"),
+            (f"{{ bash {self.T}; }}", True, "brace group"),
+            (f"bash {self.T} || exit 1", True, "control"),
+        ):
+            with self.subTest(label=label):
+                self.assertEqual(bool(invoked_shell_tests(text)), want)
+
+    def test_over_crediting_shapes_stay_rejected(self):
+        """The dangerous direction. Broadening the command-position set must not
+        make a MENTION count — that was MEDIUM-2, and the quote-unaware residual
+        must not widen either."""
+        for text, label in (
+            (f'echo "TEMPORARILY DISABLED: bash {self.T}"', "the MEDIUM-2 case"),
+            (f"echo bash {self.T}", "bare word before bash"),
+            (f'echo "do bash {self.T}"', "keyword inside a quoted string"),
+            (f"timeout 30 bash {self.T}", "documented false alarm"),
+        ):
+            with self.subTest(label=label):
+                self.assertFalse(bool(invoked_shell_tests(text)), label)
+
+
 class TestExemptionVerdictIsNonVacuous(unittest.TestCase):
     """Mutation self-tests for the RUNS_ELSEWHERE rc-swallow rule.
 
@@ -1163,6 +1488,117 @@ class TestExemptionVerdictIsNonVacuous(unittest.TestCase):
                     'run: echo "skipped"',
                 )
             )
+        )
+
+    # --- round-2 review findings, on the real owner files ------------------
+
+    def test_a_constant_job_gate_is_caught(self):
+        """H1. `if` was a STEP swallow key and not a JOB one, though
+        `test_job_level_continue_on_error_is_caught` says "one level out, the same
+        defect". `if: false` on `cross-os-checks.yml`'s matrix job measured
+        `61 passed` with both `*_live.sh` exemptions running nowhere on the
+        platform they exist for."""
+        owner = "cross-os-checks.yml"
+        text = (LINT_YML.parent / owner).read_text(encoding="utf-8")
+        job = next(
+            j for j in top_level_jobs(text)
+            if "matrix" in (job_block(text, j) or "")
+        )
+        mutant = apply_regex_mutation(
+            text, rf"^  {re.escape(job)}:\n", f"  {job}:\n    if: false\n", flags=re.M
+        )
+        for name in ("test_check_macos_cis_security_live.sh",
+                     "test_check_windows_kisa_security_live.sh"):
+            with self.subTest(test=name):
+                self.assertTrue(
+                    exemption_swallow_problems(mutant, owner, name),
+                    "a job switched off with `if: false` kept the exemption",
+                )
+
+    def test_a_real_path_gate_is_not_a_constant(self):
+        """H1, the other direction, and the reason `if` cannot simply join
+        `_SWALLOW_JOB_KEYS`: `dashboard-control-smoke.yml` legitimately carries a
+        job-level `if: needs.changes.outputs.dashboard == 'true'`. A guard that
+        reddens on the real file gets deleted (#414)."""
+        text = (LINT_YML.parent / self.OWNER).read_text(encoding="utf-8")
+        # Non-vacuity is asserted through the READER, not by looking for the
+        # string in the raw file: a raw presence check would stay green with the
+        # gate commented out, which is the inert shape
+        # `test_ci_guard_assertion_scoping` exists to reject.
+        job_key, _ = _enclosing_job_block(text, next(
+            blk for blk in locate_exemption_steps(text, self.OWNER, self.TEST)[0]
+        ))
+        expr, gate_problems = job_gate_expression(text, job_key)
+        self.assertEqual(gate_problems, [])
+        self.assertIsNotNone(expr, "the owner job has no `if:` — fixture is stale")
+        self.assertTrue(
+            any(ref in expr for ref in _LIVE_GATE_REFS),
+            f"the owner's job gate `{expr}` references none of {list(_LIVE_GATE_REFS)}, "
+            "so this test is no longer exercising the live-gate direction",
+        )
+        self.assertEqual(exemption_swallow_problems(text, self.OWNER, self.TEST), [])
+
+    def test_the_matrix_halves_must_share_a_job(self):
+        """H2. `_matrix_keys_naming` and `step_blocks` were both whole-file, so
+        the matrix entry and the step consuming it could sit in two unrelated jobs
+        and still satisfy "both halves present" — measured at `61 passed` with the
+        macOS entry parked in a second job."""
+        owner = "cross-os-checks.yml"
+        name = "test_check_macos_cis_security_live.sh"
+        text = (LINT_YML.parent / owner).read_text(encoding="utf-8")
+        entry = next(
+            ln for ln in text.splitlines() if name in ln and ":" in ln
+        )
+        parked = (
+            "\n  macos-checks-parked:\n    runs-on: ubuntu-latest\n"
+            "    strategy:\n      matrix:\n        include:\n"
+            f"{entry}\n    steps:\n      - run: echo parked\n"
+        )
+        mutant = apply_mutation(text, entry + "\n", "") + parked
+        self.assertTrue(
+            exemption_swallow_problems(mutant, owner, name),
+            "the two matrix halves were accepted from two different jobs",
+        )
+
+    def test_explicit_key_swallow_form_fails_closed(self):
+        """M1a. `_keys_at` reads bare and quoted keys but cannot see
+        `? continue-on-error` / `: true`, measured GREEN at both step and job
+        level while PyYAML reported the key set."""
+        text = (LINT_YML.parent / self.OWNER).read_text(encoding="utf-8")
+        mutant = apply_mutation(
+            text,
+            "      - name: Run asset dashboard control-liveness smoke\n",
+            "      - name: Run asset dashboard control-liveness smoke\n"
+            "        ? continue-on-error\n        : true\n",
+        )
+        problems = exemption_swallow_problems(mutant, self.OWNER, self.TEST)
+        self.assertTrue(problems)
+        self.assertIn("explicit-key", problems[0])
+
+    def test_a_decoy_job_makes_the_enclosing_job_ambiguous(self):
+        """M1b. `_enclosing_job_block` matched the step's FIRST LINE anywhere in
+        the file, so a second job with a byte-identical `- name:` line redirected
+        the check — measured GREEN while PyYAML had
+        `jobs.smoke.continue-on-error = True`. Ambiguity now fails closed rather
+        than resolving to whichever job came first."""
+        text = (LINT_YML.parent / self.OWNER).read_text(encoding="utf-8")
+        step = (
+            "      - name: Run asset dashboard control-liveness smoke\n"
+            "        timeout-minutes: 5\n        env:\n"
+            "          CHROME_BIN: /usr/bin/google-chrome\n"
+            f"        run: bash scanner/tests/{self.TEST}\n"
+        )
+        # No `assertIn(step, text)` staleness check: it is the inert raw-presence
+        # shape, and the `+ step` below fails loudly if the anchor drifts because
+        # the decoy job would then carry a step the owner does not have.
+        mutant = (
+            text.rstrip("\n")
+            + "\n\n  decoy:\n    runs-on: ubuntu-latest\n"
+            "    continue-on-error: true\n    steps:\n" + step
+        )
+        self.assertTrue(
+            exemption_swallow_problems(mutant, self.OWNER, self.TEST),
+            "a decoy job with an identical step was silently accepted",
         )
 
     def test_matrix_indirection_table_has_no_ghosts(self):
