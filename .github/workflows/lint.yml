@@ -57,6 +57,7 @@ jobs:
     timeout-minutes: 3
     outputs:
       scanner: ${{ steps.detect.outputs.scanner }}
+      ci_config: ${{ steps.detect.outputs.ci_config }}
       docker: ${{ steps.detect.outputs.docker }}
       python_deps: ${{ steps.detect.outputs.python_deps }}
       npm_deps: ${{ steps.detect.outputs.npm_deps }}
@@ -123,6 +124,36 @@ jobs:
           # `scanner/tests/test_ci_reachability.py`, which fails if that list drifts.
           {
             echo "scanner=$(match '^(scanner/|scripts/|hooks/|Dockerfile|docker-compose|requirements.*\.txt|lychee\.toml$|\.github/workflows/lint\.yml|\.github/workflows/security-scan\.yml)')"
+            # CI-config guards. Deliberately BROAD and deliberately SEPARATE from
+            # the `scanner` bucket above, because the two buy different things at
+            # very different prices.
+            #
+            # The `test_ci_*.py` guards run inside `scanner-unit-tests`, which is
+            # gated on `scanner` and drags 54 shell tests behind it, and
+            # `scanner-shell-coverage` (kcov, minutes) shares that bucket. So the
+            # only way to run the guards for a workflow-only PR used to be to
+            # admit that path into `scanner` and pay the whole scanner + kcov
+            # bill on every Dependabot action bump — precisely the cost this repo
+            # path-gates to avoid (#180/#181), and why eleven guarded workflows
+            # sat outside the bucket as a documented gap.
+            #
+            # Measured instead: all 874 guards pass in 3.6s in a venv with ZERO
+            # third-party packages. So `ci-guards` below needs a checkout and a
+            # Python and nothing else, and the honest bucket for it is "anything
+            # a guard could be pinning" rather than a curated list.
+            #
+            # THE INCIDENT: `test_ci_template_pin_policy.py` asserts an installed
+            # template mirrors the SHA this repo runs. Dependabot PR #460 bumped
+            # `github/codeql-action` in `.github/workflows/dast-full-scan.yml`
+            # only, leaving `templates/codeql.yml` a patch behind. Neither path
+            # matched `scanner`, so `scanner-unit-tests` was SKIPPED and the one
+            # guard written for that invariant could not run on the PR that
+            # violated it. Its successor #462 failed only by accident — that
+            # grouped bump also touched `lint.yml`, which IS in `scanner`.
+            #
+            # Over-inclusion here is fail-safe: it costs ~20s and cannot hide a
+            # regression. Pinned by scanner/tests/test_ci_guard_self_verify.py.
+            echo "ci_config=$(match '^(\.github/|templates/|scanner/tests/(test_ci_|_ci_guard_util\.py)|scripts/setup\.sh$|requirements.*\.txt|lychee\.toml$|Dockerfile|package\.json$|\.npmignore$|lighthouserc\.json$|bin/|\.claude/skills/|\.claude-plugin/)')"
             echo "docker=$(match '^(Dockerfile|docker-compose|scripts/run-dashboard-docker|scanner/lib/dashboard-|\.github/workflows/lint\.yml)')"
             echo "python_deps=$(match '^(requirements.*\.txt|pyproject\.toml|setup\.py)')"
             echo "npm_deps=$(match '^(package(-lock)?\.json|\.nvmrc)')"
@@ -228,6 +259,59 @@ jobs:
             .github
           additional_files: run
           check_together: 'yes'
+
+  # ---------------------------------------------------------------------------
+  # Job: ci-guards
+  # Runs ONLY the CI-config regression guards (`scanner/tests/test_ci_*.py`), on
+  # the broad `ci_config` bucket. Exists because those guards were reachable only
+  # through `scanner-unit-tests`, whose bucket cannot be widened to `.github/**`
+  # without also firing kcov — see the note on the bucket in `changes`.
+  #
+  # No `pip install`: the guards are stdlib-only, measured at 874 tests / 3.6s in
+  # a venv with zero packages. Python 3.11 rather than the runner default because
+  # two guards use PEP 604 `list[str] | None`, which raises TypeError on 3.9.
+  #
+  # `unittest` rather than `pytest` so the job needs nothing installed at all.
+  # This is DUPLICATE coverage — `scanner-unit-tests` still runs these under
+  # pytest with the coverage gate — and that is the point: this job's only job is
+  # to be cheap enough to run on paths the expensive one must not.
+  # ---------------------------------------------------------------------------
+  ci-guards:
+    name: CI config guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: changes
+    if: needs.changes.outputs.ci_config == 'true' || github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Run CI config regression guards
+        run: |
+          set -euo pipefail
+          # NO `working-directory:` — it is RUNNER-consumed, so nothing that
+          # executes this body can observe it, and `unittest discover` exits 0 on
+          # "Ran 0 tests". A wrong or dropped value would therefore be a SILENT
+          # VACUOUS PASS. `test_ci_required_graph_not_disabled` caught exactly
+          # that on the first draft of this step; the `cd` lives in the body
+          # instead, where the two checks below fail closed on it.
+          cd scanner/tests
+          shopt -s nullglob
+          files=(test_ci_*.py)
+          echo "guard files on disk: ${#files[@]}"
+          [ "${#files[@]}" -gt 0 ]
+          # Captured rather than piped to a log file: no stray artifact, and no
+          # dependence on `pipefail` semantics for the verdict.
+          out=$(python3 -m unittest discover -s . -p 'test_ci_*.py' 2>&1) || {
+            printf '%s\n' "$out"
+            exit 1
+          }
+          printf '%s\n' "$out"
+          # Closes the OTHER direction from a real failure — a run that
+          # discovered nothing and still reported OK.
+          printf '%s\n' "$out" | grep -qE '^Ran [1-9][0-9]* tests? in '
 
   scanner-unit-tests:
     runs-on: ubuntu-latest
@@ -1071,6 +1155,7 @@ jobs:
       - npm-audit
       - pip-audit
       - shell-lint
+      - ci-guards
       - scanner-unit-tests
       - scanner-shell-coverage
       - dashboard-regression-check
