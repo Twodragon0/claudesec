@@ -22,10 +22,36 @@
 #   ~once per release — wasteful, so we tie the frequent run to the publish event
 #   instead.)
 #
-# Fail-safe:
-#   A transient install/network failure is a no-op (exit 0), NOT a false alarm.
-#   A genuine signature/provenance failure opens a single idempotent issue
-#   (label 'provenance-watch') and fails the run so the schedule surfaces it.
+# FAIL-SAFE / GRACEFUL DEGRADATION (no silent green):
+#   Two outcomes, two treatments — and neither one is silent.
+#
+#   - A genuine signature/provenance failure opens (or updates) the single
+#     'provenance-watch' issue AND fails the run. That is a supply-chain alarm.
+#
+#   - An install failure verified NOTHING, so it must not report a bare green
+#     either. It is escalated only once it has PERSISTED: the install is retried
+#     3 times (t=0, +30s, +90s) and only an all-attempts-failed outcome reaches
+#     the consumer steps, which write a run-summary statement and open/update the
+#     same self-healing issue. A single blip stays quiet; "the package cannot be
+#     installed at all" (unpublished/renamed, registry blocking the runner, a
+#     broken npm self-upgrade, an npm-side auth change) surfaces.
+#
+#     WHY AN ISSUE AND NOT A 'NEUTRAL' STATUS: GitHub Actions has no neutral
+#     conclusion for a regular job — success / failure / cancelled / skipped only
+#     (the Docker-action exit-code-78 neutral was removed in 2019). So a no-op job
+#     reports SUCCESS, and a green check for work that never happened is worse
+#     than no check. Same mechanism, and the same recorded rationale, as the
+#     sibling notifiers protection-drift-watch.yml (#396) and dast-full-scan.yml
+#     (#397).
+#
+#     WHY NOT exit 1: the install branch is a notifier, not a gate. Failing daily
+#     forever on an upstream registry condition trains the owner to ignore this
+#     workflow; the repo convention for notifiers is one self-healing issue.
+#
+#   Both conditions share one label, so every write also sets --title: the issue
+#   must describe the CURRENT state, not whichever condition opened it first. The
+#   next run whose verification passes CLOSES it automatically, so neither branch
+#   can leave behind an alert that only a human can retire.
 #
 # This workflow MUST NOT run on pull_request events — it is a scheduled monitor
 # and must never become a required PR status check.
@@ -82,28 +108,44 @@ jobs:
           cd "$workdir"
           npm init -y >/dev/null 2>&1
 
-          # Transient install/network failure -> no-op (don't cry wolf).
+          # PERSISTENCE, NOT A BLIP (this is what `status=transient` used to hide:
+          # it had no consumer, so a permanent install failure reported green
+          # forever while never checking a signature — the #396/#397 class).
           #
-          # VERDICT SUPPRESSED HERE — WHAT IT HIDES (audit 2026-08-12): this branch
-          # exits 0 having verified NOTHING, and `status=transient` has no consumer
-          # anywhere in this workflow (the only readers are the two
-          # `status == 'failed'` steps below). So a PERSISTENT install failure —
-          # package unpublished or renamed, registry blocking the runner, a bad
-          # `npm@>=11.5.1` upgrade, an npm-side auth change — makes this monitor
-          # report green forever while never once checking a signature. Nothing
-          # opens an issue, nothing writes a summary, nothing degrades.
-          # This is exactly the dark-workflow class of #396/#397, and the sibling
-          # notifier protection-drift-watch.yml was FIXED for it: its no-op branch
-          # opens a self-healing `protection-drift` issue precisely because "a green
-          # check for work that never happened is worse than no check"
-          # (protection-drift-watch.yml:19-31 — the standing example).
-          # Distinguishing transient from persistent needs state this workflow does
-          # not keep. The cheap fix is the sibling's, i.e. make the no-op branch
-          # visible rather than silent. Not changed here, annotation-only PR.
-          if ! npm install claudesec@latest --no-audit --no-fund > install.log 2>&1; then
-            echo "::warning::Could not install claudesec@latest (transient?). Skipping."
-            cat install.log || true
-            echo "status=transient" >> "$GITHUB_OUTPUT"
+          # One failed install is normal, and the repo already treats a transient
+          # external failure as re-runnable up to 2 times. So the install is
+          # attempted 3 times at t=0/+30s/+90s — each attempt already wrapping
+          # npm's own fetch-retries — and only an ALL-attempts-failed outcome is
+          # handed to the consumer steps below as `status=install-failed`. A
+          # shorter blip never reaches them; a condition that survives 3 requests
+          # over ~90s is not a single blip.
+          installed=false
+          for attempt in 1 2 3; do
+            if npm install claudesec@latest --no-audit --no-fund \
+                 > "install-${attempt}.log" 2>&1; then
+              installed=true
+              break
+            fi
+            echo "::warning::install attempt ${attempt}/3 of claudesec@latest failed"
+            tail -n 30 "install-${attempt}.log" || true
+            if [ "${attempt}" -lt 3 ]; then
+              sleep "$(( attempt * 30 ))"
+            fi
+          done
+
+          if [ "${installed}" != "true" ]; then
+            # Verified NOTHING. Do not exit green in silence: hand it to the
+            # install-failed consumer steps and say so where a human looks.
+            echo "::warning::claudesec@latest could not be installed after 3 attempts over ~90s — provenance was NOT verified"
+            echo "status=install-failed" >> "$GITHUB_OUTPUT"
+            cp "install-3.log" "${GITHUB_WORKSPACE}/install.log" || true
+            {
+              echo "### :warning: Provenance was NOT verified"
+              echo
+              echo "\`npm install claudesec@latest\` failed on all 3 attempts (~90s), so"
+              echo "\`npm audit signatures\` never ran. This run's green status means the"
+              echo "workflow completed, NOT that the published package is signed."
+            } >> "${GITHUB_STEP_SUMMARY}"
             exit 0
           fi
 
@@ -120,8 +162,10 @@ jobs:
             cp sig.log "${GITHUB_WORKSPACE}/sig.log"
           fi
 
-      - name: Open alert issue on verification failure (idempotent)
-        if: steps.verify.outputs.status == 'failed'
+      - name: Ensure provenance-watch label exists
+        if: >-
+          steps.verify.outputs.status == 'failed' ||
+          steps.verify.outputs.status == 'install-failed'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -131,13 +175,33 @@ jobs:
             || gh label create provenance-watch --repo "${GITHUB_REPOSITORY}" \
                  --description "Published-package provenance/signature alert" --color "b60205"
 
+      - name: Find existing open provenance-watch issue
+        id: existing
+        # Reachable from all three outcomes on purpose: the two alert branches need
+        # it to UPDATE one issue instead of opening a duplicate every run (daily
+        # duplicates get muted, and a muted alert is silence again), and `ok` needs
+        # it to close the issue when the condition clears.
+        if: >-
+          steps.verify.outputs.status == 'failed' ||
+          steps.verify.outputs.status == 'install-failed' ||
+          steps.verify.outputs.status == 'ok'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
           existing="$(gh issue list --repo "${GITHUB_REPOSITORY}" \
             --label provenance-watch --state open --json number --limit 5)"
-          if [ "$(echo "$existing" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)))')" -gt 0 ]; then
-            echo "An open provenance-watch issue already exists — skipping duplicate."
-            exit 0
-          fi
+          number="$(echo "${existing}" | python3 -c 'import sys, json; d=json.load(sys.stdin); print(d[0]["number"] if d else "")')"
+          echo "issue_number=${number}" >> "${GITHUB_OUTPUT}"
+          echo "Existing open provenance-watch issue: '${number:-none}'"
 
+      - name: Open or update alert issue on verification failure
+        if: steps.verify.outputs.status == 'failed'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXISTING_ISSUE: ${{ steps.existing.outputs.issue_number }}
+        run: |
+          set -euo pipefail
           {
             echo "## npm signature / provenance verification failed"
             echo ""
@@ -155,12 +219,97 @@ jobs:
             echo "2. Confirm the npm Trusted Publisher for \`claudesec\` is intact"
             echo "   (workflow \`npm-publish.yml\`, environment \`npm-publish\`)."
             echo "3. Re-publish with \`--provenance\` if the attestation was lost."
+            echo ""
+            echo "_Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}_"
           } > /tmp/body.md
 
-          gh issue create --repo "${GITHUB_REPOSITORY}" \
-            --title "security: claudesec npm provenance/signature verification failed" \
-            --label provenance-watch \
-            --body-file /tmp/body.md
+          title="security: claudesec npm provenance/signature verification failed"
+          if [ -n "${EXISTING_ISSUE}" ]; then
+            echo "Updating existing provenance-watch issue #${EXISTING_ISSUE}"
+            # --title too: one label serves both conditions, so the title must
+            # describe the CURRENT state, not whichever one opened the issue first.
+            gh issue edit "${EXISTING_ISSUE}" --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" --body-file /tmp/body.md
+            gh issue comment "${EXISTING_ISSUE}" --repo "${GITHUB_REPOSITORY}" \
+              --body "Signature/provenance verification still failing as of run ${GITHUB_RUN_ID} (report refreshed above)."
+          else
+            echo "Opening new provenance-watch issue"
+            gh issue create --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --label provenance-watch \
+              --body-file /tmp/body.md
+          fi
+
+      - name: Open or update alert issue when the package cannot be installed
+        # THE CONSUMER of the persistent-install-failure branch. Without it the
+        # branch exits 0 having verified nothing and the monitor reports green
+        # forever (#396/#397 class). A notifier, so it does NOT fail the run.
+        if: steps.verify.outputs.status == 'install-failed'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXISTING_ISSUE: ${{ steps.existing.outputs.issue_number }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## claudesec could not be installed — provenance is NOT being verified"
+            echo ""
+            echo "\`npm install claudesec@latest\` failed on **all 3 attempts** (t=0, +30s,"
+            echo "+90s) in the scheduled provenance watch, so \`npm audit signatures\` never"
+            echo "ran. The published package's npm registry signature and SLSA provenance"
+            echo "attestation are UNVERIFIED for as long as this issue is open"
+            echo "(OWASP A08 — Software & Data Integrity Failures)."
+            echo ""
+            echo "GitHub Actions has no \`neutral\` conclusion for a regular job, so those"
+            echo "runs report **green**. This issue exists because a green check for work"
+            echo "that never happened is worse than no check."
+            echo ""
+            echo "### Install log (last attempt)"
+            echo '```'
+            tail -n 40 "${GITHUB_WORKSPACE}/install.log" 2>/dev/null || echo "(log unavailable)"
+            echo '```'
+            echo ""
+            echo "### Likely causes"
+            echo "1. \`claudesec\` was unpublished, renamed or deprecated on npm."
+            echo "2. The registry is blocking/rate-limiting the runner, or npm is down."
+            echo "3. The \`npm install -g npm@'>=11.5.1'\` self-upgrade step broke."
+            echo ""
+            echo "A single transient failure never reaches this issue — 3 failed attempts"
+            echo "spanning ~90s are required. The next run whose verification passes closes"
+            echo "this issue automatically."
+            echo ""
+            echo "_Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}_"
+          } > /tmp/install-failed-body.md
+
+          title="ci: claudesec provenance watch is not verifying (install fails)"
+          if [ -n "${EXISTING_ISSUE}" ]; then
+            echo "Updating existing provenance-watch issue #${EXISTING_ISSUE}"
+            gh issue edit "${EXISTING_ISSUE}" --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" --body-file /tmp/install-failed-body.md
+            gh issue comment "${EXISTING_ISSUE}" --repo "${GITHUB_REPOSITORY}" \
+              --body "Install still failing as of run ${GITHUB_RUN_ID} — provenance remains unverified (report refreshed above)."
+          else
+            echo "Opening new 'not verifying' issue"
+            gh issue create --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --label provenance-watch \
+              --body-file /tmp/install-failed-body.md
+          fi
+
+      - name: Close alert issue when verification passes
+        # The self-healing half. Without it the alert above outlives its cause and
+        # becomes noise that gets muted — the same green-that-should-be-red in
+        # reverse. Closing needs no human, so no alert can become unclosable.
+        if: steps.verify.outputs.status == 'ok' && steps.existing.outputs.issue_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXISTING_ISSUE: ${{ steps.existing.outputs.issue_number }}
+        run: |
+          set -euo pipefail
+          echo "Verification passed — closing stale provenance-watch issue #${EXISTING_ISSUE}"
+          gh issue comment "${EXISTING_ISSUE}" --repo "${GITHUB_REPOSITORY}" \
+            --body "Signature + provenance verification passed as of run ${GITHUB_RUN_ID}. Closing automatically."
+          gh issue close "${EXISTING_ISSUE}" --repo "${GITHUB_REPOSITORY}" \
+            --reason completed
 
       - name: Fail the run on verification failure
         if: steps.verify.outputs.status == 'failed'
