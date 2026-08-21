@@ -449,6 +449,12 @@ jobs:
         run: bash scanner/tests/test_run_with_timeout_fallbacks.sh
       - name: Run bash unit tests (save_scan_history OCSF compliance)
         run: bash scanner/tests/test_save_scan_history_ocsf.sh
+      # Executes the kcov-skip guard in the two browser smokes, both directions.
+      # The guard it pins replaced one that never fired (TracerPid vs kcov's real
+      # xtrace instrumentation), which is why those smokes drove headless Chrome
+      # under kcov for 7-30s a run and reddened PR #465.
+      - name: Run bash unit tests (kcov-skip guard)
+        run: bash scanner/tests/test_kcov_skip_guard.sh
       # --- end of the #437 follow-up registration -------------------------------
       # Produce the grade-A baseline report the next step asserts against.
       # Without this, test_scan_report_baseline.py skips itself — which is what

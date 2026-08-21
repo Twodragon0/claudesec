@@ -36,17 +36,30 @@ FIXTURE="$SCRIPT_DIR/fixtures/asset-dashboard-data.json"
 HARNESS="$SCRIPT_DIR/dashboard-control-liveness.mjs"
 ASSERTIONS="$SCRIPT_DIR/asset-dashboard-assertions.js"
 
-# The CI kcov job globs scanner/tests/test_*.sh and runs each DIRECTLY under kcov's
-# ptrace tracer. Driving headless Chrome under ptrace is unreliable (and pointless —
-# this harness measures no SUT bash coverage). Skip when traced so the kcov glob runs
-# us as an instant no-op; the dedicated dashboard-control smoke workflow runs us
-# untraced. macOS/local (no /proc) => treated as untraced.
-if [[ -r /proc/self/status ]]; then
-  tracer_pid="$(awk '/^TracerPid:/{print $2}' /proc/self/status 2>/dev/null || echo 0)"
-  if [[ "${tracer_pid:-0}" != "0" ]]; then
-    echo "SKIP: running under a tracer (kcov/ptrace) — browser smoke runs only in the dedicated workflow."
-    exit 0
-  fi
+# The CI kcov job globs scanner/tests/test_*.sh and runs each one under kcov.
+# Driving headless Chrome there is unreliable and pointless — this harness
+# measures no SUT bash coverage, since it never sources one of the five files in
+# kcov's include-pattern. Skip under kcov so the glob runs us as an instant
+# no-op; the dedicated dashboard-control smoke workflow runs us for real.
+#
+# DETECTED BY ENV VAR, NOT BY TracerPid. The original check read
+# `/proc/self/status` for a non-zero `TracerPid` and NEVER ONCE FIRED, because
+# kcov 42 instruments bash through XTRACE, not ptrace. Measured under the exact
+# CI invocation (`timeout 30 kcov --include-pattern=… <script>`):
+#
+#     TracerPid                 0        <- for the script itself, too
+#     KCOV_BASH_COMMAND         /bin/bash
+#     KCOV_BASH_XTRACEFD        262144
+#     PS4                       kcov@${BASH_SOURCE}@${LINENO}@
+#     SHELLOPTS                 …:xtrace
+#
+# So both browser smokes ran fully under kcov for as long as the guard existed —
+# 7s, 9s, 13s, 21s and 30s across five observed runs, one of them a red build on
+# PR #465 that blocked a merge for a change touching none of this. The env var is
+# set by kcov itself, needs no /proc, and works on macOS.
+if [[ -n "${KCOV_BASH_XTRACEFD:-}" || -n "${KCOV_BASH_COMMAND:-}" ]]; then
+  echo "SKIP: running under kcov (xtrace instrumentation) — browser smoke runs only in the dedicated workflow."
+  exit 0
 fi
 
 for f in "$TEMPLATE" "$FIXTURE" "$HARNESS" "$ASSERTIONS"; do
