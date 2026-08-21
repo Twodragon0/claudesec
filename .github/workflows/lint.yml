@@ -625,10 +625,24 @@ jobs:
                 || rc=$?
             fi
             elapsed=$(( $(date +%s) - start ))
-            if [ "$rc" -eq 124 ]; then
+            if [ "$rc" -eq 124 ] && [ "$elapsed" -ge 30 ]; then
               # WARNING ONLY, on purpose: the cap killed the test mid-flight, so
               # there is no assertion verdict to report. See the rc-class note
               # above; this arm must stay non-fatal (#431 depends on it).
+              #
+              # `elapsed` IS PART OF THE CONDITION, not decoration. rc=124 alone
+              # does not mean "timed out" here: nine of these shell tests end
+              # `exit "$TEST_FAILED"` — the COUNT of failed assertions — and
+              # `test_output_functions.sh` runs 206 assertions, so 124 red
+              # assertions exit 124 and would be laundered into this warning arm
+              # while the step went green. Found by adversarial review of #440 and
+              # reproduced by executing this branch against a script exiting 124
+              # in 1s:
+              #   ::warning::kcov fake_test TIMED OUT after 1s (>=30s cap)
+              #   STEP VERDICT: GREEN
+              # `timeout 30` cannot kill before 30s, so requiring elapsed>=30
+              # keeps every genuine cap hit non-fatal and routes a 124-VALUED
+              # verdict into the ::error:: arm below where it belongs.
               echo "::warning::kcov $name TIMED OUT after ${elapsed}s (>=30s cap)"
             elif [ "$rc" -ne 0 ]; then
               # A REAL assertion failure. Annotate and record it; the verdict is

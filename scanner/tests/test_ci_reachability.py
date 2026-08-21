@@ -145,13 +145,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _ci_guard_util import (  # noqa: E402
     apply_mutation,
+    assert_disables,
+    block_ends_at,
     explicit_key_lines,
     job_block,
     key_column,
     on_key_inline,
+    step_blocks,
     strip_comment_lines,
     strip_inline_comment,
     strip_inline_comment_sh,
+    top_level_jobs,
     workflow_and_action_files,
     yaml_key_pattern,
 )
@@ -297,6 +301,119 @@ def _strip_trigger_block(text: str) -> str:
     return "\n".join(out)
 
 
+# RUNS_ELSEWHERE entries whose owner reaches the test through a matrix VALUE
+# (`run: bash ${{ matrix.test }}`) instead of naming it in a `run:`. ENUMERATED,
+# never inferred, so a NEW exemption this guard cannot locate FAILS rather than
+# silently opting out of the rc-swallow check below.
+#
+# The indirection itself is still only reference-checked — see KNOWN LIMITATIONS.
+MATRIX_INDIRECTION = {
+    "test_check_macos_cis_security_live.sh",
+    "test_check_windows_kisa_security_live.sh",
+}
+
+# `continue-on-error` turns a red step green; a step-level `if:` can stop it
+# running at all. Either one turns a RUNS_ELSEWHERE exemption into the precise
+# defect this PR exists to fix — a test that exists, is "reached", and gates
+# nothing. Found by adversarial review: `continue-on-error: true` on
+# `dashboard-control-smoke.yml`'s asset-dashboard step read
+#
+#     reachability          32 passed
+#     whole test_ci_* suite  823 passed
+#
+# because ownership was asserted as a REFERENCE and never as a verdict. Neither
+# owner workflow is a required context, so `test_ci_required_graph_not_disabled`
+# — which catches exactly this on the fast path — does not reach them. The fast
+# path has defence in depth; the exemptions had none.
+_SWALLOW_STEP_KEYS = ("continue-on-error", "if")
+_SWALLOW_JOB_KEYS = ("continue-on-error",)
+
+
+def _seq_item_key_column(block: str):
+    """The key column of a `- key:` sequence item: one level in from its own dash.
+
+    Derived from the real dash run (`-`, `-  `, ...) rather than assumed to be two
+    characters, the same reason `_RUN_KEY_RE` captures its prefix."""
+    m = re.match(r"^(\s*-\s+)", block.splitlines()[0])
+    return len(m.group(1)) if m else None
+
+
+def _keys_at(block: str, col: int, keys) -> list:
+    """Which of `keys` appear as mapping keys at exactly `col` in `block`."""
+    out = []
+    for key in keys:
+        pat = re.compile(rf"^ {{{col}}}{yaml_key_pattern(key)}\s*:")
+        if any(pat.match(strip_inline_comment(ln)) for ln in block.splitlines()):
+            out.append(key)
+    return out
+
+
+def _enclosing_job_block(owner_text: str, step_block: str):
+    """The job block containing `step_block`, or None."""
+    anchor = step_block.splitlines()[0]
+    for job in top_level_jobs(owner_text):
+        block = job_block(owner_text, job)
+        if block is not None and anchor in strip_comment_lines(block):
+            return block
+    return None
+
+
+def exemption_swallow_problems(owner_text: str, owner: str, test_name: str) -> list:
+    """Problems with HOW `owner_text` runs `test_name`: located, and can it fail?
+
+    Fails CLOSED in both directions — a test named by no executed `run:` is
+    reported (unless it is a documented matrix indirection), and so is one whose
+    step or job can swallow its exit code."""
+    running = [
+        blk for blk in step_blocks(owner_text)
+        if test_name in executed_shell(blk)
+    ]
+    if not running:
+        if test_name in MATRIX_INDIRECTION:
+            return []
+        return [
+            f"{owner} names {test_name} but no step's `run:` invokes it, and it is "
+            "not in MATRIX_INDIRECTION. Either the step was dropped (the test now "
+            "runs nowhere) or the invocation moved behind an indirection this guard "
+            "cannot read — add it to MATRIX_INDIRECTION with a reason, or register "
+            f"the test in `{JOB}`."
+        ]
+    problems = []
+    for blk in running:
+        col = _seq_item_key_column(blk)
+        if col is None:
+            problems.append(
+                f"{owner}: could not derive the key column of the step running "
+                f"{test_name}, so this guard cannot verify it can fail."
+            )
+            continue
+        bad = _keys_at(blk, col, _SWALLOW_STEP_KEYS)
+        if bad:
+            problems.append(
+                f"{owner}: the step running {test_name} carries {bad} at step level. "
+                f"`{test_name}` is EXEMPT from registration in `{JOB}` on the promise "
+                "that this step gates it; a swallowed or skipped step keeps the "
+                "exemption while the verdict disappears — the same 'runs but cannot "
+                "fail' defect this guard was written for."
+            )
+        job = _enclosing_job_block(owner_text, blk)
+        if job is None:
+            problems.append(
+                f"{owner}: the step running {test_name} is in no locatable job."
+            )
+            continue
+        job_col = key_column(job)
+        if job_col is None:
+            continue
+        bad_job = _keys_at(job, job_col, _SWALLOW_JOB_KEYS)
+        if bad_job:
+            problems.append(
+                f"{owner}: the JOB running {test_name} carries {bad_job} at job "
+                "level, which makes every step in it non-fatal."
+            )
+    return problems
+
+
 # --- B. guarded workflows must be in the `scanner` diff bucket ----------------
 
 # The bucket's own `match '<regex>'` call in the `changes` job. Anchored on the
@@ -329,6 +446,96 @@ KNOWN_BUCKET_GAP = {
     "protection-drift-watch.yml": "scheduled drift notifier",
     "provenance-verify.yml": "non-required daily provenance check",
 }
+
+
+# The `changes` job output the pytest job must CONSULT. Direction B proves the
+# bucket CONTAINS the right paths; on its own it never proved the job READS that
+# bucket, and nothing else in the repo pinned the link (`grep -rn
+# "outputs.scanner" scanner/tests/test_ci_*.py` found only prose). Adversarial
+# review defeated the whole of Direction B through that gap: rewiring
+# `scanner-unit-tests`'s `if:` to `needs.changes.outputs.markdown` left the
+# alternation byte-for-byte perfect, made a `security-scan.yml`-only PR skip
+# every guard again, and read
+#
+#     reachability          32 passed
+#     whole test_ci_* suite  823 passed
+#
+# — the exact incident Direction B exists to close, reproduced with Direction B
+# green. A correct bucket wired to nothing is not a gate.
+BUCKET_OUTPUT_REF = "needs.changes.outputs.scanner"
+
+
+def job_gate_expression(lint_text: str, job_key: str):
+    """`(expr_or_None, problems)` — the JOB-level `if:` of `job_key`.
+
+    `(None, [])` means the job carries no `if:` at all, which is SAFE and must
+    stay green: an ungated job always runs, so it cannot skip the guards. Only a
+    gate that EXISTS and names the wrong output is a hole, so this reports the
+    expression and lets the caller judge it.
+
+    Read at the job's OWN derived key column, for two reasons measured elsewhere
+    in this repo: `scanner-unit-tests` contains several STEP-level `if:` keys that
+    a whole-block search would happily return instead, and deriving the column
+    rather than hardcoding `^ {4}` means dedenting the job body (valid YAML, a
+    cosmetic diff) does not walk the matcher off its target.
+
+    Continuation lines are joined, because a job gate is legitimately spread over
+    several lines in this file (`lint.yml`'s docker-smoke gate is) and reading only
+    the key line would see half an expression.
+    """
+    problems = []
+    unscannable = explicit_key_lines(lint_text, "if")
+    if unscannable:
+        problems.append(
+            "YAML explicit-key `? if` form found, which no line matcher can read: "
+            f"{unscannable!r}. Rewrite as `if: <expr>` so the job's gate stays "
+            "verifiable."
+        )
+        return None, problems
+    block = job_block(lint_text, job_key)
+    if block is None:
+        problems.append(
+            f"job `{job_key}` not found exactly once in lint.yml — it was renamed, "
+            "removed or duplicated, so this guard cannot verify what gates it."
+        )
+        return None, problems
+    col = key_column(block)
+    if col is None:
+        problems.append(f"job `{job_key}` has an empty body")
+        return None, problems
+    pat = re.compile(rf"^ {{{col}}}{yaml_key_pattern('if')}\s*:(?P<rest>.*)$")
+    lines = block.splitlines()
+    for i, raw in enumerate(lines):
+        m = pat.match(strip_inline_comment(raw))
+        if not m:
+            continue
+        parts = [m.group("rest").strip()]
+        for cont in lines[i + 1:]:
+            if block_ends_at(cont, col):
+                break
+            parts.append(strip_inline_comment(cont).strip())
+        return " ".join(p for p in parts if p), problems
+    return None, problems
+
+
+def bucket_gate_problems(lint_text: str) -> list:
+    """Detector form of the invariant above, so the mutation self-tests can drive
+    it on synthetic text as well as on the real file."""
+    expr, problems = job_gate_expression(lint_text, JOB)
+    if problems:
+        return problems
+    if expr is None:
+        return []  # ungated job always runs — safe
+    if BUCKET_OUTPUT_REF not in expr:
+        return [
+            f"job `{JOB}` is gated on `if: {expr}`, which does not reference "
+            f"`{BUCKET_OUTPUT_REF}`. It is the only job that runs pytest, hence "
+            "the only job that runs every `test_ci_*.py` guard, so a gate wired to "
+            "any other bucket silently skips all of them for the PRs the `scanner` "
+            "bucket was widened to cover. Widening the bucket is worthless if the "
+            "job does not read it."
+        ]
+    return []
 
 
 def scanner_bucket_pattern(lint_text: str):
@@ -378,6 +585,15 @@ class TestGuardedWorkflowsAreInTheScannerBucket(unittest.TestCase):
             "job of lint.yml — it was renamed or restructured, so this guard "
             "cannot verify which paths re-run the guards.",
         )
+
+    def test_pytest_job_actually_reads_the_scanner_bucket(self):
+        """The bucket must be WIRED to the job, not merely correct.
+
+        Without this, every other assertion in this class is satisfiable while the
+        guards skip: the alternation stays perfect and the job consults a different
+        output. That is not a hypothetical — it is how adversarial review defeated
+        the whole of Direction B at `823 passed`."""
+        self.assertEqual(bucket_gate_problems(self.raw), [])
 
     def test_required_workflows_are_in_the_bucket(self):
         """The invariant. Matching is done with the REAL regex against the real
@@ -495,6 +711,170 @@ class TestBucketDetectorIsNonVacuous(unittest.TestCase):
         self.assertIn("lint.yml", derived)
         self.assertGreaterEqual(len(derived), 10, f"only found {sorted(derived)}")
 
+    # --- the bucket must be WIRED to the job, not merely correct ---------------
+
+    def test_control_the_real_job_reads_the_bucket(self):
+        """Item 6: the detector must be able to report GREEN on the real file."""
+        expr, problems = job_gate_expression(self.lint, JOB)
+        self.assertEqual(problems, [])
+        self.assertIsNotNone(expr, f"`{JOB}` has no job-level `if:` on the real file")
+        self.assertIn(BUCKET_OUTPUT_REF, expr)
+
+    def test_rewiring_the_job_gate_to_another_bucket_is_caught(self):
+        """THE bypass adversarial review found. Deliberately mutates only the
+        output NAME, so the bucket alternation stays byte-for-byte perfect and the
+        RED can come from nothing else."""
+        assert_disables(
+            bucket_gate_problems,
+            self.lint,
+            apply_mutation(
+                self.lint,
+                "    if: needs.changes.outputs.scanner == 'true'"
+                " || github.event_name == 'schedule'",
+                "    if: needs.changes.outputs.markdown == 'true'"
+                " || github.event_name == 'schedule'",
+            ),
+            "pytest job gated on a different bucket",
+        )
+
+    def test_removing_the_job_gate_entirely_stays_green(self):
+        """Direction. An UNGATED job always runs, so it cannot skip the guards —
+        deleting the `if:` is a CI-cost regression, not a coverage one, and a guard
+        that reddens on it would be wrong."""
+        mutant = apply_mutation(
+            self.lint,
+            "    if: needs.changes.outputs.scanner == 'true'"
+            " || github.event_name == 'schedule'\n",
+            "",
+        )
+        self.assertIsNone(job_gate_expression(mutant, JOB)[0])
+        self.assertEqual(bucket_gate_problems(mutant), [])
+
+    def test_a_step_level_if_is_not_the_job_gate(self):
+        """The job has several step-level `if:` keys. A whole-block search would
+        return one of them and read green after the JOB gate was rewired."""
+        mutant = apply_mutation(
+            self.lint,
+            "    if: needs.changes.outputs.scanner == 'true'"
+            " || github.event_name == 'schedule'",
+            "    if: needs.changes.outputs.markdown == 'true'"
+            " || github.event_name == 'schedule'\n"
+            "    # a step below still mentions the scanner bucket:",
+        )
+        self.assertTrue(
+            bucket_gate_problems(mutant),
+            "a step-level or commented mention of the bucket was accepted as the "
+            "job gate",
+        )
+
+    def test_explicit_key_if_fails_closed(self):
+        """`? if` is valid YAML no line matcher can read. It must be reported, not
+        silently treated as an absent (and therefore safe) gate."""
+        mutant = apply_mutation(
+            self.lint,
+            "    if: needs.changes.outputs.scanner == 'true'"
+            " || github.event_name == 'schedule'",
+            "    ? if\n    : needs.changes.outputs.markdown == 'true'",
+        )
+        problems = bucket_gate_problems(mutant)
+        self.assertTrue(problems)
+        self.assertIn("explicit-key", problems[0])
+
+    def test_quoted_job_gate_key_is_still_read(self):
+        """`"if":` is the #391/#393 quoted-key class. The gate must stay readable,
+        or quoting the key would make a rewired gate invisible again."""
+        mutant = apply_mutation(
+            self.lint,
+            "    if: needs.changes.outputs.scanner == 'true'",
+            '    "if": needs.changes.outputs.scanner == \'true\'',
+        )
+        self.assertEqual(bucket_gate_problems(mutant), [])
+        mutant2 = apply_mutation(
+            self.lint,
+            "    if: needs.changes.outputs.scanner == 'true'",
+            '    "if": needs.changes.outputs.markdown == \'true\'',
+        )
+        self.assertTrue(bucket_gate_problems(mutant2))
+
+
+class TestExemptionVerdictIsNonVacuous(unittest.TestCase):
+    """Mutation self-tests for the RUNS_ELSEWHERE rc-swallow rule.
+
+    Anchored on `dashboard-control-smoke.yml`, whose steps name their tests in a
+    `run:` directly. `cross-os-checks.yml` reaches its two through a matrix value
+    and is covered only by the reference check (MATRIX_INDIRECTION)."""
+
+    OWNER = "dashboard-control-smoke.yml"
+    TEST = "test_asset_dashboard_control_liveness.sh"
+
+    def setUp(self):
+        self.text = (LINT_YML.parent / self.OWNER).read_text(encoding="utf-8")
+
+    def _problems(self, text):
+        return exemption_swallow_problems(text, self.OWNER, self.TEST)
+
+    def test_control_the_real_owner_gates_the_test(self):
+        """Item 6: GREEN on the real file, or every RED below is meaningless."""
+        self.assertEqual(self._problems(self.text), [])
+
+    def test_step_level_continue_on_error_is_caught(self):
+        """THE bypass adversarial review found."""
+        assert_disables(
+            self._problems,
+            self.text,
+            apply_mutation(
+                self.text,
+                "      - name: Run asset dashboard control-liveness smoke\n",
+                "      - name: Run asset dashboard control-liveness smoke\n"
+                "        continue-on-error: true\n",
+            ),
+            "exempted test's step swallows its rc",
+        )
+
+    def test_step_level_if_is_caught(self):
+        """A step that may not run is not a verdict either."""
+        self.assertTrue(
+            self._problems(
+                apply_mutation(
+                    self.text,
+                    "      - name: Run asset dashboard control-liveness smoke\n",
+                    "      - name: Run asset dashboard control-liveness smoke\n"
+                    "        if: false\n",
+                )
+            )
+        )
+
+    def test_job_level_continue_on_error_is_caught(self):
+        """One level out, the same defect — the class `block_ends_at`'s docstring
+        records as a live three-way bypass on `security-scan.yml`."""
+        self.assertTrue(
+            self._problems(
+                apply_mutation(
+                    self.text,
+                    "  smoke:\n",
+                    "  smoke:\n    continue-on-error: true\n",
+                )
+            )
+        )
+
+    def test_dropping_the_invocation_is_caught(self):
+        """A step that mentions the test in its `name:` but no longer runs it."""
+        self.assertTrue(
+            self._problems(
+                apply_mutation(
+                    self.text,
+                    "run: bash scanner/tests/test_asset_dashboard_control_liveness.sh",
+                    'run: echo "skipped"',
+                )
+            )
+        )
+
+    def test_matrix_indirection_table_has_no_ghosts(self):
+        """An entry here opts a test out of the verdict check, so it must be a real
+        RUNS_ELSEWHERE name — otherwise the table could exempt a future file."""
+        stray = sorted(MATRIX_INDIRECTION - set(RUNS_ELSEWHERE))
+        self.assertEqual(stray, [], f"MATRIX_INDIRECTION names non-exempt tests: {stray}")
+
 
 class TestShellTestRegistration(unittest.TestCase):
     @classmethod
@@ -577,6 +957,48 @@ class TestShellTestRegistration(unittest.TestCase):
                     f"{owner} no longer references {test_name} outside its trigger "
                     "block, so that test now runs nowhere. Register it in "
                     f"`{JOB}` or restore its step in {owner}.",
+                )
+
+    def test_the_124_carve_out_requires_the_cap_to_have_fired(self):
+        """rc=124 alone must NOT buy the non-fatal arm.
+
+        The kcov loop fails on every non-zero rc except 124, which stays a warning
+        because a killed test has no verdict to report (#431). But 124 is not
+        exclusively a timeout here: nine of these shell tests end
+        `exit "$TEST_FAILED"` — the COUNT of failed assertions — and
+        `test_output_functions.sh` runs 206, so 124 red assertions exit 124.
+        Executing the real branch against rc=124/elapsed=1 produced
+        `::warning:: TIMED OUT` and a green step. `timeout 30` cannot kill sooner
+        than 30s, so the fix is to conjoin `elapsed`, and this pins it: dropping
+        the second test restores the laundering path silently.
+        """
+        active = strip_comment_lines(self.raw)
+        m = re.search(r'if\s+\[\s*"\$rc"\s+-eq\s+124\s*\](?P<rest>[^\n]*)', active)
+        self.assertIsNotNone(
+            m,
+            "could not find the `rc -eq 124` carve-out in lint.yml's kcov loop — it "
+            "was restructured, so this guard cannot verify the cap condition.",
+        )
+        self.assertRegex(
+            m.group("rest"),
+            r'&&\s*\[\s*"\$elapsed"\s+-ge\s+30\s*\]',
+            "the rc=124 arm is not conjoined with an `elapsed >= 30` test, so a "
+            "124-VALUED assertion verdict (124 failed assertions) is laundered into "
+            "the non-fatal TIMED OUT arm and the step reads green.",
+        )
+
+    def test_exemptions_run_in_a_step_that_can_fail(self):
+        """An exemption must point at a VERDICT, not at a mention.
+
+        `test_runs_elsewhere_is_really_run_there` above proves the owner still
+        references the test. That is necessary and not sufficient: a referenced
+        test whose step carries `continue-on-error` runs and reports nothing, so
+        the exemption survives while the gate it promised is gone."""
+        for test_name, owner in sorted(RUNS_ELSEWHERE.items()):
+            with self.subTest(test=test_name):
+                text = (LINT_YML.parent / owner).read_text(encoding="utf-8")
+                self.assertEqual(
+                    exemption_swallow_problems(text, owner, test_name), [],
                 )
 
     def test_offline_guard_covers_the_dashboard_tests(self):
