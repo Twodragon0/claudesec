@@ -108,8 +108,21 @@ jobs:
           # change pytest / kcov outcomes). Also matches the lint workflow
           # itself so changes to the gating logic re-run the heavy jobs and
           # cannot accidentally turn off validation via a workflow-only PR.
+          #
+          # `security-scan.yml` is in this bucket for the SAME reason, added
+          # 2026-08-13. `scanner-unit-tests` is the only job that runs pytest, so
+          # it is the only job that runs the `test_ci_*.py` guards — and SEVEN of
+          # them pin `security-scan.yml`, including `test_ci_security_gate_
+          # behaviour.py`, which EXECUTES the CRITICAL gate. While that path was
+          # absent here, a PR touching only `security-scan.yml` set scanner=false
+          # (verified by running this exact `grep -E` against that one path), so
+          # every guard for the workflow being changed was skipped: precisely the
+          # workflow-only-PR hole the paragraph above claims to have closed.
+          # KNOWN REMAINING GAP: eleven other workflows are named by guards and are
+          # still outside this bucket — enumerated, with the cost argument, in
+          # `scanner/tests/test_ci_reachability.py`, which fails if that list drifts.
           {
-            echo "scanner=$(match '^(scanner/|scripts/|hooks/|Dockerfile|docker-compose|requirements.*\.txt|lychee\.toml$|\.github/workflows/lint\.yml)')"
+            echo "scanner=$(match '^(scanner/|scripts/|hooks/|Dockerfile|docker-compose|requirements.*\.txt|lychee\.toml$|\.github/workflows/lint\.yml|\.github/workflows/security-scan\.yml)')"
             echo "docker=$(match '^(Dockerfile|docker-compose|scripts/run-dashboard-docker|scanner/lib/dashboard-|\.github/workflows/lint\.yml)')"
             echo "python_deps=$(match '^(requirements.*\.txt|pyproject\.toml|setup\.py)')"
             echo "npm_deps=$(match '^(package(-lock)?\.json|\.nvmrc)')"
@@ -220,6 +233,18 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.scanner == 'true' || github.event_name == 'schedule'
+    env:
+      # JOB level, mirroring `scanner-shell-coverage`, because this job's shell
+      # test list now includes the dashboard tests. Without the guard,
+      # generate_html_dashboard() -> dashboard-gen.py makes live GitHub API calls
+      # and a single test can hang for minutes (#190: 120s -> 3.7s with it).
+      # `test_generate_html_dashboard.sh` and `test_output_coverage.sh` do
+      # self-export it, so this is defence in depth rather than the only guard —
+      # it means a NEW dashboard test that forgets the export cannot reintroduce
+      # #190 here. Safe for every test in this job by the same evidence the kcov
+      # job provides: that job has had this at job level since #190 and all 54
+      # shell tests pass under it.
+      CLAUDESEC_DASHBOARD_OFFLINE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Set up Python
@@ -288,6 +313,59 @@ jobs:
         run: bash scanner/tests/test_check_network_scan_tools.sh
       - name: Run bash unit tests (merge-ready stuck-check probe wiring)
         run: bash scanner/tests/test_gh_merge_ready_stuck_probe.sh
+      # --- Registered 2026-08-13 (#437 follow-up) --------------------------------
+      # These 21 were reached ONLY by the `scanner-shell-coverage` kcov glob, which
+      # could not fail, so they gated nothing. This list is EXPLICIT and does not
+      # auto-discover, so `scanner/tests/test_ci_reachability.py` now
+      # fails if a `scanner/tests/test_*.sh` on disk is missing from it.
+      # Each was verified to pass outside kcov on Linux before being added here.
+      - name: Run bash unit tests (aws identity + SSO discovery)
+        run: bash scanner/tests/test_aws_identity_sso.sh
+      # Needs a pty: the functions under test early-return behind `[[ ! -t 0 ]]`,
+      # so with a piped stdin the test prints "stdin is not a tty" and 7 of its 16
+      # cases fail (measured). `pty_run.py` gives fd 0 a pty slave — the same
+      # launcher the kcov loop uses for `*_tty` tests.
+      - name: Run bash unit tests (aws SSO TTY-gated login)
+        run: python3 scanner/tests/pty_run.py bash scanner/tests/test_aws_sso_tty.sh
+      - name: Run bash unit tests (checks.sh category coverage)
+        run: bash scanner/tests/test_checks_coverage.sh
+      - name: Run bash unit tests (checks.sh helpers)
+        run: bash scanner/tests/test_checks_helpers.sh
+      - name: Run bash unit tests (checks.sh direct-source contract)
+        run: bash scanner/tests/test_checks_lib_direct.sh
+      - name: Run bash unit tests (cloud credential probes)
+        run: bash scanner/tests/test_cloud_credential_probes.sh
+      - name: Run bash unit tests (collect_environment_info)
+        run: bash scanner/tests/test_collect_environment_info.sh
+      - name: Run bash unit tests (generate_html_dashboard)
+        run: bash scanner/tests/test_generate_html_dashboard.sh
+      - name: Run bash unit tests (kubectl kubeconfig autofind)
+        run: bash scanner/tests/test_kubectl_autofind_paths.sh
+      - name: Run bash unit tests (kubectl cluster query)
+        run: bash scanner/tests/test_kubectl_cluster_query.sh
+      - name: Run bash unit tests (kubectl context helpers)
+        run: bash scanner/tests/test_kubectl_context_helpers.sh
+      - name: Run bash unit tests (kubectl ensure-access)
+        run: bash scanner/tests/test_kubectl_ensure_access.sh
+      - name: Run bash unit tests (output.sh coverage paths)
+        run: bash scanner/tests/test_output_coverage.sh
+      - name: Run bash unit tests (output_prowler.sh severity counts)
+        run: bash scanner/tests/test_output_prowler_severity.sh
+      - name: Run bash unit tests (print_summary format_duration)
+        run: bash scanner/tests/test_print_summary_format_duration.sh
+      - name: Run bash unit tests (print_summary progress bar)
+        run: bash scanner/tests/test_print_summary_render_progress_bar.sh
+      - name: Run bash unit tests (print_summary score-to-grade)
+        run: bash scanner/tests/test_print_summary_score_to_grade.sh
+      - name: Run bash unit tests (prowler dashboard summary)
+        run: bash scanner/tests/test_prowler_dashboard_summary.sh
+      - name: Run bash unit tests (prowler dashboard provider label)
+        run: bash scanner/tests/test_prowler_dashboard_summary_provider_label.sh
+      - name: Run bash unit tests (run_with_timeout fallbacks)
+        run: bash scanner/tests/test_run_with_timeout_fallbacks.sh
+      - name: Run bash unit tests (save_scan_history OCSF compliance)
+        run: bash scanner/tests/test_save_scan_history_ocsf.sh
+      # --- end of the #437 follow-up registration -------------------------------
       # Produce the grade-A baseline report the next step asserts against.
       # Without this, test_scan_report_baseline.py skips itself — which is what
       # it had always done in CI, because scan-report.json is gitignored and
@@ -474,33 +552,40 @@ jobs:
           # `timeout 30` is a defensive cap, tightened 120->30 after the root
           # cause was removed (#193). 30s is ~3.3x the observed max with ample
           # runner-variance headroom, yet catches a future network-dependent
-          # regression in 30s instead of 120s. Exit 124 (cap hit) is treated as
-          # a warning so the remaining tests still run and we still get a
-          # coverage merge; normal kcov exit codes are preserved.
+          # regression in 30s instead of 120s.
           #
-          # VERDICT SUPPRESSED HERE — WHAT IT HIDES (audit 2026-08-12):
-          # every non-zero rc below becomes a log line, so THIS STEP CANNOT FAIL
-          # on a failing shell test. Two distinct losses, both measured:
-          #   1. rc=124 (cap hit): a test pushed onto the 30s cap surfaces only as
-          #      `elapsed=30s rc=124` inside a green job. That is how #431's
-          #      watchdog bug read green.
-          #   2. rc!=0 and !=124 (ASSERTION FAILURE): swallowed by the plain
-          #      `echo WARN:` below — not even a ::warning:: annotation. This
-          #      matters because the `scanner-unit-tests` job's shell-test list is
-          #      EXPLICIT and does not auto-discover: 20 of the 54
-          #      `scanner/tests/test_*.sh` files are named in NO workflow and are
-          #      reached only by this glob. For those 20, this loop is the only
-          #      thing that runs them, and it cannot fail — so they gate nothing.
-          #      Measured by running this step body verbatim with a real SUT
-          #      regression (output.sh `_score_to_grade` C boundary 70->75):
-          #      `test_print_summary_score_to_grade.sh` exits 1, this step exits 0,
-          #      and `lint-gate` ("Lint", a REQUIRED check that lists
-          #      scanner-shell-coverage in `needs:`) reads success.
-          #      The kcov coverage floor does NOT compensate: an assertion that
-          #      fails still executes its lines, so `percent_covered` is unchanged.
-          # Registering a test in the `scanner-unit-tests` list is what makes it
-          # gate. Adding it here only buys coverage. Do not read a green
-          # scanner-shell-coverage as "the shell tests passed".
+          # TWO rc CLASSES, DELIBERATELY TREATED DIFFERENTLY (audit 2026-08-12,
+          # #437; fixed here). Preserve the distinction: do NOT collapse it into
+          # failing on everything, and do NOT regress it to warning on everything.
+          #
+          #   * rc=124 (the 30s cap) stays a WARNING. A killed test reports no
+          #     verdict at all, so failing on it would convert a runtime ceiling
+          #     into an assertion result. Warning also keeps the remaining tests
+          #     running and still produces a coverage merge, which is what #431
+          #     relied on. The honest cost: a cap hit is easy to miss in a green
+          #     job, so it must be triaged from the `rc=124` log line.
+          #
+          #   * every OTHER non-zero rc IS an assertion failure and FAILS this step.
+          #     Until this fix it was swallowed by a plain `echo WARN:` — not even
+          #     a ::warning:: annotation. Measured by executing this step body
+          #     verbatim under real kcov v42 on Linux against a real SUT regression
+          #     (output.sh `_score_to_grade` C boundary 70->75):
+          #     `test_print_summary_score_to_grade.sh` exited 1 with exactly its
+          #     `score 70 -> C` assertion red, while the step exited 0 and
+          #     `lint-gate` ("Lint", a REQUIRED check that lists
+          #     scanner-shell-coverage in `needs:`) read success. The kcov coverage
+          #     floor does NOT compensate: a failing assertion still executes its
+          #     lines, so `percent_covered` is unchanged.
+          #
+          # Failures are ACCUMULATED, not aborted on: one run must name every
+          # broken test, not just the alphabetically first one.
+          #
+          # Because this loop is a glob it is also the only runner of any
+          # `test_*.sh` nobody registered in `scanner-unit-tests` — a set that was
+          # 21 files and is now empty, kept empty by
+          # `scanner/tests/test_ci_reachability.py`. Registration is
+          # what makes a test gate on the fast path; this loop is the backstop and
+          # the coverage measurement.
           chmod +x scanner/tests/test_*.sh
           # GitHub Actions sets `bash -eo pipefail` by default, so any non-zero
           # exit from `timeout 30 kcov ...` (e.g., 124 on cap-hit) would abort
@@ -508,6 +593,7 @@ jobs:
           # exit is captured into rc and the loop can decide whether to warn
           # or continue. (Prior to this fix the previous kcov loop relied on
           # `|| echo WARN` for the same reason.)
+          failed_tests=""
           for sh in scanner/tests/test_*.sh; do
             name=$(basename "$sh" .sh)
             echo "::group::kcov $name"
@@ -539,19 +625,42 @@ jobs:
                 || rc=$?
             fi
             elapsed=$(( $(date +%s) - start ))
-            if [ "$rc" -eq 124 ]; then
+            if [ "$rc" -eq 124 ] && [ "$elapsed" -ge 30 ]; then
+              # WARNING ONLY, on purpose: the cap killed the test mid-flight, so
+              # there is no assertion verdict to report. See the rc-class note
+              # above; this arm must stay non-fatal (#431 depends on it).
+              #
+              # `elapsed` IS PART OF THE CONDITION, not decoration. rc=124 alone
+              # does not mean "timed out" here: nine of these shell tests end
+              # `exit "$TEST_FAILED"` — the COUNT of failed assertions — and
+              # `test_output_functions.sh` runs 206 assertions, so 124 red
+              # assertions exit 124 and would be laundered into this warning arm
+              # while the step went green. Found by adversarial review of #440 and
+              # reproduced by executing this branch against a script exiting 124
+              # in 1s:
+              #   ::warning::kcov fake_test TIMED OUT after 1s (>=30s cap)
+              #   STEP VERDICT: GREEN
+              # `timeout 30` cannot kill before 30s, so requiring elapsed>=30
+              # keeps every genuine cap hit non-fatal and routes a 124-VALUED
+              # verdict into the ::error:: arm below where it belongs.
               echo "::warning::kcov $name TIMED OUT after ${elapsed}s (>=30s cap)"
             elif [ "$rc" -ne 0 ]; then
-              # HIDES: a genuine assertion failure. Plain text, not ::warning::,
-              # so it does not even raise an annotation on the run. See the
-              # "VERDICT SUPPRESSED HERE" note above for the 20 tests this is the
-              # only runner of.
-              echo "WARN: $sh exited non-zero under kcov (rc=$rc, ${elapsed}s)"
+              # A REAL assertion failure. Annotate and record it; the verdict is
+              # raised after the merge so every failure is listed at once.
+              echo "::error::kcov $name FAILED under kcov (rc=$rc, ${elapsed}s)"
+              failed_tests="${failed_tests} ${name}"
             fi
             echo "kcov $name elapsed=${elapsed}s rc=${rc}"
             echo "::endgroup::"
           done
+          # Merge BEFORE the verdict so the `if: always()` artifact upload still
+          # has a report to attach when a test failed.
           kcov --merge kcov-out/merged kcov-out/*/
+          if [ -n "$failed_tests" ]; then
+            echo "::error::shell tests failed under kcov:${failed_tests}"
+            echo "Failing shell tests (rc!=0, rc!=124):${failed_tests}"
+            exit 1
+          fi
       - name: Print bash coverage summary
         run: |
           # kcov v42's --merge writes coverage.json into a nested subdir
