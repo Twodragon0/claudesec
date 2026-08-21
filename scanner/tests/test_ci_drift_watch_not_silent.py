@@ -56,7 +56,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     explicit_key_lines,
     extract_on_block,
-    strip_comment_lines,
+    step_blocks,
     yaml_key_pattern,
 )
 
@@ -77,27 +77,18 @@ def steps_gated_on_token_absent(text: str) -> list:
     """The `- name:` values of steps whose `if:` references the token-absent
     condition, read from the comment-stripped workflow.
 
-    Indentation-based: a step starts at a `- name:`/`- uses:` list item and ends at
-    the next one, so a condition is attributed to the step it belongs to."""
-    lines = strip_comment_lines(text).splitlines()
-    blocks, current = [], None
-    for raw in lines:
-        if re.match(r"^\s*-\s+(?:name|uses):", raw):
-            if current is not None:
-                blocks.append(current)
-            current = [raw]
-        elif current is not None:
-            current.append(raw)
-    if current is not None:
-        blocks.append(current)
-
+    Step attribution comes from the shared `step_blocks` primitive (which strips
+    comments and derives the dash column), so this guard and
+    `test_ci_provenance_verify`'s terminal-silent-status guard share ONE model of
+    "which step owns this line" — the two inline copies this replaced were the same
+    12 lines twice, and a fix to either would have missed the other."""
     out = []
-    for block in blocks:
-        body = "\n".join(block)
-        if not _TOKEN_ABSENT_RE.search(body):
+    for block in step_blocks(text):
+        if not _TOKEN_ABSENT_RE.search(block):
             continue
-        m = re.match(r"^\s*-\s+name:\s*(.+?)\s*$", block[0])
-        out.append(m.group(1) if m else block[0].strip())
+        first = block.splitlines()[0]
+        m = re.match(r"^\s*-\s+name:\s*(.+?)\s*$", first)
+        out.append(m.group(1) if m else first.strip())
     return out
 
 
@@ -106,20 +97,9 @@ def escalates_when_token_absent(text: str) -> bool:
 
     A step that only `echo`es is NOT escalation — that is precisely the shape which
     reported green for weeks."""
-    lines = strip_comment_lines(text).splitlines()
-    blocks, current = [], None
-    for raw in lines:
-        if re.match(r"^\s*-\s+(?:name|uses):", raw):
-            if current is not None:
-                blocks.append(current)
-            current = [raw]
-        elif current is not None:
-            current.append(raw)
-    if current is not None:
-        blocks.append(current)
     return any(
-        _TOKEN_ABSENT_RE.search("\n".join(b)) and _ISSUE_ACTION_RE.search("\n".join(b))
-        for b in blocks
+        _TOKEN_ABSENT_RE.search(block) and _ISSUE_ACTION_RE.search(block)
+        for block in step_blocks(text)
     )
 
 

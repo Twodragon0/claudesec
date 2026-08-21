@@ -30,11 +30,63 @@ It collapses the SHELL-level class only. A WORKFLOW-level disable — a step-lev
 wrongly listed it as covered. `test_gate_step_has_no_if_condition` closes that
 half separately.
 
+THE INPUT HALF (added 2026-08-13)
+--------------------------------
+Executing the gate proved it fails on a CRITICAL. It did not prove the gate can
+TELL a critical-free scan from an unreadable one, and it could not: with no
+positive control on `scan-output.txt`, four different broken inputs all read exit
+0 — a clean-scan verdict on the REQUIRED `Security Scan Gate`. Measured on the
+real body (`bash -eo pipefail` and plain `bash`, identical results):
+
+    missing file        `Critical: , High: ` + `[: : integer expression
+                        expected` twice on stderr, exit 0
+    empty file          `Critical: 0, High: 0`, exit 0
+    label/glyph drift   `[X] Critical severity: …` scores 0, exit 0
+    real scan output    `Critical: 0` on a report whose own breakdown says
+                        `CRITICAL  1`, exit 0
+
+The last one is not hypothetical. `scanner/lib/checks.sh:431` (sequential) and
+`:353` (parallel) both source every check file with stdout on `/dev/null`, so the
+`✗ FAIL … (critical)` line the counters key on never reaches `scan-output.txt`;
+only `print_summary`'s severity breakdown does. The gate's happy path is
+reachable from a fixture and not from production.
+
+Which makes ARM 4 THE ONLY PRODUCTION CONTROL on this gate. CI runs
+`scan -c all` with `PARALLEL=0`, the counters score 0 on every real report, and
+the `if [ "$CRITS" -gt 0 ]` branch below them is unreachable in CI — so the whole
+merge block rests on arm 4's `CRITICAL  *[0-9].*Immediate action required`
+matching the emitter's real bytes. Both halves of that pattern are mutation-
+pinned (`TestInputPreconditionDetector`), because the review that found this also
+found that only the phrase half was: changing `CRITICAL` to `Critical` in
+output.sh, or moving `${NC}` between the label and the count, each killed arm 4
+while this module reported `Ran 51 tests ... OK`.
+
+Both misses had one root: nothing here carried an ANSI escape, and the pattern
+was matched with a hardcoded `grep -i` although the arms are case-sensitive
+`grep -q`. Samples are now rendered with output.sh's OWN colour constants, any
+interpolation that cannot be accounted for is a gap rather than an empty string,
+grep flags travel with the pattern they were written next to, and the behavioural
+half drives a verbatim capture of real coloured output.
+
+So the gate carries four preconditions, and this file drives all four in both
+directions: the unusable inputs must fail LOUDLY and say the INPUT was unusable
+(a different verdict from "clean"), while a genuinely clean complete report and a
+HIGH-only report must still pass. `TestInputPreconditionDetector` deletes each
+arm and watches the payload come back — an absence assertion with no positive
+control certifies nothing (probe checklist item 8).
+
+Two limits are pinned rather than claimed away: arm 2 covers truncation BEFORE
+the summary but not a truncation landing between the score line and the breakdown
+(`test_truncation_after_the_score_line_is_a_documented_residual`), and the HIGH
+side is fixture-only for the same reason the counters are blind — see
+`_HIGH_FIXTURE`.
+
 SEMANTICS
 ---------
 BEHAVIOUR, not presence. Rewriting, reformatting or reordering the gate stays
-green as long as a CRITICAL still fails and a clean scan still passes. Deleting
-it, commenting it out, or making it unreachable by any means trips this.
+green as long as a CRITICAL still fails, an unusable input still fails loudly,
+and a clean scan still passes. Deleting it, commenting it out, or making it
+unreachable by any means trips this.
 
 EXECUTION SAFETY (read before editing the extractor)
 ----------------------------------------------------
@@ -99,24 +151,139 @@ _SHELL_WORDS = frozenset(
     {"if", "then", "else", "elif", "fi", "for", "do", "done", "while", "case", "esac"}
 )
 
-# A generous ceiling. The gate is ~11 lines; anything far larger means the
-# extractor over-captured, which is exactly how the prototype ran a web server.
-_MAX_BLOCK_LINES = 40
+# A generous ceiling. Anything far larger means the extractor over-captured,
+# which is exactly how the prototype ran a web server. Raised 40 -> 60 when the
+# four input preconditions landed (body: 15 -> 51 lines). The number is only
+# meaningful while it stays well under an over-capture: the gate's `run:` body
+# starts at line 202 of a 337-line workflow, so capturing to EOF is 135 lines.
+_MAX_BLOCK_LINES = 60
 
 # Taken from the shape scanner/lib/output.sh actually emits, not invented. The
 # first version used `✗ CRITICAL: …`, which matched only via the gate's
 # `✗.*critical` arm — so if the emitter ever dropped the glyph the gate would go
 # dead in production while this test stayed green (review of #404, F6).
 # `test_fixture_matches_the_real_emitter` pins the two together.
-_CRITICAL_FIXTURE = "✗ FAIL  [SEC-001] hardcoded secret in config (CRITICAL)\n"
-_CLEAN_FIXTURE = "✓ All checks passed\n"
+_CRITICAL_LINE = "  ✗ FAIL  [SEC-001] hardcoded secret in config (critical)\n"
 
-# Same emitter shape, HIGH severity. The gate must WARN on this and exit 0 —
-# only CRITICAL blocks a merge (#206). Carried over from
+# print_summary()'s unconditional tail. Every fixture below carries it, because
+# the gate now REQUIRES a complete report: a fixture without it is an
+# unusable-input case, not a clean-scan case, and the two must not be conflated
+# (that conflation is the whole defect this file's input half exists to close).
+# Captured from a real `run_category_checks` + `print_summary` run, ANSI escapes
+# dropped. `test_input_controls_match_the_real_emitter` pins the two markers the
+# gate greps for — `Security Score` and the breakdown line — to output.sh.
+_SUMMARY_TAIL = (
+    "\n"
+    "  Security Score  33/100  █████████░░░░░░░░░░░░░░░░░░░░░  Grade: F\n"
+    "\n"
+    "  ● Passed 1     ● Failed 2     ● Warn 0     ○ Skip 0     Total 3\n"
+    "\n"
+    "  Scanned in 12s · 2026-08-13 10:11:20 · claudesec v0.7.1\n"
+)
+
+# print_summary()'s severity breakdown, which it renders ONLY when n_crit > 0.
+# This is the report's own independent declaration that criticals exist, and it
+# is what lets the gate tell "zero criticals" from "the counter saw nothing".
+_BREAKDOWN_CRITICAL = (
+    "  Severity Breakdown\n"
+    "  ──────────────────────────────────────────────────────\n"
+    "    CRITICAL  1  ████  Immediate action required\n"
+    "\n"
+    "  ▸ Action Required (critical/high by category)\n"
+    "  ■ CRIT  [SEC-001] (other) hardcoded secret in config\n"
+)
+
+_CRITICAL_FIXTURE = _CRITICAL_LINE + _BREAKDOWN_CRITICAL + _SUMMARY_TAIL
+_CLEAN_FIXTURE = "  ✓ PASS  [OK-001] a passing check\n" + _SUMMARY_TAIL
+
+# HIGH severity. The gate must WARN on this and exit 0 — only CRITICAL blocks a
+# merge (#206). Carried over from
 # `test_ci_security_gate.TestScanCriticalSeverityBlock.test_high_block_stays_nonblocking`,
 # which asserted it by text; proving it by execution is what let that text guard
 # (and the strip-order defect underneath it) be deleted outright.
-_HIGH_FIXTURE = "✗ FAIL  [SEC-014] permissive CORS policy (HIGH)\n"
+#
+# NOT the shape production emits, and the first version of this comment claimed
+# it was — the same fixture-only inaccuracy this file criticises in the old
+# `_CRITICAL_FIXTURE`. The `✗ FAIL … (high)` line here is exactly what checks.sh
+# keeps off stdout, so in CI `$HIGHS` is 0 even when the breakdown says `HIGH 1`
+# and the `::warning::` never fires: measured 2026-08-14, `rc=0 Critical: 0,
+# High: 0` against a report whose breakdown declared a HIGH. The fixture is
+# retained deliberately — it is the only way to reach the warn branch and prove
+# the merge POLICY (HIGH does not block) — but it proves the policy, not that
+# the warning is reachable in production. Pre-existing, out of scope for the
+# input-precondition work, and annotated in security-scan.yml at the branch.
+_HIGH_FIXTURE = (
+    "  ✗ FAIL  [SEC-014] permissive CORS policy (high)\n"
+    "    HIGH      1  ███░  Fix before next release\n"
+) + _SUMMARY_TAIL
+
+# --- the three UNUSABLE-INPUT fixtures ------------------------------------
+# `None` means "scan-output.txt does not exist" (see run_gate). Every case here
+# read exit 0 — a clean-scan verdict — before the preconditions landed.
+_MISSING_FIXTURE = None
+_EMPTY_FIXTURE = ""
+
+# Label/wording drift: the report no longer uses the shape the counters key on,
+# and is not a complete report either. Measured verbatim in the #437 audit.
+_LABEL_DRIFT_FIXTURE = "[X] Critical severity: hardcoded secret in config\n"
+
+# The COUNTER-BLIND case, and the one that is not hypothetical: a complete report
+# whose severity breakdown declares `CRITICAL 1` while no `✗ FAIL … (critical)`
+# line exists for the counters to find. This is what `claudesec scan` really
+# writes today — scanner/lib/checks.sh:431 sources every check file with stdout
+# redirected to /dev/null, so print_summary's breakdown is the ONLY rendering of
+# a critical that survives into scan-output.txt. Measured 2026-08-13 by driving
+# the real run_category_checks(parallel=0, verbose=1) with a check that raises a
+# critical: `grep -ci '✗.*critical\|CRITICAL.*Fail'` scored 0.
+_COUNTER_BLIND_FIXTURE = _BREAKDOWN_CRITICAL + _SUMMARY_TAIL
+
+# --- VERBATIM ANSI: the bytes CI actually gets -----------------------------
+# Until 2026-08-14 not one fixture in this file carried an escape, though every
+# byte the gate reads in CI does — `print_summary` writes through `echo -e` with
+# output.sh's colour constants and nothing strips them on the way to
+# scan-output.txt. That untested axis is the shared root of two blind spots the
+# review found (arm 4 read as live while a one-word or one-escape move in the
+# emitter killed it), and it sits on a REQUIRED check.
+#
+# Captured 2026-08-14 by sourcing scanner/lib/output.sh and calling the real
+# `print_summary`, with `fail()`'s per-finding echo sent to /dev/null exactly as
+# checks.sh does in production. Every line below is byte-verbatim; only the
+# decorative banner and the ── rules are dropped, for size. The `✗ FAIL …
+# (critical)` line is ABSENT because production never emits it — that absence is
+# the counter blindness, reproduced here in real bytes rather than described.
+_ANSI_SCORE_LINE = (
+    "  \x1b[1mSecurity Score\x1b[0m  \x1b[0;32m\x1b[1m100\x1b[0m/100  "
+    "\x1b[0;32m██████████████████████████████\x1b[0m  Grade: \x1b[0;32m\x1b[1mA\x1b[0m\n"
+)
+_ANSI_STATS_ROW = (
+    "  \x1b[0;32m● Passed\x1b[0m 1     \x1b[0;31m● Failed\x1b[0m 1     "
+    "\x1b[1;33m● Warn\x1b[0m 0     \x1b[2m○ Skip\x1b[0m 0     \x1b[2mTotal\x1b[0m 1\n"
+)
+_ANSI_TAIL = "  \x1b[2mScanned in 12s · 2026-08-14 10:40:54 · claudesec v0.7.1\x1b[0m\n"
+_ANSI_BREAKDOWN_CRITICAL = (
+    "  \x1b[1mSeverity Breakdown\x1b[0m\n"
+    "  \x1b[0;31m\x1b[1m  CRITICAL  1\x1b[0m  ████  Immediate action required\n"
+    "\n"
+    "  \x1b[0;31m\x1b[1m▸ Action Required (critical/high by category)\x1b[0m\n"
+    "  \x1b[0;31m\x1b[1m■ CRIT\x1b[0m  \x1b[2m[SEC-001]\x1b[0m \x1b[2m(other)\x1b[0m "
+    "hardcoded secret in config\n"
+)
+
+_ANSI_COUNTER_BLIND_FIXTURE = (
+    _ANSI_SCORE_LINE + _ANSI_STATS_ROW + _ANSI_BREAKDOWN_CRITICAL + _ANSI_TAIL
+)
+_ANSI_CLEAN_FIXTURE = _ANSI_SCORE_LINE + _ANSI_STATS_ROW + _ANSI_TAIL
+
+# The truncation arm 2 does NOT cover, pinned rather than claimed. `Security
+# Score` is the FIRST line of the summary, not the last, so a run that dies
+# between it and the severity breakdown satisfies arms 1-3 and gives arm 4
+# nothing to find. See `test_truncation_after_the_score_line_is_a_documented_residual`.
+_ANSI_TRUNCATED_AFTER_SCORE_FIXTURE = _ANSI_SCORE_LINE + _ANSI_STATS_ROW
+
+# Every unusable-input error must say the INPUT was unusable. "exit 1" alone is
+# not enough: the operator has to be able to tell a blocked merge caused by a
+# broken scan from a blocked merge caused by a real finding.
+_UNUSABLE_MARKER = "UNUSABLE SCAN"
 
 
 _STEP_NAME_RE = re.compile(r"^(\s*-\s+)name:\s*(.+?)\s*$")
@@ -453,22 +620,54 @@ def gate_failing_variable(script: str):
     return None
 
 
+def flags_ignore_case(flags: str) -> bool:
+    """Whether a grep flag string turns CASE-INSENSITIVE matching on.
+
+    Load-bearing, and the reason it exists: `_grep_matches` used to hardcode
+    `-i`. The counters really are `grep -ci`, but the two input preconditions are
+    `grep -q` — case-SENSITIVE — and matching them case-insensitively made the
+    guard blind to case drift in the emitter. Measured 2026-08-14 on a copy of
+    `scanner/lib/output.sh` with `CRITICAL` -> `Critical` in the breakdown line
+    (marker and sentinel untouched):
+
+        real bytes  \\x1b[0;31m\\x1b[1m  Critical  1\\x1b[0m  ████  Immediate …
+        arm 4 grep  0 matches                                     -> arm 4 DEAD
+        gate body   rc=0  `Critical: 0, High: 0`                  -> GREEN
+        this module 51 tests, 0 failures                          -> BLIND
+
+    So the flags are taken from the SAME invocation the pattern is, never
+    assumed. Direction of the residual is safe: an ignore-case spelling this
+    misses (`-y`) makes the guard match case-sensitively while CI does not,
+    which reports a gap CI would not hit — a loud false alarm, not a silent
+    miss."""
+    for tok in flags.split():
+        if tok == "--ignore-case":
+            return True
+        if tok.startswith("-") and not tok.startswith("--") and "i" in tok[1:]:
+            return True
+    return False
+
+
 def gate_count_pattern(script: str, var: str):
-    """The single-quoted pattern the gate counts `var` with, or None."""
-    m = re.search(rf"^\s*{re.escape(var)}=\$\(\s*grep\s+(?:-\S+\s+)*'([^']*)'", script, re.M)
-    return m.group(1) if m else None
+    """`(ignore_case, pattern)` for the grep the gate counts `var` with, or None."""
+    m = re.search(rf"^\s*{re.escape(var)}=\$\(\s*grep\s+((?:-\S+\s+)*)'([^']*)'", script, re.M)
+    return (flags_ignore_case(m.group(1)), m.group(2)) if m else None
 
 
-def _grep_matches(pattern: str, text: str) -> bool:
-    """Whether `grep -ci <pattern>` counts at least one line in `text`.
+def _grep_matches(pattern: str, text: str, ignore_case: bool) -> bool:
+    """Whether `grep -c [-i] <pattern>` counts at least one line in `text`.
 
     Runs the REAL grep, the same tool CI runs, because the pattern is a POSIX BRE
     (`\\|` alternation) and re-implementing it in Python `re` is precisely the
     kind of second parser this file exists to avoid. The pattern is passed as an
     argv element after `-e`, with no shell — grep matches text, it does not
-    execute patterns, so nothing here can run a command out of the workflow."""
+    execute patterns, so nothing here can run a command out of the workflow.
+
+    `ignore_case` is REQUIRED rather than defaulted: a default is what the
+    hardcoded `-i` effectively was, and every caller has the gate's own flags to
+    hand (see `flags_ignore_case`)."""
     r = subprocess.run(
-        ["grep", "-c", "-i", "-e", pattern],
+        ["grep", "-c"] + (["-i"] if ignore_case else []) + ["-e", pattern],
         input=text if text.endswith("\n") else text + "\n",
         capture_output=True,
         text=True,
@@ -491,9 +690,10 @@ def gate_emitter_mismatch(script: str, emitter_text: str) -> list:
     var = gate_failing_variable(script)
     if var is None:
         return ["cannot locate the counter whose `-gt` test encloses the gate's non-zero exit"]
-    pattern = gate_count_pattern(script, var)
-    if pattern is None:
+    found = gate_count_pattern(script, var)
+    if found is None:
         return [f"cannot locate the `grep` that assigns ${var}"]
+    ignore_case, pattern = found
     sample = emitter_failure_sample(emitter_text)
     if sample is None:
         return [
@@ -502,12 +702,12 @@ def gate_emitter_mismatch(script: str, emitter_text: str) -> list:
             "re-derive this linkage by hand"
         ]
     out = []
-    if not _grep_matches(pattern, sample):
+    if not _grep_matches(pattern, sample, ignore_case):
         out.append(
             f"the gate counts ${var} with {pattern!r}, which does NOT match what the "
             f"emitter prints for a CRITICAL ({sample!r}) — the gate is dead in production"
         )
-    if not _grep_matches(pattern, _CRITICAL_FIXTURE):
+    if not _grep_matches(pattern, _CRITICAL_FIXTURE, ignore_case):
         out.append(
             f"the gate's pattern {pattern!r} does not match _CRITICAL_FIXTURE — the "
             "behavioural tests feed it output the gate cannot count"
@@ -515,12 +715,191 @@ def gate_emitter_mismatch(script: str, emitter_text: str) -> list:
     return out
 
 
+# --- the INPUT-PRECONDITION half's emitter linkage -------------------------
+# The gate's preconditions grep for two markers print_summary() emits. If either
+# is renamed in output.sh and not here, the precondition either goes dead (a
+# silent bypass) or fires on every build (a hard red with no PR-time warning).
+# Both directions are unacceptable silently, so both ends are pinned: the pattern
+# is taken from the WORKFLOW, the sample is rendered from the EMITTER, and they
+# are matched with the real grep — the same construction as
+# `gate_emitter_mismatch` above.
+#
+# The sample must carry the ANSI ESCAPES CI really sees, and EVERY interpolation
+# on the line must be accounted for. Both halves were missing, and each one alone
+# was enough to certify a dead precondition (measured 2026-08-14, MEDIUM-1):
+# `emitter_line_sample` rendered `${RED}`/`${NC}` to `""`, so it matched
+# colour-STRIPPED bytes that reach nobody. Move the reset — `CRITICAL${NC}
+# ${n_crit}` instead of `CRITICAL  ${n_crit}${NC}` — and the guard's sample was
+# still `'    CRITICAL  1  ████  …'` with gaps `[]` (green) while the real bytes
+# were `CRITICAL\x1b[0m  1`, arm 4's grep returned 0, and the gate exited 0 on a
+# real critical.
+#
+# So: colour variables resolve to the emitter's OWN definitions (`emitter_colors`)
+# and anything else must be declared here. An undeclared interpolation is a GAP,
+# not an empty string — rendering an unknown to `""` can only ever REMOVE bytes,
+# which makes a pattern easier to match, which is the optimistic direction.
+#
+# `$VAR` in a declared value is resolved through the colour table, so a local
+# that holds a colour (`grade_color`) is spelled as the colour it holds rather
+# than as invented escape bytes.
+#
+# (label, marker in output.sh, {shell var: value to render it as})
+_INPUT_CONTROL_SAMPLES = (
+    (
+        "the completion sentinel — print_summary's score line, which it emits "
+        "unconditionally, so its absence means the report is truncated before the "
+        "summary or is not a claudesec report at all",
+        "Security Score",
+        {"score": "33", "grade": "F", "grade_color": "$RED", "bar": "█████░░░░░"},
+    ),
+    (
+        "the declared-CRITICAL breakdown line — print_summary emits it only when "
+        "n_crit > 0, so it is the report's own independent declaration that "
+        "criticals exist and is what distinguishes a zero count from a blind one",
+        "Immediate action required",
+        {"n_crit": "1"},
+    ),
+)
+
+# `RED='\033[0;31m'` at the top of output.sh. Only ANSI SGR values are accepted:
+# the point is to render the escape bytes CI sees, not to resolve arbitrary shell.
+_COLOR_DEF_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)='\\(?:033|e|x1b)\[([0-9;]*)m'\s*$")
+
+# A declared value that is just `$VAR`/`${VAR}` names a colour to resolve.
+_COLOR_REF_RE = re.compile(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$")
+
+
+def emitter_colors(emitter_text: str) -> dict:
+    """`{name: escape bytes}` for the colour constants output.sh defines itself.
+
+    Derived, never hardcoded — the same reason the samples are rendered from the
+    emitter rather than written out by hand. `echo -e` is what turns the stored
+    `\\033[0;31m` into a real ESC, so that conversion happens here too."""
+    out = {}
+    for raw in emitter_text.splitlines():
+        m = _COLOR_DEF_RE.match(strip_inline_comment_sh(raw))
+        if m:
+            out[m.group(1)] = "\x1b[" + m.group(2) + "m"
+    return out
+
+
+# The first double-quoted argument on an emitter line. Unlike `_ECHO_ARG_RE` this
+# does not require the line to START with `echo`: the breakdown line is written
+# `[[ $n_crit -gt 0 ]] && echo -e "…"`, and anchoring on `echo` missed it.
+_QUOTED_ARG_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+# Single-quoted grep patterns in the gate body, WITH the flags they were passed
+# (group 1) — the flags decide case sensitivity and the pattern cannot be checked
+# without them. Read from the comment-STRIPPED script so a pattern surviving only
+# in a `# was: grep -q '…'` comment cannot satisfy the linkage — the repo's
+# standing comment-evasion class.
+_GREP_PATTERN_RE = re.compile(r"grep\s+((?:-\S+\s+)*)'([^']*)'")
+
+
+def script_grep_invocations(script: str) -> list:
+    """Every `(ignore_case, pattern)` the gate hands to `grep`, comments excluded.
+
+    The flags travel WITH the pattern. Returning bare patterns is what let the
+    case-sensitive `grep -q` preconditions be checked with a hardcoded `-i`."""
+    stripped = "\n".join(strip_inline_comment_sh(l) for l in script.splitlines())
+    return [
+        (flags_ignore_case(m.group(1)), m.group(2))
+        for m in _GREP_PATTERN_RE.finditer(stripped)
+    ]
+
+
+def emitter_line_sample(emitter_text: str, marker: str, values: dict, colors: dict):
+    """The one line output.sh emits containing `marker`, rendered as real bytes.
+
+    `values` declares what each non-colour interpolation stands for; `colors` is
+    `emitter_colors(emitter_text)`. A declared value of the form `$VAR` is looked
+    up in `colors`, so a local holding a colour is named rather than invented.
+
+    Returns `(sample, unresolved)`. `unresolved` lists interpolations that are
+    neither a known colour nor declared — reported as a GAP by the caller instead
+    of being silently rendered as `""`. Exactly one candidate line is required;
+    zero or many means the emitter was restructured and the linkage must be
+    re-derived by a human rather than guessed at (that case returns
+    `(None, [])`)."""
+    cands = []
+    for raw in emitter_text.splitlines():
+        line = strip_inline_comment_sh(raw)
+        if marker not in line:
+            continue
+        m = _QUOTED_ARG_RE.search(line)
+        if m:
+            cands.append(m.group(1))
+    if len(cands) != 1:
+        return None, []
+
+    unresolved = []
+
+    def _render(m):
+        name = m.group(1) or m.group(2)
+        if name in colors:
+            return colors[name]
+        if name in values:
+            declared = values[name]
+            ref = _COLOR_REF_RE.match(declared)
+            if ref:
+                if ref.group(1) not in colors:
+                    unresolved.append(name)
+                    return ""
+                return colors[ref.group(1)]
+            return declared
+        unresolved.append(name)
+        return ""
+
+    return re.sub(r"\$\{(\w+)[^}]*\}|\$(\w+)", _render, cands[0]), unresolved
+
+
+def gate_input_control_gaps(script: str, emitter_text: str) -> list:
+    """Reasons the gate's input preconditions cannot see real scanner output.
+
+    Empty list == every precondition marker the gate greps for is something the
+    emitter really prints, IN THE BYTES IT REALLY PRINTS THEM IN — escapes
+    included, case included."""
+    invocations = script_grep_invocations(script)
+    colors = emitter_colors(emitter_text)
+    gaps = []
+    for label, marker, values in _INPUT_CONTROL_SAMPLES:
+        sample, unresolved = emitter_line_sample(emitter_text, marker, values, colors)
+        if sample is None:
+            gaps.append(
+                f"cannot render {label!r} from scanner/lib/output.sh — expected "
+                f"exactly one line containing {marker!r}. Re-derive this linkage "
+                "by hand rather than relaxing the test."
+            )
+            continue
+        if unresolved:
+            gaps.append(
+                f"cannot render {label!r} faithfully: {sorted(set(unresolved))} are "
+                "neither colour constants output.sh defines nor declared in "
+                "_INPUT_CONTROL_SAMPLES. Declare them — rendering an unknown as "
+                "empty removes bytes from the sample and makes the gate's pattern "
+                "easier to match than it is in CI."
+            )
+            continue
+        if not any(_grep_matches(p, sample, ic) for ic, p in invocations):
+            gaps.append(
+                f"no grep pattern in the gate matches {label} as the emitter "
+                f"really prints it ({sample!r}) — that precondition is dead "
+                "against real scanner output"
+            )
+    return gaps
+
+
 class UnvettedCommand(RuntimeError):
     """Raised INSTEAD of executing a script containing a non-allowlisted word."""
 
 
-def run_gate(script: str, scan_output: str):
+def run_gate(script: str, scan_output):
     """Execute `script` in a throwaway cwd holding `scan-output.txt`.
+
+    `scan_output=None` means the file is NOT created, which is the missing-input
+    case. It has to be modelled here rather than as an empty string: the two
+    produce different failures (grep prints nothing at all vs. prints `0`), and
+    only the missing one reached the original `[: : integer expression expected`.
 
     The allowlist is enforced HERE, as a precondition. It used to be only a
     separate assertion (`test_only_allowlisted_commands`), so it stopped nothing:
@@ -537,7 +916,8 @@ def run_gate(script: str, scan_output: str):
             "Review the command, then add it to the allowlist."
         )
     with tempfile.TemporaryDirectory() as d:
-        Path(d, "scan-output.txt").write_text(scan_output, encoding="utf-8")
+        if scan_output is not None:
+            Path(d, "scan-output.txt").write_text(scan_output, encoding="utf-8")
         Path(d, "gate.sh").write_text(script, encoding="utf-8")
         return subprocess.run(
             ["bash", "gate.sh"],
@@ -654,9 +1034,138 @@ class TestSecurityGateBehaviour(unittest.TestCase):
             f"drifted apart — the gate is dead in production: {mismatch}",
         )
 
+    def test_input_controls_match_the_real_emitter(self):
+        """The precondition markers must be things print_summary really prints.
+
+        Pins the other end of the input half, exactly as
+        `test_fixture_matches_the_real_emitter` does for the count pattern. A
+        rename in output.sh with no matching workflow edit is caught HERE, at PR
+        time, instead of turning the required check red on main (or, for the
+        breakdown marker, silently disarming precondition 4)."""
+        self.assertTrue(EMITTER.is_file(), f"{EMITTER} not found")
+        gaps = gate_input_control_gaps(self.script, EMITTER.read_text(encoding="utf-8"))
+        self.assertEqual(
+            gaps,
+            [],
+            "the gate's input preconditions and the scanner's real summary output "
+            f"have drifted apart: {gaps}",
+        )
+
+    def _assert_unusable_input(self, scan_output, case):
+        """The gate must fail, and say the INPUT was unusable — not stay silent
+        and not imply the scan was clean."""
+        r = run_gate(self.script, scan_output)
+        self.assertNotEqual(
+            r.returncode,
+            0,
+            f"the severity gate exited 0 on {case} — an unusable input read as a "
+            "CLEAN SCAN on the REQUIRED `Security Scan Gate`.\n"
+            f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}",
+        )
+        self.assertIn(
+            _UNUSABLE_MARKER,
+            r.stdout,
+            f"the gate failed on {case} but did not say the input was unusable. "
+            "A bare non-zero exit is indistinguishable from a real CRITICAL, and "
+            "those are different verdicts.\n"
+            f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}",
+        )
+        self.assertIn(
+            "::error::",
+            r.stdout,
+            f"the gate failed on {case} without an ::error:: annotation, so the "
+            "reason is not visible in the checks UI.",
+        )
+
+    def test_missing_scan_output_fails_the_build(self):
+        """`scan-output.txt` absent — the #412 shape (a stray `working-directory`).
+
+        Before the preconditions: `Critical: , High: `, two
+        `[: : integer expression expected` errors on stderr, exit 0. The `[`
+        failures are non-fatal because they sit in an `if` CONDITION, where
+        `set -e` does not apply."""
+        self._assert_unusable_input(_MISSING_FIXTURE, "a MISSING scan-output.txt")
+
+    def test_empty_scan_output_fails_the_build(self):
+        """`scan-output.txt` present but empty — before: `Critical: 0`, exit 0."""
+        self._assert_unusable_input(_EMPTY_FIXTURE, "an EMPTY scan-output.txt")
+
+    def test_incomplete_report_fails_the_build(self):
+        """A file that is not a complete claudesec report — before: exit 0.
+
+        Covers label/wording drift and any truncation BEFORE the summary: the
+        scan step pipes docker into `tee` under `bash -e` WITHOUT pipefail, so a
+        scanner that crashes mid-run leaves a partial file and exits 0 there.
+
+        NOT every truncation, which is what this said first. `Security Score` is
+        the summary's FIRST line, so a truncation landing after it and before the
+        severity breakdown passes arms 1-3 with arm 4 unable to fire. That window
+        is measured, not assumed, in
+        `test_truncation_after_the_score_line_is_a_documented_residual`."""
+        self._assert_unusable_input(_LABEL_DRIFT_FIXTURE, "an INCOMPLETE report")
+
+    def test_report_declaring_criticals_the_counter_missed_fails_the_build(self):
+        """The counter-blind case: a COMPLETE report whose own severity breakdown
+        declares `CRITICAL 1` while the count pattern scores 0.
+
+        Not hypothetical — this is the shape `claudesec scan` writes today
+        (see `_COUNTER_BLIND_FIXTURE`). Before the preconditions this was the
+        worst case of the four: a well-formed report, a real critical, and
+        `Critical: 0` + exit 0 on the required check."""
+        self._assert_unusable_input(
+            _COUNTER_BLIND_FIXTURE, "a report declaring CRITICALs the counter missed"
+        )
+
+    def test_real_ansi_counter_blind_report_fails_the_build(self):
+        """The same counter-blind case, in the BYTES CI really reads.
+
+        Everything above feeds the gate colour-stripped text. CI never sees any:
+        `print_summary` writes through `echo -e` and scan-output.txt keeps the
+        escapes. So the four arms are driven once against a verbatim capture,
+        which is the only version of this test that can notice an escape landing
+        between the label and the count."""
+        self._assert_unusable_input(
+            _ANSI_COUNTER_BLIND_FIXTURE,
+            "a real ANSI-coloured report declaring CRITICALs the counter missed",
+        )
+
+    def test_real_ansi_clean_report_passes(self):
+        """The other direction on the same bytes: the escapes must not make a
+        CLEAN report look unusable. Without this the ANSI case above is satisfied
+        by a gate that fails on every coloured input, which is every CI run."""
+        r = run_gate(self.script, _ANSI_CLEAN_FIXTURE)
+        self.assertEqual(
+            r.returncode,
+            0,
+            "a clean report failed the build once it carried the ANSI escapes CI "
+            f"really emits.\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}",
+        )
+
+    def test_truncation_after_the_score_line_is_a_documented_residual(self):
+        """Arm 2 covers truncation BEFORE the summary, not every truncation.
+
+        The first draft of this file claimed it covered "every truncation". It
+        does not: `Security Score` is the first summary line, so a scanner that
+        dies after it but before the severity breakdown satisfies arms 1-3 and
+        leaves arm 4 nothing to match. Pinned as a MEASURED limit rather than
+        left as prose — if someone later moves the sentinel to print_summary's
+        unconditional tail, this test goes red and the claim gets re-derived
+        deliberately instead of drifting."""
+        r = run_gate(self.script, _ANSI_TRUNCATED_AFTER_SCORE_FIXTURE)
+        self.assertEqual(
+            r.returncode,
+            0,
+            "a truncation after the score line now FAILS the gate. That is an "
+            "improvement, not a regression — close the residual in the arm-2 "
+            "comment in security-scan.yml and delete this test.\n"
+            f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}",
+        )
+        self.assertIn("Critical: 0, High: 0", r.stdout)
+
     def test_clean_scan_passes(self):
-        # The other direction: the gate must not fail an ordinary build, or it
-        # would be disabled within the day.
+        # The other direction, and the control without which the tests above only
+        # prove the gate can be made to fail: a genuinely clean COMPLETE report
+        # must still pass, or the gate would be disabled within the day.
         r = run_gate(self.script, _CLEAN_FIXTURE)
         self.assertEqual(
             r.returncode, 0, f"clean scan failed the build.\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}"
@@ -761,8 +1270,18 @@ class TestGateBehaviourDetector(unittest.TestCase):
         self._assert_caught(m, "gate threshold raised beyond any real finding count")
 
     def test_exit_moved_into_a_dead_case_arm(self):
-        m = apply_mutation(
-            self.script, "  exit 1\n", '  case "${MODE:-run}" in never) exit 1 ;; esac\n'
+        # Anchored on the gate's own ::error:: line, not on a bare `  exit 1`.
+        # The four input preconditions each end in `exit 1`, so the literal now
+        # occurs five times and `apply_mutation`'s count=1 silently took the
+        # FIRST — precondition 1's — leaving the real gate intact and reporting
+        # "the mutation was supposed to disable the gate but did not". Exactly the
+        # ambiguity `apply_regex_mutation` refuses outright (it raises when a
+        # pattern matches more often than `count`), which is why the fixture is
+        # expressed as a regex here rather than a literal.
+        m = apply_regex_mutation(
+            self.script,
+            r"(critical finding\(s\) detected[^\n]*\n)  exit 1\n",
+            r'\1  case "${MODE:-run}" in never) exit 1 ;; esac\n',
         )
         self._assert_caught(m, "`exit 1` moved into an unreachable case arm")
 
@@ -784,6 +1303,239 @@ class TestGateBehaviourDetector(unittest.TestCase):
             "the gate was mutated to block on HIGH and the guard did not notice — "
             "`test_high_finding_warns_but_does_not_fail_the_build` cannot fail",
         )
+
+
+# Each input precondition, as a regex over the extracted body. Non-greedy to the
+# arm's own `fi` — none of them nests a block — so removing one leaves the others
+# intact and its comment behind (a comment disables nothing).
+_ARM_RES = {
+    1: r"if \[ ! -s scan-output\.txt \]; then\n(?:.*\n)*?fi\n",
+    2: r"if ! grep -q 'Security Score' scan-output\.txt; then\n(?:.*\n)*?fi\n",
+    3: r'if \[ -z "\$\{CRITS##\*\[!0-9\]\*\}" \][^\n]*\n(?:.*\n)*?fi\n',
+    4: r'if \[ "\$CRITS" = "0" \] && grep -q [^\n]*\n(?:.*\n)*?fi\n',
+}
+
+
+def without_arms(script: str, *arms) -> str:
+    """`script` with the numbered preconditions removed, one at a time.
+
+    `apply_regex_mutation` raises when a pattern matches zero times OR more than
+    `count`, so an arm that has been reworded fails HERE, naming the pattern,
+    instead of silently producing an unmutated script that the assertion below
+    then reads as "the control works"."""
+    for arm in arms:
+        script = apply_regex_mutation(script, _ARM_RES[arm], "")
+    return script
+
+
+class TestInputPreconditionDetector(unittest.TestCase):
+    """Positive controls for the four input preconditions — probe checklist item 8.
+
+    "The gate failed on a bad input" measures nothing until the payload has been
+    watched FIRE with the control removed. Otherwise the assertion certifies
+    whichever unrelated mechanism aborted first, which is exactly how #431's
+    advertised assertion turned out vacuous (`set -u` was doing the work, not the
+    validation under test).
+
+    So each case here DELETES the arm that is supposed to be doing the work and
+    asserts the same input goes back to exit 0. Scored per assertion, not per
+    run: the arms overlap on some inputs (a missing file trips 1, 2 and 3), so an
+    input is only attributed to an arm after the arms that shadow it are removed
+    too, and the layered cases below assert the survivors explicitly rather than
+    assuming them."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.script = extract_run_block(
+            WORKFLOW.read_text(encoding="utf-8") if WORKFLOW.is_file() else "", STEP_NAME
+        )
+
+    def _assert_arms_are_the_control(self, arms, scan_output, case):
+        mutant = without_arms(self.script, *arms)
+        self.assertNotEqual(
+            mutant, self.script, f"mutation did not apply — the test is vacuous: {case}"
+        )
+        r = run_gate(mutant, scan_output)
+        self.assertEqual(
+            r.returncode,
+            0,
+            f"removing precondition(s) {arms} was supposed to let {case} pass "
+            "again. It did not, so something else is failing the gate and the "
+            "matching behavioural test does not prove those preconditions do "
+            f"anything.\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}",
+        )
+
+    def test_precondition_2_is_what_catches_an_incomplete_report(self):
+        # Arm 2 alone: no other arm looks at report COMPLETENESS.
+        self._assert_arms_are_the_control([2], _LABEL_DRIFT_FIXTURE, "an incomplete report")
+
+    def test_precondition_4_is_what_catches_a_counter_blind_report(self):
+        # Arm 4 alone: the input is a complete, non-empty report with numeric
+        # counts, so arms 1-3 are all satisfied by it.
+        self._assert_arms_are_the_control(
+            [4], _COUNTER_BLIND_FIXTURE, "a report declaring CRITICALs the counter missed"
+        )
+
+    def test_precondition_4_is_what_catches_it_in_REAL_ANSI_bytes_too(self):
+        """Same attribution as the case above, on the verbatim capture.
+
+        Without this, `test_real_ansi_counter_blind_report_fails_the_build` only
+        proves SOMETHING rejected the coloured input — plausibly arm 2 or 3
+        tripping over an escape, which would be a false positive dressed as
+        coverage rather than arm 4 working on production bytes."""
+        self._assert_arms_are_the_control(
+            [4],
+            _ANSI_COUNTER_BLIND_FIXTURE,
+            "a real ANSI-coloured report declaring CRITICALs the counter missed",
+        )
+
+    def test_preconditions_1_and_2_are_what_catch_an_empty_report(self):
+        self._assert_arms_are_the_control([1, 2], _EMPTY_FIXTURE, "an empty scan-output.txt")
+
+    def test_all_three_input_arms_are_what_catch_a_missing_file(self):
+        # Removing 1 and 2 is not enough — arm 3 still catches it, because grep
+        # prints nothing at all for a missing file and `$CRITS` is empty. That is
+        # asserted below rather than assumed, then all three are removed to show
+        # the original defect returning verbatim.
+        self._assert_arms_are_the_control([1, 2, 3], _MISSING_FIXTURE, "a missing scan-output.txt")
+
+    def test_precondition_3_still_catches_a_missing_file_alone(self):
+        """Defence in depth, asserted instead of assumed.
+
+        Arm 3 is the arm that closes the ORIGINAL mechanism (`[ "" -gt 0 ]`
+        erroring inside an `if` condition and not being fatal), and no input can
+        reach it while arms 1-2 stand — grep always prints a number for a
+        readable non-empty file. Without this case arm 3 would be unexercised
+        code that nothing proves is live."""
+        mutant = without_arms(self.script, 1, 2)
+        r = run_gate(mutant, _MISSING_FIXTURE)
+        self.assertNotEqual(
+            r.returncode,
+            0,
+            "with preconditions 1 and 2 removed, a missing scan-output.txt read "
+            "exit 0 again — precondition 3 is dead code.\n"
+            f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}",
+        )
+        self.assertIn(
+            "produced no number",
+            r.stdout,
+            "precondition 3 did not report the missing count — something else "
+            f"failed the gate.\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}",
+        )
+
+    def test_the_original_defect_returns_when_every_arm_is_removed(self):
+        """The known-broken control (probe checklist item 6): prove this harness
+        can produce the ORIGINAL symptom, not just some failure. With all four
+        arms gone, a missing file must reproduce #437's measurement exactly —
+        empty counts, exit 0, and the two non-fatal `[` errors."""
+        mutant = without_arms(self.script, 1, 2, 3, 4)
+        r = run_gate(mutant, _MISSING_FIXTURE)
+        self.assertEqual(r.returncode, 0, f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}")
+        self.assertIn("Critical: , High: ", r.stdout)
+        self.assertEqual(
+            r.stderr.count("integer expression expected"),
+            2,
+            f"expected the two swallowed `[` errors.\nstderr:\n{r.stderr}",
+        )
+
+    # --- the emitter side of the input half --------------------------------
+    def test_unmutated_input_controls_match_the_real_emitter(self):
+        self.assertEqual(
+            gate_input_control_gaps(self.script, EMITTER.read_text(encoding="utf-8")), []
+        )
+
+    def _assert_linkage_caught(self, emitter, why):
+        original = EMITTER.read_text(encoding="utf-8")
+        self.assertNotEqual(emitter, original, "mutation did not apply — vacuous: " + why)
+        self.assertNotEqual(
+            gate_input_control_gaps(self.script, emitter),
+            [],
+            "the emitter no longer prints what a precondition greps for and the "
+            "guard did not notice: " + why,
+        )
+
+    def test_renaming_the_completion_sentinel_in_the_emitter_is_caught(self):
+        m = apply_mutation(
+            EMITTER.read_text(encoding="utf-8"), "Security Score", "Posture Rating"
+        )
+        self._assert_linkage_caught(m, "print_summary renamed the `Security Score` sentinel")
+
+    def test_renaming_the_breakdown_line_in_the_emitter_is_caught(self):
+        m = apply_mutation(
+            EMITTER.read_text(encoding="utf-8"),
+            "Immediate action required",
+            "Act on these now",
+        )
+        self._assert_linkage_caught(m, "print_summary reworded the declared-CRITICAL breakdown line")
+
+    # --- the OTHER half of arm 4's pattern: `CRITICAL  *[0-9]` --------------
+    # The two cases above only exercise the phrase marker. Arm 4 greps
+    # `CRITICAL  *[0-9].*Immediate action required`, and the label-and-count half
+    # was unpinned — which is how both drifts below stayed green while arm 4 was
+    # dead. Arm 4 is the ONLY production control on this gate (the counters never
+    # see a finding line at all; see the module docstring), so an unpinned half of
+    # its pattern is an unpinned half of the merge block.
+    def test_case_drift_in_the_breakdown_label_is_caught(self):
+        """`CRITICAL` -> `Critical` in output.sh, marker and sentinel untouched.
+
+        Measured 2026-08-14 on a copy of the emitter, before the fix: arm 4's
+        grep scored 0 on the real bytes, the gate body exited 0 reporting
+        `Critical: 0, High: 0` on a report declaring one critical, and this
+        module reported `Ran 51 tests ... OK`. `_grep_matches` hardcoded `-i`
+        while arm 4 is `grep -q` — case-SENSITIVE."""
+        m = apply_mutation(
+            EMITTER.read_text(encoding="utf-8"),
+            "  CRITICAL  ${n_crit}",
+            "  Critical  ${n_crit}",
+        )
+        self._assert_linkage_caught(m, "the breakdown label drifted to mixed case")
+
+    def test_moving_the_colour_reset_in_the_breakdown_line_is_caught(self):
+        """`CRITICAL  1\\x1b[0m` -> `CRITICAL\\x1b[0m  1` — the escape moves
+        BETWEEN the label and the count, so `CRITICAL  *[0-9]` no longer matches.
+
+        A different root cause from the case drift and a different fix: the
+        sample used to render `${NC}` to `""`, so it described colour-STRIPPED
+        bytes no CI run ever produces. Measured before the fix: sample
+        `'    CRITICAL  1  ████  …'`, gaps `[]`, while the real bytes were
+        `'  \\x1b[0;31m\\x1b[1m  CRITICAL\\x1b[0m  1  ████  …'` and the gate
+        exited 0 on a real critical."""
+        m = apply_mutation(
+            EMITTER.read_text(encoding="utf-8"),
+            "  CRITICAL  ${n_crit}${NC}",
+            "  CRITICAL${NC}  ${n_crit}",
+        )
+        self._assert_linkage_caught(m, "the colour reset moved between the label and the count")
+
+    def test_the_sample_carries_the_escapes_ci_really_sees(self):
+        """Non-vacuity for the two cases above: without a real ESC in the sample,
+        the reset-position case cannot fail, and the file would be back to
+        matching bytes nobody emits.
+
+        Also pins the direction of `emitter_colors`: it resolves output.sh's OWN
+        definitions, so a colour scheme change flows through instead of being
+        re-typed here."""
+        emitter = EMITTER.read_text(encoding="utf-8")
+        colors = emitter_colors(emitter)
+        self.assertIn("NC", colors, f"output.sh's colour constants were not found: {colors}")
+        sample, unresolved = emitter_line_sample(
+            emitter, "Immediate action required", {"n_crit": "1"}, colors
+        )
+        self.assertEqual(unresolved, [], "every interpolation must be accounted for")
+        self.assertIn("\x1b[", sample, f"the sample carries no ANSI escape: {sample!r}")
+        self.assertIn("CRITICAL  1\x1b[0m", sample, f"unexpected shape: {sample!r}")
+
+    def test_an_undeclared_interpolation_is_a_gap_not_an_empty_string(self):
+        """Fail closed on the unknown. Rendering an unaccounted `${…}` as `""`
+        only ever REMOVES bytes from the sample, which makes the gate's pattern
+        easier to match in the test than in CI — the optimistic direction, and
+        the shared root of both drifts above."""
+        emitter = EMITTER.read_text(encoding="utf-8")
+        colors = emitter_colors(emitter)
+        _, unresolved = emitter_line_sample(
+            emitter, "Immediate action required", {}, colors
+        )
+        self.assertEqual(unresolved, ["n_crit"])
 
 
 class TestEmitterLinkageDetector(unittest.TestCase):
