@@ -4,6 +4,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "lib" / "dashboard-gen.py"
@@ -86,12 +87,57 @@ class TestLoadProwlerFiles(unittest.TestCase):
             result = dashboard_gen.load_prowler_files(td)
             self.assertEqual(set(result.keys()), {"aws", "kubernetes", "gcp"})
 
-    def test_corrupt_file_returns_empty_list(self):
+    def test_corrupt_file_drops_the_provider_rather_than_claiming_it(self):
+        """A provider whose file is garbage must be ABSENT, not present-and-empty.
+
+        INVERTED ASSERTION, fixed 2026-08-24. This test previously required
+        `assertIn("aws", result)` with `result["aws"] == []` — it pinned the
+        false-PASS as intended behaviour. `load_prowler_files`' keys are what
+        `dashboard-gen.py` passes as `map_compliance(..., scanned_providers=...)`,
+        so a present-but-empty provider asserts "Prowler assessed AWS and found
+        nothing" on the strength of a file that never parsed, and the #455 gate
+        cannot fire. Measured: NIST AC-2 read `PASS` with
+        `match_source="prowler"` in exactly this state.
+        """
         with tempfile.TemporaryDirectory() as td:
             Path(td, "prowler-aws.ocsf.json").write_text("NOT JSON{{{")
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                result = dashboard_gen.load_prowler_files(td)
+            self.assertNotIn("aws", result)
+            # The drop must be announced. Silently omitting the provider trades a
+            # false PASS for an invisible gap, which is the #445/#446/#448 shape.
+            self.assertTrue(
+                any("could not be read" in str(c.message) for c in caught),
+                f"provider drop was not warned about: {[str(c.message) for c in caught]}",
+            )
+
+    def test_non_utf8_byte_recovers_findings_instead_of_dropping_them(self):
+        """One stray byte must not cost the file. Regression pin for the CRITICAL.
+
+        A single non-UTF-8 byte — realistic in any cloud resource tag, owner or
+        description — used to raise `UnicodeDecodeError`, get swallowed, and
+        return an empty finding list under a surviving provider key. That is the
+        input that flipped NIST AC-2 from FAIL to PASS while keeping
+        `match_source="prowler"`.
+        """
+        payload = bytearray(json.dumps([_make_finding("aws")]).encode())
+        payload[20:20] = b"\x80"
+        with tempfile.TemporaryDirectory() as td:
+            Path(td, "prowler-aws.ocsf.json").write_bytes(bytes(payload))
             result = dashboard_gen.load_prowler_files(td)
-            self.assertIn("aws", result)
-            self.assertEqual(result["aws"], [])
+        self.assertIn("aws", result)
+        self.assertEqual(len(result["aws"]), 1)
+
+    def test_empty_array_is_a_real_scan_not_a_read_failure(self):
+        """The other direction: `[]` on disk means assessed-and-clean, so the
+        provider must stay claimed. Without this, closing the false-PASS would
+        have silently stopped reporting every genuinely clean provider."""
+        with tempfile.TemporaryDirectory() as td:
+            Path(td, "prowler-aws.ocsf.json").write_text("[]")
+            result = dashboard_gen.load_prowler_files(td)
+        self.assertIn("aws", result)
+        self.assertEqual(result["aws"], [])
 
     def test_ignores_non_prowler_files(self):
         with tempfile.TemporaryDirectory() as td:

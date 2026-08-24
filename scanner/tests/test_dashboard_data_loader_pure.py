@@ -158,10 +158,19 @@ class TestLoadSingleProwlerFile(unittest.TestCase):
         self.assertEqual(name, "kubernetes")
         self.assertEqual(items, [])
 
-    def test_missing_file_returns_empty_items(self):
+    def test_missing_file_returns_none_not_empty_items(self):
+        """A file that was never read must NOT come back as an empty scan.
+
+        This assertion was inverted until 2026-08-24 — it required `[]`, which is
+        the loader's "assessed, nothing found" value, for a path that does not
+        exist. `load_prowler_files` keys become `scanned_providers`, so `[]` here
+        let an unread file be scored as a clean provider. `None` is the
+        "unread" signal; `[]` stays reserved for a file that really is empty (the
+        test above this one).
+        """
         name, items = loader._load_single_prowler_file("/no/such/prowler-aws.ocsf.json")
         self.assertEqual(name, "aws")
-        self.assertEqual(items, [])
+        self.assertIsNone(items)
 
 
 # ===========================================================================
