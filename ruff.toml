@@ -1,0 +1,32 @@
+# Ruff configuration for ClaudeSec.
+#
+# WHY THIS EXISTS: until this file landed, Python had NO static analysis in CI.
+# `lint.yml` gave Bash both `shell-lint` (shellcheck) and a 90% kcov floor, and
+# gave `scanner/lib` a 99% *pytest coverage* floor — but coverage measures
+# EXECUTION, not USEFULNESS. A dead assignment is covered at 100%. That blind
+# spot is why three dead render sites accumulated inside the dashboard path
+# (`loc_html`, `oname`, `has_http_artifacts`) behind a 99% gate, and it is the
+# same "dead renderer" class already recorded twice in this repo's history.
+#
+# SCOPE IS DELIBERATELY NARROW. `E9` (syntax / IO errors) + `F` (Pyflakes) are
+# the tiers where a violation is a defect rather than a preference: F821
+# undefined-name, F811 redefinition, F632 is-literal, F401 unused-import, F841
+# unused-variable. Everything else ruff can emit — 548 further findings at the
+# time of writing, dominated by BLE001 blind-except (65) and S110
+# try-except-pass (24) — needs case-by-case judgement and is NOT enabled here.
+# Widening `select` is a deliberate decision, not a cleanup.
+
+target-version = "py311"
+
+# Generated / vendored trees. Ruff already honours .gitignore, so the ignored
+# operational dirs (.omc/, .claudesec-*/) need no entry.
+extend-exclude = ["node_modules", ".venv", "assets"]
+
+[lint]
+select = ["E9", "F"]
+
+# F541 f-string-missing-placeholders: 48 sites, all `f"literal"` with nothing to
+# interpolate. Cosmetic — it cannot change behaviour — and folding it in would
+# have tripled the diff of the PR that introduced this gate for no defect found.
+# Deferred on purpose; drop this line to pick the cleanup up.
+ignore = ["F541"]

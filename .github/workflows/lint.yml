@@ -62,6 +62,7 @@ jobs:
       python_deps: ${{ steps.detect.outputs.python_deps }}
       npm_deps: ${{ steps.detect.outputs.npm_deps }}
       shell: ${{ steps.detect.outputs.shell }}
+      python: ${{ steps.detect.outputs.python }}
       markdown: ${{ steps.detect.outputs.markdown }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -153,11 +154,18 @@ jobs:
             #
             # Over-inclusion here is fail-safe: it costs ~20s and cannot hide a
             # regression. Pinned by scanner/tests/test_ci_guard_self_verify.py.
-            echo "ci_config=$(match '^(\.github/|templates/|scanner/tests/(test_ci_|_ci_guard_util\.py)|scripts/setup\.sh$|requirements.*\.txt|lychee\.toml$|Dockerfile|package\.json$|\.npmignore$|lighthouserc\.json$|bin/|\.claude/skills/|\.claude-plugin/)')"
+            echo "ci_config=$(match '^(\.github/|templates/|scanner/tests/(test_ci_|_ci_guard_util\.py)|scripts/setup\.sh$|requirements.*\.txt|lychee\.toml$|ruff\.toml$|Dockerfile|package\.json$|\.npmignore$|lighthouserc\.json$|bin/|\.claude/skills/|\.claude-plugin/)')"
             echo "docker=$(match '^(Dockerfile|docker-compose|scripts/run-dashboard-docker|scanner/lib/dashboard-|\.github/workflows/lint\.yml)')"
             echo "python_deps=$(match '^(requirements.*\.txt|pyproject\.toml|setup\.py)')"
             echo "npm_deps=$(match '^(package(-lock)?\.json|\.nvmrc)')"
             echo "shell=$(match '\.(sh|bash)$')"
+            # Python: the `.py` sources plus the two files that decide the
+            # verdict (`ruff.toml`, the pinned engine) and `lint.yml` itself, on
+            # the same reasoning the `scanner` bucket gives for including it —
+            # a workflow-only PR must not be able to turn the gate off without
+            # re-running it. ruff over this tree is ~0.1s, so over-inclusion is
+            # free here in a way it is not for the `scanner` bucket (kcov).
+            echo "python=$(match '(\.py$|^ruff\.toml$|^requirements-lint\.txt$|\.github/workflows/lint\.yml)')"
             echo "markdown=$(match '(\.md$|^lychee\.toml$)')"
           } >> "$GITHUB_OUTPUT"
 
@@ -213,6 +221,9 @@ jobs:
           # environment — it used to be installed only in that job, where nothing
           # ever audited it.
           python3 -m pip install -r requirements-fork-guard.txt
+          # Same reasoning for python-lint's pinned ruff: a manifest installed by
+          # exactly one job is a manifest nothing audits.
+          python3 -m pip install -r requirements-lint.txt
       - name: Run pip-audit
         # CVE-2026-4539: pygments <=2.19.2 local ReDoS — no fix available yet
         # CVE-2026-3219: pip 26.0.1 tar+ZIP confusion — no fix version published yet
@@ -259,6 +270,61 @@ jobs:
             .github
           additional_files: run
           check_together: 'yes'
+
+  # ---------------------------------------------------------------------------
+  # Job: python-lint
+  # The Python counterpart to `shell-lint`. Until it existed, Python — the
+  # largest language here (157 files) and the whole `scanner/lib` dashboard and
+  # compliance path — had NO static analysis anywhere in CI, while Bash had both
+  # shellcheck and a 90% kcov floor.
+  #
+  # WHAT THE 99% PYTEST FLOOR DOES NOT BUY: coverage measures EXECUTION, not
+  # USEFULNESS. A dead assignment is covered at 100%. Three dead render sites
+  # (`loc_html`, `oname`, `has_http_artifacts`) therefore accumulated inside
+  # scanner/lib behind that floor, plus 79 unused imports repo-wide.
+  #
+  # The measurement that shows the floor is the wrong instrument, taken
+  # 2026-08-24 on this branch: deleting them moved scanner/lib from
+  # 3712 statements / 22 missed / 99.41% to 3693 / 22 / 99.40%. Coverage went
+  # DOWN a hundredth of a point, and the missed count did not move at all,
+  # because every deleted statement was already COVERED. A gate that scores dead
+  # code as fully exercised cannot be the thing that finds it.
+  #
+  # VERDICT NARROWED — WHAT IT HIDES: `ruff.toml` selects only `E9` + `F` and
+  # ignores `F541`. Every other ruff rule (548 findings at the time of writing,
+  # dominated by BLE001 blind-except and S110 try-except-pass) does NOT fail this
+  # job. python-lint is in `lint-gate`'s `needs:`, so that narrowing rides the
+  # REQUIRED `Lint` check — widening `select` is a deliberate decision, not a
+  # cleanup. Rationale and the F541 carve-out are argued in `ruff.toml` itself.
+  #
+  # `--no-cache`: a cache hit is keyed on file content, so it cannot mask a
+  # finding, but this job runs in seconds and a cache dir would be the only
+  # artifact it leaves behind.
+  # ---------------------------------------------------------------------------
+  python-lint:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.python == 'true' || github.event_name == 'schedule'
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install ruff (pinned)
+        run: python3 -m pip install -r requirements-lint.txt
+      - name: Run ruff
+        run: |
+          set -euo pipefail
+          # `ruff check` exits 1 on any finding, so the verdict needs no parsing.
+          # But it ALSO exits 0 on "checked 0 files" — a wrong `extend-exclude`,
+          # a relocated tree, or an over-broad .gitignore entry would read as a
+          # clean pass. So assert the file count FIRST, the same fail-closed
+          # shape `ci-guards` uses against `unittest`'s vacuous "Ran 0 tests".
+          count=$(ruff check . --no-cache --show-files | wc -l)
+          echo "ruff would check $count file(s)"
+          [ "$count" -gt 100 ]
+          ruff check . --no-cache
 
   # ---------------------------------------------------------------------------
   # Job: ci-guards
@@ -1161,6 +1227,7 @@ jobs:
       - npm-audit
       - pip-audit
       - shell-lint
+      - python-lint
       - ci-guards
       - scanner-unit-tests
       - scanner-shell-coverage

@@ -88,6 +88,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_MANIFESTS = {
     "requirements-ci.txt",
     "requirements-fork-guard.txt",
+    "requirements-lint.txt",
     "requirements-scripts.txt",
 }
 
