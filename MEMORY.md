@@ -131,31 +131,211 @@ tags: [memory, operations, quality, continuous-improvement]
     source-split is a different, higher-risk mechanism than Python re-export. Defer to a
     dedicated bash-refactor pass.
 
+### Cycle #285–#303 — link hygiene, image size, plugin surface (merged 2026-06-25 → 07-05)
+
+- **Lychee / link rot:** the exclude allowlist moved out of inline `lint.yml` args into
+  `lychee.toml` as a single source, guarded by `test_ci_lychee_config.py` (#290, #292, #296);
+  a monthly redirect / link-rot sweep landed as a notifier-only workflow with a self-healing
+  issue (#298) plus a triage skill (#299). Redirects were resolved to canonical URLs
+  (#291, #301, #302). **Standing gotcha:** CI runs lychee with `accept=100..=599`, so a 404
+  PASSES CI and is still rot — capture the final status, not just the effective URL.
+- **Gates:** Docker scanner image held at 513 MB by a tightened size gate (#286); Lighthouse
+  Performance floored at >= 90 on live Pages (#288).
+- **Plugin:** `/prowler` and `/compliance` marketplace slash commands (#289).
+
+### Cycle #304–#320 — single-sourcing, and a hook that was a no-op (merged 2026-07-05 → 07-09)
+
+- **One source per mapping.** `compliance-map.py` became the sole source of
+  `COMPLIANCE_CONTROL_MAP` — the inline fallback in `dashboard_compliance.py` had drifted
+  critically and now hard-fails instead (#304). Same treatment for Prowler provider labels
+  (#305), diagram-gen domains/frameworks (#306), Prowler display order (#308), and
+  `load_scan_results` + the scan-category list (#314).
+- **Keyword false positives:** substring-matching keywords removed from the compliance map
+  with a collision guard (#307). A blanket min-4-char rule was considered and **REJECTED** —
+  it misses 4-char `port`/`node` and breaks ~11 legitimate 3-char acronyms (cve, iam, kms,
+  mfa, pii, tls, vpc); a regression pin plus a proper-substring collision guard is used
+  instead.
+- **ISMS-P N/A:** non-assessable 3.x PII controls render N/A (#309), extended framework-wide
+  to governance controls (#311), with the policy documented (#310, #312).
+- **`hooks/security-lint` never ran.** The PreToolUse hook did not read stdin JSON, so it was
+  a silent no-op (#313). Worth remembering as a class: a hook that exits 0 without parsing
+  its input is indistinguishable from a hook that approved everything.
+
+### Cycle #321–#348 — scanner decomposition + Docker hardening (merged 2026-07-07 → 07-15)
+
+- **`checks.sh` / `output.sh` / `diagram-gen.py` decomposed** into leaf modules:
+  cloud credential helpers (#332), `run_category_checks()` (#336), kubectl/kubeconfig
+  (#341), dashboard-serve (#342), Prowler compliance-summary out of `output.sh` (#343) and
+  then its embedded Python (#346) and awk (#348) out into real program files, Datadog
+  collection (#334), draw.io XML primitives (#327), `diagram_data` + `diagram_svg` (#340).
+  Extracting the embedded interpreters is what took `output_prowler.sh` from 65.79% to 100%
+  kcov — an embedded heredoc is unmeasurable by definition.
+- **Dead code removed** from `scanner/lib` (tested-but-unreachable functions) with a
+  reachability guard added (#338, #339).
+- **Docker:** dashboard container locked down per CIS Docker Benchmark (#331), capabilities
+  dropped + `no-new-privileges` on scanner services (#333), bundled trivy 0.69.3 → 0.72.0
+  clearing 1 CRITICAL + 45 HIGH (#335). **The bundled trivy binary is a `curl` ARG and is
+  Dependabot-untracked — it is ~90% of the image's CVE count and must be bumped by hand.**
+- **kcov:** a local docker-based coverage harness (#330) with a guard keeping it in sync with
+  CI's patterns and floor (#337).
+
+### Cycle #349–#364 — output-escaping: every hand-built sink (merged 2026-07-16 → 07-27)
+
+- **CWE-94 code injection** removed from three Prowler helper scripts by passing values as
+  env vars instead of interpolating into `python3 -c` (#349), with a regression guard
+  extended to unquoted heredocs and quote-concatenation (#350) and later narrowed to flag
+  only bash-EXPANDABLE `$` to drop a false positive (#352).
+- **Findings JSON** rebuilt via `json.dumps` for correct escaping (#356), after fixing that
+  it emitted only one of details/remediation (#355), read 5 of 6 packed fields (#357), lost
+  `FINDINGS_*` arrays from parallel category subshells (#358) and emitted invalid JSON for
+  control characters (#359); pinned by an offline E2E (#360).
+- **The remaining sinks:** `SCAN_DIR` + Datadog service/env in hand-built JSON (#361),
+  Prowler provider label HTML-escaped (#362 — `_prowler_html_escape` needs a
+  `shopt patsub_replacement` guard, because neither bare `&` nor `\&` is portable across
+  bash < 5.2 and >= 5.2), Datadog `ddtags` percent-encoded (#363). Source-pinned by
+  `test_ci_no_raw_output_interpolation.py` (#364).
+
+### Cycle #365–#375 — dashboard XSS / CSP hardening (merged 2026-07-27 → 08-05)
+
+- Provider-name stored XSS fixed (#365); `onclick` inline-JS-string breakout and
+  `javascript:` hrefs replaced by `data-action` delegation plus a `safe_url()` scheme
+  allowlist (#366, #369). The `onclick` → `data-action` migration completed across all 48
+  handlers (#367) — which made formerly-DEAD OWASP / Arch / Compliance / setup controls
+  actually work, because a CSP that forbids inline handlers had been silently killing them.
+- A headless-Chrome control-liveness smoke now drives every delegated `data-action`
+  (#370, #372, #374); dead audit-points render wiring removed (#371). Retrospective in
+  `docs/reports/dashboard-xss-csp-hardening-retrospective.md` (#373).
+- **Standing baselines:** `test_dashboard_control_liveness.sh` 14/14 live + 2 documented
+  skips; `test_asset_dashboard_control_liveness.sh` 20/20 + 2. Re-run both after ANY change
+  under `scanner/lib/dashboard_html_*`.
+
+### Cycle #376–#437 — the ADR-001 guard audits: guards that guarded nothing (merged 2026-08-05 → 08-13)
+
+The largest block in this log and the one whose *method* matters more than its diffs. Read
+`docs/devsecops/adr-001-ci-guard-hardening-and-audit-cadence.md` and the retrospectives
+(#380, #395, #409, #418, #421, #428, #433) before touching a `test_ci_*.py`.
+
+- **Guards read green while the control was gone.** Class-1 (comment / quote state): a
+  `# exit 1` or `;#exit 1` satisfied a presence assertion (#376). Class-2 (matcher
+  completeness): `case`-arm order, case-sensitive runner regexes (#378, #379). Then an AST
+  meta-guard found **seven more** inert guards that had passed human review — assertions
+  aimed at the raw whole file, satisfied by the workflow's own comments (#383, #385, #402).
+- **A required check can be neutered without touching its logic:** one
+  `continue-on-error` line (#407), a relocated `cwd` (#412), a `branches:` filter that meant
+  the two required workflows never fired on a stacked PR (#386), a comment line truncating
+  the block a collector was reading (#419), and `templates/` shipping workflows to other
+  repos that no guard read (#415, #417).
+- **Execute the gate, do not parse it.** #404 proved the CRITICAL severity gate blocks by
+  RUNNING it, which closed ten evasion shapes at once where three parser fixes had closed
+  one, four, then six. #406 then deleted the text guard it superseded. But execution only
+  covers what the executed thing sees — runner-consumed keys needed their own
+  column-derived, fail-closed matcher after four more defeats at `18 passed` (#408).
+- **Shared primitives, never hand-rolled.** `_ci_guard_util.py` now owns comment stripping,
+  key/column derivation, block collection and the mutation helpers (#393, #414, #419, #425);
+  `apply_mutation` / `apply_regex_mutation` RAISE on a stale anchor because a bare
+  `str.replace` no-ops silently (#416). **Note the asymmetry: `apply_mutation(…, count=0)`
+  replaces NOTHING (`str.replace` semantics) while `apply_regex_mutation(…, count=0)`
+  replaces ALL.**
+- **The probe is evidence and gets audited like the guard.** Across #411/#415/#419/#420/#424
+  the probe was wrong **nine** times and the guard right every time; those nine became a
+  pre-flight checklist in the guard-authoring skill (#429, #432, #382). A "no observable
+  effect" verdict is a measurement, not a conclusion — in #420 the immunity was one
+  unasserted `strip_comment_lines` line in the CALLER.
+- **The audit falsified its own retrospectives four times** (#418, #421, #428, #433) and the
+  `ADR-001 §4` citation population was miscounted (81, not 67 — #423, #426, #430, #434,
+  #436). Do not trust a number in a retrospective without re-deriving it.
+- **Silent-skip fixes:** the dead `|| github.event_name == 'schedule'` arm (`lint.yml` has no
+  `schedule:` trigger) had left `npm-audit` dark ~7 weeks / 117 commits and `dast-full-scan`'s
+  nightly `skipped` ~42 nights; both now surface a self-healing issue instead of reading green
+  (#394, #396, #397). A stuck check-run detector was added and wired into the merge wait loop
+  (#427, #431).
+- **Branch protection changed:** `require_code_owner_reviews` is now **false** and codified
+  as the deliberate value in `scripts/sync-repo-protection.sh` (#403). A `BLOCKED` PR means
+  CI in flight, not a missing approval.
+
+### Cycle #438–#468 — positive controls, compliance correctness, guard reachability (merged 2026-08-12 → 08-21)
+
+- **An assertion nobody has watched fail is not evidence.** `provenance-verify`'s
+  terminal-silent install branch got a consumer (#438); the CRITICAL gate got a positive
+  control on its own input (#439); and **21 of 54 shell tests turned out to be run only by a
+  step that could not fail** (#440). The 99% coverage floor itself accepted 98.50% and exited
+  0 until `--cov-precision=2` was made load-bearing (#453).
+- **Compliance scoring was wrong in both directions.** The repo hand-wrote a worse copy of a
+  mapping Prowler already ships, and now reads Prowler's instead (#450, #451). Keyword
+  matching produced controls "failing" on 88 hits with none real (#454), `change` matching
+  316 checks of which 308 were not changes (#449), `vulnerability` never matching
+  `vulnerabilities` (#452), a subnet "associated" with a security group scoring as access
+  control (#447), 261 checks scored against the wrong requirement (#459) and five keywords
+  scoring a sibling control's checks (#461). CMMC scored 9/9 on an estate it had never
+  looked at (#455) and NIST 800-53 10/10 on a Kubernetes estate (#456). **`map_compliance`
+  sees ONLY Prowler OCSF findings, never `scanner/checks/**` — verify keywords against the
+  Prowler catalog or expect a 66–100% miss rate.** SOC 2 (TSC) added as the 7th framework
+  (#441). **Framework display names are load-bearing:** a native match is framework-level, so
+  a wrong name marks ALL of that framework's controls FAIL.
+- **Dashboard truthfulness:** Grade A over 40 checks with nothing on screen saying so (#445);
+  the scan dashboard folded into the ISMS page, which had been lying about freshness (#446);
+  `--output` printed "Report saved to X" and wrote nothing (#448).
+- **Guard reachability:** the `ci_config` bucket + a dedicated `ci-guards` job (~15s,
+  stdlib-only) because the guards could not run on the files they guard (#463). **Do NOT
+  widen the `scanner` bucket for guard reachability — it fires kcov.** Two rounds of
+  "reached but running nowhere" shapes closed (#465, #468), and the kcov-skip guard that had
+  never once fired was fixed (#466): **detect kcov via `KCOV_BASH_XTRACEFD`, never
+  `TracerPid` — kcov 42 instruments via xtrace, so `TracerPid` is 0.**
+
+### Cycle #469 — Python static analysis (open, branch `ci/python-lint-ruff`)
+
+- `lint.yml` ran 21 jobs and **none of them was a Python linter** — no ruff/flake8/pylint/
+  mypy/black/bandit in any workflow, `.pre-commit-config.yaml`, or `requirements-ci.txt` —
+  while Bash had shellcheck plus a 90% kcov floor. Added a `python-lint` job, `ruff.toml`
+  (`select = ["E9","F"]`, `ignore = ["F541"]`) and a pinned `requirements-lint.txt`.
+- **The 99% coverage floor cannot see dead code, and here is the measurement:** deleting 19
+  dead statements moved `scanner/lib` from 3712/22/**99.41%** to 3693/22/**99.40%**.
+  Coverage went DOWN and the missed count did not move, because every dead statement was
+  already covered. Never cite a coverage floor as evidence against dead code.
+- Scope is narrow on purpose: ~548 other ruff findings (`BLE001` blind-except 65, `S110`
+  try-except-pass 24) are NOT enabled. `python-lint` is in `lint-gate.needs`, so widening
+  `select` changes a required check and needs an explicit decision.
+- Mutation-testing that wiring found a **pre-existing, general** hole: a typo in
+  `needs.<job>.outputs.<name>` or `github.<prop>` yields `''`, so the job is permanently
+  `skipped` and `lint-gate` counts `skipped` as a pass. Three such typos left all **918**
+  existing guards GREEN. Now pinned by `test_ci_needs_output_refs.py`.
+
 ## Open Backlog
 
-- **Prowler provider build-parity** — DONE. #238 merged (runtime provider detection +
-  graceful skips); follow-up tests merged in #241; guard-ordering invariant merged in #242.
-  No auth-`WARN` for stripped providers; Docker smoke test added.
-- **`grep -E` ERE bug class** — DONE. #221/#223/#224 cleared all known sites (AI-007,
-  SAAS-005/009/011/014/015, network/cloud/prowler); 2 intentional literal-pipe occurrences
-  remain (`code/injection.sh` `\|safe`, `solutions.sh:704` `curl|sh`). CI regression guard
-  merged (#244) and extended to `scanner/lib` + multi-line calls (#245).
-- **Prowler 4.x/5.x → unblock alpine bumps.** Alpine is pinned to the py3.12 line only
-  because prowler lacks py3.13+ support; revisit alpine minor/major Dependabot bumps once
-  prowler ships py3.13+ compatibility. **Now auto-watched** by the #246 scheduled action
-  (alerts via issue when prowler's PyPI `Requires-Python` drops the `<3.13` ceiling). Manual
-  check: `curl -fsSL https://pypi.org/pypi/prowler/json | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["info"]["version"], d["info"]["requires_python"])'`.
-- **Dependabot auto-merge policy** — DONE (#249/#250/#251 merged). The original
-  `dependabot-auto-merge.yml` auto-approved with `GITHUB_TOKEN`, but `github-actions[bot]`
-  is NOT a code owner so those approvals did NOT satisfy `require_code_owner_reviews`
-  (proven by #235: 4 bot approvals, still BLOCKED, human had to approve+merge); its `--auto`
-  was also a silent no-op while repo `allow_auto_merge=false`. Fix: #249 dropped the broken
-  approve-as-bot step and now only *arms* server-side auto-merge for semver-patch/minor
-  pip/docker/actions updates (sensitive paths — Dockerfile/base-image/.github/scanner/hooks/
-  scripts — and major bumps are excluded); #250 codified branch-protection + `allow_auto_merge`
-  via an idempotent `gh` script; #251 added a nightly branch-protection drift-watch workflow.
-  Human code-owner approval remains the gate.
-- **`.claude/worktrees/` not gitignored** — DONE (#240 merged).
+Derived from open issues + verified repo state on 2026-08-24. **Verify before working an
+item** — this list rotted badly once (see the maintenance note below).
+
+- **`#295` prowler now supports Python 3.13+ — unblock the alpine freeze. READY, and this is
+  the oldest actionable item here.** The #246 watcher fired correctly and nobody picked it
+  up. Confirmed 2026-08-24: prowler latest is **5.39.1** with `Requires-Python <3.14,>=3.10`,
+  so the `<3.13` ceiling that justified the freeze is GONE. `Dockerfile` still pins
+  `PROWLER_VERSION=5.30.1` on `alpine:3.20` (py3.12) and its comment still asserts "no
+  3.13/3.14 support yet", which is now false; `.github/dependabot.yml` still ignores alpine
+  minor/major. Re-check: `curl -fsSL https://pypi.org/pypi/prowler/json | python3 -c 'import
+  sys,json; d=json.load(sys.stdin); print(d["info"]["version"], d["info"]["requires_python"])'`.
+- **`#405` branch-protection drift-watch is not running** (`REPO_ADMIN_TOKEN` missing). The
+  workflow self-heals into this issue rather than reporting green (#396), so the issue IS the
+  alert — it needs a token, not a code fix.
+- **`#399` DAST nightly full scan is not running** (`DAST_TARGET_URL` unset). Same shape as
+  #405: deliberate, self-reported (#397). Set the repo variable to an authorized target to
+  re-enable; do not point CI at a real external target without written authorization.
+- **`#381` lychee monthly sweep found redirects / link rot.** Use the
+  `lychee-redirect-triage` skill. Remember CI accepts `100..=599`, so a 404 passes.
+- **`#297` quarterly ADR-001 guard adversarial audit due.** The recurring cadence item. Its
+  Class-2 backlog is empty; what it exists for now is the NEXT round of shapes.
+- **`#39` ISMS-P 29 FAIL controls prioritised remediation plan** and **`#15` incident-response
+  process 65% → 80%** are product/content work, not CI.
+- **`#68` ZAP baseline** is the intentional single-tracker issue — keep it open.
+- **ruff ruleset widening** — 548 findings behind `BLE001`/`S110` etc. Changes a required
+  check; needs a decision, not a cleanup pass. See Cycle #469.
+- **`MEMORY.md` maintenance** — this file went **~185 PRs stale** (delta log ended at Cycle
+  #283–#284 while `main` was at #468, and 4 of the 5 "Open Backlog" entries said DONE),
+  which is how #295 sat unclaimed. `CLAUDE.md` points the continuous-improvement workflow
+  here to pick work, so a stale backlog silently stops that workflow. Append a cycle entry
+  when a themed block of PRs merges, and re-derive the backlog from `gh issue list` rather
+  than editing entries in place.
 
 > Reference: CIS Controls v8 (secure configuration & continuous vulnerability
-> management) anchors the Docker-pinning and scanner-correctness work above.
+> management) anchors the Docker-pinning and scanner-correctness work above;
+> OWASP CICD-SEC-1/-7 anchor the guard and required-check work in Cycles
+> #376–#468.
