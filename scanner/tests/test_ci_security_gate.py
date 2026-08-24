@@ -38,7 +38,6 @@ No network, no subprocess. Runs under pytest (CI) and `python3 -m unittest`.
 Does not import scanner/lib, so it does not affect the measured coverage gate.
 """
 
-import re
 import sys
 import unittest
 from pathlib import Path

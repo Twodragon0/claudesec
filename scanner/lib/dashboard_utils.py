@@ -4,8 +4,6 @@ Shared constants, TypedDicts, and utility functions extracted from dashboard-gen
 """
 
 import os
-import re
-import urllib.parse
 from typing import Any, TypedDict
 
 # ── Constants ─────────────────────────────────────────────────────────────────

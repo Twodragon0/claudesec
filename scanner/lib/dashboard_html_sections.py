@@ -6,15 +6,13 @@ Analytical section builder functions extracted from dashboard-gen.py.
 
 import os
 import sys
-from typing import Any
 
 # Ensure sibling modules are importable when loaded via importlib
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
-from dashboard_utils import h, sev_badge
-from dashboard_mapping import CATEGORY_META, get_check_en
+from dashboard_utils import h
 from dashboard_providers import (
     PROVIDER_LABELS_SHORT,
     PROVIDER_SUBTAB_MAP,
@@ -27,20 +25,6 @@ from dashboard_providers import (
 from dashboard_html_owasp import _build_owasp_html  # noqa: F401
 from dashboard_html_arch import _build_arch_html  # noqa: F401
 from dashboard_html_compliance import _build_compliance_html  # noqa: F401
-from dashboard_html_helpers import (
-    _infer_category, _has_cmd, _cmd_pill,
-    _compute_severity_counts, _compute_severity_bars,
-    _build_replacements,
-)
-from dashboard_html_builders import (
-    _build_provider_cards,
-    _build_artifact_links_section,
-    _build_target_posture_table,
-    _build_trivy_section,
-    _build_datadog_logs_section,
-    _build_datadog_signals_section,
-    _build_datadog_cases_section,
-)
 from dashboard_html_audit_sources import (
     build_ms_sources_html,
     build_saas_sources_html,

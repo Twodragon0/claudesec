@@ -163,7 +163,10 @@ class ScanDirFallbackTests(unittest.TestCase):
                     if k not in env:
                         os.environ.pop(k, None)
                 os.environ["CLAUDESEC_DASHBOARD_OFFLINE"] = "1"
-                ctxs = [c.__enter__() for c in stack]
+                # Entered for the side effect (activating each patch); the
+                # returned mocks are unused, so this is a loop, not a comprehension.
+                for c in stack:
+                    c.__enter__()
                 try:
                     MOD.generate_dashboard(
                         scan_data=_zero_scan(),
@@ -187,7 +190,10 @@ class ScanDirFallbackTests(unittest.TestCase):
                 os.environ.pop(k, None)
             with patch.dict(os.environ, env, clear=False):
                 stack = _patches_for_generate()
-                ctxs = [c.__enter__() for c in stack]
+                # Entered for the side effect (activating each patch); the
+                # returned mocks are unused, so this is a loop, not a comprehension.
+                for c in stack:
+                    c.__enter__()
                 out = Path(tmp) / "dash.html"
                 try:
                     MOD.generate_dashboard(
@@ -210,7 +216,10 @@ class ScanDirFallbackTests(unittest.TestCase):
                 os.environ.pop(k, None)
             with patch.dict(os.environ, env, clear=False):
                 stack = _patches_for_generate()
-                ctxs = [c.__enter__() for c in stack]
+                # Entered for the side effect (activating each patch); the
+                # returned mocks are unused, so this is a loop, not a comprehension.
+                for c in stack:
+                    c.__enter__()
                 out = Path(tmp) / "dash.html"
                 try:
                     MOD.generate_dashboard(

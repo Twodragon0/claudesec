@@ -6,12 +6,11 @@ those side effects before the module executes.
 """
 
 import importlib.util
-import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # Module import — patch away gspread and openpyxl before loading the script

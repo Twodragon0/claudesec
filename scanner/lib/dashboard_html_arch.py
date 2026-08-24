@@ -16,13 +16,12 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 from dashboard_utils import h, sev_badge, comp_slug
-from dashboard_mapping import OWASP_2025, get_check_en
+from dashboard_mapping import get_check_en
 
 
 def _build_arch_html(arch_domains) -> str:
     """Build the Architecture tab HTML with OWASP/Compliance/Scanner cross-links."""
     arch_html = ""
-    owasp_names = {o["id"]: o["name"] for o in OWASP_2025}
     scanner_labels = {
         "access-control": "Access control",
         "infra": "Infrastructure",
@@ -69,7 +68,6 @@ def _build_arch_html(arch_domains) -> str:
         if links.get("owasp") or links.get("compliance") or links.get("scanner"):
             arch_html += '<div class="arch-links"><span class="arch-links-label">Related items</span>'
             for oid in links.get("owasp", []):
-                oname = owasp_names.get(oid, oid)
                 arch_html += f'<button class="arch-link-chip arch-owasp" data-action="switchTab" data-arg="bestpractices" data-scroll="owasp-{h(oid)}" title="OWASP {h(oid)}">{h(oid)}</button>'
             for fw, ctrl in links.get("compliance", []):
                 cid = comp_slug(fw)

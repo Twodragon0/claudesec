@@ -19,7 +19,6 @@ removed — even if someone also weakened the behavioral test.
 stdlib-only, no network/subprocess. Passes under pytest and `python3 -m unittest`.
 """
 
-import re
 import sys
 import unittest
 from pathlib import Path

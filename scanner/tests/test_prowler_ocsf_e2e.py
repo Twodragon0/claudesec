@@ -284,14 +284,8 @@ class TestOcsfDashboardE2E(unittest.TestCase):
 
     def test_compliance_keyword_matching(self):
         """Findings matching compliance keywords should trigger FAIL status."""
-        findings = [
-            _make_ocsf_finding(
-                check="mfa_disabled",
-                title="MFA not enabled for admin accounts",
-                message="Enable multi-factor authentication",
-            ),
-        ]
-
+        # This test writes its own OCSF payload inline below rather than using
+        # the `_make_ocsf_finding` helper; there is no shared fixture to build.
         with tempfile.TemporaryDirectory() as tmpdir:
             # Write OCSF file
             Path(tmpdir, "prowler-kubernetes.ocsf.json").write_text(

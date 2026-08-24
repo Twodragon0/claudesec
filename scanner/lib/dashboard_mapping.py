@@ -9,9 +9,6 @@ Contains:
   - CATEGORY_META
 """
 
-import os
-import importlib.util
-from typing import Any
 
 # ── Prowler/GitHub check code → English summary & remediation ────────────────
 

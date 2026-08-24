@@ -1,7 +1,6 @@
 """Tests for _fetch_markdown_preview in dashboard-gen.py."""
 
 import importlib.util
-import io
 import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock

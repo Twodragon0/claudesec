@@ -459,7 +459,6 @@ def generate_scan_flow_diagram(agg, out_path):
     root, gr = create_drawio_root()
     sid = 2
     style_step = "rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;"
-    style_decision = "rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;"
 
     y = 30
     step_h = 50

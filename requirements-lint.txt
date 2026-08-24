@@ -1,0 +1,22 @@
+# Dependency for the `python-lint` CI job.
+#
+# WHY A SEPARATE MANIFEST, not a line in requirements-ci.txt: that file is the
+# test-runtime set (`scanner-unit-tests`, kcov) and installing a linter into
+# every test job buys nothing. Splitting it mirrors requirements-fork-guard.txt,
+# which exists for the same reason.
+#
+# WHY A ROOT-LEVEL `requirements*.txt` RATHER THAN `pip install ruff==...` INLINE
+# IN THE JOB: three things only find pins here. `test_ci_requirements_pinned.py`
+# enforces the `==` (and fails until a new manifest is listed in its
+# EXPECTED_MANIFESTS, so this file could not join silently); dependabot's `pip`
+# ecosystem on `directory: "/"` raises upgrades as reviewable PRs; and the
+# `python_deps` path bucket in lint.yml matches `requirements.*\.txt`, which is
+# what puts this file into `pip-audit`'s audited environment. An inline pin in
+# the job body gets none of the three — precisely the gap pip-audit's own comment
+# records for requirements-fork-guard.txt ("installed only in that job, where
+# nothing ever audited it").
+#
+# WHY EXACT PINS: see the header of requirements-ci.txt. A `>=` floor also makes
+# a linter non-deterministic across runs — a new rule shipped mid-week would fail
+# an untouched PR with no diff to point at.
+ruff==0.16.1

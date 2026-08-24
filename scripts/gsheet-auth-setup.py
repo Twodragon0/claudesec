@@ -6,7 +6,6 @@ GCP Console에서 OAuth 클라이언트 ID를 생성하고,
 credentials.json을 ~/.config/gspread/에 저장한 뒤 인증합니다.
 """
 
-import json
 import os
 import sys
 from pathlib import Path
