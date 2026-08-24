@@ -55,7 +55,11 @@ def _auth(session: "requests.Session", base: str, api_key: str,
 
 
 def _safe_get(session: "requests.Session", base: str, path: str):
-    """GET and return (status_code, json_or_None)."""
+    """GET and return (status_code, json_or_None).
+
+    A status code of 0 means the request never reached the API (DNS failure,
+    timeout, TLS error, connection reset) — see ``_unreachable``.
+    """
     try:
         r = session.get(f"{base}{path}", timeout=10)
         if r.status_code == 200:
@@ -63,6 +67,34 @@ def _safe_get(session: "requests.Session", base: str, path: str):
         return r.status_code, None
     except Exception:
         return 0, None
+
+
+def _unreachable(code: int) -> dict:
+    """Fail-CLOSED descriptor for an endpoint we did not successfully read.
+
+    ``accessible`` is True only when the endpoint actually returned usable data
+    (HTTP 200 + expected shape), matching the ``policy_access`` audit below.
+    The previous ``code != 403`` form rendered ``accessible: True`` for every
+    transport failure, because ``_safe_get`` reports those as code 0 — the
+    dashboard then claimed the API key reached the ZIA admin surface when
+    nothing had been read.
+
+    ``reason`` keeps the three states distinct, since a 403 is real
+    information (the key reached the API and was denied):
+      * ``transport_error``     — code 0, never reached the API
+      * ``permission_denied``   — HTTP 403, reached the API, RBA restricted
+      * ``unexpected_payload``  — HTTP 200 but not the expected JSON shape
+      * ``http_error``          — any other non-200 status
+    """
+    if code == 0:
+        reason = "transport_error"
+    elif code == 403:
+        reason = "permission_denied"
+    elif code == 200:
+        reason = "unexpected_payload"
+    else:
+        reason = "http_error"
+    return {"accessible": False, "status_code": code, "reason": reason}
 
 
 def collect_posture(base: str, session: "requests.Session") -> dict:
@@ -90,21 +122,21 @@ def collect_posture(base: str, session: "requests.Session") -> dict:
             "accessible": True,
         }
     else:
-        result["users"] = {"accessible": code != 403}
+        result["users"] = _unreachable(code)
 
     # 3. Groups — count only
     code, data = _safe_get(session, base, "/api/v1/groups")
     if code == 200 and isinstance(data, list):
         result["groups"] = {"total": len(data), "accessible": True}
     else:
-        result["groups"] = {"accessible": code != 403}
+        result["groups"] = _unreachable(code)
 
     # 4. Departments — count only
     code, data = _safe_get(session, base, "/api/v1/departments")
     if code == 200 and isinstance(data, list):
         result["departments"] = {"total": len(data), "accessible": True}
     else:
-        result["departments"] = {"accessible": code != 403}
+        result["departments"] = _unreachable(code)
 
     # 5. Advanced settings — flag risky configs
     code, data = _safe_get(session, base, "/api/v1/advancedSettings")
@@ -119,14 +151,14 @@ def collect_posture(base: str, session: "requests.Session") -> dict:
             "accessible": True,
         }
     else:
-        result["advanced_settings"] = {"accessible": code != 403}
+        result["advanced_settings"] = _unreachable(code)
 
     # 6. NSS feeds — log streaming configuration
     code, data = _safe_get(session, base, "/api/v1/nssFeeds")
     if code == 200 and isinstance(data, list):
         result["nss_feeds"] = {"total": len(data), "accessible": True}
     else:
-        result["nss_feeds"] = {"accessible": code != 403}
+        result["nss_feeds"] = _unreachable(code)
 
     # 7. Auth settings — SAML/SSO and provisioning config
     code, data = _safe_get(session, base, "/api/v1/authSettings")
@@ -142,7 +174,7 @@ def collect_posture(base: str, session: "requests.Session") -> dict:
             "accessible": True,
         }
     else:
-        result["auth_settings"] = {"accessible": code != 403}
+        result["auth_settings"] = _unreachable(code)
 
     # 8. Policy endpoint access audit (check what API key can reach)
     policy_endpoints = {
