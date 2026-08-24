@@ -227,24 +227,109 @@ def test_policy_access_stays_fail_closed_on_transport_failure():
 
 
 # ---------------------------------------------------------------------------
-# Known-unfixed, pinned here so it is not mistaken for this change's doing:
-# `service_status` still calls `.get()` on whatever /api/v1/status returned,
-# so an HTTP 200 that yields a JSON string/list raises AttributeError out of
-# collect_posture(). Out of scope for the accessible-flag fix.
+# `service_status` on a non-dict 200 body. This was pinned as a KNOWN GAP by the
+# accessible-flag change ("still calls .get() on whatever /api/v1/status
+# returned"), with a self-destructing assertion that failed the moment the crash
+# was fixed — which is what brought us back here. The pin worked; these are its
+# replacements, asserting the fixed behaviour in both directions.
 # ---------------------------------------------------------------------------
 
 
-def test_known_gap_service_status_raises_on_non_dict_200_payload():
+def _malformed_status_only(body):
+    """Only `/api/v1/status` is malformed; every other endpoint stays healthy.
+
+    Scoped per-URL on purpose. The first draft returned the malformed body for
+    EVERY endpoint, which made the list case fail — not because `service_status`
+    was still broken, but because a list body then reaches the users handler,
+    whose `isinstance(data, list)` guard checks the CONTAINER and not its
+    elements, so `1.get("groups")` raises. That is a separate defect, pinned
+    below; mixing it in here would have made this test report on the wrong bug.
+    """
+
+    def _payload(url):
+        return body if url.endswith("/api/v1/status") else _healthy_payload(url)
+
+    return _payload
+
+
+def test_service_status_survives_a_string_200_payload():
+    """The exact input the old pin used. It raised AttributeError before."""
     mod = _load()
-    session = _session_returning(200, lambda url: "a string")
+    session = _session_returning(200, _malformed_status_only("a string"))
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["service_status"] == "UNEXPECTED_PAYLOAD"
+
+
+def test_service_status_survives_a_list_200_payload():
+    mod = _load()
+    session = _session_returning(200, _malformed_status_only([1, 2]))
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["service_status"] == "UNEXPECTED_PAYLOAD"
+
+
+def test_service_status_survives_a_null_200_body():
+    """A 200 whose body is JSON `null`. This used to read as "UNKNOWN" via the
+    truthiness test; it is genuinely an unexpected payload, and saying so is the
+    point of separating the two values."""
+    mod = _load()
+    session = _session_returning(200, _malformed_status_only(None))
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["service_status"] == "UNEXPECTED_PAYLOAD"
+
+
+def test_service_status_reports_the_real_status_for_a_dict_payload():
+    """Positive control. The assertions above mean nothing unless the normal path
+    still reports the API's own value."""
+    mod = _load()
+    session = _session_returning(200, _healthy_payload)
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["service_status"] == "ACTIVE"
+
+
+def test_service_status_is_unknown_when_the_dict_carries_no_status():
+    mod = _load()
+    session = _session_returning(200, _malformed_status_only({}))
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["service_status"] == "UNKNOWN"
+
+
+def test_known_gap_list_body_still_crashes_the_users_handler():
+    """NEW pin, replacing the one this change consumed.
+
+    `isinstance(data, list)` in the users handler checks the container and not
+    its elements, so a 200 whose body is `[1, 2]` reaches `u.get("groups")` and
+    raises. Same shape as the `{"saas": ["okta"]}` case fixed in the dashboard
+    asset loader. Out of scope here — this change is the `service_status` crash —
+    and pinned so it cannot rot: the assertion FAILS the moment it is fixed, which
+    is exactly how this defect got picked up.
+    """
+    mod = _load()
+    session = _session_returning(200, lambda url: [1, 2])
     try:
         mod.collect_posture(_FAKE_BASE, session)
     except AttributeError as exc:
         assert "get" in str(exc)
     else:
         raise AssertionError(
-            "service_status non-dict crash appears fixed — update this pin"
+            "list-element crash in the users handler appears fixed — update this pin"
         )
+
+
+def test_service_status_is_unknown_on_a_transport_failure():
+    """Documented residual: a transport failure and a status-less 200 both report
+    UNKNOWN. Pinned so the conflation stays a recorded decision rather than an
+    accident — see the comment at the call site."""
+    mod = _load()
+
+    class _Boom:
+        def get(self, *_a, **_k):
+            raise OSError("dns failure")
+
+        def delete(self, *_a, **_k):
+            return None
+
+    posture = mod.collect_posture(_FAKE_BASE, _Boom())
+    assert posture["service_status"] == "UNKNOWN"
 
 
 # ---------------------------------------------------------------------------
@@ -289,8 +374,26 @@ class ZscalerApiFailClosedTestCase(unittest.TestCase):
     def test_policy_access_fail_closed(self):
         test_policy_access_stays_fail_closed_on_transport_failure()
 
-    def test_service_status_known_gap(self):
-        test_known_gap_service_status_raises_on_non_dict_200_payload()
+    def test_service_status_string_payload(self):
+        test_service_status_survives_a_string_200_payload()
+
+    def test_service_status_list_payload(self):
+        test_service_status_survives_a_list_200_payload()
+
+    def test_service_status_null_body(self):
+        test_service_status_survives_a_null_200_body()
+
+    def test_service_status_dict_payload(self):
+        test_service_status_reports_the_real_status_for_a_dict_payload()
+
+    def test_service_status_no_status_key(self):
+        test_service_status_is_unknown_when_the_dict_carries_no_status()
+
+    def test_service_status_transport_failure(self):
+        test_service_status_is_unknown_on_a_transport_failure()
+
+    def test_users_handler_list_element_gap(self):
+        test_known_gap_list_body_still_crashes_the_users_handler()
 
 
 if __name__ == "__main__":
