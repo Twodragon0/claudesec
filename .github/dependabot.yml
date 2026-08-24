@@ -37,12 +37,26 @@ updates:
         patterns:
           - "*"
     ignore:
-      # Hold alpine on its current minor line (3.20 / Python 3.12). prowler 3.11.3
-      # pins pydantic v1, which cannot run on Python >3.12, and an alpine minor bump
-      # changes the bundled Python (3.24 ships py3.14 -> `prowler -v` crashes with
-      # pydantic ConfigError). Digest/patch rebuilds of 3.20 still flow; minor/major
-      # bumps are blocked until prowler is upgraded to a py3.13+ compatible major.
-      # See PR #220 (alpine 3.20->3.24 build green but prowler broken at runtime).
+      # Hold alpine on its current minor line (3.20 / Python 3.12).
+      #
+      # THE BOUNDARY, measured 2026-08-24 by installing python3 in each image:
+      #   3.20 -> py3.12.13   3.21 -> py3.12.14   3.22 -> py3.12.14
+      #   3.23 -> py3.12.14   3.24 -> py3.14.7
+      # alpine skips py3.13 and jumps 3.12 -> 3.14 at the 3.23/3.24 boundary.
+      # prowler 5.39.1 requires `<3.14,>=3.10`, so 3.24 is out of range: pip
+      # backtracks to prowler 3.11.3 (pydantic v1) and `prowler -v` crashes at
+      # runtime. See PR #220 — build green, prowler broken.
+      #
+      # So 3.21-3.23 are in fact safe today, and this ignore is still correct:
+      # Dependabot cannot distinguish a safe minor from the one that crosses the
+      # boundary, and the cost of guessing wrong is a shipped image whose scanner
+      # cannot run. Digest/patch rebuilds of 3.20 still flow.
+      #
+      # ISSUE #295 DOES NOT LIFT THIS. The watcher fired correctly when prowler's
+      # ceiling moved `<3.13` -> `<3.14`, but there is no alpine minor shipping
+      # py3.13 to move to; the next one ships py3.14. Removing this ignore on the
+      # strength of that alert reintroduces #220. The real unblock condition is
+      # prowler accepting py3.14, not prowler accepting py3.13.
       - dependency-name: "alpine"
         update-types:
           - "version-update:semver-minor"

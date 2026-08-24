@@ -609,6 +609,12 @@ SCAN_REPORT_EOF
   local py_script="$LIB_DIR/dashboard-gen.py"
 
   if command -v python3 >/dev/null 2>&1 && [[ -f "$py_script" ]]; then
+    # Declared inside this branch, and cleaned up on every exit from it: the
+    # scanner runs under `set -u`, so a variable created only here must not be
+    # referenced on the python3-absent path below.
+    local gen_err
+    gen_err="$(mktemp "${TMPDIR:-/tmp}/claudesec-dashgen.XXXXXX")"
+
     # Use Python v0.5.0 generator
     # Ensure dashboard-gen can resolve artifacts under the scan directory,
     # even when the HTML output is generated from another working directory
@@ -626,11 +632,39 @@ SCAN_REPORT_EOF
     CLAUDESEC_PROWLER_DIR="${SCAN_DIR:-.}/.claudesec-prowler" \
     CLAUDESEC_HISTORY_DIR="${SCAN_DIR:-.}/.claudesec-history" \
     CLAUDESEC_NETWORK_DIR="${SCAN_DIR:-.}/.claudesec-network" \
-    python3 "$py_script" "$output_file" 2>/dev/null
+    python3 "$py_script" "$output_file" 2>"$gen_err"
+    # Captured IMMEDIATELY: any further `local` resets `$?` to 0 (verified in
+    # bash 5 — `local rc=$?` on its own line keeps 7, a following `local` reads 0).
+    local gen_rc=$?
 
-    if [[ $? -eq 0 && -f "$output_file" ]]; then
+    # stderr used to go to /dev/null, which discarded two different things.
+    #
+    # 1. A real traceback. The generator would fail, the legacy bash dashboard
+    #    would silently take its place, and the operator got a DIFFERENT, poorer
+    #    dashboard with nothing on screen or in the log saying so. That is the
+    #    #445/#446/#448 shape — output that is wrong by omission.
+    # 2. Warnings on the SUCCESS path. `dashboard_auth.py` warns when
+    #    `.claudesec-assets/dashboard-data.json` is unusable and the SSO card
+    #    renders as N/A; the dashboard is produced, but with a known gap. Sending
+    #    that to /dev/null made the warning unreachable on the only path a real
+    #    scan takes, so the guarantee existed in unit tests and nowhere else.
+    #
+    # Both are now surfaced. The legacy fallback itself is deliberately KEPT — a
+    # scan that cannot render the rich dashboard should still produce one — but it
+    # is no longer silent about the downgrade.
+    if [[ -s "$gen_err" ]]; then
+      sed 's/^/  [dashboard] /' "$gen_err" >&2
+    fi
+
+    if [[ $gen_rc -eq 0 && -f "$output_file" ]]; then
+      rm -f "$gen_err"
       return 0
     fi
+
+    printf '%b  [dashboard] python generator failed (exit %s); falling back to the legacy bash dashboard.%b\n' \
+      "${YELLOW}" "$gen_rc" "${NC}" >&2
+    printf '  [dashboard] the legacy output omits Prowler, compliance and network sections. Re-run with the error above resolved for the full dashboard.\n' >&2
+    rm -f "$gen_err"
   fi
 
   # Fallback to legacy bash generator
