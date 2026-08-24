@@ -244,8 +244,12 @@ The largest block in this log and the one whose *method* matters more than its d
 - **The audit falsified its own retrospectives four times** (#418, #421, #428, #433) and the
   `ADR-001 §4` citation population was miscounted (81, not 67 — #423, #426, #430, #434,
   #436). Do not trust a number in a retrospective without re-deriving it.
-- **Silent-skip fixes:** the dead `|| github.event_name == 'schedule'` arm (`lint.yml` has no
-  `schedule:` trigger) had left `npm-audit` dark ~7 weeks / 117 commits and `dast-full-scan`'s
+- **Silent-skip fixes:** the `|| github.event_name == 'schedule'` arm was dead in seven jobs
+  because `lint.yml` had no `schedule:` trigger at the time — **#394 added one**
+  (`cron: '0 5 * * 3'`, Wednesday 05:00 UTC), so the arm is LIVE today and a new job may rely
+  on it. Verify with `sed -n '1,40p' .github/workflows/lint.yml` before repeating the claim;
+  the first draft of this entry asserted the present tense and was wrong. It had left
+  `npm-audit` dark ~7 weeks / 117 commits and `dast-full-scan`'s
   nightly `skipped` ~42 nights; both now surface a self-healing issue instead of reading green
   (#394, #396, #397). A stuck check-run detector was added and wired into the merge wait loop
   (#427, #431).
