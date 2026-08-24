@@ -90,19 +90,81 @@ def _normalize_provider(name: str) -> str:
     return name
 
 
-def _load_single_prowler_file(fpath: str) -> tuple[str, list[dict[str, Any]]]:
-    """Load and parse a single Prowler OCSF file. Used by ThreadPoolExecutor."""
+def _load_single_prowler_file(fpath: str) -> tuple[str, list[dict[str, Any]] | None]:
+    """Load and parse a single Prowler OCSF file. Used by ThreadPoolExecutor.
+
+    Returns `(provider, findings)`, or `(provider, None)` when the file could NOT
+    be read as evidence at all.
+
+    `None` and `[]` MUST stay distinguishable, because `load_prowler_files`' keys
+    are the repository's "this provider was scanned" claim: `dashboard-gen.py`
+    passes them straight to `map_compliance(..., scanned_providers=...)`, where
+    the #455 gate uses them to decide whether a control had evidence it could
+    have read. A provider that is present with an empty list therefore asserts
+    "assessed, nothing found" — the strongest thing the dashboard can say — so
+    returning `[]` for a file that never decoded turned an unread file into a
+    clean bill of health. Measured before this change, with one 0x80 byte spliced
+    into a 3-finding aws OCSF file:
+
+        clean utf-8    providers=['aws'] findings=3 -> AC-2 FAIL  source='prowler'
+        one 0x80 byte  providers=['aws'] findings=0 -> AC-2 PASS  source='prowler'
+        no file at all providers=[]      findings=0 -> AC-2 PASS  source='keyword'
+
+    Note the third row: a MISSING file already degraded provenance to `keyword`,
+    so the corrupt file was the worse of the two — it kept `match_source
+    ="prowler"` while resting on nothing. `prowler_compliance_summary.py` has had
+    this right all along by adding the provider only after the parse succeeds.
+
+    `errors="replace"` is the other half and does the real work: a single
+    non-UTF-8 byte anywhere in a cloud resource tag, owner or description used to
+    cost the whole file. Verified recovery is exact, not approximate — 50 of 50
+    findings with 0x80 spliced at three different offsets (start, middle, end),
+    delta +0 each time. The replacement character can only corrupt the one string
+    literal it lands in, and `_parse_ocsf_json`'s `raw_decode` resync already
+    tolerates that.
+
+    A file that is READ but holds no record is a third case, resolved below: an
+    empty document counts as a real, clean scan, while garbage does not.
+    """
     raw_name = Path(fpath).stem.replace(".ocsf", "").replace("prowler-", "")
     name = _normalize_provider(raw_name)
     try:
-        with open(fpath, encoding="utf-8") as f:
+        with open(fpath, encoding="utf-8", errors="replace") as f:
             content = f.read().strip()
-        return name, _parse_ocsf_json(content)
     except Exception:
-        return name, []
+        return name, None
+    findings = _parse_ocsf_json(content)
+    if not findings and content:
+        # Content that yields no record is either a legitimately empty document
+        # or garbage, and only the second may drop the provider — otherwise a
+        # truncated or non-JSON file re-opens the same false-PASS through a
+        # different door. Decided by asking whether the text is valid JSON at
+        # all, NOT by comparing it against a list of empty spellings: the first
+        # draft of this used `content not in ("", "[]", "{}")`, where `"{}"` was
+        # dead (it parses to `[{}]`, which is truthy) and `"[ ]"` — legal, empty
+        # JSON — was misread as garbage. Enumerating the empty forms is the wrong
+        # rule; the grammar is the rule (ADR-001 §5).
+        try:
+            json.loads(content)
+        except ValueError:
+            return name, None
+    return name, findings
 
 
 def load_prowler_files(prowler_dir: str) -> dict[str, list[dict[str, Any]]]:
+    """`{provider: findings}` for every provider whose OCSF file was READ.
+
+    A provider whose file could not be read is omitted rather than mapped empty
+    — see `_load_single_prowler_file`. Callers may therefore treat the key set as
+    "these providers were actually assessed", which is exactly what
+    `dashboard-gen.py` does when it builds `scanned_providers` from it.
+
+    Findings from a provider's readable files are still kept when a SIBLING file
+    for the same provider fails, since a real FAIL is evidence regardless of what
+    else was unreadable; the provider stays claimed in that case because at least
+    one of its files was read. Dropping it instead would hide genuine findings,
+    which is the opposite failure and the worse one.
+    """
     providers: dict[str, list[dict[str, Any]]] = {}
     if not os.path.isdir(prowler_dir):
         return providers
@@ -114,6 +176,14 @@ def load_prowler_files(prowler_dir: str) -> dict[str, list[dict[str, Any]]]:
     with ThreadPoolExecutor(max_workers=min(len(files), 4)) as pool:
         results = pool.map(_load_single_prowler_file, files)
     for name, items in results:
+        if items is None:
+            warnings.warn(
+                f"prowler OCSF evidence for provider '{name}' could not be read; "
+                "it is excluded from the scanned-provider set so compliance "
+                "controls are not scored as assessed against it",
+                stacklevel=2,
+            )
+            continue
         if name in providers:
             providers[name].extend(items)
         else:
