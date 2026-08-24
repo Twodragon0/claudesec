@@ -19,14 +19,19 @@ Plus the neighbouring shape in the same expressions: a mistyped `github.<prop>`
 (`github.event_nam == 'schedule'`) makes that arm of the `||` dead.
 
 THE INCIDENT: this repo has already paid for this class twice, from the other
-direction. `lint.yml` has no `schedule:` trigger, so the `|| github.event_name ==
-'schedule'` arm was DEAD in seven jobs — `npm-audit` ran on nothing for ~7 weeks
-and 117 commits, and `dast-full-scan`'s nightly was silently `skipped` ~42 nights
-(#396/#397). Both were no-op jobs reading green. Nothing then pinned the
-expressions themselves, so the successor typo would repeat it: measured
-2026-08-24 on this branch, mutating `outputs.shell` -> `outputs.shel` and
-`github.event_name` -> `github.event_nam` in `lint.yml` each left all 918
-existing CI guards GREEN.
+direction. `lint.yml` used to have no `schedule:` trigger, so the
+`|| github.event_name == 'schedule'` arm was DEAD in seven jobs — `npm-audit` ran
+on nothing for ~7 weeks and 117 commits, and `dast-full-scan`'s nightly was
+silently `skipped` ~42 nights (#396/#397). Both were no-op jobs reading green.
+#394 then ADDED the trigger (`cron: '0 5 * * 3'`), so that arm is live today and
+`python-lint` relies on it; the first draft of this docstring said "has no",
+which was wrong, and an independent reviewer caught it by reading the file. Both
+halves are stated here because either one alone misleads.
+
+Nothing pinned the expressions themselves, so the successor typo would repeat the
+incident: measured 2026-08-24 on this branch, mutating `outputs.shell` ->
+`outputs.shel` and `github.event_name` -> `github.event_nam` in `lint.yml` each
+left all 918 existing CI guards GREEN.
 
 DIRECTION: presence/equality — the reference set must resolve EXACTLY. Adding a
 real output and referencing it stays green; any rename, typo, or removal on
