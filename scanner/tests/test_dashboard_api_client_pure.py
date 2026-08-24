@@ -659,10 +659,6 @@ class TestFetchMicrosoftBestPracticesFromGithub(unittest.TestCase):
             ):
                 result = api._fetch_microsoft_best_practices_from_github()
         # Microsoft Official (order 0) should come before Government (order 1)
-        order_values = [
-            api.__dict__  # just touch module
-            for _ in result["sources"]
-        ]
         self.assertGreater(len(result["sources"]), 0)
         trust_ranks = [
             {"Microsoft Official": 0, "Government": 1, "Community": 2}.get(

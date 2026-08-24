@@ -17,15 +17,13 @@ tempfile.TemporaryDirectory (unittest).  Uses unittest.mock.patch only
 to trigger error paths or missing-module conditions.
 """
 
-import importlib
 import json
 import os
 import sys
 import tempfile
 import unittest
-import unittest.mock as mock
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 

@@ -80,7 +80,6 @@ under pytest and `python3 -m unittest`.
 OWASP CICD-SEC-1 (Insufficient Flow Control); NIST SP 800-218 (SSDF) PO.3, PW.4.
 """
 
-import json
 import re
 import sys
 import unittest

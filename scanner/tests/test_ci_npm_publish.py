@@ -47,7 +47,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
-    apply_mutation,
     apply_regex_mutation,
     block_ends_at,
     yaml_key_pattern,

@@ -103,7 +103,6 @@ def build_tooling_readiness_section(net_data, net_enabled, net_targets, trivy_en
     # If artifacts still missing despite tooling, hint where to look.
     report = net_data.get("network_report")
     report_targets = report.get("targets", []) if isinstance(report, dict) else []
-    has_http_artifacts = bool(report_targets)
     has_tls_artifacts = any(
         isinstance(t, dict) and isinstance(t.get("tls"), dict)
         for t in (report_targets or [])

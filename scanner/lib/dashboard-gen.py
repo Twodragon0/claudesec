@@ -15,7 +15,6 @@ import json
 import os
 import re
 import sys
-import urllib.parse
 from datetime import datetime, timezone
 from collections import defaultdict
 
@@ -24,7 +23,6 @@ _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
-from csp_utils import generate_nonce, inject_csp_nonce
 
 # ── Module imports (extracted from monolithic dashboard-gen.py) ──────────────
 from dashboard_utils import (  # noqa: F401

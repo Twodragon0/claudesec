@@ -12,8 +12,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from io import BytesIO
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 try:
     import pytest

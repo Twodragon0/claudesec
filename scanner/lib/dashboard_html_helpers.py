@@ -14,8 +14,7 @@ _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
-from dashboard_utils import h, SEV_ORDER, sev_badge
-from dashboard_mapping import CATEGORY_META
+from dashboard_utils import h
 
 
 # ── Severity sort weight (promoted from generate_dashboard local) ───────────

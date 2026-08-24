@@ -11,7 +11,6 @@ importlib.util.spec_from_file_location to load it by path.
 
 import importlib.util
 import json
-import os
 import sys
 from pathlib import Path
 

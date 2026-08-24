@@ -8,24 +8,16 @@ import os
 import glob
 import warnings
 from datetime import datetime, timezone
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from dashboard_utils import (
     _is_env_truthy,
     CLAUDESEC_DASHBOARD_OFFLINE_ENV,
-    AUDIT_POINTS_REPO,
     AUDIT_POINTS_CACHE_TTL_HOURS,
     MS_BEST_PRACTICES_CACHE_TTL_HOURS,
-    MS_SOURCE_FILTER_ENV,
     MS_INCLUDE_SCUBAGEAR_ENV,
     AuditPointsData,
-    TrivySummary,
-    TrivyVuln,
-    NmapHost,
-    NmapScan,
-    SSLScanResult,
     NetworkToolResult,
     DatadogLogEntry,
     DatadogSummary,

@@ -55,7 +55,7 @@ import re
 import sys
 import unittest
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import strip_inline_comment_sh  # noqa: E402

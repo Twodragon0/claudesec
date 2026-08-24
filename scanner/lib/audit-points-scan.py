@@ -8,7 +8,6 @@ import glob
 import json
 import os
 import sys
-from pathlib import Path
 
 # Reuse cache path and load logic; avoid fetching here (dashboard or first run does it)
 CACHE_DIR_NAME = ".claudesec-audit-points"

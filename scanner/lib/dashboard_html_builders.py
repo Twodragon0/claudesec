@@ -25,7 +25,6 @@ from dashboard_mapping import (
 
 from dashboard_html_helpers import (
     _infer_category, _scanner_default_action, _redact_target, _rel_link,
-    _has_cmd, _cmd_pill,
 )
 
 from dashboard_providers import PROVIDER_LABELS_SHORT
@@ -103,7 +102,6 @@ def _build_scanner_section(findings_list):
                 "Fail" if sev in ("critical", "high", "medium") else "Warning"
             )
             location = h(f.get("location", ""))
-            loc_html = f' <span class="scan-loc">📍 <code>{location}</code></span>' if location else ""
             has_expandable = location or details or remediation
             row_cls = f'{sev_cls} expandable' if has_expandable else sev_cls
             toggle = ' data-action="toggleRow"' if has_expandable else ""

@@ -11,7 +11,6 @@ the bash subprocess invocation (`python3 prowler_compliance_summary.py
 Run: python3 -m pytest scanner/tests/test_prowler_compliance_summary.py -q
 """
 
-import importlib.util
 import json
 import os
 import runpy

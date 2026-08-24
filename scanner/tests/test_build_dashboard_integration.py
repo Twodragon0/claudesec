@@ -8,10 +8,8 @@ fighting module-level side effects from gspread, dotenv, and ASSETS_DIR.mkdir().
 """
 
 import re as _re
-import sys
 import unittest
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
 # Inline replicas — identical logic to the script (verified against source)
