@@ -192,6 +192,18 @@ def load_prowler_files(prowler_dir: str) -> dict[str, list[dict[str, Any]]]:
 
 
 def load_scan_history(history_dir: str) -> list[dict[str, Any]]:
+    """Every readable `scan-*.json` in `history_dir`; unreadable ones are skipped.
+
+    `ValueError`, not `json.JSONDecodeError`. `UnicodeDecodeError` is a SIBLING
+    `ValueError` subclass, not a `JSONDecodeError`, so the narrower form let one
+    non-UTF-8 byte in a history file abort the whole dashboard build instead of
+    dropping that entry — the same defect `_load_saas_sso_stats` carried:
+
+        >>> issubclass(UnicodeDecodeError, ValueError)
+        True
+        >>> issubclass(UnicodeDecodeError, json.JSONDecodeError)
+        False
+    """
     entries: list[dict[str, Any]] = []
     if not os.path.isdir(history_dir):
         return entries
@@ -199,7 +211,7 @@ def load_scan_history(history_dir: str) -> list[dict[str, Any]]:
         try:
             with open(fpath, encoding="utf-8") as f:
                 entries.append(json.load(f))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             continue
     return entries
 
