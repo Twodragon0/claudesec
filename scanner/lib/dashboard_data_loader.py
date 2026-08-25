@@ -57,7 +57,7 @@ def load_scan_results(path: str) -> dict[str, Any]:
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return default
 
 
@@ -227,7 +227,7 @@ def load_audit_points_detected(scan_dir: str) -> dict[str, Any]:
     try:
         with open(detected_path, encoding="utf-8") as f:
             return json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return {}
 
 
@@ -259,7 +259,7 @@ def load_audit_points(scan_dir: str) -> AuditPointsData:
             with open(cache_file, "w", encoding="utf-8") as f:
                 json.dump(fresh, f, ensure_ascii=False, indent=2)
             return fresh
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         pass
     return {"products": [], "fetched_at": ""}
 
@@ -301,7 +301,7 @@ def load_microsoft_best_practices(scan_dir: str) -> MicrosoftBestPracticesData:
         with open(cache_file, "w", encoding="utf-8") as f:
             json.dump(fresh, f, ensure_ascii=False, indent=2)
         return fresh
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return {
             "fetched_at": "",
             "source_filter": expected_filter,
@@ -334,7 +334,7 @@ def load_saas_best_practices(scan_dir):
         with open(cache_file, "w", encoding="utf-8") as f:
             json.dump(fresh, f, ensure_ascii=False, indent=2)
         return fresh
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return {"fetched_at": "", "sources": []}
 
 
@@ -359,7 +359,7 @@ def load_network_tool_results(network_dir: str) -> NetworkToolResult:
                 obj = json.load(f)
             if isinstance(obj, dict):
                 out["network_report"] = obj
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             pass  # invalid network-report.v1.json
 
     trivy_fs_path = os.path.join(network_dir, "trivy-fs.json")
@@ -408,14 +408,14 @@ def load_network_tool_results(network_dir: str) -> NetworkToolResult:
                         }
                     )
             out["trivy_fs"] = data
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             pass  # skip missing or invalid trivy-fs.json
     trivy_cfg_path = os.path.join(network_dir, "trivy-config.json")
     if os.path.isfile(trivy_cfg_path):
         try:
             with open(trivy_cfg_path, encoding="utf-8") as f:
                 out["trivy_config"] = json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             pass  # skip missing or invalid trivy-config.json
     try:
         import defusedxml.ElementTree as SafeET
@@ -628,7 +628,7 @@ def load_datadog_logs(datadog_dir: str) -> DatadogLogsData:
                     for item in data:
                         if isinstance(item, dict):
                             logs.append(_dd_normalize_log(item))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             continue
 
     if logs:
@@ -659,7 +659,7 @@ def load_datadog_logs(datadog_dir: str) -> DatadogLogsData:
         try:
             with open(fpath, encoding="utf-8") as f:
                 data = json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             continue
         parsed_signals: list[dict[str, str]] = []
         for item in _dd_extract_items(data):
@@ -725,7 +725,7 @@ def load_datadog_logs(datadog_dir: str) -> DatadogLogsData:
         try:
             with open(fpath, encoding="utf-8") as f:
                 data = json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             continue
         parsed_cases: list[dict[str, str]] = []
         for item in _dd_extract_items(data):
