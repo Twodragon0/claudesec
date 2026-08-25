@@ -32,8 +32,6 @@ import os
 import re
 import subprocess
 import sys
-import urllib.request
-import urllib.error
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -45,6 +43,10 @@ except ImportError:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scanner" / "lib"))
 from csp_utils import generate_nonce, inject_csp_nonce
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "lib"))
+from aws_inventory import cross_verify_ec2, load_aws_live_data  # noqa: E402
+from datadog_client import collect_datadog  # noqa: E402
+from scan_history import collect_scan_history  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS_DIR = ROOT / ".claudesec-assets"
@@ -399,133 +401,6 @@ def parse_cost_xlsx(xlsx_path: Path) -> dict:
 # Datadog API
 # ═══════════════════════════════════════════════════════════════════════════
 
-def dd_get(path: str, params: str = "") -> dict[str, object]:
-    url = f"https://api.datadoghq.com{path}"
-    if params:
-        url += f"?{params}"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "DD-API-KEY": DD_API_KEY,
-            "DD-APPLICATION-KEY": DD_APP_KEY,
-            "Content-Type": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(
-            req, timeout=30
-        ) as r:  # nosemgrep: dynamic-urllib-use-detected — trusted internal API URLs
-            payload = json.loads(r.read().decode("utf-8"))
-            return payload if isinstance(payload, dict) else {}
-    except Exception as e:
-        print(f"  DD API 오류 ({path}): {e}")
-        return {}
-
-
-def dd_post(path: str, body: object) -> dict[str, object]:
-    url = f"https://api.datadoghq.com{path}"
-    req = urllib.request.Request(
-        url,
-        json.dumps(body).encode(),
-        method="POST",
-        headers={
-            "DD-API-KEY": DD_API_KEY,
-            "DD-APPLICATION-KEY": DD_APP_KEY,
-            "Content-Type": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(
-            req, timeout=30
-        ) as r:  # nosemgrep: dynamic-urllib-use-detected — trusted internal API URLs
-            payload = json.loads(r.read().decode("utf-8"))
-            return payload if isinstance(payload, dict) else {}
-    except Exception as e:
-        print(f"  DD API 오류 ({path}): {e}")
-        return {}
-
-
-def collect_datadog():
-    """Datadog 호스트 + 보안 시그널 수집"""
-    if not DD_API_KEY:
-        print("  Datadog API Key 없음, 스킵")
-        return [], []
-
-    print("\n[Datadog] 호스트...")
-    raw = dd_get("/api/v1/hosts", "count=200")
-    hosts = []
-    host_list = raw.get("host_list", [])
-    if not isinstance(host_list, list):
-        host_list = []
-    for h in host_list:
-        if not isinstance(h, dict):
-            continue
-        tags = {}
-        tags_by_source = h.get("tags_by_source", {})
-        if not isinstance(tags_by_source, dict):
-            tags_by_source = {}
-        for src, tlist in tags_by_source.items():
-            if not isinstance(tlist, list):
-                continue
-            for t in tlist:
-                if ":" in t:
-                    k, v = t.split(":", 1)
-                    tags[k] = v
-        hosts.append(
-            {
-                "name": h.get("name", ""),
-                "instance_type": tags.get("instance-type", ""),
-                "region": tags.get("region", ""),
-                "cluster": tags.get(
-                    "aws_eks_cluster-name", tags.get("eks_eks-cluster-name", "")
-                ),
-                "nodepool": tags.get("karpenter.sh/nodepool", ""),
-                "env": tags.get("env", ""),
-                "aws_alias": tags.get("aws_alias", ""),
-                "aws_account": tags.get("aws_account", ""),
-                "up": h.get("up", False),
-                "agent_version": h.get("meta", {}).get("agent_version", ""),
-            }
-        )
-    print(f"    {len(hosts)}개")
-
-    print("  Datadog 보안 시그널 (14일)...")
-    raw = dd_post(
-        "/api/v2/security_monitoring/signals/search",
-        {
-            "filter": {
-                "from": "now-14d",
-                "to": "now",
-                "query": "status:(high OR critical OR medium)",
-            },
-            "sort": "timestamp",
-            "page": {"limit": 100},
-        },
-    )
-    signals = []
-    signal_data = raw.get("data", [])
-    if not isinstance(signal_data, list):
-        signal_data = []
-    for s in signal_data:
-        if not isinstance(s, dict):
-            continue
-        a = s.get("attributes", {})
-        if not isinstance(a, dict):
-            a = {}
-        signals.append(
-            {
-                "id": s.get("id", "")[:30],
-                "title": a.get("message", "")[:200],
-                "severity": a.get("severity", ""),
-                "status": a.get("status", ""),
-                "timestamp": a.get("timestamp", ""),
-                "tags": a.get("tags", [])[:5],
-            }
-        )
-    print(f"    {len(signals)}건")
-    return hosts, signals
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # AWS 수집
 # ═══════════════════════════════════════════════════════════════════════════
@@ -589,150 +464,6 @@ def collect_aws():
                 print(f"    {filename}: 타임아웃")
             except Exception as e:
                 print(f"    {filename}: 오류 ({e})")
-
-
-def load_aws_live_data():
-    """Load AWS describe results from .claudesec-assets/aws-*.json files"""
-    result = {"ec2": [], "rds": [], "elasticache": [], "s3": [], "eks": []}
-    aws_profiles = [
-        p.strip() for p in env_vars.get("AWS_PROFILES", "").split(",") if p.strip()
-    ]
-    if not aws_profiles:
-        # Fallback: scan .claudesec-assets for aws-ec2-*.json files
-        for f in sorted(ASSETS_DIR.glob("aws-ec2-*.json")):
-            p = f.stem.replace("aws-ec2-", "")
-            if p not in aws_profiles:
-                aws_profiles.append(p)
-    for profile in aws_profiles:
-        for rtype in ["ec2", "rds", "rds-clusters", "elasticache", "s3", "eks"]:
-            fpath = ASSETS_DIR / f"aws-{rtype}-{profile}.json"
-            if not fpath.exists():
-                continue
-            try:
-                data = json.loads(fpath.read_text(encoding="utf-8"))
-                if isinstance(data, list):
-                    for item in data:
-                        item["_profile"] = profile
-                    key = rtype.replace("-clusters", "")
-                    if key not in result:
-                        result[key] = []
-                    result[key].extend(data)
-                elif isinstance(data, dict) and "clusters" in data:
-                    for c in data["clusters"]:
-                        result["eks"].append({"name": c, "_profile": profile})
-            except Exception:
-                pass
-    for k, v in result.items():
-        if v:
-            print(f"    AWS {k}: {len(v)}개")
-    return result
-
-
-def _is_karpenter_node(name: str) -> bool:
-    """Karpenter 동적 노드 여부 판별 (ip-10-* 패턴)"""
-    if not name:
-        return False
-    return bool(re.match(r"ip-10-\d+-\d+-\d+\.", name))
-
-
-def _cross_verify_ec2(
-    aws_ec2: list[dict[str, object]], sheet_servers: list[dict[str, object]]
-) -> dict[str, Any]:
-    """AWS EC2 실시간 vs 자산관리대장 서버 교차 검증 (Karpenter 노드 분리)"""
-    # Karpenter 노드와 고정 서버 분리
-    aws_static: dict[str, dict[str, object]] = {}
-    aws_karpenter: list[dict[str, object]] = []
-    for e in aws_ec2:
-        iid = e.get("InstanceId", "")
-        name = e.get("Name", "")
-        if not isinstance(iid, str) or not iid:
-            continue
-        if not isinstance(name, str):
-            name = ""
-        if _is_karpenter_node(name):
-            aws_karpenter.append(
-                {
-                    "id": iid,
-                    "name": name,
-                    "type": e.get("Type", ""),
-                    "profile": e.get("_profile", ""),
-                }
-            )
-        else:
-            aws_static[iid] = e
-
-    # 시트에서도 Karpenter/고정 분리
-    sheet_static: dict[str, dict[str, object]] = {}
-    sheet_karpenter: list[dict[str, object]] = []
-    for s in sheet_servers:
-        iid = s.get("instance_id", "")
-        name = s.get("name", "")
-        if not isinstance(iid, str) or not iid:
-            continue
-        if not isinstance(name, str):
-            name = ""
-        if _is_karpenter_node(name):
-            sheet_karpenter.append(
-                {
-                    "id": iid,
-                    "name": name,
-                    "type": s.get("instance_type", ""),
-                    "account": s.get("account", ""),
-                }
-            )
-        else:
-            sheet_static[iid] = s
-
-    # 고정 서버 교차 검증
-    aws_only: list[dict[str, object]] = []
-    for iid, e in aws_static.items():
-        if iid not in sheet_static:
-            aws_only.append(
-                {
-                    "id": iid,
-                    "name": e.get("Name", ""),
-                    "type": e.get("Type", ""),
-                    "profile": e.get("_profile", ""),
-                    "status": "미등록",
-                }
-            )
-
-    sheet_only: list[dict[str, object]] = []
-    for iid, s in sheet_static.items():
-        if iid not in aws_static:
-            sheet_only.append(
-                {
-                    "id": iid,
-                    "name": s.get("name", ""),
-                    "type": s.get("instance_type", ""),
-                    "account": s.get("account", ""),
-                    "status": "종료/교체",
-                }
-            )
-
-    matched = len(set(aws_static) & set(sheet_static))
-
-    result = {
-        "aws_total": len(aws_ec2),
-        "aws_static": len(aws_static),
-        "aws_karpenter": len(aws_karpenter),
-        "sheet_total": len(sheet_servers),
-        "sheet_static": len(sheet_static),
-        "sheet_karpenter": len(sheet_karpenter),
-        "matched": matched,
-        "aws_only": aws_only,
-        "sheet_only": sheet_only,
-        "aws_only_count": len(aws_only),
-        "sheet_only_count": len(sheet_only),
-        "karpenter_nodes": aws_karpenter,
-        "karpenter_count": len(aws_karpenter),
-    }
-    print(
-        f"  교차검증: 고정 서버 AWS {len(aws_static)} vs 시트 {len(sheet_static)}, "
-        f"일치 {matched}, 미등록 {len(aws_only)}, 종료 {len(sheet_only)}"
-    )
-    print(f"  Karpenter: AWS {len(aws_karpenter)}개 동적 노드 (교차검증 제외)")
-    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -977,22 +708,6 @@ def collect_prowler():
 # 스캔 히스토리
 # ═══════════════════════════════════════════════════════════════════════════
 
-def collect_scan_history():
-    """Collect scan history from .claudesec-history/"""
-    hist_dir = ROOT / ".claudesec-history"
-    if not hist_dir.exists():
-        return []
-    history = []
-    for f in sorted(hist_dir.glob("scan-*.json")):
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-            history.append(data)
-        except Exception:
-            pass
-    history.sort(key=lambda x: x.get("timestamp", ""))
-    return history[-30:]
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # 대시보드 데이터 조합
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1171,7 +886,11 @@ def main():
     # ── Datadog 수집 ──
     if not args.cost_only and not args.sheets_only and not args.skip_datadog:
         try:
-            dd_hosts, dd_signals = collect_datadog()
+            dd_hosts, dd_signals = collect_datadog(
+                api_key=DD_API_KEY,
+                app_key=DD_APP_KEY,
+                hosts_label="\n[Datadog] 호스트...",
+            )
         except Exception as e:
             print(f"\n[Datadog] 수집 실패: {e}")
 
@@ -1184,7 +903,7 @@ def main():
 
         try:
             print("\n[AWS] 캐시 데이터 로드...")
-            aws_live = load_aws_live_data()
+            aws_live = load_aws_live_data(ASSETS_DIR, env_vars)
         except Exception as e:
             print(f"\n[AWS] 로드 실패: {e}")
 
@@ -1192,7 +911,7 @@ def main():
         if aws_live and aws_live.get("ec2") and sheets_data and sheets_data.get("infra", {}).get("servers"):
             try:
                 print("\n[교차검증] EC2 vs 자산관리대장...")
-                cross_verify = _cross_verify_ec2(
+                cross_verify = cross_verify_ec2(
                     aws_live["ec2"], sheets_data["infra"]["servers"]
                 )
             except Exception as e:
@@ -1215,7 +934,7 @@ def main():
     # ── 스캔 히스토리 ──
     if not args.cost_only and not args.sheets_only:
         try:
-            scan_history = collect_scan_history()
+            scan_history = collect_scan_history(ROOT / ".claudesec-history")
             if scan_history:
                 print(f"\n[히스토리] {len(scan_history)}건")
         except Exception as e:
