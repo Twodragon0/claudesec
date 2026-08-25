@@ -188,7 +188,19 @@ SAAS_BEST_PRACTICES_CACHE_TTL_HOURS = 24
 
 
 def _github_api_json(url: str, _max_retries: int = 3) -> Any:
-    """Fetch JSON from GitHub API with exponential backoff on rate-limit responses."""
+    """Fetch JSON from GitHub API with exponential backoff on rate-limit responses.
+
+    `errors="replace"` on the body decode is load-bearing. A response cut mid
+    multi-byte character raises `UnicodeDecodeError`, which is a SIBLING
+    `ValueError` subclass — not a `json.JSONDecodeError` — so it matched none of
+    this function's handlers and none of the three callers'
+    `(URLError, HTTPError, json.JSONDecodeError, OSError)` tuples either. It
+    escaped all the way out and aborted the dashboard build. Replacing at the
+    decode boundary is better than widening five handlers to `ValueError`: a
+    truncated body still parses when the damage lands in a string value, and
+    when it lands in the JSON structure `json.loads` raises `JSONDecodeError`,
+    which the existing handlers already catch.
+    """
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
     headers: dict[str, str] = {"Accept": "application/vnd.github.v3+json"}
     if token:
@@ -198,7 +210,7 @@ def _github_api_json(url: str, _max_retries: int = 3) -> Any:
         req = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:  # nosemgrep: dynamic-urllib-use-detected
-                return json.loads(resp.read().decode("utf-8"))
+                return json.loads(resp.read().decode("utf-8", errors="replace"))
         except urllib.error.HTTPError as exc:
             last_exc = exc
             if exc.code in (403, 429):
@@ -235,7 +247,7 @@ def _fetch_audit_points_from_github() -> AuditPointsData | None:
             base, headers={"Accept": "application/vnd.github.v3+json"}
         )
         with urllib.request.urlopen(req, timeout=15) as resp:  # nosemgrep: dynamic-urllib-use-detected — trusted GitHub API URL
-            root = json.loads(resp.read().decode("utf-8"))
+            root = json.loads(resp.read().decode("utf-8", errors="replace"))
         if not isinstance(root, list):
             return None
         for item in root:
@@ -257,7 +269,7 @@ def _fetch_audit_points_from_github() -> AuditPointsData | None:
                     headers={"Accept": "application/vnd.github.v3+json"},
                 )
                 with urllib.request.urlopen(sub_req, timeout=15) as sub_resp:  # nosemgrep: dynamic-urllib-use-detected
-                    children = json.loads(sub_resp.read().decode("utf-8"))
+                    children = json.loads(sub_resp.read().decode("utf-8", errors="replace"))
                 if not isinstance(children, list):
                     children = []
                 for c in children:
