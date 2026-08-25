@@ -66,7 +66,7 @@ def load_env() -> dict[str, str]:
     ]
     for p in candidates:
         if p and p.exists():
-            for line in p.read_text().splitlines():
+            for line in p.read_text(encoding="utf-8").splitlines():
                 if "=" in line and not line.startswith("#"):
                     k, v = line.split("=", 1)
                     env[k.strip()] = v.strip()
@@ -221,12 +221,18 @@ def collect_prowler():
     findings = []
     for f in pdir.glob("*.ocsf.json"):
         try:
-            data = json.loads(f.read_text())
+            # errors="replace" for the same reason as #471/#484: one non-UTF-8
+            # byte in a cloud resource tag, owner or description used to fall
+            # through to `except Exception: pass` below and silently drop that
+            # file's findings, which UNDER-REPORTS failures. The replacement
+            # character can only corrupt the one string literal it lands in, and
+            # the raw_decode resync below already tolerates that.
+            data = json.loads(f.read_text(encoding="utf-8", errors="replace"))
             findings.extend(data if isinstance(data, list) else [data])
         except json.JSONDecodeError:
             # Handle NDJSON or multi-object files (e.g., prowler-iac.ocsf.json)
             decoder = json.JSONDecoder()
-            raw = f.read_text().strip()
+            raw = f.read_text(encoding="utf-8", errors="replace").strip()
             pos = 0
             while pos < len(raw):
                 try:
@@ -425,7 +431,7 @@ def load_cached_notion_audits(cache_path: Path) -> list[NotionAudit]:
     if not cache_path.exists():
         return []
     try:
-        audits = json.loads(cache_path.read_text())
+        audits = json.loads(cache_path.read_text(encoding="utf-8"))
     except Exception:
         return []
 
@@ -726,7 +732,7 @@ def collect_jamf_pcs():
     inventory_path = ASSETS_DIR / "jamf-full-inventory.json"
     if not pcs and inventory_path.exists():
         try:
-            inv = json.loads(inventory_path.read_text())
+            inv = json.loads(inventory_path.read_text(encoding="utf-8"))
             pcs = [item for item in inv if item.get("type") == "computer"]
             print(f"    Jamf PC: {len(pcs)}대 (CSV 인벤토리)")
             return pcs
@@ -737,7 +743,7 @@ def collect_jamf_pcs():
     cache_path = ASSETS_DIR / "jamf-computers.json"
     if not pcs and cache_path.exists():
         try:
-            pcs = json.loads(cache_path.read_text())
+            pcs = json.loads(cache_path.read_text(encoding="utf-8"))
             print(f"    Jamf PC: {len(pcs)}대 (캐시)")
             return pcs
         except Exception:
@@ -755,7 +761,7 @@ def collect_intune_pcs():
     cache_path = ASSETS_DIR / "intune-computers.json"
     if cache_path.exists():
         try:
-            pcs = json.loads(cache_path.read_text())
+            pcs = json.loads(cache_path.read_text(encoding="utf-8"))
             print(f"  Intune PC: {len(pcs)}대")
             return pcs
         except Exception:
@@ -769,7 +775,7 @@ def collect_policies():
     cache_path = ASSETS_DIR / "policies.json"
     if cache_path.exists():
         try:
-            policies = json.loads(cache_path.read_text())
+            policies = json.loads(cache_path.read_text(encoding="utf-8"))
             total_articles = sum(p.get("total_articles", 0) for p in policies)
             print(f"  규정/지침: {len(policies)}개 ({total_articles}개 조항)")
             return policies
@@ -1126,7 +1132,7 @@ def collect_sheets():
     s1_path = ASSETS_DIR / "sentinelone-agents.json"
     s1_agents: list[dict[str, object]] = []
     if s1_path.exists():
-        loaded_agents = json.loads(s1_path.read_text())
+        loaded_agents = json.loads(s1_path.read_text(encoding="utf-8"))
         if isinstance(loaded_agents, list):
             s1_agents = [item for item in loaded_agents if isinstance(item, dict)]
         print(f"    SentinelOne: {len(s1_agents)}대")
@@ -1134,14 +1140,14 @@ def collect_sheets():
     s1_threats_path = ASSETS_DIR / "sentinelone-threats.json"
     s1_threats: list[dict[str, object]] = []
     if s1_threats_path.exists():
-        loaded_threats = json.loads(s1_threats_path.read_text())
+        loaded_threats = json.loads(s1_threats_path.read_text(encoding="utf-8"))
         if isinstance(loaded_threats, list):
             s1_threats = [item for item in loaded_threats if isinstance(item, dict)]
 
     ep_xv_path = ASSETS_DIR / "endpoint-crossverify.json"
     ep_crossverify: dict[str, object] = {}
     if ep_xv_path.exists():
-        loaded_crossverify = json.loads(ep_xv_path.read_text())
+        loaded_crossverify = json.loads(ep_xv_path.read_text(encoding="utf-8"))
         if isinstance(loaded_crossverify, dict):
             ep_crossverify = loaded_crossverify
 
@@ -1285,7 +1291,7 @@ def load_aws_live_data():
             if not fpath.exists():
                 continue
             try:
-                data = json.loads(fpath.read_text())
+                data = json.loads(fpath.read_text(encoding="utf-8"))
                 if isinstance(data, list):
                     for item in data:
                         item["_profile"] = profile
@@ -1312,7 +1318,7 @@ def collect_scan_history():
     history = []
     for f in sorted(hist_dir.glob("scan-*.json")):
         try:
-            data = json.loads(f.read_text())
+            data = json.loads(f.read_text(encoding="utf-8"))
             history.append(data)
         except Exception:
             pass
@@ -1353,7 +1359,7 @@ def main():
     mobile_inv = ASSETS_DIR / "jamf-full-inventory.json"
     if mobile_inv.exists():
         try:
-            all_inv = json.loads(mobile_inv.read_text())
+            all_inv = json.loads(mobile_inv.read_text(encoding="utf-8"))
             jamf_mobiles = [item for item in all_inv if item.get("type") == "mobile"]
         except Exception:
             pass
@@ -1373,7 +1379,7 @@ def main():
     scan = {}
     scan_path = ROOT / "scan-report.json"
     if scan_path.exists():
-        scan = json.loads(scan_path.read_text())
+        scan = json.loads(scan_path.read_text(encoding="utf-8"))
         # Normalize: scanner outputs "results", dashboard expects "findings"
         if "results" in scan and "findings" not in scan:
             scan["findings"] = scan.pop("results")
@@ -1484,7 +1490,7 @@ def main():
 
     # HTML에 데이터 주입
     tmpl_path = ROOT / "claudesec-asset-dashboard.html"
-    html = tmpl_path.read_text()
+    html = tmpl_path.read_text(encoding="utf-8")
 
     json_str = json.dumps(dashboard_data, ensure_ascii=False, default=str)
     # Escape sequences that break out of <script> context (XSS prevention)
