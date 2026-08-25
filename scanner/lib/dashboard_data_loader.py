@@ -457,7 +457,7 @@ def load_network_tool_results(network_dir: str) -> NetworkToolResult:
             out["nmap_scans"].append({"name": os.path.basename(fpath), "hosts": []})
     for fpath in glob.glob(os.path.join(network_dir, "sslscan-*.json")):
         try:
-            with open(fpath) as f:
+            with open(fpath, encoding="utf-8") as f:
                 out["sslscan_results"].append(
                     {"name": os.path.basename(fpath), "data": json.load(f)}
                 )
