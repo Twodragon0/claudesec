@@ -37,7 +37,7 @@ def load_env(env_path: str = os.path.expanduser("~/Desktop/.env")) -> dict:
     env = {}
     if not Path(env_path).exists():
         return env
-    with open(env_path) as f:
+    with open(env_path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
@@ -162,7 +162,7 @@ def collect_prowler_summary() -> dict:
     all_findings = []
     for f in prowler_dir.glob("*.ocsf.json"):
         try:
-            with open(f) as fh:
+            with open(f, encoding="utf-8", errors="replace") as fh:
                 data = json.load(fh)
                 all_findings.extend(data if isinstance(data, list) else [data])
         except (json.JSONDecodeError, IOError):
@@ -206,7 +206,7 @@ def load_claudesec_scan() -> dict:
     report_path = ROOT_DIR / "scan-report.json"
     if not report_path.exists():
         return {}
-    with open(report_path) as f:
+    with open(report_path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -372,7 +372,7 @@ def main():
         "prowler": prowler,
         "claudesec": scan_report,
     }
-    with open(ASSETS_DIR / "full-asset-report.json", "w") as f:
+    with open(ASSETS_DIR / "full-asset-report.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
     print(f"  저장: {ASSETS_DIR / 'full-asset-report.json'}")
 

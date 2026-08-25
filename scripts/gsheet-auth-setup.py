@@ -76,7 +76,7 @@ def main():
     _env = {}
     for _ep in [_P(os.environ.get("CLAUDESEC_ENV_FILE", "")), _P.cwd() / ".env", _P.home() / "Desktop" / ".env"]:
         if _ep.exists():
-            for _ln in _ep.read_text().splitlines():
+            for _ln in _ep.read_text(encoding="utf-8").splitlines():
                 if "=" in _ln and not _ln.startswith("#"):
                     _k, _v = _ln.split("=", 1)
                     _env[_k.strip()] = _v.strip()

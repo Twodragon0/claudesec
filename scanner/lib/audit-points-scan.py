@@ -126,7 +126,7 @@ def load_cache(scan_dir):
         try:
             with open(cache_path, encoding="utf-8") as f:
                 return json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             pass
     data = _fetch_and_cache(scan_dir)
     if data.get("products"):

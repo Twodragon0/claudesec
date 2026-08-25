@@ -81,7 +81,7 @@ def load_env() -> dict[str, str]:
     ]
     for p in candidates:
         if p and p.exists():
-            for line in p.read_text().splitlines():
+            for line in p.read_text(encoding="utf-8").splitlines():
                 if "=" in line and not line.startswith("#"):
                     k, v = line.split("=", 1)
                     env[k.strip()] = v.strip()
@@ -609,7 +609,7 @@ def load_aws_live_data():
             if not fpath.exists():
                 continue
             try:
-                data = json.loads(fpath.read_text())
+                data = json.loads(fpath.read_text(encoding="utf-8"))
                 if isinstance(data, list):
                     for item in data:
                         item["_profile"] = profile
@@ -801,12 +801,12 @@ def collect_prowler():
     findings = []
     for f in pdir.glob("*.ocsf.json"):
         try:
-            data = json.loads(f.read_text())
+            data = json.loads(f.read_text(encoding="utf-8", errors="replace"))
             findings.extend(data if isinstance(data, list) else [data])
         except json.JSONDecodeError:
             # Handle NDJSON or multi-object files
             decoder = json.JSONDecoder()
-            raw = f.read_text().strip()
+            raw = f.read_text(encoding="utf-8", errors="replace").strip()
             pos = 0
             while pos < len(raw):
                 try:
@@ -985,7 +985,7 @@ def collect_scan_history():
     history = []
     for f in sorted(hist_dir.glob("scan-*.json")):
         try:
-            data = json.loads(f.read_text())
+            data = json.loads(f.read_text(encoding="utf-8"))
             history.append(data)
         except Exception:
             pass
@@ -1015,8 +1015,8 @@ def build_dashboard_data(
     data: dict[str, Any] = {}
     if existing_path.exists():
         try:
-            data = json.loads(existing_path.read_text())
-        except (json.JSONDecodeError, KeyError):
+            data = json.loads(existing_path.read_text(encoding="utf-8"))
+        except (ValueError, KeyError):
             pass
 
     # 기본 구조 보장
@@ -1097,7 +1097,7 @@ def build_dashboard_data(
 def inject_html(dashboard_data: dict):
     """대시보드 HTML에 데이터를 주입하여 live 파일 생성"""
     tmpl_path = ROOT / "claudesec-asset-dashboard.html"
-    html = tmpl_path.read_text()
+    html = tmpl_path.read_text(encoding="utf-8")
     json_str = json.dumps(dashboard_data, ensure_ascii=False, default=str)
     html = html.replace("__DASHBOARD_DATA__", json_str)
     nonce = generate_nonce()
@@ -1235,7 +1235,7 @@ def main():
     scan_path = ROOT / "scan-report.json"
     if scan_path.exists():
         try:
-            scan_report = json.loads(scan_path.read_text())
+            scan_report = json.loads(scan_path.read_text(encoding="utf-8"))
         except Exception:
             pass
 
