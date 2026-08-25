@@ -6,13 +6,19 @@ Leaf module for the diagram generator: it loads scan-report.json, Prowler OCSF
 provider files, and scan history, then aggregates them into the label dict the
 draw.io / SVG builders consume. No draw.io/SVG concerns live here.
 
-`load_scan_results` is single-sourced from `dashboard_data_loader` (with
-try/except hardening) so the two implementations can't drift.
+Every loader here is single-sourced from `dashboard_data_loader` so the two
+implementations can't drift. `load_scan_results` always was; `_parse_ocsf_json`,
+`load_prowler_files` and `load_scan_history` were byte-near copies until
+2026-08-25, and the copies cost two bugs. #471 fixed the OCSF false-PASS in
+`dashboard_data_loader` only, leaving the copy here to be found and fixed
+separately by #484; the copy also never applied `_normalize_provider`, so the
+diagram labelled a cluster `k8s` where the dashboard called it `kubernetes`.
+Pinned by `scanner/tests/test_ci_diagram_gen_canonical_sync.py`, which asserts
+object identity rather than matching source text.
 """
 import json
 import os
 import sys
-import glob
 from pathlib import Path
 
 # Sibling-module imports: ensure this file's dir (scanner/lib) is importable
@@ -21,7 +27,12 @@ from pathlib import Path
 # diagram-gen.py and the dashboard_* modules.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from dashboard_data_loader import load_scan_results  # noqa: E402,F401
+from dashboard_data_loader import (  # noqa: E402,F401
+    _parse_ocsf_json,
+    load_prowler_files,
+    load_scan_history,
+    load_scan_results,
+)
 
 # Scanner categories — order must mirror the `CLAUDESEC_ALL_CATEGORIES` array in
 # scanner/claudesec (the authoritative scan order). CATEGORIES[:8]/[:7] slices
@@ -31,84 +42,6 @@ CATEGORIES = [
     "infra", "ai", "network", "cloud", "access-control",
     "cicd", "code", "macos", "windows", "saas", "prowler",
 ]
-
-
-def _parse_ocsf_json(content):
-    items = []
-    decoder = json.JSONDecoder()
-    idx = 0
-    while idx < len(content):
-        while idx < len(content) and content[idx] in " \t\n\r":
-            idx += 1
-        if idx >= len(content):
-            break
-        try:
-            obj, end = decoder.raw_decode(content, idx)
-            if isinstance(obj, list):
-                items.extend(o for o in obj if isinstance(o, dict))
-            elif isinstance(obj, dict):
-                items.append(obj)
-            idx = end
-        except json.JSONDecodeError:
-            idx += 1
-    return items
-
-
-def load_prowler_files(prowler_dir):
-    """`{provider: findings}` for every provider whose OCSF file was READ.
-
-    Second implementation of the invariant `dashboard_data_loader
-    ._load_single_prowler_file` carries, and it used to violate it. The keys are
-    this module's "these providers were scanned" claim: `aggregate_scan_data`
-    turns them into `prowler_providers` plus a `{"fail": n, "total": n}` summary,
-    so mapping an unread file to `[]` rendered it as `0/0` — a clean bill of
-    health for evidence that never decoded. Omit instead, exactly as #471 did on
-    the dashboard path and as `prowler_compliance_summary._read_findings` has
-    always done by adding the provider only after the parse succeeds.
-
-    `errors="replace"` is the recovery half. Without an explicit encoding
-    `open()` used the locale default, so under a C/POSIX locale any non-ASCII
-    byte in a cloud resource tag, owner or description cost the whole provider;
-    the replacement character can only corrupt the one string literal it lands
-    in, and `_parse_ocsf_json`'s `raw_decode` resync already tolerates that.
-
-    A file that reads but holds no record is the third case: an empty document
-    is a real, clean scan and keeps its provider, while garbage does not.
-    """
-    providers = {}
-    if not os.path.isdir(prowler_dir):
-        return providers
-    for fpath in sorted(glob.glob(os.path.join(prowler_dir, "prowler-*.ocsf.json"))):
-        name = Path(fpath).stem.replace(".ocsf", "").replace("prowler-", "")
-        try:
-            with open(fpath, encoding="utf-8", errors="replace") as f:
-                content = f.read().strip()
-        except Exception:
-            continue
-        items = _parse_ocsf_json(content)
-        if not items and content:
-            # Decided by asking whether the text is valid JSON at all, NOT by
-            # comparing it against a list of empty spellings — `"[ ]"` is legal,
-            # empty JSON and must not be misread as garbage (ADR-001 §5).
-            try:
-                json.loads(content)
-            except ValueError:
-                continue
-        providers[name] = items
-    return providers
-
-
-def load_scan_history(history_dir):
-    entries = []
-    if not os.path.isdir(history_dir):
-        return entries
-    for fpath in sorted(glob.glob(os.path.join(history_dir, "scan-*.json"))):
-        try:
-            with open(fpath) as f:
-                entries.append(json.load(f))
-        except Exception:
-            pass
-    return entries
 
 
 def aggregate_scan_data(scan_dir):
