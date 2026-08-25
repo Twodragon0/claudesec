@@ -1,7 +1,7 @@
 """
 Regression guard: container base images stay supply-chain pinned, and the
-prowler image stays held on the alpine 3.20 (py3.12) line and Python-version
-agnostic.
+prowler image stays held on the pinned alpine minor (the py3.12 line) and
+stays Python-version agnostic.
 
 Background
 ----------
@@ -12,24 +12,29 @@ and Data Integrity Failures; NIST SSDF SP 800-218 PW.4):
      must carry an `@sha256:` digest, so a moving tag cannot swap the base image
      out from under a "reproducible" build.
   2. **alpine MINOR freeze + version-agnostic resolution** — in the prowler
-     `Dockerfile`, every `FROM alpine:` must stay `alpine:3.20@sha256:...`
-     (py3.12). A minor bump ships a newer Python (3.24 → py3.14) on which prowler
-     3.11.3 / pydantic v1 crashes (#220/#237). And the build must resolve
+     `Dockerfile`, every `FROM alpine:` must stay on `PINNED_ALPINE_MINOR`
+     (currently 3.23, the LAST minor on the py3.12 line) with an `@sha256:`
+     digest. The next minor, 3.24, ships py3.14 — outside prowler's `<3.14`
+     range — so pip backtracks to prowler 3.11.3 / pydantic v1 and the scanner
+     crashes at runtime (#220/#237). And the build must resolve
      site-packages with the version-agnostic `find ... -name 'python3.*'` glob
      (#234) rather than a hardcoded `python3.12/site-packages` path — a hardcoded
      path would break the build the moment the base Python changes, defeating the
      graceful-bump design.
 
-`Dockerfile.nginx` uses a *different* base (`nginx:*-alpine`), so the alpine-3.20
+`Dockerfile.nginx` uses a *different* base (`nginx:*-alpine`), so the alpine
 minor freeze applies only to the prowler `Dockerfile`; the digest-pin invariant
 applies to both. This guard complements `test_ci_dependabot_config.py` (which
 locks the *freeze policy* in `dependabot.yml`) by locking the *actual image* a
 manual edit could still bump.
 
-Direction: alpine minor `== 3.20` (a bump trips); digest pin = presence of
-`@sha256:`; version-agnostic = presence of the `python3.*` glob + absence of a
-hardcoded `python3.<n>/site-packages` path. Bumping prowler/alpine in lockstep
-once prowler supports py3.13+ means updating this guard with a rationale.
+Direction: alpine minor `== PINNED_ALPINE_MINOR` (any other minor trips); digest
+pin = presence of `@sha256:`; version-agnostic = presence of the `python3.*` glob
++ absence of a hardcoded `python3.<n>/site-packages` path. Bumping the pin is a
+deliberate act: change the ONE constant, having first re-measured the new minor's
+Python against prowler's `requires_python` and rebuilt the image. Every fixture
+below derives from that constant, so the mutation tests keep exercising the guard
+after a bump instead of going vacuous.
 
 Mutation self-test
 ------------------
@@ -97,17 +102,38 @@ def digest_violations(text: str, label: str) -> list:
     return problems
 
 
+# The alpine minor the prowler image is pinned to. ONE constant, because the
+# previous version of this guard spelled "3.20" in twenty places including its own
+# mutation fixtures, so a legitimate bump meant a twenty-line diff and an easy
+# miss — the enumeration-as-control shape ADR-001 §5 warns about.
+#
+# 3.23 is the LAST minor on the py3.12 line. Measured 2026-08-24 by installing
+# python3 in each image: 3.20 -> 3.12.13, 3.21/3.22/3.23 -> 3.12.14,
+# 3.24 -> 3.14.7. alpine skips py3.13 entirely, and prowler 5.39.1 requires
+# `<3.14,>=3.10`, so 3.24 is out of range and the freeze stays.
+#
+# Bumping this constant is the deliberate act. Re-MEASURE the new minor's Python
+# against prowler's `requires_python` first — `docker run --rm alpine:<v> sh -c
+# 'apk add --no-cache python3 >/dev/null 2>&1; python3 --version'` — and build the
+# image, because #220 was green at build time and broken at runtime.
+PINNED_ALPINE_MINOR = "3.23"
+
+
 def alpine_freeze_violations(text: str) -> list:
-    """Every alpine FROM in the prowler Dockerfile must stay alpine:3.20@sha256:."""
+    """Every alpine FROM in the prowler Dockerfile must stay on the pinned minor."""
+    expected = f"alpine:{PINNED_ALPINE_MINOR}@sha256:"
     problems = []
     for ref in from_refs(text):
         if ref.startswith("alpine:") or ref.startswith("alpine@"):
-            if not ref.startswith("alpine:3.20@sha256:"):
+            if not ref.startswith(expected):
                 problems.append(
-                    f"FROM {ref!r} drifted off the alpine:3.20 (py3.12) line — a "
-                    "minor bump ships a newer Python and crashes prowler "
-                    "(pydantic v1, #220/#237). Hold alpine on 3.20 until prowler "
-                    "supports py3.13+."
+                    f"FROM {ref!r} drifted off the alpine:{PINNED_ALPINE_MINOR} "
+                    "(py3.12) line. The next minor (3.24) ships py3.14, which is "
+                    "outside prowler's `<3.14` range: pip backtracks to prowler "
+                    "3.11.3 (pydantic v1) and the scanner crashes at runtime "
+                    "(#220 built green and was broken). If the bump is intended, "
+                    "re-measure the new minor's Python and update "
+                    "PINNED_ALPINE_MINOR in this guard."
                 )
     return problems
 
@@ -171,12 +197,19 @@ class TestDockerfileBasePinned(unittest.TestCase):
 
 
 class TestDockerfileBasePinnedMutation(unittest.TestCase):
+    # Derived from PINNED_ALPINE_MINOR, never spelled. A fixture that hardcodes
+    # the minor silently stops exercising the guard the day the pin moves: the
+    # mutants below flip "the pinned minor" to "some other minor", and if the
+    # fixture is already on some other minor then `_GOOD` itself is a violation
+    # and every assertion here becomes vacuous.
+    _PINNED_FROM = f"FROM alpine:{PINNED_ALPINE_MINOR}@sha256:deadbeef AS builder"
+    _OFF_MINOR = "3.24" if PINNED_ALPINE_MINOR != "3.24" else "3.20"
     _GOOD = "\n".join(
         [
-            "FROM alpine:3.20@sha256:deadbeef AS builder",
-            "ARG PROWLER_VERSION=5.30.1",
+            _PINNED_FROM,
+            "ARG PROWLER_VERSION=5.39.1",
             "RUN SITE=\"$(find /install/lib -maxdepth 1 -type d -name 'python3.*' | head -n1)/site-packages\"",
-            "FROM alpine:3.20@sha256:deadbeef",
+            f"FROM alpine:{PINNED_ALPINE_MINOR}@sha256:deadbeef",
         ]
     )
     _GOOD_NGINX = "FROM nginx:1.31-alpine@sha256:cafef00d"
@@ -188,7 +221,9 @@ class TestDockerfileBasePinnedMutation(unittest.TestCase):
         self.assertEqual(version_agnostic_violations(self._GOOD), [])
 
     def test_untagged_digest_is_detected(self):
-        mutant = self._GOOD.replace("alpine:3.20@sha256:deadbeef AS builder", "alpine:3.20 AS builder")
+        mutant = self._GOOD.replace(
+            self._PINNED_FROM, f"FROM alpine:{PINNED_ALPINE_MINOR} AS builder"
+        )
         self.assertTrue(
             any("not digest-pinned" in p for p in digest_violations(mutant, "df")),
             "Mutation FAILED: a FROM without @sha256: digest was NOT detected.",
@@ -196,31 +231,32 @@ class TestDockerfileBasePinnedMutation(unittest.TestCase):
 
     def test_alpine_minor_bump_is_detected(self):
         mutant = self._GOOD.replace(
-            "alpine:3.20@sha256:deadbeef AS builder",
-            "alpine:3.24@sha256:deadbeef AS builder",
+            self._PINNED_FROM,
+            f"FROM alpine:{self._OFF_MINOR}@sha256:deadbeef AS builder",
         )
         self.assertTrue(
-            any("3.20" in p for p in alpine_freeze_violations(mutant)),
-            "Mutation FAILED: an alpine minor bump (3.20 -> 3.24) was NOT detected.",
+            any(PINNED_ALPINE_MINOR in p for p in alpine_freeze_violations(mutant)),
+            f"Mutation FAILED: an alpine minor bump "
+            f"({PINNED_ALPINE_MINOR} -> {self._OFF_MINOR}) was NOT detected.",
         )
 
     def test_alpine_bump_on_commented_from_line_is_detected(self):
         # F-4 (comment-evasion): a trailing inline comment on a FROM line must not
         # make it slip past the freeze check (FROM_RE anchors the ref at line-end).
         mutant = self._GOOD.replace(
-            "alpine:3.20@sha256:deadbeef AS builder",
-            "alpine:3.24@sha256:deadbeef AS builder  # interim bump",
+            self._PINNED_FROM,
+            f"FROM alpine:{self._OFF_MINOR}@sha256:deadbeef AS builder  # interim bump",
         )
         self.assertTrue(
-            any("3.20" in p for p in alpine_freeze_violations(mutant)),
+            any(PINNED_ALPINE_MINOR in p for p in alpine_freeze_violations(mutant)),
             "Mutation FAILED (F-4): an alpine bump on a FROM line with a trailing "
             "inline comment was silently dropped (not inspected).",
         )
 
     def test_undigested_from_with_trailing_comment_is_detected(self):
         mutant = self._GOOD.replace(
-            "alpine:3.20@sha256:deadbeef AS builder",
-            "alpine:3.20 AS builder  # no digest",
+            self._PINNED_FROM,
+            f"FROM alpine:{PINNED_ALPINE_MINOR} AS builder  # no digest",
         )
         self.assertTrue(
             any("not digest-pinned" in p for p in digest_violations(mutant, "df")),
@@ -242,16 +278,19 @@ class TestDockerfileBasePinnedMutation(unittest.TestCase):
     def test_platform_flag_from_is_still_inspected(self):
         # Finding 5: a `FROM --platform=... alpine:3.24@...` must NOT be silently
         # dropped — the alpine minor bump still has to be caught.
-        mutant = "FROM --platform=$BUILDPLATFORM alpine:3.24@sha256:deadbeef AS builder"
+        mutant = (
+            f"FROM --platform=$BUILDPLATFORM alpine:{self._OFF_MINOR}"
+            "@sha256:deadbeef AS builder"
+        )
         self.assertTrue(
-            any("3.20" in p for p in alpine_freeze_violations(mutant)),
+            any(PINNED_ALPINE_MINOR in p for p in alpine_freeze_violations(mutant)),
             "Mutation FAILED (Finding 5): a `FROM --platform=...` alpine minor bump "
             "was silently dropped by FROM_RE instead of being inspected.",
         )
 
     def test_platform_flag_undigested_from_is_detected(self):
         # Finding 5: digest check must also see through a --platform flag.
-        mutant = "FROM --platform=linux/amd64 alpine:3.20 AS builder"
+        mutant = f"FROM --platform=linux/amd64 alpine:{PINNED_ALPINE_MINOR} AS builder"
         self.assertTrue(
             any("not digest-pinned" in p for p in digest_violations(mutant, "df")),
             "Mutation FAILED (Finding 5): an un-digested `FROM --platform=...` was "
