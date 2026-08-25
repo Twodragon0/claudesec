@@ -6,6 +6,7 @@ Data loading functions extracted from dashboard-gen.py for reuse across scanner 
 import json
 import os
 import glob
+import re
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
@@ -338,8 +339,52 @@ def load_saas_best_practices(scan_dir):
         return {"fetched_at": "", "sources": []}
 
 
+def _warn_unreadable_network_artifact(fpath: str, exc: BaseException) -> None:
+    """Announce a dropped nmap/sslscan artifact instead of dropping it silently.
+
+    The counterpart to omitting it. An unread file that simply vanishes trades a
+    false claim for an invisible gap, which is the #445/#446/#448 failure — so
+    the omission has to be audible, exactly as `load_prowler_files` does it.
+    """
+    warnings.warn(
+        f"network artifact {os.path.basename(fpath)} could not be read "
+        f"({type(exc).__name__}: {exc}); it is excluded from the dashboard so it "
+        "is not counted as network evidence",
+        stacklevel=3,
+    )
+
+
 def load_network_tool_results(network_dir: str) -> NetworkToolResult:
-    """Load Trivy, nmap, sslscan results from .claudesec-network/ for dashboard."""
+    """Load Trivy, nmap, sslscan results from .claudesec-network/ for dashboard.
+
+    An nmap or sslscan file that could NOT be read is OMITTED, not appended with
+    an empty payload. The old form appended `{"hosts": []}` / `{"data": {}}`,
+    which three consumers read as real evidence:
+
+      * `dashboard_html_builders` drew an "Nmap scan summary" card with the
+        filename and an empty host list — indistinguishable from a scan that ran
+        and found no open ports — and an "SSL/TLS scan" card labelled
+        "(JSON data available)", which is the opposite of true for a file whose
+        JSON did not parse;
+      * `dashboard_html_overview`'s `nmap_count` / `ssl_count` summary counted it;
+      * worst, `network_evidence` in `build_priority_queue_html` went truthy on
+        the strength of it, which SUPPRESSED the "network or Datadog telemetry
+        missing" entry in `visibility_gaps`. A corrupt artifact actively hid the
+        warning that there was no network evidence.
+
+    Measured before this change, with one truncated `nmap-*.xml` and one
+    truncated `sslscan-*.json`:
+
+        nmap_scans      [{'name': 'nmap-prod.xml', 'hosts': []}]
+        sslscan_results [{'name': 'sslscan-prod.json', 'data': {}}]
+        warnings raised 0
+        nmap_count=1 ssl_count=1 -> network_evidence=True
+        visibility_gaps []          <- the warning the user should have seen
+
+    Same false-clean shape as #484/#485 on the Prowler path, reached through
+    `except Exception` rather than through a narrow handler. A scan that READ but
+    found nothing keeps its entry: host-less nmap output is a real result.
+    """
     out: NetworkToolResult = {
         "trivy_fs": None,
         "trivy_config": None,
@@ -431,10 +476,28 @@ def load_network_tool_results(network_dir: str) -> NetworkToolResult:
         import xml.etree.ElementTree as ET
 
         def _parse_xml(fpath):
-            """Fallback XML parser with DTD/entity resolution disabled."""
-            parser = ET.XMLParser()
-            parser.entity = {}  # type: ignore[attr-defined]
-            return ET.parse(fpath, parser=parser)  # nosemgrep: use-defused-xml-parse
+            """Fallback XML parser that REFUSES a document carrying a DTD.
+
+            The previous form set `parser.entity = {}`, which is a readonly
+            attribute on ElementTree's C accelerator and raises
+            `AttributeError: readonly attribute` (verified on CPython 3.13.12).
+            So this fallback ALWAYS raised, and every nmap artifact silently
+            became an empty scan whenever `defusedxml` was absent — invisible
+            until the caller stopped laundering failures into empty results.
+
+            Refusing DOCTYPE is what `defusedxml`'s `forbid_dtd` does and what
+            the OWASP XXE Prevention Cheat Sheet asks for: both entity-expansion
+            ("billion laughs") and external-entity attacks require a DTD, so
+            rejecting one removes the class rather than pretending to neuter it.
+            """
+            with open(fpath, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            if re.search(r"<!DOCTYPE", text, re.IGNORECASE):
+                raise ValueError(
+                    f"refusing to parse {os.path.basename(fpath)}: it declares a "
+                    "DTD and defusedxml is not installed"
+                )
+            return ET.ElementTree(ET.fromstring(text))  # nosemgrep: use-defused-xml-parse
 
     for fpath in glob.glob(os.path.join(network_dir, "nmap-*.xml")):
         try:
@@ -453,16 +516,18 @@ def load_network_tool_results(network_dir: str) -> NetworkToolResult:
                 if h or ports:
                     hosts.append({"addr": h, "ports": ports[:20]})
             out["nmap_scans"].append({"name": name, "hosts": hosts})
-        except Exception:
-            out["nmap_scans"].append({"name": os.path.basename(fpath), "hosts": []})
+        except Exception as exc:
+            _warn_unreadable_network_artifact(fpath, exc)
     for fpath in glob.glob(os.path.join(network_dir, "sslscan-*.json")):
         try:
             with open(fpath, encoding="utf-8") as f:
-                out["sslscan_results"].append(
-                    {"name": os.path.basename(fpath), "data": json.load(f)}
-                )
-        except Exception:
-            out["sslscan_results"].append({"name": os.path.basename(fpath), "data": {}})
+                data = json.load(f)
+        except Exception as exc:
+            _warn_unreadable_network_artifact(fpath, exc)
+            continue
+        out["sslscan_results"].append(
+            {"name": os.path.basename(fpath), "data": data}
+        )
     return out
 
 

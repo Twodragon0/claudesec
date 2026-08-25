@@ -15,6 +15,7 @@ import os
 import sys
 import tempfile
 import unittest
+import warnings
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
@@ -595,15 +596,37 @@ class TestLoadNetworkToolResults(unittest.TestCase):
             result = loader.load_network_tool_results(d)
         self.assertIsNone(result["trivy_fs"])
 
-    def test_sslscan_file_parsed_and_invalid_captured(self):
+    def test_sslscan_readable_kept_and_unreadable_dropped(self):
+        """Was `assertIn("sslscan-bad.json", names)`, which pinned the bug: an
+        unreadable file was appended as `{"data": {}}` and the SSL/TLS card then
+        labelled it "(JSON data available)" — the opposite of true. A sibling
+        that DID read must still be kept."""
         with tempfile.TemporaryDirectory() as d:
             _write_json(os.path.join(d, "sslscan-good.json"), {"ciphers": []})
             with open(os.path.join(d, "sslscan-bad.json"), "w", encoding="utf-8") as f:
                 f.write("nope")
-            result = loader.load_network_tool_results(d)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                result = loader.load_network_tool_results(d)
         names = {s["name"] for s in result["sslscan_results"]}
         self.assertIn("sslscan-good.json", names)
-        self.assertIn("sslscan-bad.json", names)
+        self.assertNotIn("sslscan-bad.json", names)
+        self.assertTrue(
+            any("sslscan-bad.json" in str(c.message) for c in caught),
+            "dropping the artifact must be announced, not silent",
+        )
+
+    def test_sslscan_legitimately_empty_object_is_kept(self):
+        """DIRECTION check. `{}` parsed fine and means "scanned, nothing to
+        report"; over-correcting would stop reporting every clean scan."""
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "sslscan-clean.json"), "w", encoding="utf-8") as f:
+                f.write("{}")
+            result = loader.load_network_tool_results(d)
+        self.assertEqual(
+            result["sslscan_results"],
+            [{"name": "sslscan-clean.json", "data": {}}],
+        )
 
     def test_nmap_xml_parsed(self):
         # Loader reads the 'port' attribute on each <port> element, so craft
@@ -629,13 +652,32 @@ class TestLoadNetworkToolResults(unittest.TestCase):
         # Only open TCP port 22 should be recorded.
         self.assertEqual(scan["hosts"][0]["ports"], ["22"])
 
-    def test_nmap_xml_malformed_still_produces_entry(self):
+    def test_nmap_xml_malformed_is_dropped_not_rendered_as_a_clean_scan(self):
+        """Was `len(...) == 1` with `hosts == []`, which pinned the bug: that is
+        byte-identical to a scan that ran and found no open ports, so the
+        dashboard drew an "Nmap scan summary" card for a file it never parsed —
+        and `network_evidence` went truthy on it, suppressing the "network or
+        Datadog telemetry missing" visibility gap."""
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "nmap-bad.xml"), "w", encoding="utf-8") as f:
                 f.write("<<<not xml>>>")
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                result = loader.load_network_tool_results(d)
+        self.assertEqual(result["nmap_scans"], [])
+        self.assertTrue(
+            any("nmap-bad.xml" in str(c.message) for c in caught),
+            "dropping the artifact must be announced, not silent",
+        )
+
+    def test_nmap_xml_with_no_hosts_is_kept(self):
+        """DIRECTION check. Host-less nmap output parsed fine and is a real
+        result — "scanned, no open ports" — so it must survive."""
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "nmap-quiet.xml"), "w", encoding="utf-8") as f:
+                f.write('<?xml version="1.0"?><nmaprun></nmaprun>')
             result = loader.load_network_tool_results(d)
-        self.assertEqual(len(result["nmap_scans"]), 1)
-        self.assertEqual(result["nmap_scans"][0]["hosts"], [])
+        self.assertEqual(result["nmap_scans"], [{"name": "quiet", "hosts": []}])
 
 
 # ===========================================================================
