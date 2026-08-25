@@ -78,6 +78,12 @@ RUN pip install --no-cache-dir --no-compile --break-system-packages --prefix=/in
        "${SITE}"/googleapis* \
        "${SITE}"/cloudflare* \
        "${SITE}"/alibabacloud* \
+       "${SITE}"/huaweicloud* \
+       "${SITE}"/scaleway* \
+       "${SITE}"/stackit* \
+       "${SITE}"/linode* \
+       "${SITE}"/e2enetworks* \
+       "${SITE}"/vercel* \
        "${SITE}"/openstacksdk* \
        "${SITE}"/openstack* \
        "${SITE}"/plotly* \
@@ -97,11 +103,17 @@ RUN pip install --no-cache-dir --no-compile --break-system-packages --prefix=/in
        "${SITE}"/prowler/providers/openstack \
        "${SITE}"/prowler/providers/oraclecloud \
        "${SITE}"/prowler/providers/image \
+       "${SITE}"/prowler/providers/huaweicloud \
+       "${SITE}"/prowler/providers/scaleway \
+       "${SITE}"/prowler/providers/stackit \
+       "${SITE}"/prowler/providers/linode \
+       "${SITE}"/prowler/providers/e2enetworks \
+       "${SITE}"/prowler/providers/vercel \
        2>/dev/null || true \
     # Patch prowler to skip removed provider imports (guard: skip if entrypoint moved)
     && MAIN="${SITE}/prowler/__main__.py" \
     && if [ -f "$MAIN" ]; then \
-         for p in alibabacloud azure gcp googleworkspace llm m365 mongodbatlas nhn cloudflare openstack oraclecloud image; do \
+         for p in alibabacloud azure gcp googleworkspace llm m365 mongodbatlas nhn cloudflare openstack oraclecloud image huaweicloud scaleway stackit linode e2enetworks vercel; do \
            sed -i "s|^from prowler\.providers\.${p}|# removed: ${p} #|" "$MAIN"; \
          done; \
        else \
