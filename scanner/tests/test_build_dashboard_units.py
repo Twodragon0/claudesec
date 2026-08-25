@@ -298,5 +298,62 @@ class TestOpenpyxlAbsenceHandling(unittest.TestCase):
         http_client.request.assert_called_once()
 
 
+class TestReadsDeclareTheirEncoding(unittest.TestCase):
+    """`Path.read_text()` with no `encoding=` uses `locale.getpreferredencoding`.
+
+    That makes what the script can parse depend on the runner's `LANG`: under a
+    C/POSIX locale the default is ASCII, so any non-ASCII byte anywhere in a
+    cache, inventory or Prowler artifact raises `UnicodeDecodeError`. In the
+    OCSF reader that exception landed in `except Exception: pass` and silently
+    dropped the file's findings, which UNDER-REPORTS failures — the same class
+    as #471/#484, minus the per-provider "was scanned" claim.
+
+    Source-level on purpose: the 16 call sites are spread across cache, git,
+    inventory and template paths that a unit test cannot all reach, so the
+    cheap invariant is "no read declares no encoding".
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.src = Path(_SCRIPT).read_text(encoding="utf-8")
+
+    @staticmethod
+    def _bare_read_text_lines(src):
+        """Line numbers of `.read_text()` calls with no arguments. Returns line
+        numbers rather than the source, so a failure names the sites instead of
+        dumping 100 KB of script into the assertion message."""
+        return [
+            i for i, line in enumerate(src.splitlines(), 1)
+            if ".read_text()" in line
+        ]
+
+    def test_no_read_text_without_an_encoding(self):
+        self.assertEqual(
+            self._bare_read_text_lines(self.src),
+            [],
+            'every Path.read_text() in build-dashboard.py must pass '
+            'encoding="utf-8" — a bare call inherits the runner locale',
+        )
+
+    def test_detector_is_not_vacuous(self):
+        """Sanity: the detector must name the line of a shape it forbids."""
+        self.assertEqual(
+            self._bare_read_text_lines("import os\nx = p.read_text()\ny = 1\n"),
+            [2],
+        )
+
+    def test_ocsf_reader_tolerates_a_bad_byte(self):
+        """The findings reader specifically needs errors="replace": dropping a
+        provider's file here lowers the reported failure count."""
+        needle = 'f.read_text(encoding="utf-8", errors="replace")'
+        self.assertEqual(
+            self.src.count(needle),
+            2,
+            f'both reads in the OCSF loop must use {needle} (the first parse '
+            "and the NDJSON re-read); found "
+            f"{self.src.count(needle)}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
