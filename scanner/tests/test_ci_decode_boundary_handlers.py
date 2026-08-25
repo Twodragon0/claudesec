@@ -41,22 +41,38 @@ noise. `_parse_ocsf_json`'s `raw_decode` resync loop and the NDJSON
 `json.loads(line)` inside `load_datadog_logs` are both of that shape — the
 decode already happened in the enclosing `open()`, which IS checked.
 
-stdlib-only (`ast`), no PyYAML, no scanner/lib import, no network.
+stdlib-only (`ast`, `subprocess` for `git ls-files` only), no PyYAML, no
+scanner/lib import, no network.
 """
 
 import ast
 import json
+import subprocess
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LIB_DIR = REPO_ROOT / "scanner" / "lib"
+# `scanner/lib` alone was the original scope and it was too narrow: the
+# duplicate-implementation scan found FOUR more offending sites under `scripts/`
+# — including two independent Prowler OCSF readers — that this guard could not
+# see. `scripts/` is in the `scanner` diff bucket, so widening costs no CI
+# reachability.
+SCAN_DIRS = (
+    REPO_ROOT / "scanner" / "lib",
+    REPO_ROOT / "scripts",
+    REPO_ROOT / "hooks",
+)
 
 # Calls that turn bytes into str and can therefore raise UnicodeDecodeError.
 # `open` is included because text mode is the default; a binary open cannot
 # raise it, but it also cannot feed `json.load`, so treating every `open` as a
 # decode boundary is the fail-closed choice.
 _DECODE_CALLS = {"open", "read_text", "decode"}
+
+# `PIL.Image.open` shares the name and takes no `encoding`. Matching on the bare
+# attribute means these would be reported forever with no possible fix.
+_NOT_A_TEXT_OPEN = {"Image", "PIL.Image"}
 
 # Sites that still rely on the narrow handler, with the reason. Checked as a
 # SUPERSET (`hits <= allowlist`), never as equality, so an entry disappearing
@@ -94,8 +110,11 @@ def _decode_boundaries(try_node):
     for call in ast.walk(try_node):
         if not isinstance(call, ast.Call):
             continue
-        name = ast.unparse(call.func).split(".")[-1]
+        rendered = ast.unparse(call.func)
+        name = rendered.split(".")[-1]
         if name not in _DECODE_CALLS:
+            continue
+        if name == "open" and rendered.rsplit(".", 1)[0] in _NOT_A_TEXT_OPEN:
             continue
         if any(kw.arg == "errors" for kw in call.keywords):
             continue
@@ -106,10 +125,48 @@ def _decode_boundaries(try_node):
     return found
 
 
+def _tracked_paths():
+    """Absolute paths git tracks, or None when git cannot answer.
+
+    A plain filesystem walk is wrong here: `.gitignore:133` excludes
+    `scripts/sync-notion-licenses.py`, a local operator script that is NOT in
+    the repository. CI checks out only tracked files, so such a file makes the
+    guard red locally and green in CI — a divergence that trains people to
+    ignore it. `git ls-files` is the only honest source for "what CI will see".
+    Falls back to the walk (returns None) if git is unavailable or this is not a
+    work tree, so an exported tarball still gets a real check rather than a
+    vacuous pass.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "ls-files", "-z", "--", "*.py"],
+            capture_output=True, timeout=30, check=True,
+        ).stdout.decode("utf-8", errors="replace")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    paths = {(REPO_ROOT / rel).resolve() for rel in out.split("\0") if rel}
+    return paths or None
+
+
+def _scanned_files():
+    """Every tracked, non-test `.py` under SCAN_DIRS, deduplicated and ordered."""
+    tracked = _tracked_paths()
+    seen = {}
+    for d in SCAN_DIRS:
+        for p in sorted(d.rglob("*.py")):
+            if "/tests/" in str(p):
+                continue
+            resolved = p.resolve()
+            if tracked is not None and resolved not in tracked:
+                continue
+            seen[resolved] = p
+    return list(seen.values())
+
+
 def _narrow_handlers():
     """(file, function, lineno, handler_src, boundaries) for every offending try."""
     out = []
-    for path in sorted(LIB_DIR.glob("*.py")):
+    for path in _scanned_files():
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError:  # pragma: no cover - a parse failure is its own test
@@ -146,11 +203,34 @@ class TestUnicodeDecodeErrorIsNotAJsonDecodeError(unittest.TestCase):
 
 
 class TestNoNarrowHandlerOnADecodeBoundary(unittest.TestCase):
-    def test_lib_dir_is_present(self):
-        """Canary. A relocated tree would otherwise make this guard vacuous by
-        finding zero files and passing."""
-        self.assertTrue(LIB_DIR.is_dir(), LIB_DIR)
+    def test_scan_dirs_are_present(self):
+        """Canary. A relocated tree, or a `scripts/` that stopped being scanned,
+        would otherwise make this guard vacuous by finding zero files and
+        passing. Asserted per directory so ONE going missing is not masked by
+        the others still contributing files."""
+        for d in SCAN_DIRS:
+            with self.subTest(directory=d.name):
+                self.assertTrue(d.is_dir(), d)
         self.assertGreater(len(list(LIB_DIR.glob("*.py"))), 10)
+        scanned = {p.resolve() for p in _scanned_files()}
+        # A directory that HAS Python must contribute it. `hooks/` is shell-only
+        # today and is listed anyway so a future Python hook is covered on day
+        # one rather than after the next incident — asserted, not just assumed,
+        # so "hooks contributed nothing" cannot quietly become a real gap.
+        self.assertEqual(
+            [p for p in (REPO_ROOT / "hooks").rglob("*.py")],
+            [],
+            "hooks/ now has Python; drop it from this exemption",
+        )
+        for d in SCAN_DIRS:
+            if not any(d.rglob("*.py")):
+                continue
+            with self.subTest(directory=d.name):
+                self.assertTrue(
+                    any(str(p).startswith(str(d.resolve())) for p in scanned),
+                    f"no file under {d} reached the walker",
+                )
+        self.assertGreater(len(scanned), 30)
 
     def test_no_unexpected_narrow_handler(self):
         hits = _narrow_handlers()
@@ -208,6 +288,97 @@ class TestNoNarrowHandlerOnADecodeBoundary(unittest.TestCase):
         )
         node = next(n for n in ast.walk(replaced) if isinstance(n, ast.Try))
         self.assertEqual(_decode_boundaries(node), [])
+
+    def test_repo_declares_an_encoding_on_every_text_read(self):
+        """The other half of the same invariant, and the cheaper half.
+
+        `open(p)` and `Path.read_text()` with no `encoding=` use
+        `locale.getpreferredencoding(False)` — ASCII under a C/POSIX locale — so
+        what the tree can parse depends on the runner's `LANG`. A handler cannot
+        fix that: the crash or the silent drop happens either way, and widening
+        the handler only converts one into the other.
+
+        This started as a build-dashboard.py-only check in #486. The
+        duplicate-implementation scan then found 11 more bare `read_text()`
+        calls and 9 more bare `open()` calls across seven other files, so the
+        check belongs here, over the whole tree, instead.
+        """
+        offenders = []
+        for path in _scanned_files():
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except SyntaxError:  # pragma: no cover
+                continue
+            for call in ast.walk(tree):
+                if not isinstance(call, ast.Call):
+                    continue
+                rendered = ast.unparse(call.func)
+                name = rendered.split(".")[-1]
+                if name not in ("open", "read_text"):
+                    continue
+                if rendered.rsplit(".", 1)[0] in _NOT_A_TEXT_OPEN:
+                    continue
+                if any(kw.arg == "encoding" for kw in call.keywords):
+                    continue
+                # Binary mode cannot decode, so it needs no encoding.
+                if (
+                    name == "open"
+                    and len(call.args) >= 2
+                    and isinstance(call.args[1], ast.Constant)
+                    and "b" in str(call.args[1].value)
+                ):
+                    continue
+                offenders.append(f"{path.relative_to(REPO_ROOT)}:{call.lineno}")
+        self.assertEqual(
+            sorted(offenders),
+            [],
+            "\n  " + "\n  ".join(sorted(offenders))
+            + '\n  -> pass encoding="utf-8" (and errors="replace" for an '
+            "evidence reader, where dropping the file under-reports findings)",
+        )
+
+    def test_only_tracked_files_are_scanned(self):
+        """A gitignored operator script on disk must not turn this guard red.
+
+        `.gitignore:133` excludes `scripts/sync-notion-licenses.py`. CI checks
+        out only tracked files, so scanning the raw filesystem would fail
+        locally and pass in CI. Asserted as a subset relation so it holds
+        without needing that file to exist.
+        """
+        tracked = _tracked_paths()
+        self.assertIsNotNone(tracked, "git ls-files returned nothing — the "
+                                      "tracked-file filter is inert")
+        scanned = {p.resolve() for p in _scanned_files()}
+        self.assertTrue(scanned, "no files scanned")
+        self.assertEqual(scanned - tracked, set())
+
+    def test_encoding_detector_is_not_vacuous(self):
+        """The forbidden shape must fire, and the three exemptions must not."""
+        def offenders(src):
+            out = []
+            for call in ast.walk(ast.parse(src)):
+                if not isinstance(call, ast.Call):
+                    continue
+                rendered = ast.unparse(call.func)
+                name = rendered.split(".")[-1]
+                if name not in ("open", "read_text"):
+                    continue
+                if rendered.rsplit(".", 1)[0] in _NOT_A_TEXT_OPEN:
+                    continue
+                if any(kw.arg == "encoding" for kw in call.keywords):
+                    continue
+                if (name == "open" and len(call.args) >= 2
+                        and isinstance(call.args[1], ast.Constant)
+                        and "b" in str(call.args[1].value)):
+                    continue
+                out.append(call.lineno)
+            return out
+
+        self.assertEqual(offenders("open(p)\n"), [1])
+        self.assertEqual(offenders("p.read_text()\n"), [1])
+        self.assertEqual(offenders('open(p, encoding="utf-8")\n'), [])
+        self.assertEqual(offenders('open(p, "rb")\n'), [])
+        self.assertEqual(offenders("Image.open(p)\n"), [])
 
     def test_str_only_bodies_are_not_flagged(self):
         """`raw_decode` on a str cannot raise UnicodeDecodeError, so the narrow

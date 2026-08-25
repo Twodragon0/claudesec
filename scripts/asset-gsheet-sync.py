@@ -234,7 +234,7 @@ def load_scan_report(scan_dir: str) -> dict[str, Any] | None:
     if not report_path.exists():
         print(f"  경고: 스캔 리포트 없음 ({report_path})", file=sys.stderr)
         return None
-    with open(report_path) as f:
+    with open(report_path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -247,7 +247,7 @@ def load_prowler_results(scan_dir: str) -> list[dict[str, Any]]:
 
     for f in prowler_dir.glob("*.ocsf.json"):
         try:
-            with open(f) as fh:
+            with open(f, encoding="utf-8", errors="replace") as fh:
                 data = json.load(fh)
                 if isinstance(data, list):
                     results.extend(data)
@@ -441,7 +441,7 @@ def generate_asset_report(
     # JSON 파일 출력
     output_path = Path(scan_dir) / ASSET_SUMMARY_OUTPUT
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
 
     print(f"\n  자산 요약 리포트 생성: {output_path}")

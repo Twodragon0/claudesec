@@ -37,7 +37,7 @@ def main() -> int:
     audited = 0
 
     for wf in workflows:
-        with wf.open() as fh:
+        with wf.open(encoding="utf-8") as fh:
             try:
                 doc = yaml.safe_load(fh)
             except yaml.YAMLError as exc:

@@ -64,7 +64,7 @@ def load_scan_history():
             try:
                 with open(fp, encoding="utf-8") as f:
                     entries.append(json.load(f))
-            except (OSError, json.JSONDecodeError):
+            except (OSError, ValueError):
                 continue
     return entries
 
