@@ -73,6 +73,13 @@ assert_eq() {
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
+# Point TMPDIR at this run's own directory so the `mktemp` inside
+# `generate_html_dashboard` lands somewhere only this run can touch. Without it,
+# Case 6's leak check reads the shared /tmp and reports on other runs' residue —
+# see the note there. Exported (not just set) because the function runs in this
+# shell and shells out to python3.
+export TMPDIR="$tmpdir"
+
 SCAN_DIR="$tmpdir"
 source "$LIB_DIR_REAL/output.sh" 2>/dev/null || true
 should_report() { return 0; }
@@ -216,7 +223,19 @@ assert_eq "legacy fallback produced the file" "true" \
 echo ""
 echo "=== the stderr temp file is cleaned up ==="
 
-leftover="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'claudesec-dashgen.*' 2>/dev/null | wc -l | tr -d ' ')"
+# Scoped to THIS test's own directory, not the shared `$TMPDIR`.
+#
+# The first version scanned `${TMPDIR:-/tmp}` wholesale, which made the result
+# depend on state no run of this file controls. Measured: after an unrelated
+# earlier run of the PRE-FIX code (which creates these files and never removes
+# them — the very leak this asserts against), four strays sat in `$TMPDIR` and
+# this assertion reported `expected '0', got '4'` on a tree whose behaviour was
+# correct. It passed in CI, where the runner is fresh, and failed locally. A
+# check that reads another run's residue is not measuring this one.
+#
+# `TMPDIR` is exported for the whole file above, so `mktemp` inside `output.sh`
+# lands here and the scan is exact.
+leftover="$(find "$tmpdir" -maxdepth 1 -name 'claudesec-dashgen.*' 2>/dev/null | wc -l | tr -d ' ')"
 assert_eq "no claudesec-dashgen.* temp files remain" "0" "$leftover"
 
 # ==============================================================================
