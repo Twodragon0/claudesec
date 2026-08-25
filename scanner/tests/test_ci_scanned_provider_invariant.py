@@ -419,5 +419,98 @@ class TestDiagramDataCarriesTheSameInvariant(unittest.TestCase):
         )
 
 
+class TestUnreadNetworkArtifactIsNotEvidence(unittest.TestCase):
+    """The THIRD data path with this shape, and the one where the claim is
+    actively load-bearing.
+
+    `load_network_tool_results` used to append `{"hosts": []}` for an nmap file
+    it could not parse and `{"data": {}}` for an sslscan file it could not read.
+    Three consumers took that as real evidence, and the third one matters most:
+
+      * `dashboard_html_builders` drew an "Nmap scan summary" card — identical to
+        a scan that ran and found no open ports — and an "SSL/TLS scan" card
+        reading "(JSON data available)", the opposite of true;
+      * `dashboard_html_overview`'s `nmap_count`/`ssl_count` counted it;
+      * `network_evidence` in `build_priority_queue_html` went truthy on it,
+        which SUPPRESSED "network or Datadog telemetry missing" from
+        `visibility_gaps`. A corrupt artifact hid the warning that there was no
+        network evidence.
+
+    Measured before the fix, one truncated `nmap-*.xml` + one truncated
+    `sslscan-*.json`:
+
+        nmap_scans      [{'name': 'nmap-prod.xml', 'hosts': []}]
+        sslscan_results [{'name': 'sslscan-prod.json', 'data': {}}]
+        warnings raised 0
+        nmap_count=1 ssl_count=1 -> network_evidence=True
+        visibility_gaps []
+
+    This EXECUTES the real overview builder rather than re-deriving the boolean,
+    for the reason in this file's header: a re-derived copy of the condition
+    passes while the shipped one regresses.
+    """
+
+    _GAP = "network or Datadog telemetry missing"
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("CLAUDESEC_DASHBOARD_OFFLINE", "1")
+        import dashboard_html_overview
+        cls.overview = dashboard_html_overview
+
+    @staticmethod
+    def _unreadable_network_dir(dirpath):
+        Path(dirpath, "nmap-prod.xml").write_text("<nmaprun><host", encoding="utf-8")
+        Path(dirpath, "sslscan-prod.json").write_text("{ truncated", encoding="utf-8")
+
+    def test_unreadable_artifacts_are_dropped_and_announced(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._unreadable_network_dir(d)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                net = loader.load_network_tool_results(d)
+        self.assertEqual(net["nmap_scans"], [])
+        self.assertEqual(net["sslscan_results"], [])
+        messages = " ".join(str(c.message) for c in caught)
+        for name in ("nmap-prod.xml", "sslscan-prod.json"):
+            with self.subTest(artifact=name):
+                self.assertIn(name, messages)
+
+    def test_unreadable_artifacts_do_not_suppress_the_visibility_gap(self):
+        """The assertion that matters. Driven through the real builder."""
+        with tempfile.TemporaryDirectory() as d:
+            self._unreadable_network_dir(d)
+            with warnings.catch_warnings(record=True):
+                warnings.simplefilter("always")
+                net = loader.load_network_tool_results(d)
+        html = self.overview.build_priority_queue_html([], {}, 0, 0, net, {})
+        self.assertIn(self._GAP, html)
+
+    def test_real_evidence_still_suppresses_the_gap(self):
+        """DIRECTION check. Over-correcting would report the gap forever, which
+        is just as wrong and much noisier."""
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, "sslscan-good.json").write_text('{"ciphers": []}', encoding="utf-8")
+            net = loader.load_network_tool_results(d)
+        self.assertEqual(len(net["sslscan_results"]), 1)
+        html = self.overview.build_priority_queue_html([], {}, 0, 0, net, {})
+        self.assertNotIn(self._GAP, html)
+
+    def test_builder_emits_the_gap_when_there_is_no_evidence_at_all(self):
+        """Non-vacuity, by EXECUTION rather than by grepping the source.
+
+        The first draft asserted the string was present in
+        `dashboard_html_overview.py`. `test_ci_guard_assertion_scoping` rejected
+        that and was right: commenting the control out leaves the token in the
+        file, so the check stays green while the control is dead (ADR-001).
+        Driving the builder with an empty network/Datadog payload proves the
+        string is really emitted, so `assertNotIn` above cannot pass by the
+        wording having changed.
+        """
+        empty_net = loader.load_network_tool_results("/no/such/dir")
+        html = self.overview.build_priority_queue_html([], {}, 0, 0, empty_net, {})
+        self.assertIn(self._GAP, html)
+
+
 if __name__ == "__main__":
     unittest.main()

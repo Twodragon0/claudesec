@@ -22,6 +22,7 @@ import os
 import sys
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 from unittest.mock import patch
 
@@ -374,23 +375,28 @@ class TestLoadNetworkToolResultsDefusedxmlFallback(unittest.TestCase):
 </nmaprun>
 """
 
-    def test_fallback_parser_used_when_defusedxml_missing(self):
-        import warnings
-        # Save and remove defusedxml from sys.modules so the `import` inside
-        # load_network_tool_results will raise ImportError.
+    _DTD_XML = (
+        '<?xml version="1.0"?>\n'
+        '<!DOCTYPE nmaprun [<!ENTITY lol "lol">]>\n'
+        "<nmaprun></nmaprun>\n"
+    )
+
+    def _run_without_defusedxml(self, xml_body, filename="nmap-internal.xml"):
+        """Drive `load_network_tool_results` with defusedxml unimportable."""
         saved_modules = {}
         for key in list(sys.modules.keys()):
             if "defusedxml" in key:
                 saved_modules[key] = sys.modules.pop(key)
-
         try:
             with tempfile.TemporaryDirectory() as net_dir:
-                nmap_path = os.path.join(net_dir, "nmap-internal.xml")
-                with open(nmap_path, "w") as f:
-                    f.write(self._NMAP_XML)
+                with open(os.path.join(net_dir, filename), "w", encoding="utf-8") as f:
+                    f.write(xml_body)
 
-                # Also block re-import so the ImportError is triggered
-                real_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+                real_import = (
+                    __builtins__.__import__
+                    if hasattr(__builtins__, "__import__")
+                    else __import__
+                )
 
                 def _block_defusedxml(name, *args, **kwargs):
                     if "defusedxml" in name:
@@ -398,17 +404,37 @@ class TestLoadNetworkToolResultsDefusedxmlFallback(unittest.TestCase):
                     return real_import(name, *args, **kwargs)
 
                 with patch("builtins.__import__", side_effect=_block_defusedxml):
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore", ImportWarning)
+                    with warnings.catch_warnings(record=True) as caught:
+                        warnings.simplefilter("always")
                         result = loader.load_network_tool_results(net_dir)
+                return result, [str(c.message) for c in caught]
         finally:
-            # Restore defusedxml to sys.modules
             sys.modules.update(saved_modules)
 
-        # The fallback path was triggered: the ImportWarning was emitted
-        # and nmap_scans was populated (even if the parse failed gracefully).
-        self.assertIsInstance(result["nmap_scans"], list)
+    def test_fallback_parser_actually_parses(self):
+        """This asserted only `len(nmap_scans) == 1` and its own comment admitted
+        "even if the parse failed gracefully" — so it passed while the fallback
+        was TOTALLY BROKEN. `parser.entity = {}` is a readonly attribute on
+        ElementTree's C accelerator and raises `AttributeError: readonly
+        attribute` (CPython 3.13.12), so every nmap file became an empty scan
+        whenever defusedxml was absent. Assert the parsed CONTENT, not the count.
+        """
+        result, _ = self._run_without_defusedxml(self._NMAP_XML)
         self.assertEqual(len(result["nmap_scans"]), 1)
+        scan = result["nmap_scans"][0]
+        self.assertEqual(scan["name"], "internal")
+        self.assertEqual([h["addr"] for h in scan["hosts"]], ["192.0.2.1"])
+
+    def test_fallback_refuses_a_document_with_a_dtd(self):
+        """The fallback's whole job. Entity-expansion and external-entity attacks
+        both require a DTD, so it is refused rather than neutered — what
+        defusedxml's `forbid_dtd` does (OWASP XXE Prevention Cheat Sheet)."""
+        result, messages = self._run_without_defusedxml(self._DTD_XML)
+        self.assertEqual(result["nmap_scans"], [])
+        self.assertTrue(
+            any("declares a DTD" in m for m in messages),
+            f"expected a DTD-refusal warning, got {messages}",
+        )
 
 
 # ===========================================================================
