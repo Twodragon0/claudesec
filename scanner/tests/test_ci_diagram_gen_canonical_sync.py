@@ -185,5 +185,64 @@ class TestDiagramGenCanonicalSync(unittest.TestCase):
         self.assertNotEqual(bash_cats, list(reversed(bash_cats)))
 
 
+class TestDiagramDataLoadersAreSingleSourced(unittest.TestCase):
+    """`diagram_data` must not carry its own copy of any `dashboard_data_loader`
+    loader.
+
+    WHY IDENTITY, NOT A SOURCE GREP. This is the same drift class as the inline
+    `ARCH_DOMAINS` above, but it had already cost two bugs before anyone looked
+    for it: `diagram_data` held byte-near copies of `_parse_ocsf_json`,
+    `load_prowler_files` and `load_scan_history`, so
+
+      * #471 fixed the OCSF false-PASS in `dashboard_data_loader` and the copy
+        here kept it, needing a whole second PR (#484); and
+      * the copy never called `_normalize_provider`, so the diagram labelled a
+        cluster `k8s` where the dashboard called the same cluster `kubernetes`.
+
+    A source pin on the import line would pass against a re-added local `def`
+    that shadows it. `is` cannot be satisfied by a copy — which is exactly the
+    ADR-001 §5 / #404 lesson that executing beats matching text.
+    """
+
+    LOADERS = ("_parse_ocsf_json", "load_prowler_files", "load_scan_history",
+               "load_scan_results")
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(LIB_DIR))
+        import dashboard_data_loader
+        import diagram_data
+        cls.canonical = dashboard_data_loader
+        cls.diagram = diagram_data
+
+    def test_each_loader_is_the_same_object_as_canonical(self):
+        for name in self.LOADERS:
+            with self.subTest(loader=name):
+                self.assertIs(
+                    getattr(self.diagram, name),
+                    getattr(self.canonical, name),
+                    f"diagram_data.{name} is not dashboard_data_loader.{name} — "
+                    "a local copy was re-added and will drift",
+                )
+
+    def test_diagram_gen_reexports_resolve_to_canonical(self):
+        """The tests and builders reach these through `diagram-gen.py`'s
+        re-export, so pin that hop too — re-exporting a shadowed copy would
+        satisfy the check above and still ship the copy."""
+        mod = _load_diagram_gen()
+        for name in ("_parse_ocsf_json", "load_prowler_files"):
+            with self.subTest(loader=name):
+                self.assertIs(getattr(mod, name), getattr(self.canonical, name))
+
+    def test_identity_check_is_not_vacuous(self):
+        """A distinct function with identical behaviour must FAIL the check, or
+        the assertions above would pass against any copy."""
+        def _copy(content):
+            return self.canonical._parse_ocsf_json(content)
+
+        self.assertEqual(_copy("[]"), self.canonical._parse_ocsf_json("[]"))
+        self.assertIsNot(_copy, self.canonical._parse_ocsf_json)
+
+
 if __name__ == "__main__":
     unittest.main()

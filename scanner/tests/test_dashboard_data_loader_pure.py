@@ -221,6 +221,25 @@ class TestLoadScanHistory(unittest.TestCase):
             result = loader.load_scan_history(d)
         self.assertEqual(len(result), 1)
 
+    def test_non_utf8_byte_skips_the_entry_instead_of_raising(self):
+        """`test_invalid_json_entries_skipped` above covers only JSONDecodeError,
+        which is why this went unnoticed: the handler caught
+        `json.JSONDecodeError`, and `UnicodeDecodeError` is a SIBLING
+        `ValueError` subclass — not a `JSONDecodeError`. One bad byte in a
+        history file therefore aborted the whole dashboard build:
+
+            UnicodeDecodeError: 'utf-8' codec can't decode byte 0x80 in
+            position 7: invalid start byte
+        """
+        self.assertTrue(issubclass(UnicodeDecodeError, ValueError))
+        self.assertFalse(issubclass(UnicodeDecodeError, json.JSONDecodeError))
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "scan-1.json"), "wb") as f:
+                f.write(b'{"score": "\x80"}')
+            _write_json(os.path.join(d, "scan-2.json"), {"score": 80})
+            result = loader.load_scan_history(d)
+        self.assertEqual(result, [{"score": 80}])
+
 
 # ===========================================================================
 # 7. load_audit_points_detected
