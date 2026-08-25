@@ -1,13 +1,17 @@
 # Prowler Python Ceiling Watcher
 #
 # NOTIFICATION-ONLY scheduled workflow that monitors prowler's PyPI metadata
-# for the <3.13 Python ceiling being lifted.  When the ceiling is gone (i.e.
-# Python 3.13+ becomes allowed), it opens a single GitHub issue to signal
+# for prowler's Python ceiling rising far enough to lift the alpine freeze.
+# The threshold is **py3.14**, not py3.13: alpine skips py3.13 entirely
+# (3.20-3.23 all ship py3.12, 3.24 ships py3.14, measured 2026-08-24), so
+# prowler accepting py3.13 unblocks nothing. When py3.14 becomes allowed it
+# opens a single GitHub issue to signal
 # that the alpine py3.12 freeze can be unblocked.
 #
 # Background:
-#   Dockerfile is pinned to alpine:3.20 (py3.12) + prowler==5.30.1 because
-#   prowler requires Python >=3.10,<3.13 (prowler-cloud/prowler#6737).
+#   Dockerfile is pinned to alpine:3.20 (py3.12) + prowler==5.39.1. prowler's
+#   requirement was `>=3.10,<3.13` (prowler-cloud/prowler#6737) and is now
+#   `>=3.10,<3.14` — still short of the py3.14 that alpine 3.24 ships.
 #   .github/dependabot.yml ignores alpine minor/major bumps for the same
 #   reason.  This watcher fires when that constraint is relaxed upstream.
 #
@@ -73,7 +77,7 @@ jobs:
           echo "ceiling_lifted=${ceiling_lifted}"    >> "${GITHUB_OUTPUT}"
 
           if [ "${ceiling_lifted}" = "true" ]; then
-            echo "CEILING LIFTED: prowler ${prowler_version} now supports Python 3.13+"
+            echo "CEILING LIFTED: prowler ${prowler_version} now allows py3.14 — the alpine 3.24 line is in range"
           else
             echo "Still frozen: prowler ${prowler_version} requires_python='${requires_python}' — no action needed"
           fi
@@ -136,9 +140,9 @@ jobs:
           v  = os.environ["PROWLER_VERSION"]
           rp = os.environ["REQUIRES_PYTHON"]
           body = textwrap.dedent(f"""\
-          ## Prowler Python ceiling lifted
+          ## Prowler now allows py3.14 — the alpine freeze can be lifted
 
-          The automated watcher detected that **prowler** no longer restricts Python to `<3.13`.
+          The watcher detected that **prowler** no longer excludes Python 3.14.
 
           | Field            | Value |
           |------------------|-------|
@@ -146,33 +150,52 @@ jobs:
           | requires_python  | `{rp}` |
           | Detected by      | prowler-python-watch scheduled workflow |
 
-          ## Why this matters
+          ## Why the threshold is py3.14 and not py3.13
 
-          The `Dockerfile` is currently pinned to `alpine:3.20` (Python 3.12) and
-          `ARG PROWLER_VERSION=5.30.1` specifically because prowler previously required
-          `Python >=3.10,<3.13` (see prowler-cloud/prowler#6737).  The
-          `.github/dependabot.yml` also ignores alpine minor/major bumps for the same
-          reason.
+          The freeze exists so the shipped image's Python stays inside prowler's
+          supported range. What matters is therefore the Python that the NEXT alpine
+          minor ships — measured 2026-08-24 by installing `python3` in each image:
 
-          Now that prowler supports Python 3.13+, the freeze can be lifted.
+          | alpine | Python |
+          |--------|--------|
+          | 3.20   | 3.12.13 |
+          | 3.21   | 3.12.14 |
+          | 3.22   | 3.12.14 |
+          | 3.23   | 3.12.14 |
+          | 3.24   | **3.14.7** |
+
+          alpine skips py3.13 entirely and jumps 3.12 -> 3.14 at the 3.23/3.24 boundary.
+          So prowler accepting py3.13 unblocked nothing — this alert previously fired on
+          that condition (issue #295) and then stayed latched true forever, which is why
+          it now tests for py3.14.
 
           ## Unblock steps
 
-          1. **Update `Dockerfile`**: bump `alpine:3.20` to a newer release that ships
-             Python 3.13+ and update the digest pin.
-          2. **Update `ARG PROWLER_VERSION`**: set to the new prowler release that
-             declares the wider Python support.
-          3. **Update `.github/dependabot.yml`**: remove or loosen the
-             `ignore: versions: [">=3.21"]` rule for the alpine docker dependency.
-          4. **Update MEMORY.md**: mark the `[Prowler unpinned version drift]` and
-             `[Dockerfile python-version brittle]` backlog items as resolved.
-          5. Run `docker build` + CI to validate the new combination before merging.
+          1. **Re-measure first.** Run
+             `docker run --rm alpine:3.24 sh -c 'apk add --no-cache python3 >/dev/null 2>&1; python3 --version'`
+             and confirm the Python it ships is inside `{rp}`. Do not infer it.
+          2. **Update `Dockerfile`**: bump both `FROM alpine:3.20@sha256:...` lines to the
+             new minor WITH its digest, and bump `ARG PROWLER_VERSION` to the release that
+             declares the wider support.
+          3. **Update `scanner/tests/test_ci_dockerfile_base_pinned.py`**: it asserts
+             `alpine:3.20@sha256:` explicitly, so the bump trips it by design.
+          4. **Update `.github/dependabot.yml`**: loosen the `alpine` `update-types` ignore
+             only if a bump can no longer cross prowler's ceiling. Dependabot cannot tell a
+             safe minor from the one that crosses it, so keeping the ignore and bumping by
+             hand stays the safer posture.
+          5. **Bump `TARGET_PY_MINOR`** in `scripts/check-prowler-python-ceiling.sh` to the
+             Python minor of the *next* alpine line, or this alert latches true again.
+          6. **Verify by building, not by reading**: `docker build -t claudesec:verify .`,
+             then `docker run --rm --entrypoint sh claudesec:verify -c 'prowler --version'`
+             (it must RUN, not merely install), `bash scanner/tests/test_prowler_provider_build_parity.sh`,
+             and check the image against the 600 MB gate in `dashboard-regression-check`.
 
           ## References
 
-          - Dockerfile pin comment: `prowler requires Python >=3.10,<3.13`
-          - Dependabot alpine ignore: `.github/dependabot.yml`
-          - MEMORY.md: `[Prowler unpinned version drift]` and `[Dockerfile python-version brittle]`
+          - `Dockerfile` — the measured alpine/Python table lives in the pin comment
+          - `.github/dependabot.yml` — alpine `update-types` ignore and its rationale
+          - `scripts/check-prowler-python-ceiling.sh` — `TARGET_PY_MINOR`
+          - PR #220 — alpine 3.20->3.24 built green and prowler was broken at runtime
           """)
           with open("/tmp/issue-body.md", "w") as f:
               f.write(body)

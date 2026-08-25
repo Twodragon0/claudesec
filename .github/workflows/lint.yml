@@ -499,6 +499,11 @@ jobs:
         run: bash scanner/tests/test_kubectl_ensure_access.sh
       - name: Run bash unit tests (output.sh coverage paths)
         run: bash scanner/tests/test_output_coverage.sh
+      # Registered EXPLICITLY because this job runs a curated list, not a glob —
+      # only `scanner-shell-coverage` globs `test_*.sh`. A new shell test left off
+      # this list runs under kcov and nowhere else, so it never gates a merge.
+      - name: Run bash unit tests (dashboard generator stderr surfacing)
+        run: bash scanner/tests/test_output_dashboard_gen_stderr.sh
       - name: Run bash unit tests (output_prowler.sh severity counts)
         run: bash scanner/tests/test_output_prowler_severity.sh
       - name: Run bash unit tests (print_summary format_duration)
