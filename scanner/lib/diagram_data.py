@@ -55,18 +55,46 @@ def _parse_ocsf_json(content):
 
 
 def load_prowler_files(prowler_dir):
+    """`{provider: findings}` for every provider whose OCSF file was READ.
+
+    Second implementation of the invariant `dashboard_data_loader
+    ._load_single_prowler_file` carries, and it used to violate it. The keys are
+    this module's "these providers were scanned" claim: `aggregate_scan_data`
+    turns them into `prowler_providers` plus a `{"fail": n, "total": n}` summary,
+    so mapping an unread file to `[]` rendered it as `0/0` — a clean bill of
+    health for evidence that never decoded. Omit instead, exactly as #471 did on
+    the dashboard path and as `prowler_compliance_summary._read_findings` has
+    always done by adding the provider only after the parse succeeds.
+
+    `errors="replace"` is the recovery half. Without an explicit encoding
+    `open()` used the locale default, so under a C/POSIX locale any non-ASCII
+    byte in a cloud resource tag, owner or description cost the whole provider;
+    the replacement character can only corrupt the one string literal it lands
+    in, and `_parse_ocsf_json`'s `raw_decode` resync already tolerates that.
+
+    A file that reads but holds no record is the third case: an empty document
+    is a real, clean scan and keeps its provider, while garbage does not.
+    """
     providers = {}
     if not os.path.isdir(prowler_dir):
         return providers
     for fpath in sorted(glob.glob(os.path.join(prowler_dir, "prowler-*.ocsf.json"))):
         name = Path(fpath).stem.replace(".ocsf", "").replace("prowler-", "")
         try:
-            with open(fpath) as f:
+            with open(fpath, encoding="utf-8", errors="replace") as f:
                 content = f.read().strip()
-            items = _parse_ocsf_json(content)
-            providers[name] = items
         except Exception:
-            providers[name] = []
+            continue
+        items = _parse_ocsf_json(content)
+        if not items and content:
+            # Decided by asking whether the text is valid JSON at all, NOT by
+            # comparing it against a list of empty spellings — `"[ ]"` is legal,
+            # empty JSON and must not be misread as garbage (ADR-001 §5).
+            try:
+                json.loads(content)
+            except ValueError:
+                continue
+        providers[name] = items
     return providers
 
 

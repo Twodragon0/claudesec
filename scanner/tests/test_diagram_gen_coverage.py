@@ -2,7 +2,7 @@
 Targeted coverage tests for scanner/lib/diagram-gen.py.
 
 Covers the specific missing lines identified by --cov-report=term-missing:
-  73-74    — except Exception: providers[name] = [] in load_prowler_files
+  the except in load_prowler_files (unreadable file → provider dropped)
   159-182  — drawio_cell called with vertex=False (edge mode), source/target args
   292-293  — prowler_list non-empty branch in generate_scan_flow_diagram
   469      — targets = [] guard when report["targets"] is not a list
@@ -56,17 +56,24 @@ def _agg(**overrides):
 
 
 # ===========================================================================
-# Lines 73-74 — load_prowler_files: except Exception → providers[name] = []
+# load_prowler_files: except Exception → the provider is DROPPED, not emptied
 # ===========================================================================
 
 
 class TestLoadProwlerFilesExceptionFallback(unittest.TestCase):
     """
-    When a prowler OCSF file exists but open() raises, the except on
-    lines 73-74 must execute and set providers[name] to [].
+    When a prowler OCSF file exists but open() raises, the except must drop the
+    provider entirely.
+
+    This previously asserted `providers["aws"] == []`. That pinned the bug: the
+    keys are the "this provider was scanned" claim that `aggregate_scan_data`
+    turns into `prowler_providers` and a `{"fail": 0, "total": 0}` summary, so an
+    unreadable file was laundered into a clean bill of health. Same invariant
+    `dashboard_data_loader` carries since #471, and the reason `errors="replace"`
+    is now on the read.
     """
 
-    def test_oserror_on_open_sets_provider_to_empty_list(self):
+    def test_oserror_on_open_drops_the_provider(self):
         with tempfile.TemporaryDirectory() as d:
             fpath = os.path.join(d, "prowler-aws.ocsf.json")
             with open(fpath, "w") as f:
@@ -82,8 +89,7 @@ class TestLoadProwlerFilesExceptionFallback(unittest.TestCase):
             with patch("builtins.open", side_effect=_raise_on_ocsf):
                 providers = MOD.load_prowler_files(d)
 
-        self.assertIn("aws", providers)
-        self.assertEqual(providers["aws"], [])
+        self.assertNotIn("aws", providers)
 
 
 # ===========================================================================
