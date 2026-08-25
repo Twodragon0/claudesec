@@ -1,6 +1,13 @@
 """Regression guard: `scanned_providers` may only ever name a provider whose
 Prowler evidence file actually decoded.
 
+TWO IMPLEMENTATIONS, TWO DOORS. `dashboard_data_loader.load_prowler_files` and
+`diagram_data.load_prowler_files` are independent copies of the same loader.
+#471 fixed only the first, so this guard covered only the first — and the
+diagram copy kept mapping an unread file to `[]` until 2026-08-25. Both are
+asserted here now; adding a third copy without a class in this file is the
+regression this paragraph exists to prevent.
+
 THE INVARIANT. `load_prowler_files`' keys are not a convenience — `dashboard-gen.py`
 passes them verbatim as `map_compliance(all_findings, scanned_providers=set(providers))`,
 where the #455 gate uses them to decide whether a control had evidence it could
@@ -55,6 +62,7 @@ by `test_sibling_file_failure_keeps_the_readable_findings` so the trade-off is
 pinned rather than assumed.
 """
 
+import glob
 import json
 import os
 import sys
@@ -62,11 +70,13 @@ import tempfile
 import unittest
 import warnings
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "scanner" / "lib"))
 
 import dashboard_data_loader as loader  # noqa: E402
+import diagram_data  # noqa: E402
 
 
 def _finding(check="iam_user_mfa_enabled"):
@@ -319,6 +329,94 @@ class TestGuardFailsAgainstTheOldBehaviour(unittest.TestCase):
             self.assertEqual(got.get("aws"), [], "pre-fix behaviour not reproduced")
         finally:
             loader._load_single_prowler_file = original
+
+
+class TestDiagramDataCarriesTheSameInvariant(unittest.TestCase):
+    """The SECOND implementation. `diagram_data.load_prowler_files` is a separate
+    copy of the same loader and it violated the invariant for as long as the
+    dashboard one did — #471 fixed only `dashboard_data_loader`, so this file
+    guarded one of the two doors.
+
+    The claim here is narrower but the same shape: these keys become
+    `aggregate_scan_data`'s `prowler_providers`, and every key also gets a
+    `prowler_summary[prov] = {"fail": n, "total": n}` entry. Mapping an unread
+    file to `[]` therefore drew the provider on the architecture diagram as
+    `0 fail / 0 total` — scanned and clean — on evidence that never decoded.
+    There is no `match_source` to launder here, which is why this is the milder
+    half; it is still a claim the repository cannot support.
+    """
+
+    def test_module_is_importable(self):
+        """Canary — see `test_loader_is_importable`."""
+        self.assertTrue(hasattr(diagram_data, "load_prowler_files"))
+
+    def test_unreadable_file_is_not_claimed_as_scanned(self):
+        with tempfile.TemporaryDirectory() as d:
+            fpath = _write(d, "prowler-aws.ocsf.json", json.dumps([_finding()]))
+            real_open = open
+
+            def _raise_on_ocsf(path, *args, **kwargs):
+                if str(path) == str(fpath):
+                    raise OSError("permission denied")
+                return real_open(path, *args, **kwargs)
+
+            with patch("builtins.open", side_effect=_raise_on_ocsf):
+                got = diagram_data.load_prowler_files(d)
+        self.assertNotIn("aws", got)
+
+    def test_garbage_is_not_claimed_as_scanned(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(d, "prowler-aws.ocsf.json", "NOT JSON{{{")
+            got = diagram_data.load_prowler_files(d)
+        self.assertNotIn("aws", got)
+
+    def test_non_utf8_byte_recovers_every_finding(self):
+        """The recovery half. 50 findings, one 0x80 spliced in — delta must be 0,
+        not merely non-empty, or `errors="replace"` could silently drop records
+        and still pass."""
+        payload = bytearray(json.dumps([_finding() for _ in range(50)]).encode())
+        payload[200:200] = b"\x80"
+        with tempfile.TemporaryDirectory() as d:
+            _write(d, "prowler-aws.ocsf.json", bytes(payload))
+            got = diagram_data.load_prowler_files(d)
+        self.assertEqual(len(got.get("aws", [])), 50)
+
+    def test_empty_file_still_counts_as_scanned(self):
+        """DIRECTION check. Over-correcting here would stop drawing every clean
+        provider. `[ ]` is legal, empty JSON and must not read as garbage."""
+        for spelling in ("[]", "[ ]", "\n[]\n"):
+            with self.subTest(spelling=spelling):
+                with tempfile.TemporaryDirectory() as d:
+                    _write(d, "prowler-aws.ocsf.json", spelling)
+                    got = diagram_data.load_prowler_files(d)
+                self.assertIn("aws", got)
+                self.assertEqual(got["aws"], [])
+
+    def test_pre_fix_diagram_loader_reproduces_the_defect(self):
+        """Non-vacuity (ADR-001 §4) — verbatim shape of the code before this
+        change, proving the three assertions above actually fire."""
+        def _pre_fix(prowler_dir):
+            providers = {}
+            for fpath in sorted(
+                glob.glob(os.path.join(prowler_dir, "prowler-*.ocsf.json"))
+            ):
+                name = Path(fpath).stem.replace(".ocsf", "").replace("prowler-", "")
+                try:
+                    with open(fpath) as f:
+                        providers[name] = diagram_data._parse_ocsf_json(f.read().strip())
+                except Exception:
+                    providers[name] = []
+            return providers
+
+        with tempfile.TemporaryDirectory() as d:
+            _write(d, "prowler-aws.ocsf.json", "NOT JSON{{{")
+            got = _pre_fix(d)
+        self.assertEqual(
+            got.get("aws"),
+            [],
+            "the pre-fix diagram loader no longer reproduces the defect, so the "
+            "assertions in this class prove nothing — re-derive them",
+        )
 
 
 if __name__ == "__main__":

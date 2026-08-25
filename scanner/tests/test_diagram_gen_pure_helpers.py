@@ -239,14 +239,16 @@ def test_load_prowler_files_provider_name_strips_prefix_and_suffix(tmp_path):
     assert list(providers.keys()) == ["gcp"]
 
 
-def test_load_prowler_files_unreadable_file_becomes_empty(tmp_path):
-    # Write invalid content — _parse_ocsf_json returns [] and the
-    # provider entry should become [].
+def test_load_prowler_files_garbage_file_is_not_claimed_as_scanned(tmp_path):
+    # Was `assert providers.get("bad") == []`, which pinned the false-PASS: the
+    # keys are the "this provider was scanned" claim, so an entry that never
+    # decoded rendered as `{"fail": 0, "total": 0}` — a clean bill of health for
+    # evidence that does not exist. Garbage must drop the provider instead.
     (tmp_path / "prowler-bad.ocsf.json").write_text(
         "xxx not json xxx", encoding="utf-8"
     )
     providers = MOD.load_prowler_files(str(tmp_path))
-    assert providers.get("bad") == []
+    assert "bad" not in providers
 
 
 # ===========================================================================
