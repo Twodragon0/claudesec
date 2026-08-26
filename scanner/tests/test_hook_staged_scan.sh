@@ -620,6 +620,59 @@ assert_exit "secret-check: fetched-then-undecodable gets damaged-store advice" \
 assert_exit "pii-check: fetched-then-undecodable gets damaged-store advice" \
   "1:corrupt-advice" "$(run_staged_fetched_then_undecodable "$PII_HOOK")"
 
+# --- the hooks must not flag THEMSELVES, and must still flag the real thing ----
+# These live here rather than in a new file because they are properties of the
+# same two hooks and a separate file would need its own lint.yml registration and
+# fixtures for no extra signal. `secret-check.sh` used to match its own
+# private-key rule, so anyone pointing the hook at a tree containing it got a
+# permanent false positive — which is why this repo has a `pii-check` CI job and
+# no matching secret-check one. Both directions are pinned, because the cheap
+# wrong "fix" for self-detection is to delete the rule.
+#
+# Third time paying for this: naming the two halves of that rule adjacently in
+# PROSE reintroduces it. It has now bitten the hook's own comment, its variable
+# name, and this comment. Refer to it as "the private-key rule".
+for _hook_a in "$SECRET_HOOK" "$PII_HOOK"; do
+  for _hook_b in "$SECRET_HOOK" "$PII_HOOK"; do
+    _rc=0
+    bash "$_hook_a" "$_hook_b" >/dev/null 2>&1 || _rc=$?
+    assert_exit "$(basename "$_hook_a") does not flag $(basename "$_hook_b")" 0 "$_rc"
+  done
+done
+
+# Positive control for the rule that had to be split: assembled at runtime so
+# this test file does not carry the pattern either.
+_pk_fixture="$(mktemp "${TMPDIR:-/tmp}/claudesec-pk.XXXXXX")"
+printf -- '-----%s RSA PRIVATE KEY-----\nMIIabcdef\n' "BEGIN" >"$_pk_fixture"
+_rc=0
+bash "$SECRET_HOOK" "$_pk_fixture" >/dev/null 2>&1 || _rc=$?
+assert_exit "secret-check still detects a real private-key header" 1 "$_rc"
+rm -f "$_pk_fixture"
+
+# SKIP_PATTERNS path-component anchoring: a repo-ROOT node_modules/ was not
+# skipped because the pattern required a leading slash.
+# Each hook gets content ITS OWN rules detect. The first version of this fed the
+# AWS key to pii-check, which has no rule for it, so that assertion passed with
+# the anchor reverted — a vacuous assertion, caught by mutating the anchor.
+_nm_dir="$REPO/node_modules"
+mkdir -p "$_nm_dir"
+printf '%s\n' "$SECRET_BAD" >"$_nm_dir/s.js"
+printf '%s\n' "$PII_BAD" >"$_nm_dir/p.js"
+_rc=0
+(cd "$REPO" && bash "$SECRET_HOOK" node_modules/s.js) >/dev/null 2>&1 || _rc=$?
+assert_exit "secret-check skips a repo-root node_modules/ path" 0 "$_rc"
+_rc=0
+(cd "$REPO" && bash "$PII_HOOK" node_modules/p.js) >/dev/null 2>&1 || _rc=$?
+assert_exit "pii-check skips a repo-root node_modules/ path" 0 "$_rc"
+# ...and the anchor must not swallow a lookalike directory.
+_lk_dir="$REPO/my_node_modules"
+mkdir -p "$_lk_dir"
+printf '%s\n' "$SECRET_BAD" >"$_lk_dir/x.js"
+_rc=0
+(cd "$REPO" && bash "$SECRET_HOOK" my_node_modules/x.js) >/dev/null 2>&1 || _rc=$?
+assert_exit "secret-check still scans my_node_modules/ (anchor is not a substring)" 1 "$_rc"
+rm -rf "$_nm_dir" "$_lk_dir"
+
 echo ""
 echo "Passed: $TEST_PASSED  Failed: $TEST_FAILED"
 [[ "$TEST_FAILED" -eq 0 ]]

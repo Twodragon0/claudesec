@@ -11,7 +11,12 @@ RED='\033[0;31m'
 YELLOW='\033[0;33m'
 NC='\033[0m'
 
-SKIP_PATTERNS="(\.lock$|\.svg$|\.png$|\.jpg$|\.woff$|/node_modules/|/\.git/)"
+# Path-component alternatives are anchored with `(^|/)`: the enumeration in
+# staged mode yields REPO-ROOT-RELATIVE paths with no leading slash, so plain
+# `/node_modules/` matched `a/node_modules/x.js` but NOT a repo-root
+# `node_modules/x.js`. `(^|/)` matches both and still rejects
+# `my_node_modules/` (verified).
+SKIP_PATTERNS="(\.lock$|\.svg$|\.png$|\.jpg$|\.woff$|(^|/)node_modules/|(^|/)\.git/)"
 FOUND=0
 
 # Write the staged blob for OID $1 into $_blob. Non-zero when it cannot.

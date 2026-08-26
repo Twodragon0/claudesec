@@ -10,7 +10,16 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 # Files to skip
-SKIP_PATTERNS="(\.lock$|\.svg$|\.png$|\.jpg$|\.woff$|/node_modules/|/\.git/)"
+# Path-component alternatives are anchored with `(^|/)`: the enumeration in
+# staged mode yields REPO-ROOT-RELATIVE paths with no leading slash, so plain
+# `/node_modules/` matched `a/node_modules/x.js` but NOT a repo-root
+# `node_modules/x.js`. `(^|/)` matches both and still rejects
+# `my_node_modules/` (verified).
+SKIP_PATTERNS="(\.lock$|\.svg$|\.png$|\.jpg$|\.woff$|(^|/)node_modules/|(^|/)\.git/)"
+
+# Fragment for the private-key rule below — see the comment there. The name
+# deliberately does NOT contain the fragment, or the use site would match again.
+_PK_HEAD="BEGIN"
 
 FOUND=0
 
@@ -98,8 +107,17 @@ scan_file() {
     FOUND=$((FOUND + 1))
   fi
 
-  # Private keys
-  if grep -q "BEGIN.*PRIVATE KEY" "$content" 2>/dev/null; then
+  # Private keys. The pattern is ASSEMBLED from `$_PK_HEAD` so that no single
+  # line of this file carries both halves of it — grep is line-based, so the
+  # literal form matched THIS FILE and made secret-check.sh report itself. That
+  # was a permanent false positive for anyone pointing the hook at a tree
+  # containing it, and the reason this repo has a `pii-check` CI job and no
+  # matching secret-check one.
+  #
+  # Two traps, both hit while fixing it: the explanatory comment must not spell
+  # the pattern out either, and the variable NAME must not contain the fragment
+  # (`_PK_BEGIN` put it back on the use line).
+  if grep -q "${_PK_HEAD}.*PRIVATE KEY" "$content" 2>/dev/null; then
     echo -e "${RED}[SECRET]${NC} Private key in: $file"
     FOUND=$((FOUND + 1))
   fi
