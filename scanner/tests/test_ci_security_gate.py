@@ -38,6 +38,7 @@ No network, no subprocess. Runs under pytest (CI) and `python3 -m unittest`.
 Does not import scanner/lib, so it does not affect the measured coverage gate.
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -280,43 +281,98 @@ class TestDastFullScanSchedule(unittest.TestCase):
             "failure (parallels the dast-baseline pull_request guard).",
         )
 
-    def test_unset_target_is_surfaced_not_silently_skipped(self):
-        # Keeping the `schedule:` trigger is NOT enough: the scan job is gated on
-        # `vars.DAST_TARGET_URL != ''`, so with the variable unset the job is
-        # SKIPPED and the workflow conclusion is a clean `skipped`. Measured
-        # 2026-08-06: 42 consecutive nightly runs reported `skipped` after the
-        # variable was unset around 2026-06-25 — six weeks of ZERO automated DAST,
-        # with no red build anywhere, while the workflow name still promised
-        # nightly coverage. Actions has no `neutral` conclusion for a regular job,
-        # so the only honest signal is an artifact.
-        #
-        # Direction: PRESENCE of the escalation path. Scanned comment-stripped so a
-        # `#`-parked notice job cannot satisfy it (inert-guard class, ADR-001 §2).
+    def test_nightly_cannot_be_gated_into_silence(self):
+        """The scan must not be gated on a repo variable, and its target must not
+        depend on one being set.
+
+        HISTORY, and why the invariant moved (#399, 2026-08-26). The job used to
+        carry `if: … || vars.DAST_TARGET_URL != ''`. With the variable unset it
+        was SKIPPED, the workflow conclusion was a clean `skipped`, and nothing
+        was red — measured 2026-08-06: 42 consecutive nightly runs reported
+        `skipped` after the variable was unset around 2026-06-25, six weeks of
+        ZERO automated DAST, with `gh api .../actions/variables` returning
+        total_count: 0. Actions has no `neutral` conclusion for a regular job.
+
+        The previous version of this guard required a `coverage-notice` job to
+        make that state visible. The state is now impossible instead: the nightly
+        scans this repo's own dashboard container, so there is nothing to
+        configure and nothing to skip. A notice about a missing variable would
+        report "not running" on every night the scan ran fine, so requiring one
+        would now be requiring a lie.
+
+        Direction: ABSENCE of the configuration dependency. Re-adding a `vars.`
+        gate, or making the target read a variable, trips this.
+        """
         active = "\n".join(
             strip_inline_comment(ln)
             for ln in self.text.splitlines()
             if not ln.lstrip().startswith("#")
         )
-        self.assertRegex(
+        self.assertNotIn(
+            "vars.DAST_TARGET_URL",
             active,
-            r"(?m)^\s*coverage-notice\s*:",
-            "dast-full-scan.yml lost its `coverage-notice` job. Without it, an unset "
-            "DAST_TARGET_URL makes the nightly scan skip SILENTLY (clean `skipped`, "
-            "no red build) while the workflow still advertises nightly coverage. If "
-            "nightly DAST is intentionally paused, rename the workflow and drop the "
-            "claim in the same change — then update this guard.",
+            "dast-full-scan.yml reads `vars.DAST_TARGET_URL` again. That is the "
+            "construct that made 42 consecutive nightly runs report a clean "
+            "`skipped`: an unset variable either skips the job or points the scan "
+            "at whatever host a stale variable names. The nightly target is the "
+            "repo's own container; an authorized external target goes through "
+            "`workflow_dispatch`.",
+        )
+        self.assertNotRegex(
+            active,
+            r"(?m)^\s*if:.*vars\.",
+            "the scan job is gated on a repo variable again — a gate whose "
+            "unset state is a clean `skipped` rather than a failure.",
+        )
+        # Bound to the `target:` LINE, not to the file. A bare
+        # `assertIn("http://localhost:11777", active)` was satisfied by the
+        # `until curl -sf http://localhost:11777/` wait loop in the container-start
+        # step, so deleting the fallback from the target expression left this
+        # green — the inert-assertion class (ADR-001 §2), found by mutating it.
+        target_lines = [
+            ln for ln in active.splitlines() if re.match(r"^\s*target:\s*", ln)
+        ]
+        self.assertEqual(
+            len(target_lines),
+            1,
+            f"expected exactly one `target:` line, found {len(target_lines)}: "
+            f"{target_lines}",
         )
         self.assertIn(
-            "issues.create",
-            active,
-            "the `coverage-notice` job no longer opens an issue — a `core.warning` "
-            "alone is invisible, which is exactly the failure mode this guards.",
+            "http://localhost:11777",
+            target_lines[0],
+            "the scan's `target:` lost its local-container fallback, so an empty "
+            "`workflow_dispatch` input has nothing to scan and the nightly is back "
+            f"to depending on configuration. Line: {target_lines[0].strip()}",
         )
         self.assertIn(
-            "DAST_TARGET_URL",
+            "docker compose up -d dashboard",
             active,
-            "the notice job must read DAST_TARGET_URL to know whether coverage is "
-            "live; without it the notice cannot self-heal when the target returns.",
+            "nothing starts the container the scan targets, so the nightly would "
+            "scan a closed port and report a clean run.",
+        )
+
+    def test_external_target_input_is_not_required(self):
+        """`workflow_dispatch` must accept an EMPTY target.
+
+        `required: true` on the input would force every manual run to name an
+        external host — the opposite of the #399 decision, and the shape that
+        makes someone paste in a host they are not authorized to scan
+        (NIST SP 800-115). Empty means the local container.
+        """
+        active = "\n".join(
+            strip_inline_comment(ln)
+            for ln in self.text.splitlines()
+            if not ln.lstrip().startswith("#")
+        )
+        idx = active.find("target_url:")
+        self.assertNotEqual(idx, -1, "the `target_url` input is gone")
+        block = active[idx : idx + 400]
+        self.assertNotRegex(
+            block,
+            r"(?m)^\s*required:\s*true",
+            "`target_url` is `required: true` again, so a manual run cannot scan "
+            "the local container and must name an external host.",
         )
 
 

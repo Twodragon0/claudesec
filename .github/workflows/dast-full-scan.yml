@@ -6,8 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       target_url:
-        description: "Target URL for DAST scan (no default — supply a real, authorized target)"
-        required: true
+        description: >-
+          Optional. An authorized external target. LEAVE EMPTY to scan this
+          repo's own dashboard container, which is what the nightly run does.
+          Pointing an ACTIVE scan at infrastructure you do not own requires
+          documented authorization (NIST SP 800-115); never a third party, never
+          production.
+        required: false
 
 permissions:
   contents: read
@@ -18,138 +23,73 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # NOTE ON THE REMOVED `coverage-notice` JOB (#399, 2026-08-26)
   # ---------------------------------------------------------------------------
-  # Job: coverage-notice
-  # The scan below is gated on the DAST_TARGET_URL repo variable. When that
-  # variable is unset the job is SKIPPED, the workflow conclusion is a clean
-  # `skipped`, and nothing anywhere is red — so "DAST Full Scan (Nightly)" can
-  # promise coverage it is not delivering, indefinitely and invisibly.
+  # The scan used to be gated on the `DAST_TARGET_URL` repo variable. With the
+  # variable unset the job was SKIPPED, the workflow conclusion was a clean
+  # `skipped`, and nothing was red — so this workflow promised nightly coverage
+  # it was not delivering. Measured 2026-08-06: 42 consecutive nightly runs
+  # reported `skipped` after the variable was unset around 2026-06-25, i.e. six
+  # weeks of ZERO automated DAST, with `gh api .../actions/variables` returning
+  # total_count: 0. `coverage-notice` existed to make that state visible without
+  # deciding the underlying question.
   #
-  # Measured (2026-08-06): 42 consecutive nightly runs reported `skipped` after
-  # the variable was unset around 2026-06-25, i.e. ZERO automated DAST for six
-  # weeks, with `gh api .../actions/variables` returning total_count: 0.
+  # The question is now decided: the nightly scans THIS REPO'S OWN dashboard
+  # container, the same target `dast-baseline.yml` already uses on pull requests.
+  # So the gate is gone, the run cannot skip, and a notice about a missing
+  # variable would be actively wrong — it would report "not running" on every
+  # night the scan ran fine.
   #
-  # This job makes that state VISIBLE without deciding the underlying question
-  # (restore a real authorized target, or drop the nightly claim). Same pattern
-  # and rationale as protection-drift-watch.yml (#396): Actions has no `neutral`
-  # conclusion for a regular job, so the honest signal is an artifact, and a
-  # notifier that fails daily forever is fatigue rather than signal.
+  # What this deliberately does NOT do is restore an external target. An active
+  # full scan against a host you do not own needs documented authorization
+  # (NIST SP 800-115), and the placeholder-host incident (#283) is what a default
+  # target buys. `workflow_dispatch` still accepts one for an authorized run.
+  #
+  # HONEST LIMIT: the nightly now scans a static page served by the repo's own
+  # nginx, which `dast-baseline.yml` already scans per PR. The added signal is the
+  # active-attack ruleset over the same surface, not new surface. That is a real
+  # reduction in claimed coverage versus scanning a live staging deployment —
+  # traded for a run that actually happens and cannot scan someone else's host.
+  #
+  # The invariant that replaced the notice job is pinned by
+  # `scanner/tests/test_ci_security_gate.py`: this job must not be gated on a
+  # repo variable, and the target must fall back to the local container.
   # ---------------------------------------------------------------------------
-  coverage-notice:
-    runs-on: ubuntu-latest
-    # Schedule only: a manual workflow_dispatch always supplies its own URL, so
-    # there is no coverage gap to report.
-    if: github.event_name == 'schedule'
-    permissions:
-      contents: read
-      issues: write
-    steps:
-      - name: Open or close the "nightly DAST not running" issue
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
-        env:
-          # Read through env, never interpolated into a script body.
-          DAST_TARGET_URL: ${{ vars.DAST_TARGET_URL }}
-        with:
-          script: |
-            const TITLE =
-              '[DAST] Nightly full scan is NOT running (DAST_TARGET_URL unset)';
-            const target = (process.env.DAST_TARGET_URL || '').trim();
-            const runUrl =
-              `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}` +
-              `/actions/runs/${context.runId}`;
-
-            // Match by exact title so the separate findings tracker
-            // ('[DAST] Full Scan — open critical/high findings') is never touched.
-            const existing = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'all',
-              labels: 'dast',
-              per_page: 100,
-            });
-            const notice = existing.data.find((i) => i.title === TITLE);
-
-            if (target) {
-              core.info('DAST_TARGET_URL is set — nightly coverage is live.');
-              if (notice && notice.state === 'open') {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: notice.number,
-                  body: `DAST_TARGET_URL is configured again — nightly coverage restored as of ${runUrl}. Closing automatically.`,
-                });
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: notice.number,
-                  state: 'closed',
-                  state_reason: 'completed',
-                });
-              }
-              return;
-            }
-
-            const body =
-              `The scheduled **DAST Full Scan (Nightly)** workflow ran, but the scan job was\n` +
-              `SKIPPED: the \`DAST_TARGET_URL\` repository variable is not set, so no target\n` +
-              `was scanned. The workflow conclusion is a clean \`skipped\`, which is why this\n` +
-              `has produced no red build and no notification.\n\n` +
-              `GitHub Actions has no \`neutral\` conclusion for a regular job, so a gated-off\n` +
-              `scan looks identical to a healthy one. This issue exists so the gap is visible.\n\n` +
-              `### Two valid resolutions — this is a product decision\n\n` +
-              `1. **Restore coverage.** Set \`DAST_TARGET_URL\` to a target you are\n` +
-              `   **explicitly authorized to scan**. Never point it at third-party\n` +
-              `   infrastructure. The next scheduled run closes this issue automatically.\n` +
-              `2. **Drop the claim.** If nightly DAST is intentionally paused, rename the\n` +
-              `   workflow and update its header so it no longer promises nightly coverage,\n` +
-              `   and remove this notice job in the same change.\n\n` +
-              `Either is fine. Leaving it as-is is not: the workflow currently advertises\n` +
-              `coverage that does not exist.\n\n` +
-              `_Run: ${runUrl}_`;
-
-            if (notice) {
-              if (notice.state === 'closed') {
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: notice.number,
-                  state: 'open',
-                });
-              }
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: notice.number,
-                body,
-              });
-              core.warning(`Nightly DAST is not running — updated issue #${notice.number}.`);
-            } else {
-              const created = await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: TITLE,
-                labels: ['security', 'dast'],
-                body,
-              });
-              core.warning(`Nightly DAST is not running — opened issue #${created.data.number}.`);
-            }
-
   dast-full:
     runs-on: ubuntu-latest
+    # `environment: staging` is kept for the workflow_dispatch-with-external-target
+    # path, which is the only one that touches a real deployment. It has ZERO
+    # protection rules today (verified via `gh api .../environments`), so it does
+    # not gate the nightly. If reviewers are ever added to it, the nightly
+    # localhost scan starts waiting for approval — decide that deliberately.
     environment: staging
-    # Skip the nightly run unless a real target is configured. Manual
-    # workflow_dispatch always runs (the caller supplies an explicit URL);
-    # the schedule only runs when the repo variable DAST_TARGET_URL is set,
-    # so we never waste a nightly scan on a placeholder host.
-    #
-    # NOTE: when this skips on a schedule, `coverage-notice` above is what makes
-    # the gap visible — do not remove one without the other.
-    if: >-
-      github.event_name == 'workflow_dispatch' || vars.DAST_TARGET_URL != ''
+    # DELIBERATELY UNGATED. A repo-variable gate is what made 42 consecutive
+    # nightly runs report a clean `skipped`; see the note above the job.
 
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # The three steps below run only for the local target. Same shape as
+      # dast-baseline.yml: the dashboard is static, so placeholder files are
+      # enough to give nginx something to serve.
+      - name: Generate dashboard files for mount
+        if: github.event.inputs.target_url == ''
+        run: |
+          echo '<!DOCTYPE html><html><body>DAST target</body></html>' > claudesec-asset-dashboard-live.html
+          echo '<!DOCTYPE html><html><body>DAST scan dashboard</body></html>' > claudesec-dashboard.html
+          echo '{}' > scan-report.json
+          mkdir -p .claudesec-assets
+
+      - name: Start application (docker-compose)
+        if: github.event.inputs.target_url == ''
+        run: |
+          docker compose up -d dashboard
+          timeout 60 bash -c 'until curl -sf http://localhost:11777/; do sleep 2; done'
+
+      - name: Prepare workspace for ZAP
+        if: github.event.inputs.target_url == ''
+        run: chmod -R a+w .
 
       - name: ZAP Full Scan
         # VERDICT SUPPRESSED — WHAT IT HIDES: `continue-on-error` stops a ZAP
@@ -164,7 +104,12 @@ jobs:
         id: zap
         continue-on-error: true
         with:
-          target: ${{ github.event.inputs.target_url || vars.DAST_TARGET_URL }}
+          # No repo variable and no placeholder host: an empty input means the
+          # local container, which is always there. `vars.DAST_TARGET_URL` is
+          # deliberately NOT read — reading it would restore the gate's failure
+          # mode by the back door (a stale variable silently redirecting the
+          # nightly at whatever host it names).
+          target: ${{ github.event.inputs.target_url || 'http://localhost:11777' }}
           rules_file_name: ".zap/rules.tsv"
           cmd_options: >-
             -z "-config scanner.maxScanDurationInMins=30"
@@ -268,3 +213,7 @@ jobs:
                 body,
               });
             }
+
+      - name: Teardown
+        if: always() && github.event.inputs.target_url == ''
+        run: docker compose down
