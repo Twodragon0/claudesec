@@ -1,6 +1,31 @@
 title = "ClaudeSec gitleaks config"
 
-# Custom rules for PII detection (beyond default secret patterns)
+# EXTEND, do not REPLACE. Defining `[[rules]]` without this block makes gitleaks
+# use ONLY the rules in this file and drop its entire built-in ruleset (~170
+# rules). That is what this config did until 2026-08-26, so the repo's primary
+# secret scanner was matching ten PII/vendor patterns and nothing else.
+#
+# Measured with `gitleaks dir` 8.30.1 on throwaway fixtures (fake values,
+# non-canonical shapes — the AWS documentation example key is allowlisted by
+# scanners and makes this test read clean either way):
+#
+#                                    default rules   this config BEFORE   AFTER
+#   AWS access key (AKIA + 16)           detected           MISSED       detected
+#   GitHub PAT (ghp_ + 36)               detected           MISSED       detected
+#   OPENSSH private key block            detected           MISSED       detected
+#
+# Restoring the defaults adds ZERO findings on the tracked tree (verified against
+# a `git archive HEAD` export, which is what CI's fresh checkout sees), so this
+# is coverage with no cleanup cost. The custom rules below still apply — extend
+# merges rather than overrides, verified by re-firing
+# `hardcoded-macos-user-path` with this block in place.
+#
+# Pinned by scanner/tests/test_ci_gitleaks_ruleset.py.
+[extend]
+useDefault = true
+
+# Custom rules for PII detection (beyond the default secret patterns, which the
+# block above keeps enabled)
 
 [[rules]]
 id = "hardcoded-macos-user-path"
