@@ -215,6 +215,56 @@ run_staged_no_tmpdir() {
   printf '%s' "$rc"
 }
 
+# GITLINK (submodule, mode 160000): has no blob. Pins the mode skip, which is
+# load-bearing in the OTHER direction from everything else here — dropping it
+# makes every submodule commit hit the unreadable-blob branch and be FALSELY
+# BLOCKED, and review measured the suite staying 24/24 green while it did.
+# Set up ONCE and run both hooks against the same staged gitlink: a submodule
+# cannot be re-added at the same path after removal (`.git/modules/<name>`
+# survives), and building the fixture twice also doubled the cost of the
+# slowest case in the file. Sets SUB_SECRET_RC and SUB_PII_RC.
+SUB_SECRET_RC=""
+SUB_PII_RC=""
+setup_submodule_case() {
+  local sub
+  reset_repo
+  sub="$(mktemp -d "${TMPDIR:-/tmp}/claudesec-sub.XXXXXX")"
+  git -C "$sub" init -q .
+  git -C "$sub" config user.email "test@example.com"
+  git -C "$sub" config user.name "test"
+  printf 'inner\n' >"$sub/inner.txt"
+  git -C "$sub" add inner.txt
+  git -C "$sub" commit -q -m inner --no-verify
+  # -c protocol.file.allow=always: git >=2.38 refuses file:// submodules by
+  # default (CVE-2022-39253). Local fixture, no network.
+  if ! git -C "$REPO" -c protocol.file.allow=always \
+    submodule add -q "$sub" mysub >/dev/null 2>&1; then
+    rm -rf "$sub"
+    SUB_SECRET_RC="submodule-add-unavailable"
+    SUB_PII_RC="submodule-add-unavailable"
+    return
+  fi
+  (cd "$REPO" && bash "$SECRET_HOOK" >/dev/null 2>&1)
+  SUB_SECRET_RC=$?
+  (cd "$REPO" && bash "$PII_HOOK" >/dev/null 2>&1)
+  SUB_PII_RC=$?
+  git -C "$REPO" submodule deinit -qf mysub >/dev/null 2>&1
+  git -C "$REPO" rm -qf mysub >/dev/null 2>&1
+  rm -rf "$sub" "$REPO/.gitmodules"
+  reset_repo
+}
+
+# NOT INSIDE A REPOSITORY: the enumeration would come back empty and the hook
+# would exit 0 having scanned nothing — the last fail-open in the staged path.
+run_staged_outside_repo() {
+  local hook="$1" rc dir
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/claudesec-norepo.XXXXXX")"
+  (cd "$dir" && GIT_CEILING_DIRECTORIES="$dir" bash "$hook" >/dev/null 2>&1)
+  rc=$?
+  rm -rf "$dir"
+  printf '%s' "$rc"
+}
+
 # UNREADABLE BLOB: the index references an object that is gone, so
 # `git cat-file blob <oid>` fails. The original `|| continue` skipped the file
 # silently; a file that could not be scanned must BLOCK, not pass.
@@ -308,6 +358,19 @@ assert_exit "secret-check: an unreadable staged blob fails CLOSED" 1 \
   "$(run_staged_missing_object "$SECRET_HOOK" "$SECRET_BAD")"
 assert_exit "pii-check: an unreadable staged blob fails CLOSED" 1 \
   "$(run_staged_missing_object "$PII_HOOK" "$PII_BAD")"
+
+# --- round 3: the mode skip is load-bearing in the FALSE-BLOCK direction -------
+# Review's mutation matrix: dropping the `160000|000000` skip left the suite at
+# 24/24 while false-blocking every submodule commit. These two are the only
+# assertions that can see it.
+setup_submodule_case
+assert_exit "secret-check: a staged submodule (gitlink) does not block" 0 "$SUB_SECRET_RC"
+assert_exit "pii-check: a staged submodule (gitlink) does not block" 0 "$SUB_PII_RC"
+
+assert_exit "secret-check: outside a git repository, fails CLOSED" 1 \
+  "$(run_staged_outside_repo "$SECRET_HOOK")"
+assert_exit "pii-check: outside a git repository, fails CLOSED" 1 \
+  "$(run_staged_outside_repo "$PII_HOOK")"
 
 echo ""
 echo "Passed: $TEST_PASSED  Failed: $TEST_FAILED"

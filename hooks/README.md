@@ -49,6 +49,21 @@ and a secret that exists only in an unstaged edit does not. Given file arguments
 instead, both scan those paths as-is, which is what CI and the `pre-commit`
 framework want (they hand the hook a clean tree).
 
+Two consequences of scanning the staged blob rather than the path:
+
+- A staged **symlink** is scanned as its own content, which is the *target path
+  text* — not the target's bytes. That is deliberate: committing a link does not
+  commit what it points at.
+- A staged **submodule** (gitlink) has no blob and is skipped.
+
+In staged mode both hooks **fail closed**: if the object store cannot produce a
+staged blob, if `$TMPDIR` is unwritable, or if the hook is somehow run outside a
+repository, they block the commit and say so rather than passing something they
+could not read. An absent object is never lazily fetched over the network
+(`GIT_NO_LAZY_FETCH=1`), so behaviour is the same offline and a hanging remote
+cannot hang your commit; in a partial clone, run `git fetch` to hydrate the
+object.
+
 ## Creating Custom Hooks
 
 PreToolUse hooks are commands that:

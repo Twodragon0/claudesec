@@ -14,6 +14,13 @@ SKIP_PATTERNS="(\.lock$|\.svg$|\.png$|\.jpg$|\.woff$|/node_modules/|/\.git/)"
 
 FOUND=0
 
+# True when the PATH is one we never scan. Split out of scan_file so staged mode
+# can decide BEFORE extracting a blob — otherwise a skipped 200MB .png is copied
+# into $TMPDIR only to be discarded.
+should_skip() {
+  echo "$1" | grep -qE "$SKIP_PATTERNS"
+}
+
 scan_file() {
   local file="$1"
   # Content to grep. Defaults to the path itself (argument / CI mode, where the
@@ -21,7 +28,7 @@ scan_file() {
   local content="${2:-$1}"
 
   # Skip binary and irrelevant files
-  if echo "$file" | grep -qE "$SKIP_PATTERNS"; then
+  if should_skip "$file"; then
     return
   fi
 
@@ -83,10 +90,17 @@ else
   # (000000) has no blob and is skipped by mode, explicitly rather than by a
   # failed read. Process substitution keeps FOUND in the parent shell.
   #
-  # Every remaining failure FAILS CLOSED: no temp file and no readable blob both
-  # mean "this commit was not scanned", which for a secret gate must block, not
-  # pass. An unwritable TMPDIR silently turning the gate off was the third
-  # fail-open found in review.
+  # Every remaining failure FAILS CLOSED: no repository, no temp file and no
+  # readable blob all mean "this commit was not scanned", which for a secret gate
+  # must block, not pass. An unwritable TMPDIR silently turning the gate off was
+  # the third fail-open found in review. NOTE: the mktemp guard below is defence
+  # in depth, not the only thing standing there — with `$_blob` empty the
+  # redirect fails and the unreadable-blob branch also blocks. It is kept for the
+  # clearer message.
+  if ! git rev-parse --git-dir >/dev/null 2>&1; then
+    echo -e "${RED}[SECRET]${NC} not inside a git repository — refusing to pass an unscanned commit" >&2
+    exit 1
+  fi
   _blob=$(mktemp "${TMPDIR:-/tmp}/claudesec-secret-check.XXXXXX") || {
     echo -e "${RED}[SECRET]${NC} cannot create a temp file — refusing to pass an unscanned commit" >&2
     exit 1
@@ -99,11 +113,26 @@ else
     case "$_status" in
       R* | C*) IFS= read -r -d '' file || break ;;
     esac
+    # A gitlink (submodule) and an absent/unmerged entry have no blob. Skipping
+    # them BY MODE is load-bearing: without it every submodule commit hits the
+    # unreadable-blob branch below and is FALSELY BLOCKED.
     case "$_dstmode" in
       160000 | 000000) continue ;;
     esac
-    if ! git cat-file blob "$_dstsha" >"$_blob" 2>/dev/null; then
+    # Skip decided on the PATH before extracting, so a skipped large binary is
+    # never copied into $TMPDIR at all.
+    if should_skip "$file"; then
+      continue
+    fi
+    # GIT_NO_LAZY_FETCH: in a partial clone an absent blob would otherwise make
+    # `cat-file` fetch over the NETWORK, with no timeout, from inside a
+    # pre-commit hook — a hanging remote would hang the commit, and the repo's
+    # own coding-style rule says network paths must be guarded so behaviour is
+    # offline-deterministic. Fail fast and block instead.
+    if ! GIT_NO_LAZY_FETCH=1 git cat-file blob "$_dstsha" >"$_blob" 2>/dev/null; then
       echo -e "${RED}[SECRET]${NC} cannot read the staged blob for: $file (not scanned)"
+      echo "  The object is missing locally (partial clone, or a damaged object store)."
+      echo "  Run 'git fetch' to hydrate it, or 'git commit --no-verify' if you accept the risk."
       FOUND=$((FOUND + 1))
       continue
     fi
