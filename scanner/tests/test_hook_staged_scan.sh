@@ -265,6 +265,120 @@ run_staged_outside_repo() {
   printf '%s' "$rc"
 }
 
+# PARTIAL CLONE (`--filter=blob:none`), the case that makes the local-probe /
+# bounded-fetch split load-bearing. A staged OID whose blob was never fetched is
+# legitimately non-local with NOTHING corrupted, so:
+#   - remote reachable   -> the hook must hydrate it and NOT block a clean commit
+#   - remote unreachable -> it must fail closed
+# Review found that refusing unconditionally (`GIT_NO_LAZY_FETCH=1` on the read
+# itself) false-blocked the reachable case, which is the standard large-monorepo
+# setup. Order matters: the unreachable runs go FIRST, because a successful run
+# caches the object and a later offline test would then pass for the wrong
+# reason. Transport is `file://` — local, no network.
+# Sets PC_OFFLINE_SECRET_RC / PC_OFFLINE_PII_RC / PC_ONLINE_SECRET_RC /
+# PC_ONLINE_PII_RC.
+PC_OFFLINE_SECRET_RC=""
+PC_OFFLINE_PII_RC=""
+PC_ONLINE_SECRET_RC=""
+PC_ONLINE_PII_RC=""
+setup_partial_clone_case() {
+  local src clone i
+  src="$(mktemp -d "${TMPDIR:-/tmp}/claudesec-pcsrc.XXXXXX")"
+  git -C "$src" init -q .
+  git -C "$src" config user.email "test@example.com"
+  git -C "$src" config user.name "test"
+  git -C "$src" config uploadpack.allowFilter true
+  # The OLD revision is CLEAN: "must not block" is then unambiguous.
+  printf 'old but clean\n' >"$src/h.txt"
+  git -C "$src" add h.txt
+  git -C "$src" commit -q -m v0 --no-verify
+  for i in 1 2 3; do
+    printf 'newer %s\n' "$i" >"$src/h.txt"
+    git -C "$src" add h.txt
+    git -C "$src" commit -q -m "v$i" --no-verify
+  done
+
+  clone="$(mktemp -d "${TMPDIR:-/tmp}/claudesec-pcclone.XXXXXX")"
+  rmdir "$clone"
+  if ! git clone -q --filter=blob:none --no-local "file://$src" "$clone" 2>/dev/null; then
+    rm -rf "$src"
+    PC_OFFLINE_SECRET_RC="partial-clone-unavailable"
+    PC_OFFLINE_PII_RC="partial-clone-unavailable"
+    PC_ONLINE_SECRET_RC="partial-clone-unavailable"
+    PC_ONLINE_PII_RC="partial-clone-unavailable"
+    return
+  fi
+  git -C "$clone" config user.email "test@example.com"
+  git -C "$clone" config user.name "test"
+  git -C "$clone" restore --staged --source=HEAD~3 -- h.txt
+
+  # Confirm the fixture is actually exercising an absent object; if the blob is
+  # local, both directions collapse and the assertions would be vacuous.
+  local oid
+  oid="$(git -C "$clone" rev-parse :h.txt)"
+  if GIT_NO_LAZY_FETCH=1 git -C "$clone" cat-file -e "$oid" 2>/dev/null; then
+    rm -rf "$src" "$clone"
+    PC_OFFLINE_SECRET_RC="blob-unexpectedly-local"
+    PC_OFFLINE_PII_RC="blob-unexpectedly-local"
+    PC_ONLINE_SECRET_RC="blob-unexpectedly-local"
+    PC_ONLINE_PII_RC="blob-unexpectedly-local"
+    return
+  fi
+
+  # --- unreachable FIRST (no caching side effect from a successful read) ---
+  git -C "$clone" remote set-url origin "file:///nonexistent-promisor-$$"
+  (cd "$clone" && bash "$SECRET_HOOK" >/dev/null 2>&1)
+  PC_OFFLINE_SECRET_RC=$?
+  (cd "$clone" && bash "$PII_HOOK" >/dev/null 2>&1)
+  PC_OFFLINE_PII_RC=$?
+
+  # --- now reachable ---
+  git -C "$clone" remote set-url origin "file://$src"
+  (cd "$clone" && bash "$SECRET_HOOK" >/dev/null 2>&1)
+  PC_ONLINE_SECRET_RC=$?
+  (cd "$clone" && bash "$PII_HOOK" >/dev/null 2>&1)
+  PC_ONLINE_PII_RC=$?
+
+  rm -rf "$src" "$clone"
+}
+
+# SKIP_PATTERNS was entirely unpinned across three rounds: making should_skip
+# always return false left the suite green. $2 lands in a path the patterns
+# exclude, so a detection here means the skip list stopped working.
+run_staged_skipped_path() {
+  local hook="$1" body="$2" rc
+  reset_repo
+  printf '%s\n' "$body" >"$REPO/deps.lock"
+  git -C "$REPO" add deps.lock
+  (cd "$REPO" && bash "$hook" >/dev/null 2>&1)
+  rc=$?
+  reset_repo
+  rm -f "$REPO/deps.lock"
+  printf '%s' "$rc"
+}
+
+# A SKIPPED path whose blob is missing must not block: the skip decision is made
+# on the path BEFORE extraction, so there is nothing to read and nothing to
+# report. This is the one observable difference the pre-extraction skip makes.
+run_staged_skipped_missing_object() {
+  local hook="$1" rc oid objpath
+  reset_repo
+  printf 'anything\n' >"$REPO/deps.lock"
+  git -C "$REPO" add deps.lock
+  oid="$(git -C "$REPO" rev-parse :deps.lock)"
+  objpath="$REPO/.git/objects/${oid:0:2}/${oid:2}"
+  if [ ! -f "$objpath" ]; then
+    printf 'no-loose-object'
+    return
+  fi
+  rm -f "$objpath"
+  (cd "$REPO" && bash "$hook" >/dev/null 2>&1)
+  rc=$?
+  reset_repo
+  rm -f "$REPO/deps.lock"
+  printf '%s' "$rc"
+}
+
 # UNREADABLE BLOB: the index references an object that is gone, so
 # `git cat-file blob <oid>` fails. The original `|| continue` skipped the file
 # silently; a file that could not be scanned must BLOCK, not pass.
@@ -371,6 +485,27 @@ assert_exit "secret-check: outside a git repository, fails CLOSED" 1 \
   "$(run_staged_outside_repo "$SECRET_HOOK")"
 assert_exit "pii-check: outside a git repository, fails CLOSED" 1 \
   "$(run_staged_outside_repo "$PII_HOOK")"
+
+# --- round 4: the partial-clone split, and SKIP_PATTERNS ------------------------
+# Both directions of the local-probe / bounded-fetch design. Refusing an absent
+# object outright (the round-3 shape) false-blocks the reachable case; fetching
+# unconditionally (round 2) has no bound. These four are the only assertions that
+# can tell the three designs apart.
+setup_partial_clone_case
+assert_exit "secret-check: partial clone, remote unreachable, fails CLOSED" 1 "$PC_OFFLINE_SECRET_RC"
+assert_exit "pii-check: partial clone, remote unreachable, fails CLOSED" 1 "$PC_OFFLINE_PII_RC"
+assert_exit "secret-check: partial clone, remote reachable, clean commit is NOT blocked" 0 "$PC_ONLINE_SECRET_RC"
+assert_exit "pii-check: partial clone, remote reachable, clean commit is NOT blocked" 0 "$PC_ONLINE_PII_RC"
+
+assert_exit "secret-check: a SKIP_PATTERNS path is not scanned" 0 \
+  "$(run_staged_skipped_path "$SECRET_HOOK" "$SECRET_BAD")"
+assert_exit "pii-check: a SKIP_PATTERNS path is not scanned" 0 \
+  "$(run_staged_skipped_path "$PII_HOOK" "$PII_BAD")"
+
+assert_exit "secret-check: a skipped path with a missing blob does not block" 0 \
+  "$(run_staged_skipped_missing_object "$SECRET_HOOK")"
+assert_exit "pii-check: a skipped path with a missing blob does not block" 0 \
+  "$(run_staged_skipped_missing_object "$PII_HOOK")"
 
 echo ""
 echo "Passed: $TEST_PASSED  Failed: $TEST_FAILED"

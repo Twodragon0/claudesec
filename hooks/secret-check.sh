@@ -14,6 +14,37 @@ SKIP_PATTERNS="(\.lock$|\.svg$|\.png$|\.jpg$|\.woff$|/node_modules/|/\.git/)"
 
 FOUND=0
 
+# Write the staged blob for OID $1 into $_blob. Non-zero when it cannot.
+#
+# Two-step on purpose. `GIT_NO_LAZY_FETCH=1` alone was WRONG: in a partial clone
+# or a sparse checkout an out-of-cone blob is legitimately non-local with nothing
+# corrupted, and hard-refusing it FALSE-BLOCKS a clean commit — the "gate nobody
+# can get past" shape, whose only exit is `--no-verify`, i.e. the gate off.
+# Fetching unconditionally was also wrong: a promisor fetch has no timeout, so a
+# hanging remote hangs the commit.
+#
+# So: probe locally first, and only an object that is genuinely absent is allowed
+# to go to the promisor — bounded by `timeout` where that exists. The common path
+# (every object you just staged) is provably network-free. NOTE the honest limit:
+# macOS ships neither `timeout` nor `gtimeout`, and `GIT_NO_LAZY_FETCH` predates
+# git 2.36, so on those the absent-object read is unbounded, exactly as it was
+# before this guard. The claim is "the common path never dials out", not "nothing
+# ever can".
+read_staged_blob() {
+  local oid="$1"
+  if GIT_NO_LAZY_FETCH=1 git cat-file -e "$oid" 2>/dev/null; then
+    GIT_NO_LAZY_FETCH=1 git cat-file blob "$oid" >"$_blob" 2>/dev/null
+    return
+  fi
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 30 git cat-file blob "$oid" >"$_blob" 2>/dev/null
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout 30 git cat-file blob "$oid" >"$_blob" 2>/dev/null
+  else
+    git cat-file blob "$oid" >"$_blob" 2>/dev/null
+  fi
+}
+
 # True when the PATH is one we never scan. Split out of scan_file so staged mode
 # can decide BEFORE extracting a blob — otherwise a skipped 200MB .png is copied
 # into $TMPDIR only to be discarded.
@@ -124,15 +155,11 @@ else
     if should_skip "$file"; then
       continue
     fi
-    # GIT_NO_LAZY_FETCH: in a partial clone an absent blob would otherwise make
-    # `cat-file` fetch over the NETWORK, with no timeout, from inside a
-    # pre-commit hook — a hanging remote would hang the commit, and the repo's
-    # own coding-style rule says network paths must be guarded so behaviour is
-    # offline-deterministic. Fail fast and block instead.
-    if ! GIT_NO_LAZY_FETCH=1 git cat-file blob "$_dstsha" >"$_blob" 2>/dev/null; then
+    if ! read_staged_blob "$_dstsha"; then
       echo -e "${RED}[SECRET]${NC} cannot read the staged blob for: $file (not scanned)"
-      echo "  The object is missing locally (partial clone, or a damaged object store)."
-      echo "  Run 'git fetch' to hydrate it, or 'git commit --no-verify' if you accept the risk."
+      echo "  The object is missing locally and could not be fetched."
+      echo "  'git fetch' does NOT hydrate it — the clone filter still applies."
+      echo "  Run: git cat-file -e $_dstsha   (or 'git commit --no-verify' to accept the risk)"
       FOUND=$((FOUND + 1))
       continue
     fi

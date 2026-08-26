@@ -59,10 +59,15 @@ Two consequences of scanning the staged blob rather than the path:
 In staged mode both hooks **fail closed**: if the object store cannot produce a
 staged blob, if `$TMPDIR` is unwritable, or if the hook is somehow run outside a
 repository, they block the commit and say so rather than passing something they
-could not read. An absent object is never lazily fetched over the network
-(`GIT_NO_LAZY_FETCH=1`), so behaviour is the same offline and a hanging remote
-cannot hang your commit; in a partial clone, run `git fetch` to hydrate the
-object.
+could not read.
+
+Objects are probed locally first, so the common path — everything you just
+staged — never touches the network. Only an object that is genuinely absent
+(partial clone, sparse checkout) is fetched from the promisor remote, bounded by
+`timeout` where the system provides it. If that fetch fails, the hook blocks and
+prints the object id: note that **`git fetch` does not hydrate a filtered blob**
+— the clone filter still applies — so the way to materialise it is
+`git cat-file -e <oid>`, or `git commit --no-verify` if you accept the risk.
 
 ## Creating Custom Hooks
 
