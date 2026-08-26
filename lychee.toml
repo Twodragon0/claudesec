@@ -43,6 +43,12 @@ exclude = [
   "www.npmjs.com/package/claudesec",
   #   * SK Shieldus security blog 403s to CI crawlers, fine in a browser.
   "www.skshieldus.com/blog-security/",
+  #   * SANS white papers 403 on any non-browser User-Agent — measured
+  #     2026-08-26: `curl/8` gets 403 and a desktop-Chrome UA gets 200 on the
+  #     same URL, and `https://www.sans.org/` itself 403s to curl too, so the
+  #     block is host-wide rather than a dead paper. Path-specific anyway, so a
+  #     future non-/white-papers sans.org link still gets flagged for triage.
+  "www.sans.org/white-papers/",
   # --- Template placeholders: intentionally non-real URLs in templates/ that
   #     404 by design (users substitute their own org/repo).
   "github.com/YOUR_ORG/YOUR_REPO",

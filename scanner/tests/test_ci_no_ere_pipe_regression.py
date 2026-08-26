@@ -56,6 +56,29 @@ Coverage extensions (PRs #244 → this PR)
   `_code_grep` helpers are defined in scanner/lib/checks.sh; any \\|-in-ERE
   bug introduced there would have been invisible to the #244 guard.
 
+* hooks/**/*.sh is now in the scan set (the #297 quarterly ADR-001 audit,
+  2026-08-26).  The guard covered `scanner/checks` because that is where the
+  detections live — but `hooks/pii-check.sh` and `hooks/secret-check.sh` are
+  detections too, they gate commits, and `scripts/setup.sh` installs them into
+  OTHER repositories.  17 ERE call sites sat outside the scan set, 14 of them in
+  those two files.  Verified clean at the time of the extension, so this closes a
+  blind spot rather than a live bug: a `\\|` planted in `secret-check.sh`'s
+  `(AKIA|ASIA)` rule makes it match a literal pipe, i.e. neither alternative,
+  and the secret gate then passes everything with nothing in CI going red.
+
+  Also checked and NOT a finding: `\\s` in those hooks' patterns is portable.
+  Stock `/usr/bin/grep` on macOS reports "BSD grep, GNU compatible" 2.6.0-FreeBSD
+  and treats `\\s` as whitespace — the control `TOKEN\\s*=` did NOT match
+  `TOKENsss=`, so it is not degrading to a literal `s`.
+
+* Enumeration is a FILESYSTEM walk (`rglob`), not `git ls-files`.  Deliberate:
+  `git ls-files` would need a subprocess, dropping the stdlib-only/no-subprocess
+  property this guard is built on, and the failure direction here is loud, not
+  silent — an untracked scratch `.sh` under these three roots would make the
+  suite RED locally (over-report), never green-while-defeated.  The #488 case
+  that forced `git ls-files` elsewhere was a gitignored operator script under
+  `scripts/`, which this guard does not scan.
+
 * Multi-line call detection: when a `_code_grep`, `files_contain`, or
   `file_contains` call uses a backslash line-continuation (the function name
   on line N ends with `\\`, or the pattern argument is on the next physical
@@ -76,6 +99,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKS_DIR = REPO_ROOT / "scanner" / "checks"
 LIB_DIR = REPO_ROOT / "scanner" / "lib"
+HOOKS_DIR = REPO_ROOT / "hooks"
 
 # ---------------------------------------------------------------------------
 # Allowlist of intentional \\| occurrences.
@@ -280,16 +304,30 @@ class TestScanDirectoriesExist(unittest.TestCase):
             f"No .sh files found under {LIB_DIR} -- glob assumption broke",
         )
 
+    def test_hooks_dir_exists(self):
+        self.assertTrue(
+            HOOKS_DIR.is_dir(),
+            f"hooks directory not found at {HOOKS_DIR} -- path assumption broke",
+        )
+
+    def test_hooks_dir_contains_sh_files(self):
+        sh_files = list(HOOKS_DIR.rglob("*.sh"))
+        self.assertTrue(
+            sh_files,
+            f"No .sh files found under {HOOKS_DIR} -- glob assumption broke",
+        )
+
 
 class TestNoEREPipeInChecksAndLib(unittest.TestCase):
     """
-    Scans every scanner/checks/**/*.sh AND scanner/lib/**/*.sh for \\| in an
-    ERE context.  Only the two explicitly allowlisted intentional occurrences
-    are permitted.  Any other \\| in an ERE pattern is flagged as a regression.
+    Scans every scanner/checks/**/*.sh, scanner/lib/**/*.sh AND hooks/**/*.sh
+    for \\| in an ERE context.  Only the two explicitly allowlisted intentional
+    occurrences are permitted.  Any other \\| in an ERE pattern is flagged as a
+    regression.
     """
 
     def test_no_unallowlisted_ere_pipe(self):
-        violations = _scan_dirs([CHECKS_DIR, LIB_DIR])
+        violations = _scan_dirs([CHECKS_DIR, LIB_DIR, HOOKS_DIR])
         if violations:
             lines = [
                 f"  {v[0].relative_to(REPO_ROOT)}:{v[1]}: {v[2]!r}"
@@ -441,6 +479,32 @@ class TestMutationSelfTest(unittest.TestCase):
             hits,
             "MUTATION SELF-TEST FAILED: file_contains with \\\\| in lib context "
             "should be detected but was NOT flagged.",
+        )
+
+    # --- BAD snippets: hooks/ coverage (added by the #297 audit) ---
+
+    def test_detects_ere_pipe_in_secret_detection_hook(self):
+        """
+        The shape that motivated widening the scan set: a \\| planted in
+        `hooks/secret-check.sh`'s AWS-key rule.  Under ERE that is a literal
+        pipe, so the rule would stop matching either alternative and the
+        pre-commit secret gate would pass everything, silently.
+        """
+        snippet = '  if grep -qE "(AKIA\\|ASIA)[A-Z0-9]{16}" "$content"; then'
+        hits = _scan_text_lines(snippet, "secret-check.sh")
+        self.assertTrue(
+            hits,
+            "MUTATION SELF-TEST FAILED: grep -qE with \\\\| in a detection hook "
+            "(secret-check.sh) should be detected but was NOT flagged.",
+        )
+
+    def test_detects_ere_pipe_in_pii_detection_hook(self):
+        snippet = '  if grep -qE "(SHEET_ID\\|NOTION_DB_ID)" "$content"; then'
+        hits = _scan_text_lines(snippet, "pii-check.sh")
+        self.assertTrue(
+            hits,
+            "MUTATION SELF-TEST FAILED: grep -qE with \\\\| in a detection hook "
+            "(pii-check.sh) should be detected but was NOT flagged.",
         )
 
     # --- BAD snippets: multi-line continuation (new in this PR) ---
