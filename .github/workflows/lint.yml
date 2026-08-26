@@ -455,6 +455,8 @@ jobs:
         run: bash scanner/tests/test_prowler_provider_build_parity.sh
       - name: Run bash unit tests (security-lint PreToolUse hook)
         run: bash scanner/tests/test_hook_security_lint.sh
+      - name: Run bash unit tests (secret/pii pre-commit hooks, staged-blob contract)
+        run: bash scanner/tests/test_hook_staged_scan.sh
       - name: Run bash unit tests (cloud/aws checks)
         run: bash scanner/tests/test_check_cloud_aws.sh
       - name: Run bash unit tests (infra/kubernetes checks)

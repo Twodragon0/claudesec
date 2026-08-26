@@ -11,6 +11,7 @@ description: Security hooks for Claude Code integration
 |------|---------|---------|
 | `security-lint.sh` | PreToolUse (Write/Edit) | Catches hardcoded secrets, personal absolute paths, injection patterns, insecure code |
 | `secret-check.sh` | Pre-commit | Prevents committing files containing secrets |
+| `pii-check.sh` | Pre-commit | Prevents committing personal paths, account IDs, real emails, internal IPs |
 
 ## Installation
 
@@ -39,6 +40,14 @@ Add to your project's `.claude/settings.json`:
 cp secret-check.sh .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 ```
+
+With no arguments (the shape above), `secret-check.sh` and `pii-check.sh` scan
+the **staged blob** of each staged file — what `git commit` is about to write —
+not the working-tree copy. That distinction is load-bearing in both directions:
+a secret staged and then edited out of the working tree still blocks the commit,
+and a secret that exists only in an unstaged edit does not. Given file arguments
+instead, both scan those paths as-is, which is what CI and the `pre-commit`
+framework want (they hand the hook a clean tree).
 
 ## Creating Custom Hooks
 
