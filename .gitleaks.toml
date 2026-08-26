@@ -87,19 +87,42 @@ description = "Datadog APP key literal"
 regex = '''ddapp_[A-Za-z0-9]{20,}'''
 tags = ["secret", "datadog"]
 
-# Allowlist — files and patterns that are safe to ignore
+# Allowlist — files and patterns that are safe to ignore.
+#
+# ANCHOR EVERY ENTRY. gitleaks matches these as UNANCHORED substrings of the
+# path, so the previous list silently exempted far more than it named. Measured
+# 2026-08-26 by planting a real-shaped GitHub PAT (fake value) in each path:
+#
+#   docs/probe.md              suppressed   <- intended
+#   internal-docs/probe.md     suppressed   <- NOT intended ('docs/' substring)
+#   prodocs/probe.md           suppressed   <- NOT intended
+#   scanner/templates/probe.md suppressed   <- NOT intended ('templates/')
+#   myREADME.md                suppressed   <- NOT intended ('README\.md' mid-string)
+#
+# Harmless while the default ruleset was off (nothing was detected to suppress);
+# load-bearing the moment `[extend] useDefault = true` above turned it back on.
+#
+# The `docs/` + `templates/` + `scanner/tests/` + `README.md` TREES are replaced
+# by the three files that actually carry example credentials. Removing the trees
+# costs 5 findings, all in those three files; `templates/` and `README.md` carried
+# none at all. A future fixture in those directories now fails CI loudly and gets
+# added here in a reviewable diff, instead of landing in a permanent blind spot.
 [allowlist]
 paths = [
-  '''node_modules/''',
-  '''package-lock\.json''',
-  '''hooks/pii-check\.sh''',
-  '''\.gitleaks\.toml''',
-  '''\.env\.example''',
-  '''scanner/tests/''',
-  '''claudesec-dashboard\.html''',
-  '''scanner/lib/dashboard-gen\.py''',
-  '''scanner/lib/dashboard-template\.html''',
-  '''docs/''',
-  '''templates/''',
-  '''README\.md''',
+  # Vendored / generated, at any depth.
+  '''(^|/)node_modules/''',
+  '''(^|/)package-lock\.json$''',
+  '''(^|/)\.env\.example$''',
+  '''(^|/)claudesec-dashboard\.html$''',
+  # This file: it contains the rule regexes themselves.
+  '''^\.gitleaks\.toml$''',
+  # Detectors and generators whose source carries the patterns on purpose.
+  '''^hooks/pii-check\.sh$''',
+  '''^scanner/lib/dashboard-gen\.py$''',
+  '''^scanner/lib/dashboard-template\.html$''',
+  # Example credentials in a guide and in two fixtures — the only three files
+  # that produced findings when the directory-wide exemptions were removed.
+  '''^docs/guides/zscaler-zia-datadog\.md$''',
+  '''^scanner/tests/test_check_access_control\.sh$''',
+  '''^scanner/tests/test_check_saas_zscaler\.sh$''',
 ]

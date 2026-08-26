@@ -138,6 +138,36 @@ class TestGitleaksExtendsDefaultRules(unittest.TestCase):
             "reason and update REQUIRED_RULE_IDS in this guard.",
         )
 
+    def test_allowlist_paths_are_anchored(self):
+        r"""Every `[allowlist] paths` entry must be anchored.
+
+        gitleaks matches these as UNANCHORED substrings of the path, so an entry
+        naming a directory exempts every path that merely CONTAINS it. Measured
+        2026-08-26 by planting a real-shaped GitHub PAT (fake value) against the
+        pre-fix list: `docs/` also exempted `internal-docs/` and `prodocs/`,
+        `templates/` also exempted `scanner/templates/`, and `README\.md`
+        matched `myREADME.md` mid-string.
+
+        Harmless while the default ruleset was off — nothing was detected to
+        suppress — and load-bearing the moment `useDefault` turned it back on,
+        which is why this lands with that change rather than after it.
+
+        Direction: every entry anchored. Adding an exemption is fine; adding an
+        unanchored one is not.
+        """
+        paths = self.doc.get("allowlist", {}).get("paths", [])
+        self.assertTrue(paths, "`[allowlist] paths` is empty or missing")
+        unanchored = [p for p in paths if not p.startswith(("^", "(^|/)"))]
+        self.assertEqual(
+            unanchored,
+            [],
+            "unanchored gitleaks allowlist path(s): "
+            f"{unanchored}\n"
+            "gitleaks substring-matches these, so each one also exempts every "
+            "path that CONTAINS it. Anchor with `^` for a repo-root path or "
+            "`(^|/)` for something that may appear at any depth.",
+        )
+
     def test_workflow_still_passes_the_config(self):
         """Without `--config .gitleaks.toml` in the job, this file is inert.
 
@@ -234,6 +264,22 @@ class TestGitleaksRulesetMutation(unittest.TestCase):
             "useDefault",
             self._judge(tomllib.loads(mutant)),
             "MUTATION SELF-TEST FAILED: `useDefault = false` satisfied the check.",
+        )
+
+    def test_unanchored_allowlist_path_is_detected(self):
+        raw = GITLEAKS_CONFIG.read_text(encoding="utf-8")
+        mutant = raw.replace("\'\'\'^docs/guides/", "\'\'\'docs/guides/", 1)
+        self.assertNotEqual(
+            mutant, raw, "mutation fixture is stale: the anchored docs entry moved"
+        )
+        doc = tomllib.loads(mutant)
+        paths = doc.get("allowlist", {}).get("paths", [])
+        unanchored = [p for p in paths if not p.startswith(("^", "(^|/)"))]
+        self.assertNotEqual(
+            unanchored,
+            [],
+            "MUTATION SELF-TEST FAILED: an unanchored allowlist path was NOT "
+            "detected.",
         )
 
     def test_deleting_custom_rules_is_detected(self):
