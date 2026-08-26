@@ -286,7 +286,7 @@ The largest block in this log and the one whose *method* matters more than its d
   never once fired was fixed (#466): **detect kcov via `KCOV_BASH_XTRACEFD`, never
   `TracerPid` — kcov 42 instruments via xtrace, so `TracerPid` is 0.**
 
-### Cycle #469 — Python static analysis (open, branch `ci/python-lint-ruff`)
+### Cycle #469 — Python static analysis (merged 2026-08-24)
 
 - `lint.yml` ran 21 jobs and **none of them was a Python linter** — no ruff/flake8/pylint/
   mypy/black/bandit in any workflow, `.pre-commit-config.yaml`, or `requirements-ci.txt` —
@@ -304,19 +304,61 @@ The largest block in this log and the one whose *method* matters more than its d
   `skipped` and `lint-gate` counts `skipped` as a pass. Three such typos left all **918**
   existing guards GREEN. Now pinned by `test_ci_needs_output_refs.py`.
 
+### Cycle #471–#490 — the decode boundary, and how many copies of a reader a repo can hide (merged 2026-08-24 → 08-26)
+
+- **One non-UTF-8 byte flipped a compliance control FAIL → PASS while keeping
+  `match_source="prowler"`.** `except Exception: providers[name] = []` plus an `open()` with
+  no `encoding=` meant an unreadable Prowler file became an empty-but-present provider — and
+  **corrupt was worse than missing**, because missing degrades to `"keyword"` matching while
+  present-and-empty scores as a clean prowler-backed pass (#471). Three real FAILs reported
+  as 0.
+- **#471 fixed one of two independent copies of that loader, and the guard imported only the
+  fixed one** (#484). `diagram_data.load_prowler_files` was a second implementation with the
+  same defect. Fixed, then the three `diagram_data` loaders were single-sourced from
+  `dashboard_data_loader` with an **object-identity (`assertIs`) guard**, because a
+  source-line pin still passes against a re-added shadowing local `def` (#485).
+- **`except json.JSONDecodeError` never caught the decode error it was guarding.**
+  `UnicodeDecodeError` is a sibling `ValueError` subclass, not a `JSONDecodeError`, so one bad
+  byte aborted the whole dashboard build. 15 real handler sites audited: 12 widened to
+  `ValueError`, 3 given `errors="replace"` at the decode boundary, 2 left narrow on purpose
+  (`str`-only input), 1 deferred to #472 (#487). All 16 `Path.read_text()` in
+  `scripts/build-dashboard.py` now declare `encoding="utf-8"` (#486).
+- **Then the same fixes turned out to have un-fixed CLONES in `scripts/`: this repo has SEVEN
+  independent Prowler OCSF readers** (#488). 18 sites across 8 files. The guard now scans
+  **`git ls-files` output, not the filesystem** — `.gitignore` excludes a local operator
+  script, so a filesystem walk is red locally and green in CI. #490 then extracted the 7
+  genuinely duplicated helpers into `scripts/lib/`; `load_env` and `collect_prowler` were
+  deliberately NOT unified (secret-key normalisation, 140/389 diverged lines).
+- **A corrupt artifact hid the warning that the artifact was missing** (#489): an unread nmap
+  file made `network_evidence` truthy, which suppressed "network or Datadog telemetry
+  missing" from `visibility_gaps`. It also surfaced a latent bug where the `defusedxml`-absent
+  branch set `parser.entity = {}` — readonly on CPython 3.13, so that branch **always** raised
+  and every nmap file silently became an empty scan.
+- **Docker/CI pins:** prowler 5.39.1 (#473) with the six new providers stripped to restore
+  size headroom (#481); alpine moved to **3.23, the last minor on the py3.12 line** (#479);
+  codeql-action v4.37.8 at **all four** pinned sites (#483, superseding #478 which bumped one
+  and left `templates/codeql.yml` ×3 behind). A temp-file leak test was reading other runs'
+  residue (#480).
+- **The `#472` stack (auth/SSO fail-closed) merged 2026-08-26 after human review**, using the
+  retarget-before-merge order: `gh pr edit <dependent> --base main` FIRST, then squash-merge
+  the base, then `git rebase --onto origin/main <captured fork point>`. `--delete-branch` on a
+  base auto-closes dependents, and a closed PR's base cannot be changed.
+- **Process lesson: enumerate with AST, never a single-line grep.** "17 handler sites" and
+  "11 shared functions" were both wrong (real: 15 and 12) — multi-line tuples and structural
+  clones need `ast.walk`. And **grep for other implementations before closing a fix.**
+
 ## Open Backlog
 
-Derived from open issues + verified repo state on 2026-08-24. **Verify before working an
-item** — this list rotted badly once (see the maintenance note below).
+Derived from `gh issue list` + verified repo state on 2026-08-26. **Verify before working an
+item** — this list rotted twice (see the maintenance note below).
 
-- **`#295` prowler now supports Python 3.13+ — unblock the alpine freeze. READY, and this is
-  the oldest actionable item here.** The #246 watcher fired correctly and nobody picked it
-  up. Confirmed 2026-08-24: prowler latest is **5.39.1** with `Requires-Python <3.14,>=3.10`,
-  so the `<3.13` ceiling that justified the freeze is GONE. `Dockerfile` still pins
-  `PROWLER_VERSION=5.30.1` on `alpine:3.20` (py3.12) and its comment still asserts "no
-  3.13/3.14 support yet", which is now false; `.github/dependabot.yml` still ignores alpine
-  minor/major. Re-check: `curl -fsSL https://pypi.org/pypi/prowler/json | python3 -c 'import
-  sys,json; d=json.load(sys.stdin); print(d["info"]["version"], d["info"]["requires_python"])'`.
+- **`#295` prowler / alpine freeze — DONE, needs closing, not working.** Verified 2026-08-26:
+  `Dockerfile` is on `alpine:3.23` with `PROWLER_VERSION=5.39.1` and its comment block
+  already records why the alert does not lift the freeze. **The alert was about the wrong
+  boundary:** prowler moving `<3.13` → `<3.14` does not help because **no alpine minor ships
+  py3.13** — alpine jumps 3.12 → 3.14 at the 3.23/3.24 line, and py3.14 is outside prowler's
+  range, so 3.24 reintroduces #220 (build green, `prowler -v` crashes on the backtracked
+  3.11.3/pydantic-v1). The real unblock condition is **prowler accepting py3.14**.
 - **`#405` branch-protection drift-watch is not running** (`REPO_ADMIN_TOKEN` missing). The
   workflow self-heals into this issue rather than reporting green (#396), so the issue IS the
   alert — it needs a token, not a code fix.
@@ -332,12 +374,22 @@ item** — this list rotted badly once (see the maintenance note below).
 - **`#68` ZAP baseline** is the intentional single-tracker issue — keep it open.
 - **ruff ruleset widening** — 548 findings behind `BLE001`/`S110` etc. Changes a required
   check; needs a decision, not a cleanup pass. See Cycle #469.
-- **`MEMORY.md` maintenance** — this file went **~185 PRs stale** (delta log ended at Cycle
-  #283–#284 while `main` was at #468, and 4 of the 5 "Open Backlog" entries said DONE),
-  which is how #295 sat unclaimed. `CLAUDE.md` points the continuous-improvement workflow
-  here to pick work, so a stale backlog silently stops that workflow. Append a cycle entry
-  when a themed block of PRs merges, and re-derive the backlog from `gh issue list` rather
-  than editing entries in place.
+- **zscaler `_unreachable` `reason` is still write-only.** Now unblocked (#472 merged):
+  `transport_error` / `permission_denied` / `unexpected_payload` / `http_error` are produced
+  in `scanner/lib/zscaler-api.py` and no consumer reads them, so `scanner/checks/saas/
+  zscaler.sh` still prints "RBA restricted" for what may be a DNS failure. Also outstanding
+  from that review: `_unreachable`'s docstring says "the three states" then lists four, and
+  `_load_saas_sso_stats` rejects the whole file if **any** `saas` entry is a non-dict
+  (confirm deliberate before changing).
+- **`MEMORY.md` maintenance** — this file went **~185 PRs stale** once (#470), and then the
+  freshly-written `#295` entry was **false within five hours** of being written: it asserted
+  `PROWLER_VERSION=5.30.1 on alpine:3.20` while #473/#479/#481 moved both the same day. The
+  rot mechanism is not staleness alone — **a backlog entry that restates repo state it does
+  not own goes stale silently and reads as authoritative.** State the *decision condition*
+  and the command that checks it, never the current pin. `CLAUDE.md` points the
+  continuous-improvement workflow here to pick work, so a wrong entry sends the next session
+  at already-finished work. Append a cycle entry when a themed block of PRs merges, and
+  re-derive the backlog from `gh issue list` rather than editing entries in place.
 
 > Reference: CIS Controls v8 (secure configuration & continuous vulnerability
 > management) anchors the Docker-pinning and scanner-correctness work above;

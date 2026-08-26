@@ -37,7 +37,8 @@ updates:
         patterns:
           - "*"
     ignore:
-      # Hold alpine on its current minor line (3.20 / Python 3.12).
+      # Hold alpine on the py3.12 line. The pin is 3.23 (see Dockerfile) — this
+      # comment said "3.20" until 2026-08-26, four minors after PR #479 moved it.
       #
       # THE BOUNDARY, measured 2026-08-24 by installing python3 in each image:
       #   3.20 -> py3.12.13   3.21 -> py3.12.14   3.22 -> py3.12.14
@@ -47,10 +48,11 @@ updates:
       # backtracks to prowler 3.11.3 (pydantic v1) and `prowler -v` crashes at
       # runtime. See PR #220 — build green, prowler broken.
       #
-      # So 3.21-3.23 are in fact safe today, and this ignore is still correct:
-      # Dependabot cannot distinguish a safe minor from the one that crosses the
-      # boundary, and the cost of guessing wrong is a shipped image whose scanner
-      # cannot run. Digest/patch rebuilds of 3.20 still flow.
+      # The pin now sits on 3.23, the LAST safe minor, so there is no longer a
+      # safe minor to move to at all — the only minor Dependabot could offer is
+      # the one that crosses the boundary. Keeping the ignore costs nothing and
+      # the cost of guessing wrong is a shipped image whose scanner cannot run.
+      # Digest/patch rebuilds of 3.23 still flow.
       #
       # ISSUE #295 DOES NOT LIFT THIS. The watcher fired correctly when prowler's
       # ceiling moved `<3.13` -> `<3.14`, but there is no alpine minor shipping
