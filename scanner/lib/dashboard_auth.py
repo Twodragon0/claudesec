@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import warnings
 from datetime import datetime, timezone
 
 from dashboard_utils import h
@@ -101,33 +102,73 @@ def _duration_label(seconds):
     return f"{seconds // 60}m"
 
 
+def _warn_asset_data_unusable(data_path, reason):
+    """Make a degraded SaaS SSO card observable instead of a silent omission."""
+    warnings.warn(
+        f"Ignoring unusable asset data at {data_path}: {reason}. "
+        "SaaS SSO coverage will render as 'N/A'.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
 def _load_saas_sso_stats():
-    """Load SaaS SSO stats from .claudesec-assets/dashboard-data.json if available."""
+    """Load SaaS SSO stats from .claudesec-assets/dashboard-data.json if available.
+
+    The asset file is produced by a separate collector, so neither its encoding
+    nor its shape is guaranteed. Every read/decode/shape failure degrades to
+    ``None`` ("no SaaS SSO data") plus a ``RuntimeWarning`` — a malformed asset
+    file must not take down the whole dashboard build via
+    ``build_auth_summary_html``.
+    """
     scan_dir = os.environ.get("SCAN_DIR", ".")
     data_path = os.path.join(scan_dir, ".claudesec-assets", "dashboard-data.json")
     try:
         with open(data_path, encoding="utf-8") as f:
             data = json.load(f)
-        saas = data.get("saas", [])
-        if not saas:
-            return None
-        sso_keywords = ("sso", "okta", "saml")
-        sso_count = sum(
-            1
-            for s in saas
-            if any(k in (s.get("auth", "") or "").lower() for k in sso_keywords)
-        )
-        total = len(saas)
-        pct = round(sso_count / total * 100) if total else 0
-        non_sso = total - sso_count
-        return {
-            "sso_count": sso_count,
-            "total": total,
-            "pct": pct,
-            "non_sso": non_sso,
-        }
-    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+    except FileNotFoundError:
+        # Asset collection was never run — expected, not an anomaly.
         return None
+    except (OSError, ValueError) as exc:
+        # ValueError covers json.JSONDecodeError (truncated/invalid JSON) AND
+        # UnicodeDecodeError (non-UTF-8 byte); they are sibling ValueError
+        # subclasses, so catching JSONDecodeError alone missed the latter.
+        _warn_asset_data_unusable(data_path, f"{type(exc).__name__}: {exc}")
+        return None
+
+    if not isinstance(data, dict):
+        _warn_asset_data_unusable(
+            data_path, f"top-level JSON is {type(data).__name__}, expected an object"
+        )
+        return None
+    saas = data.get("saas") or []
+    if not isinstance(saas, list):
+        _warn_asset_data_unusable(
+            data_path, f"'saas' is {type(saas).__name__}, expected a list"
+        )
+        return None
+    if not saas:
+        return None
+    sso_keywords = ("sso", "okta", "saml")
+    sso_count = 0
+    for entry in saas:
+        if not isinstance(entry, dict):
+            _warn_asset_data_unusable(
+                data_path, f"'saas' entry is {type(entry).__name__}, expected an object"
+            )
+            return None
+        auth = str(entry.get("auth") or "").lower()
+        if any(k in auth for k in sso_keywords):
+            sso_count += 1
+    total = len(saas)
+    pct = round(sso_count / total * 100) if total else 0
+    non_sso = total - sso_count
+    return {
+        "sso_count": sso_count,
+        "total": total,
+        "pct": pct,
+        "non_sso": non_sso,
+    }
 
 
 def build_auth_summary_html(envs, findings_list):
@@ -217,6 +258,7 @@ __all__ = [
     "_collect_token_expiry_items",
     "_parse_duration_seconds",
     "_duration_label",
+    "_warn_asset_data_unusable",
     "_load_saas_sso_stats",
     "build_auth_summary_html",
 ]
