@@ -995,7 +995,13 @@ jobs:
           find . -type f \( -name '*.py' -o -name '*.sh' -o -name '*.md' -o -name '*.yml' -o -name '*.yaml' -o -name '*.json' -o -name '*.html' -o -name '*.svg' \) \
             ! -path './node_modules/*' ! -path './.git/*' ! -path './package-lock.json' \
             ! -path './.claudesec-assets/*' ! -path './.claudesec-saas-best-practices/*' \
-            -print0 | xargs -0 bash hooks/pii-check.sh
+            # -r (--no-run-if-empty): without it GNU xargs runs the command ONCE
+            # with no arguments when find matches nothing, and the hook's
+            # no-argument form is a DIFFERENT mode — it scans the git index
+            # instead of the paths it was meant to check, then exits 0. A mode
+            # switch that reads as a pass. BSD xargs already declines to run on
+            # empty input; this job is ubuntu-only, so -r is the portable-here fix.
+            -print0 | xargs -0 -r bash hooks/pii-check.sh
 
   workflow-fork-guard:
     # Regression-prevention: every job in a pull_request_target workflow must
