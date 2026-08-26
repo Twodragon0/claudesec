@@ -1109,6 +1109,40 @@ survives a matcher audit because there is no matcher to attack:
   a run that cannot distinguish a working detector from a broken one. Coverage of
   a *detector* means a positive control, not an execution.
 
+**Follow-up differential, same date — the generalisation.** Finding one
+enumeration gap by hand is luck; the reusable move is to diff *every*
+file-scanning guard's enumeration against the tracked files that carry its
+trigger token. Done for the four source-pattern guards:
+
+| guard | out-of-scope tracked files carrying its trigger |
+|---|---|
+| `test_ci_no_code_injection_regression` (CWE-94) | **none** |
+| `test_ci_decode_boundary_handlers` (decode boundary, `.py`) | **none** |
+| `test_ci_no_ere_pipe_regression` (ERE `\|`) | `scanner/claudesec` (**19** sites), `scripts/gh-merge-ready-pr.sh` (3), `scripts/og-meta-verify.sh` (1) |
+
+So the ERE guard was the only narrow one, and the widest gap was not a directory
+but a **file with no extension**: `scanner/claudesec`, which no `*.sh` glob can
+reach and which both the CWE-94 guard and `test_ci_scanner_lib_reachability`
+already list explicitly. All 23 sites verified clean, so again a blind spot and
+not a live bug — `scripts/gh-merge-ready-pr.sh:245` shows the stake, a
+`grep -qiE "…expected|not mergeable|base branch policy…"` whose plain `|`
+someone escapes stops matching every alternative at once and the
+merge-readiness probe reports clean forever.
+
+Fixed structurally rather than by adding two roots: the ERE guard's scan set is
+now a `_production_files()` **asserted EQUAL** to the CWE-94 guard's function of
+the same name (`TestScanSetParityWithInjectionGuard`). Two guards hunting a bug
+class over the same corpus must not disagree about the corpus, equality catches
+the reverse direction too, and the assertion is where the next divergence
+surfaces instead of in the next audit.
+
+**Method note, because it cut both ways:** the same differential run over
+`test_ci_scanner_lib_reachability` reported 16 out-of-scope files. All 16 were
+false positives — the trigger used was "any shell function definition", which is
+not what that guard hunts (`scanner/lib` functions reachable from the scanner, a
+scope in which `scripts/` functions have no business). Attack the trigger before
+believing the diff; a loose trigger manufactures a backlog.
+
 **Judged and deliberately NOT changed** (recorded so the next audit does not
 re-file them):
 
