@@ -102,8 +102,33 @@ def collect_posture(base: str, session: "requests.Session") -> dict:
     result: dict = {}
 
     # 1. Service status
+    #
+    # `if data else` tested TRUTHINESS where it needed to test TYPE. A 200 whose
+    # body is a JSON string or list is truthy, so `.get` raised
+    # `AttributeError: 'str' object has no attribute 'get'` and took down the
+    # whole posture collection — `scanner/checks/saas/zscaler.sh` then produced
+    # no SAAS-ZIA-* findings at all, with its `2>/dev/null` hiding why.
+    # Reproduced against the real function before the fix:
+    #   {"status": "ok"} -> 'ok'      "a string" -> CRASH      [1, 2] -> CRASH
+    # An `isinstance` guard is also the idiom the rest of this function already
+    # uses (`if code == 200 and isinstance(data, list)` for every list endpoint).
+    #
+    # UNEXPECTED_PAYLOAD is kept distinct from UNKNOWN so the two are
+    # distinguishable downstream: the consumer passes only on `== "ACTIVE"` and
+    # echoes the value in its warning otherwise, so a reachable-but-malformed API
+    # no longer reads the same as one that reported nothing.
     code, data = _safe_get(session, base, "/api/v1/status")
-    result["service_status"] = data.get("status") if data else "UNKNOWN"
+    if isinstance(data, dict):
+        result["service_status"] = str(data.get("status") or "UNKNOWN")
+    elif code == 200:
+        result["service_status"] = "UNEXPECTED_PAYLOAD"
+    else:
+        # Non-200 and transport failures both land here and both report UNKNOWN.
+        # Left as-is deliberately: it predates this fix, it warns either way
+        # rather than passing, and separating them changes a value that is not
+        # part of the crash being fixed. `_unreachable()` below already draws
+        # that distinction for the endpoints where it decides accessibility.
+        result["service_status"] = "UNKNOWN"
 
     # 2. Users — count only, never expose emails/names
     code, data = _safe_get(session, base, "/api/v1/users")
