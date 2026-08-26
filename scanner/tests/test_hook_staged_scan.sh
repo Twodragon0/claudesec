@@ -300,7 +300,13 @@ setup_partial_clone_case() {
 
   clone="$(mktemp -d "${TMPDIR:-/tmp}/claudesec-pcclone.XXXXXX")"
   rmdir "$clone"
-  if ! git clone -q --filter=blob:none --no-local "file://$src" "$clone" 2>/dev/null; then
+  # -c protocol.file.allow=always for the same reason the submodule fixture needs
+  # it: a hardened config (`protocol.file.allow=never`, `protocol.allow=never`)
+  # makes the clone fail and turns four assertions into loud FAILs for
+  # environmental reasons. Does NOT rescue a restrictive `GIT_ALLOW_PROTOCOL`
+  # env var, which no -c can override.
+  if ! git -c protocol.file.allow=always clone -q --filter=blob:none \
+    --no-local "file://$src" "$clone" 2>/dev/null; then
     rm -rf "$src"
     PC_OFFLINE_SECRET_RC="partial-clone-unavailable"
     PC_OFFLINE_PII_RC="partial-clone-unavailable"

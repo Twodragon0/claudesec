@@ -30,8 +30,10 @@ FOUND=0
 # git 2.36, so on those the absent-object read is unbounded, exactly as it was
 # before this guard. The claim is "the common path never dials out", not "nothing
 # ever can".
-# Return codes are load-bearing: 0 read it, 1 absent-and-unfetchable,
-# 2 PRESENT but unreadable. The two failures need different advice — measured on
+# Return contract — the codes are load-bearing and each maps to DIFFERENT advice:
+#   0  READ_OK           blob is in "$_blob"
+#   1  READ_ABSENT       not local, and could not be fetched
+#   2  READ_UNDECODABLE  present locally, but git cannot output it The two failures need different advice — measured on
 # a loose object overwritten with non-zlib bytes, `cat-file -e` returns 0 while
 # `cat-file blob` returns 128 with 0 bytes written, so telling that user to run
 # `cat-file -e` (the advice for the absent case) sends them to a command that
@@ -43,13 +45,24 @@ read_staged_blob() {
     GIT_NO_LAZY_FETCH=1 git cat-file blob "$oid" >"$_blob" 2>/dev/null || return 2
     return 0
   fi
+  local rc=0
   if command -v timeout >/dev/null 2>&1; then
-    timeout 30 git cat-file blob "$oid" >"$_blob" 2>/dev/null
+    timeout 30 git cat-file blob "$oid" >"$_blob" 2>/dev/null || rc=$?
   elif command -v gtimeout >/dev/null 2>&1; then
-    gtimeout 30 git cat-file blob "$oid" >"$_blob" 2>/dev/null
+    gtimeout 30 git cat-file blob "$oid" >"$_blob" 2>/dev/null || rc=$?
   else
-    git cat-file blob "$oid" >"$_blob" 2>/dev/null
+    git cat-file blob "$oid" >"$_blob" 2>/dev/null || rc=$?
   fi
+  [ "$rc" -eq 0 ] && return 0
+  # The fetch may have LANDED and the decode still failed. Re-probe: if the
+  # object is local now, this is a decode problem and deserves the damaged-store
+  # advice, not "missing locally, run cat-file -e" — which would succeed and fix
+  # nothing. Inspection-only: no fixture serves a corrupt object over a promisor,
+  # so this branch is UNPINNED.
+  if GIT_NO_LAZY_FETCH=1 git cat-file -e "$oid" 2>/dev/null; then
+    return 2
+  fi
+  return 1
 }
 
 # True when the PATH is one we never scan. Split out of scan_file so staged mode
