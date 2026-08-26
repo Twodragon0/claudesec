@@ -164,7 +164,11 @@ audit 2026-07-28** (issue #297): all 38 `test_ci_*.py` guards re-audited — see
 and the matcher-completeness backlog opened. **Re-reviewed 2026-08-10** (see
 "Backlog sweep 2026-08-10" below): the Tier-3 list was checked against the live
 workflow set for the first time and was found to be *stale by omission* —
-`guard-audit-reminder.yml` had never been triaged into it.
+`guard-audit-reminder.yml` had never been triaged into it. **Quarterly ADR-001
+adversarial audit 2026-08-26** (issue #297): 57 guard files / 1102 tests
+re-audited — see "Quarterly audit 2026-08-26" below. The matcher classes came up
+empty; the finding was an ENUMERATION gap (`hooks/` outside the ERE guard's scan
+set), and following it into the hooks surfaced a live defect no guard covered.
 
 ### Tier 2 — incident-backed (now implemented)
 
@@ -172,8 +176,9 @@ Both former Tier-2 candidates landed in #258 and are now in the Catalog above:
 
 - `test_ci_prowler_version_pinned.py` — exact `prowler==${PROWLER_VERSION}` pin
   in `Dockerfile` (#237).
-- `test_ci_dockerfile_base_pinned.py` — `@sha256:` digest pins + `alpine:3.20`
-  minor freeze + version-agnostic site resolution (#233/#234/#220).
+- `test_ci_dockerfile_base_pinned.py` — `@sha256:` digest pins + the alpine minor
+  freeze (`3.20` when written; moved to `3.23`, the last minor on the py3.12
+  line, in #479) + version-agnostic site resolution (#233/#234/#220).
 
 ### Tier 3 — monitor only (no guard yet; would be sprawl)
 
@@ -1071,6 +1076,57 @@ alarms, all fixed with both directions pinned — docker-compose hardening keys
 instead of as a missing pin), the `permissions:` header, and the `ARG
 TRIVY_VERSION=` / `ARG PROWLER_VERSION=` defaults (Docker strips quotes, so a
 quoted default is the identical pin).
+
+### Quarterly audit 2026-08-26 (ADR-001, issue #297)
+
+Baseline first: `pytest scanner/tests/test_ci_*.py
+scanner/tests/test__ci_guard_util.py -q` → **1102 passed** across **57 guard
+files** (967 tests), 45 of which route through `_ci_guard_util`.
+
+The comment-evasion and key-quoting classes came up **empty this round** — the
+2026-08-06 sweep and #404's execute-the-gate redesign closed them, and the
+primitives' docstrings now carry the shapes a fresh attempt would try. The
+strippers (`strip_inline_comment`, `strip_inline_comment_sh`),
+`workflow_and_action_files()`, `uses_refs()` and the template pin policy were
+attacked directly and held.
+
+What this round found instead was an **enumeration** gap, which is the class that
+survives a matcher audit because there is no matcher to attack:
+
+- **`test_ci_no_ere_pipe_regression.py` did not scan `hooks/`.** It covered
+  `scanner/checks` and `scanner/lib` because that is where the detections live —
+  but `hooks/pii-check.sh` and `hooks/secret-check.sh` are detections too, they
+  gate commits, and `scripts/setup.sh` installs them into *other people's*
+  repositories. 17 ERE call sites sat outside the scan set, 14 in those two
+  files. Verified clean at extension time, so this closed a blind spot, not a
+  live bug; a planted `hooks/` violation now fails the guard and did not before.
+- **Following that gap into the hooks found a live defect the guards were never
+  going to catch** — both hooks scanned the working tree instead of the staged
+  blob, so a staged secret edited out of the working tree committed with the gate
+  exiting 0 (fixed separately; `scanner/tests/test_hook_staged_scan.sh`). The
+  reusable half: `hooks/secret-check.sh` had **no test and no CI job at all**,
+  and the `pii-check` job runs its hook only over this repo's own clean files —
+  a run that cannot distinguish a working detector from a broken one. Coverage of
+  a *detector* means a positive control, not an execution.
+
+**Judged and deliberately NOT changed** (recorded so the next audit does not
+re-file them):
+
+- `test_ci_no_ere_pipe_regression.py` (`rglob`) and
+  `test_ci_guard_assertion_scoping.py` (`glob`) enumerate from the FILESYSTEM,
+  not `git ls-files`. Switching needs a subprocess, which drops the
+  stdlib-only property, and the failure direction is loud: an untracked scratch
+  `.sh` makes the suite RED locally, never green-while-defeated. The #488 case
+  that forced `git ls-files` was a gitignored operator script under `scripts/`,
+  which neither guard scans. Same reasoning already recorded for
+  `test_ci_requirements_pinned.py`'s root-only discovery.
+- `\s` in the hooks' ERE patterns is **not** a portability bug. Stock
+  `/usr/bin/grep` on macOS reports "BSD grep, GNU compatible" 2.6.0-FreeBSD and
+  treats `\s` as whitespace — control: `TOKEN\s*=` did NOT match `TOKENsss=`.
+  Hypothesis raised, tested, disproven.
+- `hooks/secret-check.sh` flags **itself**, because its own
+  `BEGIN.*PRIVATE KEY` detection pattern matches its private-key rule. Verified
+  pre-existing against the unmodified `HEAD` file. Reported, not "fixed".
 
 ## Adding a new guard
 
