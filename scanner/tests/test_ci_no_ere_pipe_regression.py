@@ -71,13 +71,23 @@ Coverage extensions (PRs #244 → this PR)
   and treats `\\s` as whitespace — the control `TOKEN\\s*=` did NOT match
   `TOKENsss=`, so it is not degrading to a literal `s`.
 
+* `scripts/**/*.sh` AND the extensionless `scanner/claudesec` entrypoint joined
+  the scan set immediately after, from the #297 follow-up differential: each
+  file-scanning guard's enumeration was diffed against the tracked files carrying
+  its trigger token.  The entrypoint alone holds **19** ERE call sites and no
+  `*.sh` glob can reach it; `scripts/` holds 4 more.  The scan set is now
+  `_production_files()`, asserted EQUAL to the CWE-94 guard's set of the same
+  name — two guards hunting a bug class over the same corpus must not disagree
+  about the corpus, and a scope difference is invisible in a green suite.
+
 * Enumeration is a FILESYSTEM walk (`rglob`), not `git ls-files`.  Deliberate:
   `git ls-files` would need a subprocess, dropping the stdlib-only/no-subprocess
   property this guard is built on, and the failure direction here is loud, not
-  silent — an untracked scratch `.sh` under these three roots would make the
-  suite RED locally (over-report), never green-while-defeated.  The #488 case
-  that forced `git ls-files` elsewhere was a gitignored operator script under
-  `scripts/`, which this guard does not scan.
+  silent — an untracked scratch `.sh` under these roots would make the suite RED
+  locally (over-report), never green-while-defeated.  The #488 case that forced
+  `git ls-files` elsewhere was a gitignored operator script under `scripts/`,
+  which this guard DOES now scan — so if that script reappears locally, expect a
+  local-only red and check `git ls-files` before believing it.
 
 * Multi-line call detection: when a `_code_grep`, `files_contain`, or
   `file_contains` call uses a backslash line-continuation (the function name
@@ -91,15 +101,24 @@ Passes under `pytest` (CI) and `python3 -m unittest`.
 """
 
 import re
+import sys
 import textwrap
 import unittest
 from pathlib import Path
+
+# The scan-set parity test imports the CWE-94 guard by module name, which must
+# work under both runners (pytest from the repo root, and `python3 -m unittest`
+# from anywhere).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # scanner/tests/<this> -> parents[0]=scanner/tests, [1]=scanner, [2]=repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKS_DIR = REPO_ROOT / "scanner" / "checks"
 LIB_DIR = REPO_ROOT / "scanner" / "lib"
 HOOKS_DIR = REPO_ROOT / "hooks"
+SCRIPTS_DIR = REPO_ROOT / "scripts"
+# The CLI entrypoint has NO extension, so no `*.sh` glob reaches it.
+ENTRYPOINT = REPO_ROOT / "scanner" / "claudesec"
 
 # ---------------------------------------------------------------------------
 # Allowlist of intentional \\| occurrences.
@@ -220,9 +239,40 @@ def _logical_lines(
     return result
 
 
-def _scan_dir(scan_dir: Path) -> list[tuple[Path, int, str]]:
+def _production_files() -> list[Path]:
+    """Every production shell file this guard scans (whichever paths exist).
+
+    Deliberately the SAME set as `test_ci_no_code_injection_regression.
+    _production_files()`. Two guards hunting bug classes in the same corpus with
+    different scopes means one of them is wrong, and a scope difference is
+    invisible in a green suite. The 2026-08-26 differential (each guard's
+    enumeration vs the tracked files carrying its trigger token) found this one
+    narrower in both directions that matter:
+
+    - `scanner/claudesec`, the CLI entrypoint, carries **19** ERE call sites and
+      has no `.sh` extension, so no directory glob would ever reach it. Both the
+      CWE-94 guard and `test_ci_scanner_lib_reachability` list it explicitly.
+    - `scripts/**/*.sh` carries 4 more (`gh-merge-ready-pr.sh` x3,
+      `og-meta-verify.sh` x1). The CWE-94 guard already treats `scripts/` as
+      production shell surface, so the narrower set here was not a policy choice.
+
+    All 23 verified clean when the scope was widened, so this closes a blind spot
+    rather than a live bug. `gh-merge-ready-pr.sh:245` is the shape that shows why
+    it matters: a `grep -qiE "…expected|not mergeable|base branch policy…"` whose
+    plain `|` someone "helpfully" escapes stops matching every alternative at
+    once, and the merge-readiness probe then reports clean forever.
     """
-    Walk scan_dir recursively for *.sh files.
+    files: list[Path] = []
+    if ENTRYPOINT.is_file():
+        files.append(ENTRYPOINT)
+    for d in (LIB_DIR, CHECKS_DIR, SCRIPTS_DIR, HOOKS_DIR):
+        if d.is_dir():
+            files += sorted(d.rglob("*.sh"))
+    return files
+
+
+def _scan_files(files: list[Path]) -> list[tuple[Path, int, str]]:
+    """
     Return a list of (filepath, lineno, logical_line) for each violation:
     a logical line that (a) is in an ERE context, (b) contains \\|, and
     (c) is NOT allowlisted.
@@ -230,7 +280,7 @@ def _scan_dir(scan_dir: Path) -> list[tuple[Path, int, str]]:
     The lineno is the first physical line of the logical group.
     """
     violations: list[tuple[Path, int, str]] = []
-    for sh_file in sorted(scan_dir.rglob("*.sh")):
+    for sh_file in files:
         physical = sh_file.read_text(encoding="utf-8").splitlines()
         for lineno, logical in _logical_lines(physical):
             if r"\|" not in logical:
@@ -241,17 +291,6 @@ def _scan_dir(scan_dir: Path) -> list[tuple[Path, int, str]]:
                 continue
             violations.append((sh_file, lineno, logical.rstrip()))
     return violations
-
-
-def _scan_dirs(
-    dirs: list[Path],
-) -> list[tuple[Path, int, str]]:
-    """Scan multiple directories and merge results."""
-    all_violations: list[tuple[Path, int, str]] = []
-    for d in dirs:
-        if d.is_dir():
-            all_violations.extend(_scan_dir(d))
-    return all_violations
 
 
 def _scan_text_lines(
@@ -317,17 +356,78 @@ class TestScanDirectoriesExist(unittest.TestCase):
             f"No .sh files found under {HOOKS_DIR} -- glob assumption broke",
         )
 
+    def test_scripts_dir_exists(self):
+        self.assertTrue(
+            SCRIPTS_DIR.is_dir(),
+            f"scripts directory not found at {SCRIPTS_DIR} -- path assumption broke",
+        )
+
+    def test_scripts_dir_contains_sh_files(self):
+        sh_files = list(SCRIPTS_DIR.rglob("*.sh"))
+        self.assertTrue(
+            sh_files,
+            f"No .sh files found under {SCRIPTS_DIR} -- glob assumption broke",
+        )
+
+    def test_entrypoint_is_in_the_scan_set(self):
+        """The extensionless CLI entrypoint carries ERE call sites and cannot be
+        reached by a `*.sh` glob, so it is listed explicitly. If it is ever
+        renamed or given an extension, fail here rather than scan 19 fewer sites
+        in silence."""
+        self.assertTrue(
+            ENTRYPOINT.is_file(),
+            f"CLI entrypoint not found at {ENTRYPOINT} -- if it moved, update "
+            "_production_files(), and check the two other guards that list it "
+            "explicitly (test_ci_no_code_injection_regression, "
+            "test_ci_scanner_lib_reachability).",
+        )
+        self.assertIn(
+            ENTRYPOINT,
+            _production_files(),
+            "The CLI entrypoint exists but is NOT in this guard's scan set.",
+        )
+
+
+class TestScanSetParityWithInjectionGuard(unittest.TestCase):
+    """The production-shell scan set must EQUAL the CWE-94 guard's.
+
+    Both guards hunt a bug class in the same corpus, so a scope difference means
+    one of them is wrong — and it is invisible in a green suite, which is exactly
+    how `scanner/claudesec` (19 ERE sites) and `scripts/**` (4 more) stayed
+    unscanned here while the CWE-94 guard covered them. Asserting EQUALITY rather
+    than containment also catches the reverse direction: a path added here and
+    not there.
+    """
+
+    def test_scan_set_equals_injection_guard_scan_set(self):
+        import test_ci_no_code_injection_regression as injection_guard
+
+        ours = set(_production_files())
+        theirs = set(injection_guard._production_files())
+        only_theirs = sorted(str(p.relative_to(REPO_ROOT)) for p in theirs - ours)
+        only_ours = sorted(str(p.relative_to(REPO_ROOT)) for p in ours - theirs)
+        self.assertEqual(
+            (only_theirs, only_ours),
+            ([], []),
+            "Production-shell scan sets have DIVERGED between this guard and "
+            "test_ci_no_code_injection_regression.\n"
+            f"  scanned only by the CWE-94 guard: {only_theirs}\n"
+            f"  scanned only by this guard:       {only_ours}\n"
+            "Both hunt a bug class over production shell; decide the surface once "
+            "and change both, or document why they must differ.",
+        )
+
 
 class TestNoEREPipeInChecksAndLib(unittest.TestCase):
     """
-    Scans every scanner/checks/**/*.sh, scanner/lib/**/*.sh AND hooks/**/*.sh
-    for \\| in an ERE context.  Only the two explicitly allowlisted intentional
-    occurrences are permitted.  Any other \\| in an ERE pattern is flagged as a
-    regression.
+    Scans every production shell file — `scanner/claudesec` plus `scanner/lib`,
+    `scanner/checks`, `scripts` and `hooks` recursively — for \\| in an ERE
+    context.  Only the two explicitly allowlisted intentional occurrences are
+    permitted.  Any other \\| in an ERE pattern is flagged as a regression.
     """
 
     def test_no_unallowlisted_ere_pipe(self):
-        violations = _scan_dirs([CHECKS_DIR, LIB_DIR, HOOKS_DIR])
+        violations = _scan_files(_production_files())
         if violations:
             lines = [
                 f"  {v[0].relative_to(REPO_ROOT)}:{v[1]}: {v[2]!r}"
