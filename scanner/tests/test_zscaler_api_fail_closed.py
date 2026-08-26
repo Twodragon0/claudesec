@@ -227,24 +227,136 @@ def test_policy_access_stays_fail_closed_on_transport_failure():
 
 
 # ---------------------------------------------------------------------------
-# Known-unfixed, pinned here so it is not mistaken for this change's doing:
-# `service_status` still calls `.get()` on whatever /api/v1/status returned,
-# so an HTTP 200 that yields a JSON string/list raises AttributeError out of
-# collect_posture(). Out of scope for the accessible-flag fix.
+# `service_status` on a non-dict 200 body. This was pinned as a KNOWN GAP by the
+# accessible-flag change ("still calls .get() on whatever /api/v1/status
+# returned"), with a self-destructing assertion that failed the moment the crash
+# was fixed — which is what brought us back here. The pin worked; these are its
+# replacements, asserting the fixed behaviour in both directions.
 # ---------------------------------------------------------------------------
 
 
-def test_known_gap_service_status_raises_on_non_dict_200_payload():
+def _malformed_status_only(body):
+    """Only `/api/v1/status` is malformed; every other endpoint stays healthy.
+
+    Scoped per-URL on purpose. The first draft returned the malformed body for
+    EVERY endpoint, which made the list case fail — not because `service_status`
+    was still broken, but because a list body then reaches the users handler,
+    whose `isinstance(data, list)` guard checks the CONTAINER and not its
+    elements, so `1.get("groups")` raises. That is a separate defect, pinned
+    below; mixing it in here would have made this test report on the wrong bug.
+    """
+
+    def _payload(url):
+        return body if url.endswith("/api/v1/status") else _healthy_payload(url)
+
+    return _payload
+
+
+def test_service_status_survives_a_string_200_payload():
+    """The exact input the old pin used. It raised AttributeError before."""
     mod = _load()
-    session = _session_returning(200, lambda url: "a string")
-    try:
-        mod.collect_posture(_FAKE_BASE, session)
-    except AttributeError as exc:
-        assert "get" in str(exc)
-    else:
-        raise AssertionError(
-            "service_status non-dict crash appears fixed — update this pin"
-        )
+    session = _session_returning(200, _malformed_status_only("a string"))
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["service_status"] == "UNEXPECTED_PAYLOAD"
+
+
+def test_service_status_survives_a_list_200_payload():
+    mod = _load()
+    session = _session_returning(200, _malformed_status_only([1, 2]))
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["service_status"] == "UNEXPECTED_PAYLOAD"
+
+
+def test_service_status_survives_a_null_200_body():
+    """A 200 whose body is JSON `null`. This used to read as "UNKNOWN" via the
+    truthiness test; it is genuinely an unexpected payload, and saying so is the
+    point of separating the two values."""
+    mod = _load()
+    session = _session_returning(200, _malformed_status_only(None))
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["service_status"] == "UNEXPECTED_PAYLOAD"
+
+
+def test_service_status_reports_the_real_status_for_a_dict_payload():
+    """Positive control. The assertions above mean nothing unless the normal path
+    still reports the API's own value."""
+    mod = _load()
+    session = _session_returning(200, _healthy_payload)
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["service_status"] == "ACTIVE"
+
+
+def test_service_status_is_unknown_when_the_dict_carries_no_status():
+    mod = _load()
+    session = _session_returning(200, _malformed_status_only({}))
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["service_status"] == "UNKNOWN"
+
+
+def test_users_list_with_non_dict_elements_is_unexpected_payload():
+    """The pin that stood here asserted this still crashed, and failed the moment
+    it was fixed — the second time in this file that a self-destructing pin has
+    routed the next change to the right place. `[1, 2]` used to raise
+    `AttributeError: 'int' object has no attribute 'get'` out of the users
+    handler, because `isinstance(data, list)` checked the container and not its
+    elements.
+    """
+    mod = _load()
+    for body in ([1, 2], ["okta"], [None], [{"groups": []}, "mixed"]):
+        session = _session_returning(200, lambda url, b=body: b)
+        posture = mod.collect_posture(_FAKE_BASE, session)
+        assert posture["users"]["accessible"] is False, body
+        assert posture["users"]["reason"] == "unexpected_payload", body
+
+
+def test_users_list_of_dicts_still_counts():
+    """Positive control. The assertion above means nothing unless a well-formed
+    list is still counted — routing everything to `unexpected_payload` would
+    satisfy it and destroy the feature."""
+    mod = _load()
+    session = _session_returning(200, _healthy_payload)
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["users"]["accessible"] is True
+    assert posture["users"]["total"] == 1
+
+
+def test_users_empty_list_is_a_real_empty_result():
+    """`all()` over an empty list is True, which is what we want here: an empty
+    user list is a legitimate answer, not a malformed payload."""
+    mod = _load()
+    session = _session_returning(200, lambda url: [])
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["users"]["accessible"] is True
+    assert posture["users"]["total"] == 0
+
+
+def test_endpoints_that_only_count_are_unaffected():
+    """groups/departments/nss_feeds take `len(data)` and never dereference an
+    element, so they need no element guard — pinned so a future 'consistency'
+    refactor does not add one and change their behaviour by accident."""
+    mod = _load()
+    session = _session_returning(200, lambda url: [1, 2, 3])
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    for key in ("groups", "departments", "nss_feeds"):
+        assert posture[key]["accessible"] is True, key
+        assert posture[key]["total"] == 3, key
+
+
+def test_service_status_is_unknown_on_a_transport_failure():
+    """Documented residual: a transport failure and a status-less 200 both report
+    UNKNOWN. Pinned so the conflation stays a recorded decision rather than an
+    accident — see the comment at the call site."""
+    mod = _load()
+
+    class _Boom:
+        def get(self, *_a, **_k):
+            raise OSError("dns failure")
+
+        def delete(self, *_a, **_k):
+            return None
+
+    posture = mod.collect_posture(_FAKE_BASE, _Boom())
+    assert posture["service_status"] == "UNKNOWN"
 
 
 # ---------------------------------------------------------------------------
@@ -289,8 +401,35 @@ class ZscalerApiFailClosedTestCase(unittest.TestCase):
     def test_policy_access_fail_closed(self):
         test_policy_access_stays_fail_closed_on_transport_failure()
 
-    def test_service_status_known_gap(self):
-        test_known_gap_service_status_raises_on_non_dict_200_payload()
+    def test_service_status_string_payload(self):
+        test_service_status_survives_a_string_200_payload()
+
+    def test_service_status_list_payload(self):
+        test_service_status_survives_a_list_200_payload()
+
+    def test_service_status_null_body(self):
+        test_service_status_survives_a_null_200_body()
+
+    def test_service_status_dict_payload(self):
+        test_service_status_reports_the_real_status_for_a_dict_payload()
+
+    def test_service_status_no_status_key(self):
+        test_service_status_is_unknown_when_the_dict_carries_no_status()
+
+    def test_service_status_transport_failure(self):
+        test_service_status_is_unknown_on_a_transport_failure()
+
+    def test_users_non_dict_elements(self):
+        test_users_list_with_non_dict_elements_is_unexpected_payload()
+
+    def test_users_list_of_dicts(self):
+        test_users_list_of_dicts_still_counts()
+
+    def test_users_empty_list(self):
+        test_users_empty_list_is_a_real_empty_result()
+
+    def test_count_only_endpoints_unaffected(self):
+        test_endpoints_that_only_count_are_unaffected()
 
 
 if __name__ == "__main__":
