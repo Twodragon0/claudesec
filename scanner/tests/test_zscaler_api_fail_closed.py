@@ -293,26 +293,53 @@ def test_service_status_is_unknown_when_the_dict_carries_no_status():
     assert posture["service_status"] == "UNKNOWN"
 
 
-def test_known_gap_list_body_still_crashes_the_users_handler():
-    """NEW pin, replacing the one this change consumed.
-
-    `isinstance(data, list)` in the users handler checks the container and not
-    its elements, so a 200 whose body is `[1, 2]` reaches `u.get("groups")` and
-    raises. Same shape as the `{"saas": ["okta"]}` case fixed in the dashboard
-    asset loader. Out of scope here — this change is the `service_status` crash —
-    and pinned so it cannot rot: the assertion FAILS the moment it is fixed, which
-    is exactly how this defect got picked up.
+def test_users_list_with_non_dict_elements_is_unexpected_payload():
+    """The pin that stood here asserted this still crashed, and failed the moment
+    it was fixed — the second time in this file that a self-destructing pin has
+    routed the next change to the right place. `[1, 2]` used to raise
+    `AttributeError: 'int' object has no attribute 'get'` out of the users
+    handler, because `isinstance(data, list)` checked the container and not its
+    elements.
     """
     mod = _load()
-    session = _session_returning(200, lambda url: [1, 2])
-    try:
-        mod.collect_posture(_FAKE_BASE, session)
-    except AttributeError as exc:
-        assert "get" in str(exc)
-    else:
-        raise AssertionError(
-            "list-element crash in the users handler appears fixed — update this pin"
-        )
+    for body in ([1, 2], ["okta"], [None], [{"groups": []}, "mixed"]):
+        session = _session_returning(200, lambda url, b=body: b)
+        posture = mod.collect_posture(_FAKE_BASE, session)
+        assert posture["users"]["accessible"] is False, body
+        assert posture["users"]["reason"] == "unexpected_payload", body
+
+
+def test_users_list_of_dicts_still_counts():
+    """Positive control. The assertion above means nothing unless a well-formed
+    list is still counted — routing everything to `unexpected_payload` would
+    satisfy it and destroy the feature."""
+    mod = _load()
+    session = _session_returning(200, _healthy_payload)
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["users"]["accessible"] is True
+    assert posture["users"]["total"] == 1
+
+
+def test_users_empty_list_is_a_real_empty_result():
+    """`all()` over an empty list is True, which is what we want here: an empty
+    user list is a legitimate answer, not a malformed payload."""
+    mod = _load()
+    session = _session_returning(200, lambda url: [])
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    assert posture["users"]["accessible"] is True
+    assert posture["users"]["total"] == 0
+
+
+def test_endpoints_that_only_count_are_unaffected():
+    """groups/departments/nss_feeds take `len(data)` and never dereference an
+    element, so they need no element guard — pinned so a future 'consistency'
+    refactor does not add one and change their behaviour by accident."""
+    mod = _load()
+    session = _session_returning(200, lambda url: [1, 2, 3])
+    posture = mod.collect_posture(_FAKE_BASE, session)
+    for key in ("groups", "departments", "nss_feeds"):
+        assert posture[key]["accessible"] is True, key
+        assert posture[key]["total"] == 3, key
 
 
 def test_service_status_is_unknown_on_a_transport_failure():
@@ -392,8 +419,17 @@ class ZscalerApiFailClosedTestCase(unittest.TestCase):
     def test_service_status_transport_failure(self):
         test_service_status_is_unknown_on_a_transport_failure()
 
-    def test_users_handler_list_element_gap(self):
-        test_known_gap_list_body_still_crashes_the_users_handler()
+    def test_users_non_dict_elements(self):
+        test_users_list_with_non_dict_elements_is_unexpected_payload()
+
+    def test_users_list_of_dicts(self):
+        test_users_list_of_dicts_still_counts()
+
+    def test_users_empty_list(self):
+        test_users_empty_list_is_a_real_empty_result()
+
+    def test_count_only_endpoints_unaffected(self):
+        test_endpoints_that_only_count_are_unaffected()
 
 
 if __name__ == "__main__":

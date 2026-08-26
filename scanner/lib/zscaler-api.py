@@ -131,8 +131,30 @@ def collect_posture(base: str, session: "requests.Session") -> dict:
         result["service_status"] = "UNKNOWN"
 
     # 2. Users — count only, never expose emails/names
+    #
+    # `isinstance(data, list)` checked the CONTAINER and not its elements, so a
+    # 200 body of `[1, 2]` or `["okta"]` reached `u.get("groups")` and raised
+    # `AttributeError: 'int' object has no attribute 'get'`, taking down the whole
+    # posture collection. Measured before this guard:
+    #   [{"groups": [...], ...}] -> counted      [1, 2] -> CRASH
+    #   ["okta"] -> CRASH                        [None] -> CRASH
+    # Same shape as the `{"saas": ["okta"]}` case in the dashboard asset loader:
+    # a type check one level too shallow.
+    #
+    # A list with a non-dict element is routed to `_unreachable(code)` rather
+    # than filtered down to the dict elements. Filtering would keep `total` and
+    # call it a success while silently under-counting, which trades a crash for a
+    # quiet wrong number — and `_unreachable(200)` already means exactly this
+    # ("reason": "unexpected_payload"), so no new state is invented.
+    #
+    # This endpoint is the only one that needs the element check: groups,
+    # departments and nss_feeds take `len(data)` and never dereference an element.
     code, data = _safe_get(session, base, "/api/v1/users")
-    if code == 200 and isinstance(data, list):
+    if (
+        code == 200
+        and isinstance(data, list)
+        and all(isinstance(u, dict) for u in data)
+    ):
         total = len(data)
         no_group = sum(1 for u in data if not u.get("groups"))
         no_dept = sum(1 for u in data if not u.get("department"))
