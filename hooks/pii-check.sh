@@ -33,12 +33,14 @@ FOUND=0
 # Return contract — the codes are load-bearing and each maps to DIFFERENT advice:
 #   0  READ_OK           blob is in "$_blob"
 #   1  READ_ABSENT       not local, and could not be fetched
-#   2  READ_UNDECODABLE  present locally, but git cannot output it The two failures need different advice — measured on
-# a loose object overwritten with non-zlib bytes, `cat-file -e` returns 0 while
-# `cat-file blob` returns 128 with 0 bytes written, so telling that user to run
-# `cat-file -e` (the advice for the absent case) sends them to a command that
-# succeeds and changes nothing. That is the same dead-end shape as the earlier
-# `git fetch` advice, one path over.
+#   2  READ_UNDECODABLE  present locally, but git cannot output it
+#
+# The two failures need DIFFERENT advice — measured on a loose object overwritten
+# with non-zlib bytes, `cat-file -e` returns 0 while `cat-file blob` returns 128
+# with 0 bytes written, so telling that user to run `cat-file -e` (the advice for
+# the absent case) sends them to a command that succeeds and changes nothing.
+# That is the same dead-end shape as the earlier `git fetch` advice, one path
+# over.
 read_staged_blob() {
   local oid="$1"
   if GIT_NO_LAZY_FETCH=1 git cat-file -e "$oid" 2>/dev/null; then
@@ -57,8 +59,9 @@ read_staged_blob() {
   # The fetch may have LANDED and the decode still failed. Re-probe: if the
   # object is local now, this is a decode problem and deserves the damaged-store
   # advice, not "missing locally, run cat-file -e" — which would succeed and fix
-  # nothing. Inspection-only: no fixture serves a corrupt object over a promisor,
-  # so this branch is UNPINNED.
+  # nothing. PINNED via a `--filter=tree:0` clone plus an absent TREE oid staged
+  # at mode 100644: the fetch lands the object and the read then fails on TYPE,
+  # which drives this branch with no corruption and no network.
   if GIT_NO_LAZY_FETCH=1 git cat-file -e "$oid" 2>/dev/null; then
     return 2
   fi

@@ -301,10 +301,16 @@ setup_partial_clone_case() {
   clone="$(mktemp -d "${TMPDIR:-/tmp}/claudesec-pcclone.XXXXXX")"
   rmdir "$clone"
   # -c protocol.file.allow=always for the same reason the submodule fixture needs
-  # it: a hardened config (`protocol.file.allow=never`, `protocol.allow=never`)
-  # makes the clone fail and turns four assertions into loud FAILs for
-  # environmental reasons. Does NOT rescue a restrictive `GIT_ALLOW_PROTOCOL`
-  # env var, which no -c can override.
+  # it: a hardened config makes the clone fail and turns four assertions into
+  # loud FAILs for environmental reasons. It covers `protocol.file.allow=never`
+  # AND `protocol.allow=never` — `protocol.<name>.allow` takes precedence over
+  # `protocol.allow`, verified with a real `GIT_CONFIG_GLOBAL`: without the -c the
+  # clone dies in ~1s with `fatal: transport 'file' not allowed`, with it the
+  # clone succeeds. (An earlier note here claimed that config HANGS; that was an
+  # artifact of the probe harness measuring it, not git. Corrected rather than
+  # left, because a recorded phantom is something a future reader plans around.)
+  # It does NOT rescue a restrictive `GIT_ALLOW_PROTOCOL` env var, which no -c can
+  # override; that fails fast and loud.
   if ! git -c protocol.file.allow=always clone -q --filter=blob:none \
     --no-local "file://$src" "$clone" 2>/dev/null; then
     rm -rf "$src"
@@ -346,6 +352,62 @@ setup_partial_clone_case() {
   PC_ONLINE_PII_RC=$?
 
   rm -rf "$src" "$clone"
+}
+
+# RE-PROBE branch (`READ_UNDECODABLE` reached through the FALLBACK path): the
+# object is absent, the lazy fetch LANDS it, and the read then fails anyway — so
+# the failure is a decode, not an absence, and the advice must say so. Recipe
+# from review, and the trick is that it needs no corruption and no network: a
+# `--filter=tree:0` clone leaves TREES absent, and an absent tree oid staged at
+# mode 100644 fetches fine and then fails on TYPE.
+#
+# Caveat worth knowing: the cause here is a type mismatch rather than a damaged
+# store, so the message is generically right rather than precisely right. The
+# input is a hand-crafted index state nobody reaches by accident; the branch is
+# what is under test.
+# Echoes "<rc>:<which advice>" so a collapse of rc 2 into rc 1 is visible.
+run_staged_fetched_then_undecodable() {
+  local hook="$1" donor clone old_tree out rc
+  donor="$(mktemp -d "${TMPDIR:-/tmp}/claudesec-t0donor.XXXXXX")"
+  git -C "$donor" init -q .
+  git -C "$donor" config user.email "test@example.com"
+  git -C "$donor" config user.name "test"
+  git -C "$donor" config uploadpack.allowFilter true
+  mkdir -p "$donor/sub"
+  printf 'old subtree\n' >"$donor/sub/f.txt"
+  git -C "$donor" add sub/f.txt
+  git -C "$donor" commit -q -m v1 --no-verify
+  old_tree="$(git -C "$donor" rev-parse HEAD:sub)"
+  printf 'new subtree\n' >"$donor/sub/f.txt"
+  git -C "$donor" add sub/f.txt
+  git -C "$donor" commit -q -m v2 --no-verify
+
+  clone="$(mktemp -d "${TMPDIR:-/tmp}/claudesec-t0clone.XXXXXX")"
+  rmdir "$clone"
+  if ! git -c protocol.file.allow=always clone -q --filter=tree:0 \
+    --no-local "file://$donor" "$clone" 2>/dev/null; then
+    rm -rf "$donor"
+    printf 'tree-filter-clone-unavailable'
+    return
+  fi
+  git -C "$clone" config user.email "test@example.com"
+  git -C "$clone" config user.name "test"
+  # Vacuity guard: if the old tree is already local, the fetch never happens and
+  # this exercises the probe-succeeded branch instead.
+  if GIT_NO_LAZY_FETCH=1 git -C "$clone" cat-file -e "$old_tree" 2>/dev/null; then
+    rm -rf "$donor" "$clone"
+    printf 'tree-unexpectedly-local'
+    return
+  fi
+  git -C "$clone" update-index --add --cacheinfo "100644,$old_tree,fake.txt"
+  out="$(cd "$clone" && bash "$hook" 2>&1)"
+  rc=$?
+  rm -rf "$donor" "$clone"
+  case "$out" in
+    *"damaged object store"*) printf '%s:corrupt-advice' "$rc" ;;
+    *"does NOT hydrate"*) printf '%s:absent-advice' "$rc" ;;
+    *) printf '%s:no-advice' "$rc" ;;
+  esac
 }
 
 # SKIP_PATTERNS was entirely unpinned across three rounds: making should_skip
@@ -549,6 +611,14 @@ assert_exit "secret-check: a corrupt object fails CLOSED with damaged-store advi
   "1:corrupt-advice" "$(run_staged_corrupt_object "$SECRET_HOOK" "$SECRET_BAD")"
 assert_exit "pii-check: a corrupt object fails CLOSED with damaged-store advice" \
   "1:corrupt-advice" "$(run_staged_corrupt_object "$PII_HOOK" "$PII_BAD")"
+
+# The same READ_UNDECODABLE code reached through the FALLBACK path — absent, then
+# fetched, then still unreadable. This was the one branch the previous round
+# admitted it could not pin.
+assert_exit "secret-check: fetched-then-undecodable gets damaged-store advice" \
+  "1:corrupt-advice" "$(run_staged_fetched_then_undecodable "$SECRET_HOOK")"
+assert_exit "pii-check: fetched-then-undecodable gets damaged-store advice" \
+  "1:corrupt-advice" "$(run_staged_fetched_then_undecodable "$PII_HOOK")"
 
 echo ""
 echo "Passed: $TEST_PASSED  Failed: $TEST_FAILED"
