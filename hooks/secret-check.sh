@@ -30,11 +30,18 @@ FOUND=0
 # git 2.36, so on those the absent-object read is unbounded, exactly as it was
 # before this guard. The claim is "the common path never dials out", not "nothing
 # ever can".
+# Return codes are load-bearing: 0 read it, 1 absent-and-unfetchable,
+# 2 PRESENT but unreadable. The two failures need different advice — measured on
+# a loose object overwritten with non-zlib bytes, `cat-file -e` returns 0 while
+# `cat-file blob` returns 128 with 0 bytes written, so telling that user to run
+# `cat-file -e` (the advice for the absent case) sends them to a command that
+# succeeds and changes nothing. That is the same dead-end shape as the earlier
+# `git fetch` advice, one path over.
 read_staged_blob() {
   local oid="$1"
   if GIT_NO_LAZY_FETCH=1 git cat-file -e "$oid" 2>/dev/null; then
-    GIT_NO_LAZY_FETCH=1 git cat-file blob "$oid" >"$_blob" 2>/dev/null
-    return
+    GIT_NO_LAZY_FETCH=1 git cat-file blob "$oid" >"$_blob" 2>/dev/null || return 2
+    return 0
   fi
   if command -v timeout >/dev/null 2>&1; then
     timeout 30 git cat-file blob "$oid" >"$_blob" 2>/dev/null
@@ -155,7 +162,18 @@ else
     if should_skip "$file"; then
       continue
     fi
-    if ! read_staged_blob "$_dstsha"; then
+    # `|| _read_rc=$?` not a bare call: under `set -e` a function returning 2
+    # aborts the script before the message is printed (measured — secret-check
+    # exited 2 silently while pii-check, which has no `set -e`, was fine).
+    _read_rc=0
+    read_staged_blob "$_dstsha" || _read_rc=$?
+    if [ "$_read_rc" -eq 2 ]; then
+      echo -e "${RED}[SECRET]${NC} cannot read the staged blob for: $file (not scanned)"
+      echo "  The object EXISTS but could not be decoded — a damaged object store."
+      echo "  Run 'git fsck' to locate it (or 'git commit --no-verify' to accept the risk)."
+      FOUND=$((FOUND + 1))
+      continue
+    elif [ "$_read_rc" -ne 0 ]; then
       echo -e "${RED}[SECRET]${NC} cannot read the staged blob for: $file (not scanned)"
       echo "  The object is missing locally and could not be fetched."
       echo "  'git fetch' does NOT hydrate it — the clone filter still applies."

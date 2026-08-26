@@ -379,6 +379,35 @@ run_staged_skipped_missing_object() {
   printf '%s' "$rc"
 }
 
+# CORRUPT object: PRESENT but undecodable. `cat-file -e` returns 0 (it does not
+# inflate) while `cat-file blob` returns 128 — so this takes the probe-succeeded
+# branch, and the advice for the ABSENT case would tell the user to run
+# `git cat-file -e`, which succeeds and changes nothing. Echoes "rc:<has the
+# absent-case advice>" so the assertion pins both the exit code and the fact that
+# the two failures do not share a message.
+run_staged_corrupt_object() {
+  local hook="$1" body="$2" rc oid objpath out
+  reset_repo
+  printf '%s\n' "$body" >"$REPO/f.txt"
+  git -C "$REPO" add f.txt
+  oid="$(git -C "$REPO" rev-parse :f.txt)"
+  objpath="$REPO/.git/objects/${oid:0:2}/${oid:2}"
+  if [ ! -f "$objpath" ]; then
+    printf 'no-loose-object'
+    return
+  fi
+  chmod u+w "$objpath"
+  printf 'not zlib at all' >"$objpath"
+  out="$(cd "$REPO" && bash "$hook" 2>&1)"
+  rc=$?
+  reset_repo
+  case "$out" in
+    *"does NOT hydrate"*) printf '%s:absent-advice' "$rc" ;;
+    *"damaged object store"*) printf '%s:corrupt-advice' "$rc" ;;
+    *) printf '%s:no-advice' "$rc" ;;
+  esac
+}
+
 # UNREADABLE BLOB: the index references an object that is gone, so
 # `git cat-file blob <oid>` fails. The original `|| continue` skipped the file
 # silently; a file that could not be scanned must BLOCK, not pass.
@@ -506,6 +535,14 @@ assert_exit "secret-check: a skipped path with a missing blob does not block" 0 
   "$(run_staged_skipped_missing_object "$SECRET_HOOK")"
 assert_exit "pii-check: a skipped path with a missing blob does not block" 0 \
   "$(run_staged_skipped_missing_object "$PII_HOOK")"
+
+# A corrupt object is PRESENT but undecodable, so it must fail closed with the
+# damaged-store advice, NOT the partial-clone advice whose suggested command
+# succeeds and fixes nothing.
+assert_exit "secret-check: a corrupt object fails CLOSED with damaged-store advice" \
+  "1:corrupt-advice" "$(run_staged_corrupt_object "$SECRET_HOOK" "$SECRET_BAD")"
+assert_exit "pii-check: a corrupt object fails CLOSED with damaged-store advice" \
+  "1:corrupt-advice" "$(run_staged_corrupt_object "$PII_HOOK" "$PII_BAD")"
 
 echo ""
 echo "Passed: $TEST_PASSED  Failed: $TEST_FAILED"
