@@ -31,6 +31,25 @@
 # against this repo's own files, where finding nothing is the expected result —
 # that job cannot distinguish a working detector from a broken one).
 #
+# SECOND ROUND — the fix's own fail-opens
+#   Adversarial review of the first version of the fix found THREE fail-open
+#   paths that `main` did not have, and mutation-testing this file showed why
+#   they survived: removing `--diff-filter=ACMR` or `|| continue` left it at
+#   14/14. The assertions could not see the constructs that caused the bugs.
+#   Each is now pinned to its construct:
+#     - TYPE CHANGE (`T`): `ACMR` omits it, so a symlink replaced by a real file
+#       carrying a secret was never scanned. Filter is now `d` (exclude
+#       deletions).
+#     - `:<path>` STAGE SPEC: a staged `0:notes.txt` is parsed as *stage 0 of
+#       notes.txt*, so the hook either skipped it or scanned an unrelated decoy
+#       and read clean. The blob is now addressed by OID from `--raw`.
+#     - UNWRITABLE TMPDIR: `mktemp` failed, `pii-check.sh` has no `set -e`, and
+#       the gate exited 0 having scanned nothing. Both hooks now fail closed, as
+#       does an unreadable staged blob.
+#   Also pinned forward, not as a regression: a RENAME's raw record carries TWO
+#   paths and the DESTINATION is the one entering the commit. Verified by
+#   mutation (dropping the second-path read makes both rename cases fail).
+#
 # Hermetic: builds throwaway git repos under $TMPDIR. No network, no fixtures
 # outside this file, nothing written inside the ClaudeSec checkout.
 set -uo pipefail
@@ -118,6 +137,105 @@ run_with_arg() {
   printf '%s' "$rc"
 }
 
+# --- the three fail-opens adversarial review found in the FIRST version of this
+# --- fix, each pinned to the construct responsible ------------------------------
+
+# TYPE CHANGE (status `T`): a symlink in HEAD, staged as a regular file carrying
+# $2. Pins `--diff-filter=d` (exclude deletions) against the original
+# `--diff-filter=ACMR`, which omits `T` and never scanned this at all.
+run_staged_typechange() {
+  local hook="$1" body="$2" rc
+  reset_repo
+  ln -sf f.txt "$REPO/lnk.txt"
+  git -C "$REPO" add lnk.txt
+  git -C "$REPO" commit -q -m symlink --no-verify
+  rm -f "$REPO/lnk.txt"
+  printf '%s\n' "$body" >"$REPO/lnk.txt"
+  git -C "$REPO" add lnk.txt
+  (cd "$REPO" && bash "$hook" >/dev/null 2>&1)
+  rc=$?
+  # Drop the symlink commit so later cases reset to the plain baseline.
+  git -C "$REPO" reset -q --hard HEAD~1
+  printf '%s' "$rc"
+}
+
+# STAGE-SPEC AMBIGUITY: a path literally named `0:notes.txt`, with a decoy
+# `notes.txt` also staged. `git show ":0:notes.txt"` (and `cat-file blob` on the
+# same string) parses that as *stage 0 of notes.txt* and returns the DECOY's
+# content, so the gate read clean. Pins addressing the blob by OID.
+run_staged_colon_path() {
+  local hook="$1" body="$2" rc
+  reset_repo
+  printf '%s\n' "$body" >"$REPO/0:notes.txt"
+  printf 'nothing to see here\n' >"$REPO/notes.txt"
+  git -C "$REPO" add -- '0:notes.txt' notes.txt
+  (cd "$REPO" && bash "$hook" >/dev/null 2>&1)
+  rc=$?
+  reset_repo
+  rm -f "$REPO/0:notes.txt" "$REPO/notes.txt"
+  printf '%s' "$rc"
+}
+
+# RENAME (status `R`, TWO paths in the raw record): the DESTINATION is the path
+# entering the commit and the one that must be reported. Pins the second-path
+# read; without it the parser desynchronises and mis-pairs metadata with paths.
+run_staged_rename() {
+  local hook="$1" body="$2" rc out
+  reset_repo
+  printf '%s\n' "$body" >"$REPO/src.txt"
+  git -C "$REPO" add src.txt
+  git -C "$REPO" commit -q -m rename-src --no-verify
+  git -C "$REPO" mv src.txt dst.txt
+  out="$(cd "$REPO" && bash "$hook" 2>&1)"
+  rc=$?
+  git -C "$REPO" reset -q --hard HEAD~1
+  rm -f "$REPO/src.txt" "$REPO/dst.txt"
+  # Report the exit code only when the DESTINATION path was named.
+  case "$out" in
+    *dst.txt*) printf '%s' "$rc" ;;
+    *) printf 'reported-wrong-path' ;;
+  esac
+}
+
+# UNWRITABLE TMPDIR: `mktemp` fails. pii-check.sh has no `set -e`, so the
+# redirect failed per file, the loop swallowed it, and the gate exited 0 having
+# scanned nothing — a full or read-only /tmp turned the whole gate off, green.
+# Pins the explicit mktemp check. MUST fail closed.
+run_staged_no_tmpdir() {
+  local hook="$1" body="$2" rc ro
+  reset_repo
+  printf '%s\n' "$body" >"$REPO/f.txt"
+  git -C "$REPO" add f.txt
+  ro="$(mktemp -d "${TMPDIR:-/tmp}/claudesec-ro.XXXXXX")"
+  chmod 500 "$ro"
+  (cd "$REPO" && TMPDIR="$ro/" bash "$hook" >/dev/null 2>&1)
+  rc=$?
+  chmod 700 "$ro"
+  rm -rf "$ro"
+  printf '%s' "$rc"
+}
+
+# UNREADABLE BLOB: the index references an object that is gone, so
+# `git cat-file blob <oid>` fails. The original `|| continue` skipped the file
+# silently; a file that could not be scanned must BLOCK, not pass.
+run_staged_missing_object() {
+  local hook="$1" body="$2" rc oid objpath
+  reset_repo
+  printf '%s\n' "$body" >"$REPO/f.txt"
+  git -C "$REPO" add f.txt
+  oid="$(git -C "$REPO" rev-parse :f.txt)"
+  objpath="$REPO/.git/objects/${oid:0:2}/${oid:2}"
+  # A packed object would not be at that path; this repo is loose-only.
+  if [ ! -f "$objpath" ]; then
+    printf 'no-loose-object'
+    return
+  fi
+  rm -f "$objpath"
+  (cd "$REPO" && bash "$hook" >/dev/null 2>&1)
+  rc=$?
+  printf '%s' "$rc"
+}
+
 echo "== hooks/secret-check.sh + hooks/pii-check.sh (staged-mode contract) =="
 
 # --- REGRESSION: the false-negative direction (a secret in the commit) ---
@@ -159,6 +277,37 @@ assert_exit "secret-check: argument mode allows a clean file" 0 \
   "$(run_with_arg "$SECRET_HOOK" "$SECRET_OK")"
 assert_exit "pii-check: argument mode allows a clean file" 0 \
   "$(run_with_arg "$PII_HOOK" "$PII_OK")"
+
+# --- The three fail-opens review found in the first version of the fix ---------
+# Each is pinned to the construct responsible, because mutation testing showed
+# the assertions above survive removing `--diff-filter=ACMR` and `|| continue`
+# untouched: 14/14 either way. An assertion set that cannot see a construct is
+# not coverage of it.
+
+assert_exit "secret-check: symlink->file TYPE CHANGE with a secret is detected" 1 \
+  "$(run_staged_typechange "$SECRET_HOOK" "$SECRET_BAD")"
+assert_exit "pii-check: symlink->file TYPE CHANGE with PII is detected" 1 \
+  "$(run_staged_typechange "$PII_HOOK" "$PII_BAD")"
+
+assert_exit "secret-check: a '0:'-prefixed path is not read as stage 0 of a decoy" 1 \
+  "$(run_staged_colon_path "$SECRET_HOOK" "$SECRET_BAD")"
+assert_exit "pii-check: a '0:'-prefixed path is not read as stage 0 of a decoy" 1 \
+  "$(run_staged_colon_path "$PII_HOOK" "$PII_BAD")"
+
+assert_exit "secret-check: a RENAME reports the destination path" 1 \
+  "$(run_staged_rename "$SECRET_HOOK" "$SECRET_BAD")"
+assert_exit "pii-check: a RENAME reports the destination path" 1 \
+  "$(run_staged_rename "$PII_HOOK" "$PII_BAD")"
+
+assert_exit "secret-check: an unwritable TMPDIR fails CLOSED" 1 \
+  "$(run_staged_no_tmpdir "$SECRET_HOOK" "$SECRET_BAD")"
+assert_exit "pii-check: an unwritable TMPDIR fails CLOSED" 1 \
+  "$(run_staged_no_tmpdir "$PII_HOOK" "$PII_BAD")"
+
+assert_exit "secret-check: an unreadable staged blob fails CLOSED" 1 \
+  "$(run_staged_missing_object "$SECRET_HOOK" "$SECRET_BAD")"
+assert_exit "pii-check: an unreadable staged blob fails CLOSED" 1 \
+  "$(run_staged_missing_object "$PII_HOOK" "$PII_BAD")"
 
 echo ""
 echo "Passed: $TEST_PASSED  Failed: $TEST_FAILED"

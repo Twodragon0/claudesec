@@ -79,14 +79,42 @@ else
   # blocked a commit whose staged content was clean when the PII existed only in
   # an unstaged edit. Wrong in both directions.
   #
-  # --diff-filter=ACMR drops deletions, which have no blob to read.
+  # The blob is addressed by OID, from `--raw`, and NOT by a `:<path>` pathspec —
+  # `:<path>` is parsed as `:<stage>:<path>` for a path like `0:notes.txt`, which
+  # either skips the file or scans an unrelated `notes.txt` instead. `T` (type
+  # change) must stay in the set, so the filter EXCLUDES deletions
+  # (`--diff-filter=d`, lowercase) rather than listing `ACMR`. See the long
+  # comment in secret-check.sh for the three fail-opens this shape closes.
+  #
+  # Renames/copies carry TWO paths; the second is the destination. A gitlink
+  # (160000) or absent/unmerged entry (000000) has no blob and is skipped by mode.
   # Process substitution keeps FOUND in the parent shell.
-  _blob=$(mktemp "${TMPDIR:-/tmp}/claudesec-pii-check.XXXXXX")
+  #
+  # Fails CLOSED on a missing temp file or an unreadable blob. This script has no
+  # `set -e`, so an unwritable TMPDIR previously turned the whole gate off while
+  # still exiting 0 — the failure had to become explicit rather than inherited.
+  _blob=$(mktemp "${TMPDIR:-/tmp}/claudesec-pii-check.XXXXXX") || {
+    echo -e "${RED}[PII]${NC} cannot create a temp file — refusing to pass an unscanned commit" >&2
+    exit 1
+  }
   trap 'rm -f "$_blob"' EXIT
-  while IFS= read -r -d '' file; do
-    git show ":$file" >"$_blob" 2>/dev/null || continue
+  while IFS= read -r -d '' _meta; do
+    IFS= read -r -d '' file || break
+    # :<srcmode> <dstmode> <srcsha> <dstsha> <status>
+    read -r _ _dstmode _ _dstsha _status <<<"${_meta#:}"
+    case "$_status" in
+      R* | C*) IFS= read -r -d '' file || break ;;
+    esac
+    case "$_dstmode" in
+      160000 | 000000) continue ;;
+    esac
+    if ! git cat-file blob "$_dstsha" >"$_blob" 2>/dev/null; then
+      echo -e "${RED}[PII]${NC} cannot read the staged blob for: $file (not scanned)"
+      FOUND=$((FOUND + 1))
+      continue
+    fi
     scan_file "$file" "$_blob"
-  done < <(git diff --cached --name-only --diff-filter=ACMR -z 2>/dev/null)
+  done < <(git diff --cached --raw -z --no-abbrev --diff-filter=d 2>/dev/null)
 fi
 
 if [ $FOUND -gt 0 ]; then
