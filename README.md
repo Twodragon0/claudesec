@@ -10,7 +10,7 @@
 
 [![npm version](https://img.shields.io/npm/v/claudesec?color=cb3837&logo=npm)](https://www.npmjs.com/package/claudesec)
 [![codecov](https://codecov.io/gh/Twodragon0/claudesec/branch/main/graph/badge.svg?flag=scanner-lib)](https://app.codecov.io/gh/Twodragon0/claudesec)
-[![GitHub stars](https://img.shields.io/github/stars/Twodragon0/claudesec?style=flat&color=yellow)](https://github.com/Twodragon0/claudesec/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/Twodragon0/claudesec?style=flat&color=yellow)](https://github.com/Twodragon0/claudesec)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![OpenSSF Scorecard](https://img.shields.io/badge/OpenSSF-Scorecard-green.svg)](https://scorecard.dev/)
@@ -693,7 +693,7 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 If ClaudeSec helps your DevSecOps or AI-assisted security workflow, consider giving it a **star** on GitHub — it helps others discover the project.
 
-[![Star on GitHub](https://img.shields.io/badge/Star_on_GitHub-⭐-yellow?style=for-the-badge)](https://github.com/Twodragon0/claudesec/stargazers)
+[![Star on GitHub](https://img.shields.io/badge/Star_on_GitHub-⭐-yellow?style=for-the-badge)](https://github.com/Twodragon0/claudesec)
 
 ## Star History
 
