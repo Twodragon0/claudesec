@@ -35,8 +35,8 @@
 <!-- ─── Browser chrome + security policy ─── -->
 <meta name="theme-color" content="#0f1117">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none';">
-<style>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-{{CSP_NONCE}}'; style-src-attr 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none';">
+<style nonce="{{CSP_NONCE}}">
 :root{--bg:#0f1117;--surface:#1a1d27;--surface-alt:#1e2130;--border:#2a2d3a;--text:#e1e4eb;--muted:#8b8fa3;--accent:#6c5ce7;--green:#00b894;--yellow:#fdcb6e;--red:#e17055;--orange:#f39c12;--blue:#0984e3;--cyan:#00cec9;--pink:#fd79a8;--glass:rgba(26,29,39,.72);--glass-border:rgba(108,92,231,.18);--success:var(--green);--danger:var(--red);--warning:var(--yellow);--radius:12px;--transition:.25s cubic-bezier(.4,0,.2,1)}
 [data-theme="light"]{--bg:#f0f2f5;--surface:#ffffff;--surface-alt:#f7f8fa;--border:#e0e3ea;--text:#1a1d27;--muted:#6b7085;--glass:rgba(255,255,255,.72);--glass-border:rgba(108,92,231,.12)}
 *{margin:0;padding:0;box-sizing:border-box}

@@ -154,8 +154,14 @@ jobs:
             #
             # Over-inclusion here is fail-safe: it costs ~20s and cannot hide a
             # regression. Pinned by scanner/tests/test_ci_guard_self_verify.py.
-            echo "ci_config=$(match '^(\.github/|templates/|scanner/tests/(test_ci_|_ci_guard_util\.py)|scripts/setup\.sh$|requirements.*\.txt|lychee\.toml$|ruff\.toml$|Dockerfile|package\.json$|\.npmignore$|lighthouserc\.json$|bin/|\.claude/skills/|\.claude-plugin/)')"
-            echo "docker=$(match '^(Dockerfile|docker-compose|scripts/run-dashboard-docker|scanner/lib/dashboard-|\.github/workflows/lint\.yml)')"
+            echo "ci_config=$(match '^(\.github/|templates/|scanner/tests/(test_ci_|_ci_guard_util\.py)|scripts/setup\.sh$|requirements.*\.txt|lychee\.toml$|ruff\.toml$|Dockerfile|nginx/|package\.json$|\.npmignore$|lighthouserc\.json$|bin/|\.claude/skills/|\.claude-plugin/)')"
+            # `nginx/` added 2026-08-27. It was in NO bucket, so a PR editing
+            # only nginx/default.conf ran neither `Docker Dashboard Smoke Test`
+            # (gated on docker/scanner) nor `scanner-unit-tests` — the one file
+            # whose response headers that smoke test exists to check was the one
+            # file that could not trigger it. Measured against the real matcher:
+            # `nginx/default.conf` scored docker=false before this line.
+            echo "docker=$(match '^(Dockerfile|docker-compose|scripts/run-dashboard-docker|scanner/lib/dashboard-|nginx/|\.github/workflows/lint\.yml)')"
             echo "python_deps=$(match '^(requirements.*\.txt|pyproject\.toml|setup\.py)')"
             echo "npm_deps=$(match '^(package(-lock)?\.json|\.nvmrc)')"
             echo "shell=$(match '\.(sh|bash)$')"
@@ -1137,6 +1143,53 @@ jobs:
               exit 1
             fi
             echo "OK ${endpoint} -> ${status}"
+          done
+
+      # Executed proof, not a config read. The nginx `add_header` inheritance
+      # rule is the whole hazard here: a location that declares ANY add_header
+      # of its own stops inheriting the server-level set, so "the header is in
+      # default.conf" says nothing about whether a given URL emits it. That is
+      # how `Cross-Origin-Resource-Policy` came to be missing on NINE URLs in
+      # the 2026-08-26 nightly ZAP full scan (rule 90004) while the file plainly
+      # listed security headers. Only a request answers the question.
+      #
+      # `/scan-report.json` and `/.claudesec-assets/` are checked alongside `/`
+      # because they are served by DIFFERENT location blocks — `/` reaches the
+      # `\.html$` block via try_files, the JSON falls through to `location /`,
+      # and the assets path has its own `^~` block that historically restated
+      # only two of the headers. One URL would have passed while the finding
+      # stood.
+      - name: Verify security headers on every serving location
+        run: |
+          # `.claudesec-assets` is a bind mount, so a host write is visible to
+          # nginx immediately — no restart needed.
+          echo '{"probe":true}' > .claudesec-assets/probe.json
+
+          # Site isolation (ZAP 90004) + the pre-existing baseline. Names are
+          # matched case-insensitively; values are asserted exactly, because a
+          # present-but-wrong value is what ZAP reports as "Missing or Invalid".
+          expect_headers() {
+            url="$1"
+            hdrs=$(curl -sS -D - -o /dev/null "http://localhost:11777${url}")
+            for want in \
+              "cross-origin-resource-policy: same-origin" \
+              "cross-origin-opener-policy: same-origin" \
+              "cross-origin-embedder-policy: require-corp" \
+              "x-frame-options: SAMEORIGIN" \
+              "x-content-type-options: nosniff" \
+              "referrer-policy: strict-origin-when-cross-origin" ; do
+              if ! printf '%s' "$hdrs" | tr -d '\r' | grep -qiF "$want"; then
+                echo "::error::${url} is missing header '${want}'"
+                printf '%s\n' "$hdrs"
+                docker compose logs dashboard
+                exit 1
+              fi
+            done
+            echo "OK ${url} — all site-isolation and baseline headers present"
+          }
+
+          for endpoint in "/" "/index.html" "/scan-report.json" "/.claudesec-assets/probe.json"; do
+            expect_headers "$endpoint"
           done
 
       # The standalone scan dashboard was folded into `/`. Its old URLs must
