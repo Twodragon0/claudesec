@@ -47,6 +47,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LIB_DIR = REPO_ROOT / "scanner" / "lib"
 sys.path.insert(0, str(LIB_DIR))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import dashboard_source_files  # noqa: E402
 
 # Matches an inline HTML event-handler attribute: whitespace, then `on<name>`,
 # then `=`, then an opening quote. `content=`, `font=`, `data-*` etc. never begin
@@ -54,23 +56,56 @@ sys.path.insert(0, str(LIB_DIR))
 # no `=` after the handler name so it never matches either.
 INLINE_HANDLER_RE = re.compile(r"""\son[a-z]+\s*=\s*["']""", re.IGNORECASE)
 
-# Every source that emits dashboard markup, as a REPO-RELATIVE path. Repo-relative
-# (not bare names resolved under LIB_DIR) so the repo-root asset dashboard can be
-# scanned by the same rule instead of needing a `../..` escape hatch.
-_SOURCE_FILES = [
-    "scanner/lib/dashboard-template.html",
-    "scanner/lib/dashboard-gen.py",
-    "scanner/lib/dashboard_html_overview.py",
-    "scanner/lib/dashboard_html_arch.py",
-    "scanner/lib/dashboard_html_owasp.py",
-    "scanner/lib/dashboard_html_compliance.py",
-    "scanner/lib/dashboard_html_builders.py",
-    "scanner/lib/dashboard_html_sections.py",
-    "scanner/lib/dashboard_html_audit_points.py",
-    "scanner/lib/dashboard_html_audit_sources.py",
-    # ISMS asset dashboard: repo-root template, same CSP, same delegation model.
-    "claudesec-asset-dashboard.html",
-]
+# Sources that MUST be scanned, whatever the glob returns. This is a vacuity
+# floor, not the source list: `_source_files()` is the list. Each entry is here
+# because it is known to emit markup, so a glob that stops matching it is a
+# silent coverage loss rather than an error.
+_REQUIRED_SOURCES = frozenset(
+    {
+        "scanner/lib/dashboard-template.html",
+        "scanner/lib/dashboard-gen.py",
+        "scanner/lib/dashboard_html_builders.py",
+        "scanner/lib/dashboard_html_sections.py",
+        "scanner/lib/dashboard_html_owasp.py",
+        "scanner/lib/dashboard_html_audit_points.py",
+        "scanner/lib/dashboard_html_audit_sources.py",
+        # Missing from the hand-written list this replaced, and both emit markup.
+        "scanner/lib/dashboard_html_network.py",
+        "scanner/lib/dashboard_html_helpers.py",
+        # Held a real un-nonced `<style>` that CI caught and this guard could not
+        # see, because the hand-written list did not name it.
+        "scanner/lib/dashboard_template.py",
+        # ISMS asset dashboard: repo-root template, same CSP, same delegation model.
+        "claudesec-asset-dashboard.html",
+    }
+)
+
+# The hand-written list this replaced held 11 paths; the glob finds 23. Floor set
+# just under, so adding a builder stays green and a glob that silently narrows
+# does not.
+_MIN_SOURCES = 20
+
+
+def _source_files() -> list:
+    """Every source that emits dashboard markup, as REPO-RELATIVE paths.
+
+    Was a hand-written list of 11 entries until 2026-08-27. It was missing TWELVE
+    files — including `dashboard_html_network.py` and `dashboard_html_helpers.py`,
+    which plainly emit markup, and `dashboard_template.py`, which held a real
+    un-nonced `<style>` that CI caught while this guard read green over it. The
+    list had been correct when written and simply was not extended as builders
+    were added, which is the failure mode of every such list: nothing about a
+    green run distinguishes "scanned and clean" from "never looked".
+
+    Enumeration is shared with `test_dashboard_style_nonce.py` via
+    `_ci_guard_util.dashboard_source_files()` rather than re-globbed here, so the
+    two guards cannot drift apart in what they consider a dashboard source.
+
+    Repo-relative (not bare names resolved under LIB_DIR) so the repo-root asset
+    dashboard is scanned by the same rule instead of needing a `../..` escape
+    hatch.
+    """
+    return dashboard_source_files()
 
 
 # The two elements whose bodies leave the haystack. These are the ONLY spans
@@ -576,7 +611,7 @@ class TestStripPyComments(unittest.TestCase):
         # Regression pin on the nine affected lines: the `href="#"` markup must
         # survive stripping in every builder that emits it.
         seen = 0
-        for name in _SOURCE_FILES:
+        for name in _source_files():
             if not name.endswith(".py"):
                 continue
             scan = _scannable(name, (REPO_ROOT / name).read_text(encoding="utf-8"))
@@ -589,10 +624,96 @@ class TestStripPyComments(unittest.TestCase):
         )
 
 
+class TestSourceEnumeration(unittest.TestCase):
+    """The glob replaced a hand-written list; these are the checks that make the
+    replacement safe. Without them a narrowed glob turns every scan below vacuous
+    and the suite still reads green — the same silence the old list produced, just
+    reached a different way."""
+
+    def test_enough_sources_are_found(self):
+        found = _source_files()
+        self.assertGreaterEqual(
+            len(found),
+            _MIN_SOURCES,
+            f"only {len(found)} dashboard source(s) enumerated (floor "
+            f"{_MIN_SOURCES}): {found}. The glob in "
+            "`_ci_guard_util.DASHBOARD_SOURCE_GLOBS` is matching too little, so "
+            "the handler scan is passing over files it never opened. If a builder "
+            "was genuinely deleted, lower the floor here and say which.",
+        )
+
+    def test_every_required_source_is_enumerated(self):
+        missing = sorted(_REQUIRED_SOURCES - set(_source_files()))
+        self.assertEqual(
+            missing,
+            [],
+            f"known markup-emitting source(s) not enumerated: {missing}. These "
+            "are pinned individually because a count floor cannot tell WHICH file "
+            "fell out of the glob, and the file that matters most is the one "
+            "nobody notices.",
+        )
+
+    def test_enumerated_sources_all_exist(self):
+        """`git ls-files` lists the index; a path in the index with no file on
+        disk would make `read_text` raise mid-scan."""
+        for name in _source_files():
+            self.assertTrue(
+                (REPO_ROOT / name).is_file(),
+                f"enumerated source is not on disk: {name}",
+            )
+
+    def test_glob_covers_the_old_hand_written_list(self):
+        """No-regression direction: the glob must be a strict SUPERSET.
+
+        Pins the eleven paths the list carried, so a future narrowing of the glob
+        cannot quietly drop coverage that already existed. Measured 2026-08-27:
+        11 -> 23 files, nothing dropped.
+        """
+        previously_scanned = {
+            "scanner/lib/dashboard-template.html",
+            "scanner/lib/dashboard-gen.py",
+            "scanner/lib/dashboard_html_overview.py",
+            "scanner/lib/dashboard_html_arch.py",
+            "scanner/lib/dashboard_html_owasp.py",
+            "scanner/lib/dashboard_html_compliance.py",
+            "scanner/lib/dashboard_html_builders.py",
+            "scanner/lib/dashboard_html_sections.py",
+            "scanner/lib/dashboard_html_audit_points.py",
+            "scanner/lib/dashboard_html_audit_sources.py",
+            "claudesec-asset-dashboard.html",
+        }
+        lost = sorted(previously_scanned - set(_source_files()))
+        self.assertEqual(
+            lost,
+            [],
+            f"the glob no longer covers {lost}, which the hand-written list this "
+            "replaced did scan. Converting a list to a glob must only ever widen "
+            "coverage.",
+        )
+
+    def test_scan_actually_reads_content(self):
+        """Anti-tautology: `_scannable` must return real text for these files.
+
+        A `_source_files()` full of paths whose haystack comes back empty passes
+        the handler scan exactly like a clean repo does.
+        """
+        total = 0
+        for name in _source_files():
+            total += len(
+                _scannable(name, (REPO_ROOT / name).read_text(encoding="utf-8"))
+            )
+        self.assertGreater(
+            total,
+            100_000,
+            f"the enumerated sources yielded only {total} scannable characters; "
+            "the strippers are eating the haystack.",
+        )
+
+
 class TestNoInlineHandlersInSource(unittest.TestCase):
     def test_no_inline_handlers_in_builder_sources(self):
         offenders = []
-        for name in _SOURCE_FILES:
+        for name in _source_files():
             path = REPO_ROOT / name
             self.assertTrue(path.is_file(), f"builder source missing: {path}")
             scan = _scannable(name, path.read_text(encoding="utf-8"))
@@ -649,7 +770,7 @@ class TestNoInlineHandlersInRenderedMarkup(unittest.TestCase):
 
 # Bare test_* functions so pytest function-collection also runs the core checks.
 def test_source_has_no_inline_handlers():
-    for name in _SOURCE_FILES:
+    for name in _source_files():
         scan = _scannable(name, (REPO_ROOT / name).read_text(encoding="utf-8"))
         assert not INLINE_HANDLER_RE.search(scan), f"inline handler in {name}"
 
