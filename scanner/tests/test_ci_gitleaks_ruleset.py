@@ -41,6 +41,20 @@ DIRECTION
   and not the other.
 - The workflow must still pass `--config .gitleaks.toml`, or this file is inert
   regardless of what it says.
+- The workflow must scan a RELATIVE root. Anchoring the allowlist made the scan
+  root load-bearing: gitleaks reports each finding's path as the scan root joined
+  with the relative path, so `^`-anchored entries only match when that root is
+  `.`. Measured 2026-08-26 against a `git archive HEAD` export, same config:
+
+      gitleaks dir .                    -> 0 findings   (what lint.yml does)
+      gitleaks dir /tmp/gl-499-verify   -> 5 findings   (^ never matches)
+
+  The five are the three files the allowlist names on purpose
+  (`docs/guides/zscaler-zia-datadog.md` and two `scanner/tests/` fixtures), so an
+  absolute root fails LOUD rather than silently un-suppressing — the opposite
+  direction from the incident above. Pinned anyway: fail-loud still costs a red
+  required-adjacent job and a re-read of the allowlist to diagnose, and the
+  coupling is invisible from either file alone.
 
 Parsed with `tomllib` (stdlib since 3.11; CI runs 3.11.16) rather than scanned
 with regex. That is deliberate per ADR-001 §5 — model the grammar, do not proxy
@@ -60,7 +74,13 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_comment_lines  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    apply_mutation,
+    assert_disables,
+    non_comment_lines,
+    strip_comment_lines,
+    strip_inline_comment_sh,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GITLEAKS_CONFIG = REPO_ROOT / ".gitleaks.toml"
@@ -78,6 +98,36 @@ REQUIRED_RULE_IDS = frozenset(
         "zscaler-credentials",
     }
 )
+
+# Scan roots under which the `^`-anchored allowlist entries still match. gitleaks
+# joins this root onto each reported path, so anything else (an absolute path,
+# `$GITHUB_WORKSPACE`, `"${{ github.workspace }}"`) breaks every `^` anchor at
+# once. `.` is what lint.yml uses; `./` is the same directory spelled differently.
+RELATIVE_SCAN_ROOTS = frozenset({".", "./"})
+
+
+def gitleaks_scan_roots(yaml_text: str) -> list:
+    """Every scan-root argument passed to `gitleaks dir` in `yaml_text`.
+
+    Comment-stripped in BOTH forms before matching. `lint.yml` explains the
+    subcommand in prose — "`gitleaks dir` is the v8.20+ replacement for the legacy
+    `detect --no-git`" — so a whole-line-comment-only scan would read that
+    sentence as an invocation. The shell-aware inline stripper covers the other
+    half: these lines live inside a `run:` block, where bash starts a comment
+    after a metacharacter with no intervening space.
+
+    `finditer`, not `search`: a second `gitleaks dir` added elsewhere in the file
+    must be checked too, not shadowed by the first one passing.
+    """
+    active = "\n".join(
+        strip_inline_comment_sh(line) for line in non_comment_lines(yaml_text)
+    )
+    return [m.group(1) for m in re.finditer(r"gitleaks\s+dir\s+(\S+)", active)]
+
+
+def absolute_scan_roots(yaml_text: str) -> list:
+    """The `gitleaks dir` roots that would defeat the anchored allowlist."""
+    return sorted(r for r in gitleaks_scan_roots(yaml_text) if r not in RELATIVE_SCAN_ROOTS)
 
 
 class TestGitleaksExtendsDefaultRules(unittest.TestCase):
@@ -187,6 +237,37 @@ class TestGitleaksExtendsDefaultRules(unittest.TestCase):
             "different scan, not a stricter one.",
         )
 
+    def test_workflow_scans_a_relative_root(self):
+        """`gitleaks dir <root>` must use a relative root, or the `^` anchors die.
+
+        See DIRECTION in the module docstring for the measurement. Two assertions,
+        because either alone is vacuous: the root must EXIST (deleting the command
+        leaves nothing non-relative to complain about) and it must be relative.
+        """
+        if not LINT_YML.is_file():
+            self.skipTest(f"{LINT_YML} not found")
+        raw = LINT_YML.read_text(encoding="utf-8")
+        roots = gitleaks_scan_roots(raw)
+        self.assertTrue(
+            roots,
+            "no `gitleaks dir <root>` invocation found in lint.yml outside of "
+            "comments. Either the secret scan was removed, or it moved to a "
+            "subcommand this guard does not know about (`gitleaks git`, which "
+            "scans history and reports paths differently). Update this guard "
+            "together with whatever replaced it.",
+        )
+        self.assertEqual(
+            absolute_scan_roots(raw),
+            [],
+            f"`gitleaks dir` scan root(s) {absolute_scan_roots(raw)} are not "
+            "relative. gitleaks joins the scan root onto every reported path, so "
+            "the `^`-anchored `[allowlist] paths` in .gitleaks.toml stop matching "
+            "and the three files that carry example credentials on purpose start "
+            "failing CI (5 findings, measured 2026-08-26). Either keep the root "
+            "`.` or re-anchor the allowlist to match the new root — the two are "
+            "one decision, not two.",
+        )
+
 
 class TestGitleaksRulesetMutation(unittest.TestCase):
     """Mutation self-tests: the assertions must fail on the pre-fix config.
@@ -289,6 +370,79 @@ class TestGitleaksRulesetMutation(unittest.TestCase):
         failures = self._judge(stripped)
         self.assertIn("rule-count", failures)
         self.assertIn("rule-ids", failures)
+
+
+class TestGitleaksScanRootMutation(unittest.TestCase):
+    """Mutation self-tests for the scan-root detector. Parsed copies only."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not LINT_YML.is_file():
+            raise unittest.SkipTest(f"{LINT_YML} not found")
+        cls.clean = LINT_YML.read_text(encoding="utf-8")
+
+    def test_absolute_root_is_detected(self):
+        """`$GITHUB_WORKSPACE` is the realistic way this regresses.
+
+        Someone hardening the checkout, or reusing the step in a composite action
+        where `.` is not the repo root, reaches for the workspace variable. It is
+        absolute at runtime, so every `^` anchor stops matching — the mutant
+        genuinely disables the control, it does not merely change bytes.
+        """
+        mutant = apply_mutation(
+            self.clean, "gitleaks dir . \\", 'gitleaks dir "$GITHUB_WORKSPACE" \\'
+        )
+        found = assert_disables(
+            absolute_scan_roots, self.clean, mutant, label="absolute scan root"
+        )
+        self.assertEqual(found, ['"$GITHUB_WORKSPACE"'])
+
+    def test_second_invocation_is_not_shadowed(self):
+        """A bad root added ALONGSIDE the good one must still be caught.
+
+        `re.search` would stop at the compliant first match and report clean.
+        """
+        mutant = apply_mutation(
+            self.clean,
+            "gitleaks dir . \\",
+            "gitleaks dir . \\\n            --redact\n          gitleaks dir /srv/checkout \\",
+        )
+        found = assert_disables(
+            absolute_scan_roots, self.clean, mutant, label="second invocation"
+        )
+        self.assertEqual(found, ["/srv/checkout"])
+
+    def test_commented_invocation_does_not_satisfy_the_presence_check(self):
+        """A `gitleaks dir` living only in a comment must not count as one.
+
+        lint.yml's own prose names the subcommand, so this is the comment-evasion
+        class biting the presence half rather than the anchor half.
+        """
+        self.assertEqual(
+            gitleaks_scan_roots(
+                "      # `gitleaks dir` is the v8.20+ replacement\n"
+                "      run: echo no-scan-here\n"
+            ),
+            [],
+            "a commented-out `gitleaks dir` satisfied the presence check, so "
+            "deleting the real scan would read green.",
+        )
+
+    def test_inline_shell_comment_does_not_satisfy_the_presence_check(self):
+        """`;#gitleaks dir .` never runs; the shell-aware stripper must drop it."""
+        self.assertEqual(
+            gitleaks_scan_roots("        run: |\n          true;#gitleaks dir .\n"),
+            [],
+            "an inline bash comment satisfied the presence check.",
+        )
+
+    def test_detector_sees_the_real_invocation(self):
+        """Anti-tautology: the detector must actually find lint.yml's root.
+
+        Without this, a `gitleaks_scan_roots` that returned `[]` for everything
+        would pass every case above and the clean half of both mutation tests.
+        """
+        self.assertEqual(gitleaks_scan_roots(self.clean), ["."])
 
 
 if __name__ == "__main__":
