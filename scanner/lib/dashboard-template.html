@@ -36,8 +36,8 @@
 <!-- ─── Browser chrome + security policy ─── -->
 <meta name="theme-color" content="#0f172a">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none';">
-<style>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-{{CSP_NONCE}}'; style-src-attr 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}' 'strict-dynamic'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none';">
+<style nonce="{{CSP_NONCE}}">
 :root{--bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--accent-glow:rgba(56,189,248,.15);--success:#22c55e;--danger:#ef4444;--warning:#eab308;--radius:12px;--transition:.2s cubic-bezier(.4,0,.2,1);--shadow-sm:0 1px 3px rgba(0,0,0,.3);--shadow-md:0 4px 12px rgba(0,0,0,.4);--shadow-lg:0 8px 24px rgba(0,0,0,.5)}
 [data-theme="light"]{--bg:#f8fafc;--surface:#ffffff;--border:#e2e8f0;--text:#1e293b;--muted:#64748b;--accent:#0284c7;--shadow-sm:0 1px 2px rgba(0,0,0,.06);--shadow-md:0 4px 6px rgba(0,0,0,.08);--shadow-lg:0 10px 15px rgba(0,0,0,.1)}
 [data-theme="light"] .badge.critical{background:#fef2f2;color:#dc2626;border:1px solid #fecaca}

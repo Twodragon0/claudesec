@@ -126,7 +126,10 @@ NONCE = "claudesec-liveness-test-nonce"
 for name, needle, want in (
     ("data", DATA_PLACEHOLDER, 1),
     ("json-island", JSON_PLACEHOLDER, 1),
-    ("csp-nonce", NONCE_PLACEHOLDER, 2),
+    # 4 since 2026-08-27: the meta-CSP carries the placeholder twice (script-src
+    # and style-src) and the two nonce'd elements once each (<script>, <style>).
+    # style-src stopped being 'unsafe-inline' — see the assertions below.
+    ("csp-nonce", NONCE_PLACEHOLDER, 4),
 ):
     found = template.count(needle)
     if found != want:
@@ -144,6 +147,24 @@ if NONCE_PLACEHOLDER in html or DATA_PLACEHOLDER in html:
     sys.exit("FAIL: placeholder survived substitution")
 if "'nonce-%s'" % NONCE not in html:
     sys.exit("FAIL: the meta-CSP no longer carries a script-src nonce")
+
+# style-src must be nonce-based, not 'unsafe-inline'. A `<style nonce>` element
+# only helps if the policy actually requires the nonce, and the fallback chain
+# means style-src-attr must be stated EXPLICITLY: without it, inline `style=`
+# attributes fall back to style-src (nonce-only) and every one of them is
+# blocked, which renders an unstyled page rather than a CSP violation report.
+# style-src-attr is Baseline-widely-available (MDN: across browsers since
+# December 2022).
+if "style-src 'unsafe-inline'" in html:
+    sys.exit("FAIL: style-src reverted to 'unsafe-inline' (ZAP rule 10055)")
+if "style-src-attr 'unsafe-inline'" not in html:
+    sys.exit(
+        "FAIL: style-src-attr is not set. It is not optional cosmetics: inline "
+        "style= attributes fall back to style-src, so dropping it silently "
+        "unstyles the dashboard."
+    )
+if '<style nonce="%s">' % NONCE not in html:
+    sys.exit("FAIL: the <style> element lost its nonce; style-src would block it")
 
 open(os.environ["CLAUDESEC_ASSET_OUT"], "w", encoding="utf-8").write(html)
 PY
