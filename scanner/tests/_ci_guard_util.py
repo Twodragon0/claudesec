@@ -1,5 +1,8 @@
 """
-Shared text-scanning helpers for the `test_ci_*.py` CI config regression guards.
+Shared text-scanning helpers for the `test_ci_*.py` CI config regression guards,
+plus the two dashboard source guards (`test_dashboard_no_inline_handlers.py`,
+`test_dashboard_style_nonce.py`) which share this module's comment strippers and
+the canonical `dashboard_source_files()` enumeration.
 
 WHY THIS FILE EXISTS
 --------------------
@@ -39,6 +42,7 @@ root):
 
 import json
 import re
+import subprocess
 from glob import glob
 from pathlib import Path
 
@@ -124,6 +128,60 @@ def workflow_and_action_files() -> list:
     for name in ("action.yml", "action.yaml"):
         out += glob(str(ACTION_DIR / "**" / name), recursive=True)
     return sorted(out)
+
+
+# Globs covering every source that contributes markup to the two CSP'd dashboard
+# pages. Matched against `git ls-files`, so a pattern that stops matching shows up
+# as a shrinking file count rather than as silence.
+DASHBOARD_SOURCE_GLOBS = (
+    "scanner/lib/dashboard*.html",
+    "scanner/lib/dashboard*.py",
+    "scanner/lib/dashboard_*.py",
+    "claudesec-asset-dashboard.html",
+)
+
+
+def tracked_files() -> list:
+    """Repo-relative paths of every git-TRACKED file.
+
+    Tracked, NOT the filesystem. A gitignored or untracked local file is not what
+    CI builds from, so scanning the filesystem makes a guard's verdict depend on
+    the machine it runs on — the asymmetry that produced a red CI over a green
+    local run when `docs/architecture/*.svg` (gitignored) flipped the dashboard's
+    arch-diagram render branch.
+
+    Raises rather than returning `[]` when git is unavailable: an empty list makes
+    every downstream scan pass vacuously, and a guard that cannot enumerate its
+    inputs must fail loudly, not quietly agree.
+    """
+    out = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "ls-files"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [line for line in out.stdout.splitlines() if line]
+
+
+def dashboard_source_files() -> list:
+    """Tracked sources that emit dashboard markup, de-duplicated and sorted.
+
+    CANONICAL HOME — do not re-glob this per guard. Two guards need the same set
+    (`test_dashboard_no_inline_handlers.py` for dead `on*=` handlers,
+    `test_dashboard_style_nonce.py` for un-nonced `<style>` tags), and the first
+    of them carried a HAND-WRITTEN list of eleven paths that was missing twelve
+    files, including `dashboard_html_network.py` and `dashboard_html_helpers.py`
+    (both plainly emit markup) and `dashboard_template.py` — which held a real
+    un-nonced `<style>` that CI caught and that guard could not see. Measured
+    2026-08-27: the glob is a strict superset, 11 -> 23 files, nothing dropped.
+
+    A list is a thing to forget; a glob is a thing to widen.
+    """
+    tracked = tracked_files()
+    hits = set()
+    for pattern in DASHBOARD_SOURCE_GLOBS:
+        hits.update(p for p in tracked if Path(p).match(pattern))
+    return sorted(hits)
 
 
 # `uses:` bare OR quoted, with an optionally QUOTED VALUE.

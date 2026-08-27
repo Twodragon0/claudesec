@@ -36,9 +36,15 @@ sees the branch that ran. This guard is branch-INDEPENDENT: it reads source, so 
 DIRECTION
 ---------
 - Sources are enumerated by GLOB over `git ls-files`, never a hand-maintained
-  list. The sibling `test_dashboard_no_inline_handlers.py` carries an explicit
-  `_SOURCE_FILES` of ten paths and `scanner/lib/dashboard_template.py` — the file
-  that held this very defect — is not among them. A list is a thing to forget.
+  list, via the canonical `_ci_guard_util.dashboard_source_files()` shared with
+  `test_dashboard_no_inline_handlers.py`. That sibling carried a hand-written
+  `_SOURCE_FILES` of eleven paths until 2026-08-27, and
+  `scanner/lib/dashboard_template.py` — the file that held this very defect — was
+  not among them; nor were `dashboard_html_network.py` or
+  `dashboard_html_helpers.py`, which plainly emit markup. Converting it to this
+  same glob took coverage 11 -> 23 files and was measured green-while-defeated
+  first: a live `onclick="alert(1)"` planted in `dashboard_template.py` left the
+  old guard at 32 passed and fails the new one. A list is a thing to forget.
 - `git ls-files`, not the filesystem: a gitignored or untracked local file is not
   what CI builds from, and scanning it makes results differ by machine, which is
   the exact asymmetry above.
@@ -46,20 +52,22 @@ DIRECTION
   the policy reverts to `'unsafe-inline'`, and dropping `style-src-attr` unstyles
   the page without producing a single violation report.
 
-stdlib-only (`re`, `subprocess` for `git ls-files`, `pathlib`, `unittest`). No
-network. Runs under pytest and `python3 -m unittest`.
+stdlib-only (`re`, `pathlib`, `unittest`); the `git ls-files` enumeration lives
+in `_ci_guard_util`. No network. Runs under pytest and `python3 -m unittest`.
 
 OWASP A05 (Security Misconfiguration); OWASP Secure Headers Project (CSP).
 """
 
 import re
-import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_html_comments  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    dashboard_source_files,
+    strip_html_comments,
+)
 
 # Reused, NOT re-implemented. `_strip_py_comments` is tokenizer-based and already
 # carries the fix for the hazard a second copy would walk straight into: a
@@ -81,43 +89,10 @@ DASHBOARD_PAGES = (
     "claudesec-asset-dashboard.html",
 )
 
-# Globs covering every source that contributes markup to those pages. Matched
-# against `git ls-files` output.
-SOURCE_GLOBS = (
-    "scanner/lib/dashboard*.html",
-    "scanner/lib/dashboard*.py",
-    "scanner/lib/dashboard_*.py",
-    "claudesec-asset-dashboard.html",
-)
-
 # `<style` followed by anything up to the closing `>` of the OPENING tag. `[^>]*`
 # rather than a greedy match so a later `>` in the stylesheet body cannot extend
 # the span past the tag it is meant to describe.
 STYLE_OPEN_TAG_RE = re.compile(r"<style\b[^>]*>", re.IGNORECASE)
-
-
-def tracked_files() -> list:
-    """Repo-relative paths of every git-TRACKED file.
-
-    Tracked, not on-disk: an untracked or gitignored file is not what CI builds
-    from, so scanning it would make this guard's verdict depend on the machine.
-    """
-    out = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "ls-files"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return [line for line in out.stdout.splitlines() if line]
-
-
-def dashboard_sources() -> list:
-    """Tracked files matching any SOURCE_GLOBS pattern, de-duplicated and sorted."""
-    tracked = tracked_files()
-    hits = set()
-    for pattern in SOURCE_GLOBS:
-        hits.update(p for p in tracked if Path(p).match(pattern))
-    return sorted(hits)
 
 
 def strip_comments_for(rel: str, text: str) -> str:
@@ -163,7 +138,7 @@ class TestDashboardSourceEnumeration(unittest.TestCase):
         `dashboard_template.py` — the one the hand-maintained list in
         `test_dashboard_no_inline_handlers.py` omits.
         """
-        sources = dashboard_sources()
+        sources = dashboard_source_files()
         self.assertGreaterEqual(
             len(sources),
             10,
@@ -179,7 +154,8 @@ class TestDashboardSourceEnumeration(unittest.TestCase):
             self.assertIn(
                 required,
                 sources,
-                f"{required} is no longer matched by SOURCE_GLOBS. It emits "
+                f"{required} is no longer matched by "
+                "_ci_guard_util.DASHBOARD_SOURCE_GLOBS. It emits "
                 "dashboard markup, so a `<style>` added to it would go unchecked.",
             )
 
@@ -190,7 +166,7 @@ class TestDashboardSourceEnumeration(unittest.TestCase):
         every assertion in this file.
         """
         total = 0
-        for rel in dashboard_sources():
+        for rel in dashboard_source_files():
             total += len(STYLE_OPEN_TAG_RE.findall(source_text(rel)))
         self.assertGreaterEqual(
             total,
@@ -204,7 +180,7 @@ class TestDashboardSourceEnumeration(unittest.TestCase):
 class TestEveryStyleTagIsNonced(unittest.TestCase):
     def test_no_unnonced_style_tag_in_any_source(self):
         offenders = {}
-        for rel in dashboard_sources():
+        for rel in dashboard_source_files():
             bad = unnonced_style_tags(source_text(rel))
             if bad:
                 offenders[rel] = bad
