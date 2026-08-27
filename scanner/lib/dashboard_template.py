@@ -29,9 +29,23 @@ def _apply_template_and_write(output_file, template, replacements):
 
 
 # Inline architecture diagram (fallback when SVG file not found) — dark theme
+#
+# The `<style>` below carries the CSP nonce. This is the FALLBACK branch, and it
+# is the one CI always takes: `docs/architecture/*.svg` is gitignored, so the
+# preferred branch above (which base64-encodes the file into an `<img
+# src="data:image/svg+xml">`, where an inner `<style>` is a separate script-less
+# document and never sees the page's style-src) exists only on a developer
+# machine that has generated the diagrams. Inlined into the DOM, this `<style>`
+# IS governed by `style-src-elem`, so without the nonce it is blocked — green
+# locally and red in CI, which is exactly what happened on the first run of
+# this change.
+#
+# `{{CSP_NONCE}}` resolves because `_apply_template_and_write` runs
+# `inject_csp_nonce` over the WHOLE document after the `{{...}}` replacements,
+# so a placeholder introduced by a replacement value is still substituted.
 _INLINE_ARCH_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 260" width="100%" style="max-width:900px;height:auto;display:block" class="arch-diagram-svg">
 <defs><marker id="arch-arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#94a3b8"/></marker></defs>
-<style>.arch-txt{font-family:system-ui,sans-serif;font-size:11px;fill:#e2e8f0}.arch-title{font-weight:bold}</style>
+<style nonce="{{CSP_NONCE}}">.arch-txt{font-family:system-ui,sans-serif;font-size:11px;fill:#e2e8f0}.arch-title{font-weight:bold}</style>
 <line x1="180" y1="105" x2="260" y2="105" stroke="#64748b" stroke-width="1.5" marker-end="url(#arch-arrow)"/>
 <line x1="420" y1="110" x2="520" y2="75" stroke="#64748b" stroke-width="1.5" marker-end="url(#arch-arrow)"/>
 <line x1="700" y1="75" x2="720" y2="105" stroke="#64748b" stroke-width="1.5" marker-end="url(#arch-arrow)"/>
