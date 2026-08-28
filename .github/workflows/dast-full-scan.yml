@@ -40,6 +40,18 @@ jobs:
   # variable would be actively wrong — it would report "not running" on every
   # night the scan ran fine.
   #
+  # THE HALF THAT REMOVAL LEFT UNWATCHED, and where it now lives. `skipped` was
+  # only one way this workflow can stop delivering; the other is that the
+  # schedule never fires — GitHub disables every `schedule:` after 60 days of
+  # repo inactivity, `gh workflow disable` is one command, and cron delivery is
+  # best-effort (a ~10h delay is already on record here, run 33070461602). Then
+  # there is no run at all, so nothing is skipped, nothing is red, and the
+  # history just ends. That cannot be checked from inside this file — if the
+  # cron is dead the check is dead with it — so it lives in
+  # `.github/workflows/dast-freshness-watch.yml`, which watches the AGE of the
+  # newest successful `event=schedule` run here and also runs on `push` to
+  # `main` so it does not depend on the mechanism it is watching.
+  #
   # What this deliberately does NOT do is restore an external target. An active
   # full scan against a host you do not own needs documented authorization
   # (NIST SP 800-115), and the placeholder-host incident (#283) is what a default
