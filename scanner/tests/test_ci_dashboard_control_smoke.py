@@ -51,7 +51,17 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_comment_lines  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    apply_mutation,
+    apply_regex_mutation,
+    explicit_key_lines,
+    job_block,
+    key_column,
+    strip_comment_lines,
+    strip_inline_comment,
+    top_level_mapping,
+    yaml_key_pattern,
+)
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -176,12 +186,19 @@ class TestDashboardControlSmoke(unittest.TestCase):
         )
 
     def test_offline_env_at_workflow_level(self):
-        # `CLAUDESEC_DASHBOARD_OFFLINE: "1"` (quoting/spacing tolerant).
-        self.assertRegex(
-            self.text,
-            r"CLAUDESEC_DASHBOARD_OFFLINE:\s*['\"]?1['\"]?",
-            "workflow no longer sets CLAUDESEC_DASHBOARD_OFFLINE=1 — the generator "
-            "would make live GitHub API calls and could hang the job (#190)",
+        # Read as a DIRECT CHILD of the top-level `env:`, which is what the test
+        # name has always claimed and what nothing checked. The old whole-file
+        # `assertRegex` was satisfied by the string anywhere: deleting the real
+        # `env:` entry (PyYAML confirmed `env: None`) and leaving
+        # `echo "CLAUDESEC_DASHBOARD_OFFLINE: 1"` inside a `run: |` read
+        # `18 passed`, with the #190 hang class fully reopened at job level.
+        env = top_level_mapping(self.text, "env")
+        self.assertEqual(
+            env.get("CLAUDESEC_DASHBOARD_OFFLINE"),
+            "1",
+            "workflow no longer sets CLAUDESEC_DASHBOARD_OFFLINE=1 at the top "
+            "level — the generator would make live GitHub API calls and could "
+            f"hang the job (#190). Top-level env: {env!r}",
         )
 
     def test_harness_self_exports_offline(self):
@@ -200,17 +217,56 @@ class TestDashboardControlSmoke(unittest.TestCase):
                 )
 
     def test_smoke_is_path_gated(self):
-        # A `changes` job emits a `dashboard` output; `smoke` gates on it.
-        self.assertIn(
-            "dashboard: ${{ steps.detect.outputs.dashboard }}",
-            self.text,
-            "the `changes` job no longer exposes the `dashboard` path-gate output",
+        # Both halves are read from the OWNING JOB's block, at that job's own
+        # derived key column. The old whole-file scan proved only that the text
+        # existed somewhere: rewiring the `smoke` gate to
+        # `needs.changes.outputs.markdown` (PyYAML confirmed
+        # `{'smoke': "needs.changes.outputs.markdown == 'true'"}`, i.e. the
+        # browser smoke skips on every dashboard-only PR — a coverage loss, not
+        # a cost one) with the original expression left in a `run: |` echo read
+        # `18 passed`. Same defect `test_ci_reachability` already fixed for
+        # `scanner-unit-tests`; it was never applied to this sibling.
+        changes = job_block(self.text, "changes")
+        self.assertIsNotNone(
+            changes, "the `changes` job is gone or duplicated in this workflow"
         )
         self.assertRegex(
-            self.text,
-            r"if:\s*needs\.changes\.outputs\.dashboard\s*==\s*'true'",
-            "the `smoke` job is no longer path-gated on needs.changes.outputs."
-            "dashboard — docs-only PRs would run the browser smoke unnecessarily",
+            changes,
+            r"(?m)^\s*dashboard:\s*\$\{\{\s*steps\.detect\.outputs\.dashboard\s*\}\}",
+            "the `changes` job no longer exposes the `dashboard` path-gate output "
+            "(an undeclared output reads as the empty string, so the gate below "
+            "would be false on every event and `smoke` would skip forever)",
+        )
+
+        smoke = job_block(self.text, "smoke")
+        self.assertIsNotNone(
+            smoke, "the `smoke` job is gone or duplicated in this workflow"
+        )
+        col = key_column(smoke)
+        self.assertIsNotNone(col, "the `smoke` job has an empty body")
+        gate_lines = [
+            strip_inline_comment(line).strip()
+            for line in smoke.splitlines()
+            if re.match(rf"^ {{{col}}}{yaml_key_pattern('if')}\s*:", line)
+        ]
+        self.assertEqual(
+            len(gate_lines),
+            1,
+            f"expected exactly ONE job-level `if:` on `smoke`, found "
+            f"{len(gate_lines)}: {gate_lines!r}",
+        )
+        self.assertRegex(
+            gate_lines[0],
+            r"needs\.changes\.outputs\.dashboard\s*==\s*'true'",
+            "the `smoke` job's own gate no longer references "
+            f"needs.changes.outputs.dashboard — it reads {gate_lines[0]!r}. A gate "
+            "naming a different (or misspelled) output is false on every event, so "
+            "the browser smoke would skip forever while this workflow reads green.",
+        )
+        self.assertEqual(
+            explicit_key_lines(self.text, "if"),
+            [],
+            "`? if` explicit-key form found, which the gate reader cannot see.",
         )
 
     def test_browser_steps_are_bounded_and_run_harnesses(self):
@@ -248,6 +304,77 @@ class TestDashboardControlSmoke(unittest.TestCase):
                     p.is_file(),
                     f"{p} missing — the smoke workflow would be a silent no-op",
                 )
+
+
+class TestPresenceIsNotAttribution(unittest.TestCase):
+    """Both bypasses that were LIVE on `main` until this PR, pinned.
+
+    Each was measured green-while-defeated first (`18 passed` with the control
+    genuinely gone), with PyYAML used to confirm the mutation took effect rather
+    than trusting the edit — two earlier probes of these same shapes produced
+    YAML GitHub would have rejected, and a guard passing on an unparseable file
+    is a much weaker claim than a guard passing on a valid, broken one."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = strip_comment_lines(WORKFLOW.read_text(encoding="utf-8"))
+
+    def test_an_echoed_offline_var_does_not_cover_a_deleted_env_entry(self):
+        # PyYAML on the mutant: `env: None` — the #190 hang class fully reopened
+        # at job level, while the string is still greppable in a `run: |`.
+        mutant = apply_regex_mutation(
+            self.text, r'(?m)^  CLAUDESEC_DASHBOARD_OFFLINE: "1"\n', "", count=1
+        )
+        mutant = apply_regex_mutation(
+            mutant,
+            r"(?m)^(        run: \|\n)",
+            '\\1          echo "CLAUDESEC_DASHBOARD_OFFLINE: 1"\n',
+            count=0,
+        )
+        self.assertIn("CLAUDESEC_DASHBOARD_OFFLINE", mutant, "fixture stale")
+        self.assertNotIn(
+            "CLAUDESEC_DASHBOARD_OFFLINE",
+            top_level_mapping(mutant, "env"),
+            "A shell `echo` of the variable satisfied the top-level `env:` check.",
+        )
+        self.assertEqual(
+            top_level_mapping(self.text, "env").get("CLAUDESEC_DASHBOARD_OFFLINE"),
+            "1",
+            "positive control: the real workflow must still set it",
+        )
+
+    def test_an_echoed_gate_does_not_cover_a_rewired_job_gate(self):
+        # PyYAML on the mutant: `{'smoke': "needs.changes.outputs.markdown ==
+        # 'true'"}`. An output name that does not exist is the empty string, so
+        # the gate is false on every event and the browser smoke skips FOREVER —
+        # a coverage loss that reads exactly like a healthy path-gated skip.
+        mutant = apply_mutation(
+            self.text,
+            "needs.changes.outputs.dashboard == 'true'",
+            "needs.changes.outputs.markdown == 'true'",
+        )
+        mutant = apply_regex_mutation(
+            mutant,
+            r"(?m)^(        run: \|\n)",
+            "\\1          echo \"if: needs.changes.outputs.dashboard == 'true'\"\n",
+            count=0,
+        )
+        self.assertIn("needs.changes.outputs.dashboard", mutant, "fixture stale")
+        smoke = job_block(mutant, "smoke")
+        self.assertIsNotNone(smoke, "fixture stale: smoke job not found")
+        col = key_column(smoke)
+        gates = [
+            strip_inline_comment(line).strip()
+            for line in smoke.splitlines()
+            if re.match(rf"^ {{{col}}}{yaml_key_pattern('if')}\s*:", line)
+        ]
+        self.assertEqual(len(gates), 1, f"fixture stale: gates={gates!r}")
+        self.assertNotRegex(
+            gates[0],
+            r"needs\.changes\.outputs\.dashboard\s*==\s*'true'",
+            "A gate expression echoed from a shell line satisfied the check while "
+            "the smoke job's real gate named a different output.",
+        )
 
 
 class TestPathGateActuallyFires(unittest.TestCase):

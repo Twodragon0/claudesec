@@ -54,8 +54,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
+    apply_mutation,
+    apply_regex_mutation,
+    explicit_key_lines,
     extract_on_block,
+    step_blocks,
     strip_comment_lines,
+    top_level_blocks,
+    top_level_mapping,
     yaml_key_pattern,
 )
 
@@ -66,6 +72,11 @@ SWEEP_YML = REPO_ROOT / ".github" / "workflows" / "lychee-redirect-sweep.yml"
 # it without verifying the install path end-to-end regressed CI before (#204,
 # reverted #209/#210); keep the sweep on the same proven pin.
 LYCHEE_VERSION_PIN = "lycheeVersion: v0.23.0"
+# The action whose step owns the sweep's settings. Matched on the repo slug, not
+# the pinned SHA, so a Dependabot bump does not silently orphan the step lookup
+# and turn a real check into a "step not found" false alarm (#414: a guard broken
+# by ordinary authoring gets weakened by its users, not repaired).
+LYCHEE_ACTION = "lycheeverse/lychee-action@"
 
 
 def _extract_args_block(text):
@@ -199,23 +210,48 @@ class TestCiLycheeRedirectSweep(unittest.TestCase):
                     "guard's most important check would pass while the trigger was live",
                 )
 
+    def test_exactly_one_top_level_permissions_block(self):
+        blocks = top_level_blocks(self.text, "permissions")
+        self.assertEqual(
+            len(blocks),
+            1,
+            f"expected exactly ONE top-level `permissions:` block, found "
+            f"{len(blocks)}. With none, the token falls back to a repo/org "
+            "default this guard cannot see; with two, YAML keeps the last while "
+            "review reads the first.",
+        )
+        self.assertEqual(
+            explicit_key_lines(self.text, "permissions"),
+            [],
+            "`? permissions` explicit-key form found, which the block reader "
+            "cannot see. Use the ordinary `key: value` form.",
+        )
+
     def test_can_write_issues(self):
-        self.assertRegex(
-            self.active,
-            r"issues\s*:\s*write",
+        # Read as a DIRECT CHILD of `permissions:`, not as a line anywhere in the
+        # file. The old `assertRegex(self.active, r"issues\s*:\s*write")` was
+        # satisfied by the byte-identical line under a step's `env:`, where it is
+        # an environment variable and grants nothing: with the whole top-level
+        # block deleted (PyYAML `permissions: None`) and the two tokens re-planted
+        # in `env:`, this file read `15 passed`.
+        self.assertEqual(
+            top_level_mapping(self.text, "permissions").get("issues"),
+            "write",
             "The sweep needs `permissions: issues: write` to open/update/close "
-            "its self-healing tracking issue.",
+            "its self-healing tracking issue. Declared permissions: "
+            f"{top_level_mapping(self.text, 'permissions')!r}",
         )
 
     def test_can_read_contents_for_checkout(self):
         # `actions/checkout` needs `contents: read`. If the permissions block is
         # narrowed to issues-only, checkout fails on the first step.
-        self.assertRegex(
-            self.active,
-            r"contents\s*:\s*read",
+        self.assertEqual(
+            top_level_mapping(self.text, "permissions").get("contents"),
+            "read",
             "The sweep must keep `permissions: contents: read` for the checkout "
             "step (the workflow declares an explicit least-privilege block, so "
-            "the read default no longer applies once `issues: write` is set).",
+            "the read default no longer applies once `issues: write` is set). "
+            f"Declared permissions: {top_level_mapping(self.text, 'permissions')!r}",
         )
 
     def test_reuses_lychee_toml_excludes(self):
@@ -285,9 +321,23 @@ class TestCiLycheeRedirectSweep(unittest.TestCase):
     def test_lychee_does_not_fail_the_workflow(self):
         # Findings must not turn the schedule red; the classify step inspects
         # exit_code and opens an issue instead.
+        #
+        # Bound to the lychee STEP. The old whole-file `assertRegex` was
+        # satisfied by any `fail: false` in the document: flipping the real
+        # `with: fail:` to `true` (PyYAML confirmed `with.fail = True`) and
+        # leaving `echo "fail: false"` inside a `run: |` read `15 passed`. The
+        # first stale probe of this even hit a `#` comment 54 lines above the
+        # real key, which is why the value is now read from the step block.
+        steps = [b for b in step_blocks(self.text) if LYCHEE_ACTION in b]
+        self.assertEqual(
+            len(steps),
+            1,
+            f"expected exactly ONE `{LYCHEE_ACTION}` step, found {len(steps)} — "
+            "refusing to guess which one carries the sweep's settings.",
+        )
         self.assertRegex(
-            self.active,
-            r"fail\s*:\s*false",
+            strip_comment_lines(steps[0]),
+            r"(?m)^\s*fail\s*:\s*false\s*$",
             "The lychee step must set `fail: false` so link rot surfaces as a "
             "tracking issue, not a red scheduled run (which would train "
             "maintainers to ignore it).",
@@ -301,6 +351,83 @@ class TestCiLycheeRedirectSweep(unittest.TestCase):
             "(the same load-bearing pin as lint.yml). v0.24.x nests the binary "
             "in a subdir the pinned action installer cannot find. See lint.yml "
             "and MEMORY.md 'Lychee pin rationale'.",
+        )
+
+
+class TestPresenceIsNotAttribution(unittest.TestCase):
+    """Both bypasses that were LIVE on `main` until this PR, pinned.
+
+    Each was measured green-while-defeated first (`15 passed` with the control
+    genuinely gone, PyYAML used to confirm the mutation took effect rather than
+    trusting the edit). Fixtures mutate the REAL workflow via `apply_mutation`,
+    so a rewrite of that file invalidates them loudly instead of leaving a
+    tautology behind."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = SWEEP_YML.read_text(encoding="utf-8")
+
+    def test_a_permission_line_under_env_grants_nothing(self):
+        # The bypass: delete the top-level block, re-plant the byte-identical
+        # lines inside a step's `env:`. PyYAML on the mutant: `permissions: None`.
+        mutant = apply_regex_mutation(
+            self.text, r"(?m)^permissions:\n(?:  .+\n)+", "", count=1
+        )
+        mutant = apply_mutation(
+            mutant,
+            "        env:\n",
+            "        env:\n          issues: write\n          contents: read\n",
+        )
+        self.assertIn(
+            "issues: write", mutant, "fixture stale: the decoy is not in the text"
+        )
+        self.assertEqual(
+            top_level_mapping(mutant, "permissions"),
+            {},
+            "An `env:` entry was read as a workflow permission. The two are "
+            "byte-identical lines and only one grants anything.",
+        )
+        # Positive control: the real file still resolves both grants.
+        real = top_level_mapping(self.text, "permissions")
+        self.assertEqual((real.get("issues"), real.get("contents")), ("write", "read"))
+
+    def test_an_echoed_fail_false_does_not_cover_a_flipped_step(self):
+        # The bypass: flip the step's real `fail:` and echo the old value in a
+        # `run: |`. PyYAML on the mutant: `with.fail = True`.
+        mutant = apply_regex_mutation(
+            self.text, r"(?m)^          fail: false$", "          fail: true", count=1
+        )
+        # count=0 (every `run: |`) rather than a narrower anchor: the helper
+        # REFUSES an ambiguous single-match fixture, and planting the decoy in
+        # all six run blocks is the stronger version of the same probe anyway.
+        mutant = apply_regex_mutation(
+            mutant,
+            r"(?m)^(        run: \|\n)",
+            '\\1          echo "fail: false"\n',
+            count=0,
+        )
+        steps = [b for b in step_blocks(mutant) if LYCHEE_ACTION in b]
+        self.assertEqual(len(steps), 1, "fixture stale: lychee step not found once")
+        self.assertNotRegex(
+            strip_comment_lines(steps[0]),
+            r"(?m)^\s*fail\s*:\s*false\s*$",
+            "A `fail: false` echoed from a shell line satisfied the check while "
+            "the step's real setting was `true` — the sweep would go red on any "
+            "finding instead of opening its tracking issue.",
+        )
+
+    def test_a_commented_fail_false_does_not_count(self):
+        # This workflow's own header explains `fail: false` twice, 54 lines above
+        # the real key. A first probe of the bypass above hit one of those
+        # comments instead of the setting and proved nothing — so the comment
+        # direction is pinned here rather than assumed.
+        mutant = apply_regex_mutation(
+            self.text, r"(?m)^          fail: false$", "          # fail: false", count=1
+        )
+        steps = [b for b in step_blocks(mutant) if LYCHEE_ACTION in b]
+        self.assertEqual(len(steps), 1, "fixture stale: lychee step not found once")
+        self.assertNotRegex(
+            strip_comment_lines(steps[0]), r"(?m)^\s*fail\s*:\s*false\s*$"
         )
 
 
