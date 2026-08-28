@@ -16,8 +16,11 @@
 #   condition unwatched: a nightly that never fires produces no run at all, so
 #   there is no job to be green or red and nothing anywhere to notice. Ways that
 #   happens, none of them hypothetical:
-#     - GitHub disables ALL scheduled workflows in a repo after 60 days without
-#       commit activity (documented Actions behaviour).
+#     - GitHub disables ALL scheduled workflows in a PUBLIC repo after 60 days
+#       without commit activity (documented Actions behaviour; the docs scope it
+#       to public repositories, and `Twodragon0/claudesec` is public — verified
+#       via `gh repo view --json visibility`). If this repo is ever made private
+#       that particular cause goes away; the other four below do not.
 #     - Someone runs `gh workflow disable`, or disables Actions repo-wide.
 #     - `schedule:` is best-effort under load and can be dropped entirely. This
 #       repo has already measured a ~10h delay (run 33070461602, 2026-08-27
@@ -48,8 +51,9 @@
 #   phase with the 02:00 nightly.
 #
 #   That alone would still share the failure mode it is trying to catch — the
-#   60-day inactivity shutdown and a repo-wide Actions disable take out EVERY
-#   schedule, this one included. The `push` trigger is what breaks the shared
+#   60-day public-repo inactivity shutdown and a repo-wide Actions disable take
+#   out EVERY schedule, this one included. The `push` trigger is what breaks the
+#   shared
 #   dependency: every merge to `main` re-checks freshness through a mechanism
 #   that is not cron. It is also exactly the right recovery moment — when a
 #   dormant repo wakes up, the first push is when someone is present to be told
@@ -92,6 +96,17 @@ on:
   workflow_dispatch:
 
 permissions:
+  # `actions: read` is REQUIRED and is the whole feature. `listWorkflowRuns` is an
+  # Actions-API read, and GitHub's rule is explicit: "If you specify the access for
+  # any of these permissions, all of those that are not specified are set to
+  # `none`." So a block naming only `contents`/`issues` sets `actions: none` and
+  # every run — cron, push and dispatch alike — 403s on the very first call and
+  # takes the `core.setFailed` path, reporting "freshness UNKNOWN" forever while
+  # never reaching the issue logic. It shipped that way in the first draft of this
+  # file; nothing in the repo caught it, because no other workflow here reads the
+  # Actions API and `actionlint` checks permission-key SYNTAX, not whether the
+  # granted scopes cover the calls the script makes.
+  actions: read
   contents: read
   issues: write
 
