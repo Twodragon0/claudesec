@@ -395,6 +395,74 @@ def top_level_jobs(text: str) -> list:
     return jobs
 
 
+def top_level_blocks(text: str, key: str) -> list:
+    """Every column-0 `key:` mapping BODY in `text`, comment-stripped.
+
+    Exists because a whole-file scan for `issues: write` cannot tell a
+    *permission* from an environment variable: the line is byte-identical under
+    `permissions:` and under a step's `env:`, and only one of them grants
+    anything. That is not hypothetical — it is the third recurrence of the same
+    bypass in this repo (`test_ci_npm_publish` with `packages: write`;
+    `test_ci_lychee_redirect_sweep` with `issues: write`/`contents: read`, proven
+    green-while-defeated with the whole block deleted; and a fourth found by
+    review before it shipped). Two of the three hand-rolled their own extractor,
+    which is the failure `yaml_key_pattern`/`explicit_key_lines` exist to end.
+
+    Returns a LIST, never the first match, so the caller can REFUSE a duplicate
+    rather than guess: YAML keeps the last `permissions:` and a reviewer reads
+    the first, so a second block is a divergence between what runs and what is
+    reviewed — the direction that must fail loudly.
+
+    Comment-stripping is done here (not left to the caller) because the key is
+    matched as a BLOCK BOUNDARY: a `#` line at column 0 would otherwise end the
+    body early, the truncation class `block_ends_at` documents."""
+    pat = re.compile(rf"^{yaml_key_pattern(key)}\s*:\s*$")
+    blocks, body, capturing = [], [], False
+    for line in strip_comment_lines(text).splitlines():
+        if capturing:
+            if line.strip() and not line.startswith((" ", "\t")):
+                blocks.append("\n".join(body))
+                body, capturing = [], False
+            else:
+                body.append(line)
+                continue
+        if pat.match(strip_inline_comment(line)):
+            capturing = True
+    if capturing:
+        blocks.append("\n".join(body))
+    return blocks
+
+
+_MAPPING_ENTRY_RE = re.compile(r"^(\s+)([A-Za-z][A-Za-z0-9_.-]*)\s*:\s*(\S.*?)\s*$")
+
+
+def top_level_mapping(text: str, key: str) -> dict:
+    """DIRECT scalar children of the first column-0 `key:` mapping.
+
+    Only entries at the block's own minimum indent are returned, so a nested
+    mapping one level deeper cannot be mistaken for a child of `key` — the same
+    reason `key_column` exists rather than a hardcoded `^ {2}`. Values are
+    unquoted (`"1"` -> `1`) because YAML quoting is cosmetic here and a guard
+    that distinguishes them just invites a cosmetic diff to break it.
+
+    Returns `{}` when the key is absent, which callers must treat as a FINDING
+    (an absent block means the token falls back to a repo/org default this guard
+    cannot see), not as "nothing to check"."""
+    blocks = top_level_blocks(text, key)
+    if not blocks:
+        return {}
+    lines = [line for line in blocks[0].splitlines() if line.strip()]
+    if not lines:
+        return {}
+    col = min(len(line) - len(line.lstrip()) for line in lines)
+    out = {}
+    for line in lines:
+        m = _MAPPING_ENTRY_RE.match(line)
+        if m and len(m.group(1)) == col:
+            out[m.group(2)] = m.group(3).strip("\"'")
+    return out
+
+
 def join_continuations(text: str) -> str:
     """Join backslash-newline line continuations onto one line, so a shell/Docker
     instruction that wraps an argument onto the next line is seen as one command
