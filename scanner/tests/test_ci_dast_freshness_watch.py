@@ -116,6 +116,8 @@ from _ci_guard_util import (  # noqa: E402
     explicit_key_lines,
     extract_on_block,
     strip_comment_lines,
+    top_level_blocks,
+    top_level_mapping,
     yaml_key_pattern,
 )
 
@@ -136,7 +138,7 @@ _ISSUE_CLOSE_RE = re.compile(r"""\bstate:\s*['"]closed['"]""")
 
 # Required workflow-level permissions, each with the call it exists for. Both are
 # asserted as DIRECT CHILDREN of the one top-level `permissions:` key — see
-# `declared_permissions`.
+# `permission_problems` and the shared `top_level_mapping` primitive.
 REQUIRED_PERMISSIONS = {
     "actions": (
         "read",
@@ -302,39 +304,6 @@ def catch_bodies(js: str) -> list:
         if end is not None:
             out.append(code[brace + 1: end - 1])
     return out
-
-
-def declared_permissions(text: str) -> dict:
-    """Direct children of the ONE top-level `permissions:` key.
-
-    Scoped by COLUMN, not by line content. `issues: write` is a permission only
-    where it sits under that key; the identical line under a step's `env:` is an
-    environment variable that grants nothing, and a whole-file regex cannot tell
-    the two apart. Returns `{}` if there is no such key, and the caller treats a
-    duplicate top-level `permissions:` as a problem rather than guessing."""
-    perms = {}
-    capturing = False
-    for line in active(text).splitlines():
-        if not capturing:
-            if re.match(rf"^{yaml_key_pattern('permissions')}\s*:\s*$", line):
-                capturing = True
-            continue
-        if line.strip() and not line.startswith((" ", "\t")):
-            break
-        m = re.match(r"^\s+([A-Za-z-]+)\s*:\s*(\S+)\s*$", line)
-        if m:
-            perms[m.group(1)] = m.group(2)
-    return perms
-
-
-def _top_level_permissions_count(text: str) -> int:
-    return len(
-        [
-            line
-            for line in active(text).splitlines()
-            if re.match(rf"^{yaml_key_pattern('permissions')}\s*:\s*$", line)
-        ]
-    )
 
 
 def active(text: str) -> str:
@@ -524,15 +493,21 @@ def permission_problems(text: str) -> list:
 
     Direction is COVERAGE, not an exact set: extra scopes are a separate concern
     (`test_ci_gate_topology` and review own least-privilege), while a MISSING one
-    silently breaks the feature at runtime with a green YAML lint."""
-    count = _top_level_permissions_count(text)
-    if count != 1:
+    silently breaks the feature at runtime with a green YAML lint.
+
+    Both reads go through the shared `top_level_*` primitives rather than a local
+    parser: hand-rolling this extractor is exactly what let the same bypass recur
+    three times across separate guards, so there is one implementation to attack
+    and one to fix."""
+    blocks = top_level_blocks(text, "permissions")
+    if len(blocks) != 1:
         return [
-            f"Expected exactly ONE top-level `permissions:` block, found {count}. "
-            "With none, the token falls back to a repo/org default this guard "
-            "cannot see; with two, YAML keeps the last and review reads the first."
+            f"Expected exactly ONE top-level `permissions:` block, found "
+            f"{len(blocks)}. With none, the token falls back to a repo/org default "
+            "this guard cannot see; with two, YAML keeps the last and review reads "
+            "the first."
         ]
-    declared = declared_permissions(text)
+    declared = top_level_mapping(text, "permissions")
     problems = []
     for key, (value, why) in sorted(REQUIRED_PERMISSIONS.items()):
         got = declared.get(key)
@@ -801,6 +776,33 @@ class TestDetectorMutation(unittest.TestCase):
             any("`issues: write`" in p for p in found),
             f"fired for the wrong reason: {found!r}",
         )
+
+    def test_a_permission_nested_one_level_deeper_does_not_grant_anything(self):
+        # Bypass #3 one level down, and the reason this guard reads through the
+        # shared `top_level_mapping` instead of its own parser. The local copy
+        # matched a child at ANY indent, so re-planting `issues: write` under a
+        # nested key inside the same block satisfied it — green while defeated,
+        # measured against the deleted copy before the swap. The shared primitive
+        # returns only entries at the block's own minimum indent.
+        mutant = apply_mutation(
+            self.clean, "\n  issues: write", "\n  x:\n    issues: write"
+        )
+        found = assert_disables(
+            permission_problems, self.clean, mutant, "issues: write nested deeper"
+        )
+        self.assertTrue(
+            any("`issues: write`" in p for p in found),
+            f"fired for the wrong reason: {found!r}",
+        )
+
+    def test_a_quoted_permission_value_is_not_a_false_alarm(self):
+        # Opposite direction, same swap. YAML quoting is cosmetic, so `'write'`
+        # grants exactly what `write` does; the local copy kept the quotes in the
+        # value and would have reported a defect that is not there.
+        mutant = apply_mutation(
+            self.clean, "\n  issues: write", "\n  issues: 'write'"
+        )
+        self.assertEqual(permission_problems(mutant), [])
 
     def test_a_filtered_decoy_query_does_not_cover_an_unfiltered_real_one(self):
         # Bypass #4: a fully-filtered decoy call placed ahead of the real query,
