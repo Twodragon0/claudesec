@@ -150,7 +150,7 @@ class TestOwaspCheckMap(unittest.TestCase):
             assert len(dm.OWASP_CHECK_MAP[oid]) > 0
 
     def test_all_keywords_are_lowercase_strings(self):
-        for oid, kws in dm.OWASP_CHECK_MAP.items():
+        for _oid, kws in dm.OWASP_CHECK_MAP.items():
             for kw in kws:
                 assert isinstance(kw, str)
                 assert kw == kw.lower()
@@ -430,7 +430,7 @@ class TestOwaspToArch(unittest.TestCase):
 
     def test_values_are_domain_index_lists(self):
         max_idx = len(dm.ARCH_DOMAINS) - 1
-        for key, indices in dm.OWASP_TO_ARCH.items():
+        for _key, indices in dm.OWASP_TO_ARCH.items():
             assert isinstance(indices, list)
             for idx in indices:
                 assert 0 <= idx <= max_idx

@@ -980,7 +980,7 @@ def collect_sheets():
             proxy_overrides = (
                 proxy_overrides_raw if isinstance(proxy_overrides_raw, list) else []
             )
-            for month_key, rows in cost_data["details"].items():
+            for _month_key, rows in cost_data["details"].items():
                 for r in rows:
                     for ovr in proxy_overrides:
                         if r["software"] == ovr.get("software") and r.get(

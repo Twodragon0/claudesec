@@ -207,7 +207,7 @@ def set_shape_paragraphs(shape: ET.Element, paragraphs: list[str]) -> None:
         tx_body.insert(0, ET.Element(qn("a", "bodyPr")))
     if tx_body.find("a:lstStyle", NS) is None:
         tx_body.insert(1, ET.Element(qn("a", "lstStyle")))
-    for idx, paragraph in enumerate(paragraphs):
+    for _idx, paragraph in enumerate(paragraphs):
         p = ET.Element(qn("a", "p"))
         if template_ppr is not None:
             p.append(copy.deepcopy(template_ppr))

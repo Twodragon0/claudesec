@@ -8,13 +8,35 @@
 # (`loc_html`, `oname`, `has_http_artifacts`) behind a 99% gate, and it is the
 # same "dead renderer" class already recorded twice in this repo's history.
 #
-# SCOPE IS DELIBERATELY NARROW. `E9` (syntax / IO errors) + `F` (Pyflakes) are
-# the tiers where a violation is a defect rather than a preference: F821
-# undefined-name, F811 redefinition, F632 is-literal, F401 unused-import, F841
-# unused-variable. Everything else ruff can emit — 548 further findings at the
-# time of writing, dominated by BLE001 blind-except (65) and S110
-# try-except-pass (24) — needs case-by-case judgement and is NOT enabled here.
-# Widening `select` is a deliberate decision, not a cleanup.
+# SCOPE IS DELIBERATELY NARROW, AND THE TEST IS "IS A VIOLATION A DEFECT, OR A
+# PREFERENCE?" `E9` (syntax / IO errors) + `F` (Pyflakes) were the original tiers:
+# F821 undefined-name, F811 redefinition, F632 is-literal, F401 unused-import,
+# F841 unused-variable.
+#
+# `B` (bugbear) and `PLE` (pylint ERRORS, not warnings) were added 2026-09-01
+# after measuring every candidate family against that same test. They cost 9
+# findings, and B905 — `zip()` without an explicit `strict=` — is the reason:
+# a length mismatch makes `zip` truncate SILENTLY, which is this repo's whole
+# recurring theme. `PLE2515` caught a literal zero-width space sitting invisibly
+# in a docstring.
+#
+# MEASURED AND REJECTED, so the next reviewer does not re-litigate (counts from
+# `ruff check --config ruff.toml --select <F> --statistics .`, 2026-09-01):
+#
+#   BLE001 blind-except        61  concentrated in paths that exist to DEGRADE
+#   S110   try-except-pass     21  rather than crash (sync-cost-xlsx 13,
+#                                  build-dashboard 9; compliance-map.py's is
+#                                  documented deliberate in-line). Enabling
+#                                  these buys 82 `# noqa` or behaviour-changing
+#                                  except-narrowing for zero defects found.
+#   PLW1508 envvar-default      7  ALL are `int(os.environ.get(k, 0))` — the
+#                                  `int()` wrapper makes them harmless.
+#   PLW1510 subprocess-check    9  8 of 9 are tests that assert on returncode
+#                                  themselves.
+#   RUF 170 / SIM 55 / PERF 43     preference, not defect.
+#
+# Widening `select` changes a REQUIRED check (`python-lint` is in
+# `lint-gate.needs`), so it is a decision, not a cleanup.
 
 target-version = "py311"
 
@@ -23,7 +45,7 @@ target-version = "py311"
 extend-exclude = ["node_modules", ".venv", "assets"]
 
 [lint]
-select = ["E9", "F"]
+select = ["E9", "F", "B", "PLE"]
 
 # F541 f-string-missing-placeholders: 48 sites, all `f"literal"` with nothing to
 # interpolate. Cosmetic — it cannot change behaviour — and folding it in would

@@ -99,7 +99,7 @@ def collect_datadog_hosts() -> list:
     hosts = []
     for h in data.get("host_list", []):
         tags = {}
-        for source, tag_list in h.get("tags_by_source", {}).items():
+        for _source, tag_list in h.get("tags_by_source", {}).items():
             for t in tag_list:
                 if ":" in t:
                     k, v = t.split(":", 1)
