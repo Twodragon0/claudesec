@@ -49,6 +49,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     apply_regex_mutation,
     block_ends_at,
+    extract_on_block,
+    trigger_block,
     yaml_key_pattern,
 )
 from _ci_guard_util import strip_inline_comment as _strip_comment  # noqa: E402
@@ -56,6 +58,39 @@ from _ci_guard_util import strip_inline_comment as _strip_comment  # noqa: E402
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NPM_PUBLISH = REPO_ROOT / ".github" / "workflows" / "npm-publish.yml"
+
+# `branches:` bare OR quoted, anchored to a mapping key so the substring inside a
+# value (or the longer `branches-ignore`) is not counted, and matched in both
+# block and flow style (`{branches: [main]}` after a `{` or `,`).
+# The boundary is a fixed-width negative lookbehind rather than a consuming
+# `(?:^|[\s{,])`, so `findall` returns the key itself and two adjacent keys
+# cannot overlap-swallow each other's delimiter.
+_BRANCHES_KEY_RE = re.compile(
+    rf"(?<![^\s{{,]){yaml_key_pattern('branches')}\s*:"
+)
+_BRANCHES_MAIN_RE = re.compile(
+    rf"{yaml_key_pattern('branches')}\s*:\s*(?:-\s*|\[\s*)['\"]?main\b"
+)
+
+
+def push_trigger_block(text: str) -> str:
+    """The body of the top-level `on:` -> `push:` trigger, or "" if absent."""
+    return trigger_block(extract_on_block(text), "push")
+
+
+def push_branch_filter_keys(text: str) -> list:
+    """Every `branches:` key declared under `on: push:` — the auto-release filter.
+
+    Scoped to the `push:` block on purpose. The predecessor scanned the whole
+    comment-stripped workflow, which answers "does `branches:` exist anywhere",
+    a question a decoy under any other trigger also answers yes to.
+    """
+    return _BRANCHES_KEY_RE.findall(push_trigger_block(text))
+
+
+def push_targets_main(text: str) -> bool:
+    """Whether `on: push:`'s own `branches:` filter includes `main`."""
+    return bool(_BRANCHES_MAIN_RE.search(push_trigger_block(text)))
 
 
 class TestNpmPublishProvenance(unittest.TestCase):
@@ -205,20 +240,41 @@ class TestNpmPublishAutoRelease(unittest.TestCase):
         )
 
     def test_auto_release_push_to_main_trigger(self):
-        # The `on:` block must include a push trigger to main (auto-publish on a
-        # merged version bump). Tolerant to YAML list form (`branches:\n  - main`)
-        # and flow form (`branches: [main]`), with optional quoting.
-        self.assertIn(
-            "branches:",
-            self.scan,
-            "npm-publish.yml lost its push `branches:` trigger — auto-publish on a "
-            "main version bump is gone (manual-tag-only regression).",
-        )
+        # The `push:` trigger must target main (auto-publish on a merged version
+        # bump). Tolerant to YAML list form (`branches:\n  - main`) and flow form
+        # (`branches: [main]`), with optional quoting on key and value.
+        #
+        # Scoped to the `push:` BLOCK, not the whole file. Both checks used to
+        # scan the comment-stripped workflow text, which proves `branches:` EXISTS
+        # somewhere — never that it belongs to the trigger that fires. Measured
+        # 2026-09-01 on the real file: move the `branches: - main` under a new
+        # `pull_request:` and leave `push:` with only its `tags:` filter, and the
+        # version-bump auto-release is dead (PyYAML: `push -> {'tags': ['v*']}`)
+        # with 14 tests here and 1181 CI guards repo-wide GREEN.
         self.assertRegex(
-            self.scan,
-            r"branches:\s*(?:-\s*|\[\s*)['\"]?main\b",
-            "push trigger no longer targets `main` — version-bump auto-release "
-            "would silently stop firing.",
+            extract_on_block(self.text),
+            rf"(?m)^\s*{yaml_key_pattern('push')}\s*:",
+            "npm-publish.yml lost its `push:` trigger entirely — no auto-release "
+            "path remains (manual-dispatch-only regression).",
+        )
+        block = push_trigger_block(self.text)
+        keys = push_branch_filter_keys(self.text)
+        # COUNT, not presence: exactly one, so a second copy cannot shadow the
+        # first and leave the `main` check satisfied by the wrong one.
+        self.assertEqual(
+            len(keys),
+            1,
+            "Expected exactly one `branches:` filter under `push:` in "
+            f"npm-publish.yml, found {len(keys)}. None means auto-publish on a "
+            "main version bump is gone (manual-tag-only regression); more than "
+            "one means the effective filter is ambiguous.\n"
+            f"push block:\n{block}",
+        )
+        self.assertTrue(
+            push_targets_main(self.text),
+            "the `push:` trigger no longer targets `main` — version-bump "
+            "auto-release would silently stop firing.\n"
+            f"push block:\n{block}",
         )
 
     def test_publish_job_can_tag(self):
@@ -265,27 +321,95 @@ class TestNpmPublishFsixHardening(unittest.TestCase):
 
 
 class TestAutoReleaseTriggerScoping(unittest.TestCase):
-    """The push-`branches:` trigger checks were aimed at the RAW workflow text,
-    so commenting the trigger out left both of them green (inert)."""
+    """Non-vacuity for the auto-release trigger check, in two rounds.
 
-    _PATTERN = r"branches:\s*(?:-\s*|\[\s*)['\"]?main\b"
+    Round 1 (2026-08-11): the checks were aimed at the RAW workflow text, so
+    commenting the trigger out left both green. `extract_on_block` fixed that.
+
+    Round 2 (2026-09-01): comment-stripping answers the *commented-out*
+    regression and nothing else. The checks still scanned the whole file, so a
+    `branches:` living under ANY other trigger satisfied them — the
+    wrong-location shape. Measured on the real `npm-publish.yml`: `push:` left
+    with only `tags:` and `branches: - main` moved to a new `pull_request:`
+    (PyYAML-confirmed `push -> {'tags': ['v*']}`, so the version-bump
+    auto-release is dead) passed 14 tests here and 1181 CI guards repo-wide.
+
+    These exercise the real detectors by name; a surrogate re-implementation of
+    the pattern would go stale against the functions the guard actually calls.
+    """
 
     @staticmethod
-    def _scan(text):
-        return "\n".join(_strip_comment(ln) for ln in text.splitlines())
+    def _wf(on_body):
+        return "on:\n" + on_body + "\njobs:\n  publish:\n    runs-on: ubuntu-latest\n"
 
-    def test_commented_trigger_is_not_counted(self):
-        for mutant in ("    # branches: [main]",
-                       "    tags: ['v*']  # branches: [main]"):
-            with self.subTest(mutant=mutant):
-                scan = self._scan(mutant)
-                self.assertNotIn("branches:", scan)
-                self.assertNotRegex(scan, self._PATTERN)
+    _LIVE = "  push:\n    branches:\n      - main\n    tags:\n      - 'v*'"
 
     def test_live_trigger_is_counted(self):
-        scan = self._scan("    branches: [main]")
-        self.assertIn("branches:", scan)
-        self.assertRegex(scan, self._PATTERN)
+        wf = self._wf(self._LIVE)
+        self.assertEqual(push_branch_filter_keys(wf), ["branches:"])
+        self.assertTrue(push_targets_main(wf))
+
+    def test_commented_trigger_is_not_counted(self):
+        for mutant in ("  push:\n    # branches: [main]\n    tags: ['v*']",
+                       "  push:\n    tags: ['v*']  # branches: [main]"):
+            with self.subTest(mutant=mutant):
+                wf = self._wf(mutant)
+                self.assertEqual(push_branch_filter_keys(wf), [])
+                self.assertFalse(push_targets_main(wf))
+
+    def test_filter_under_a_sibling_trigger_is_not_attributed_to_push(self):
+        # The shipped bypass. `branches: [main]` is present and targets main —
+        # just not on the trigger that publishes.
+        wf = self._wf("  push:\n    tags: ['v*']\n  pull_request:\n    branches:\n      - main")
+        self.assertIn("branches:", wf, "probe is inert: no `branches:` planted")
+        self.assertEqual(
+            push_branch_filter_keys(wf),
+            [],
+            "a sibling trigger's `branches:` was attributed to `push:` — the "
+            "auto-release filter would read as live while it is gone.",
+        )
+        self.assertFalse(push_targets_main(wf))
+
+    def test_filter_in_a_job_body_is_not_attributed_to_push(self):
+        wf = ("on:\n  push:\n    tags: ['v*']\n"
+              "jobs:\n  publish:\n    runs-on: ubuntu-latest\n"
+              "    steps:\n      - run: echo 'branches: [main]'\n")
+        self.assertEqual(push_branch_filter_keys(wf), [])
+        self.assertFalse(push_targets_main(wf))
+
+    def test_quoted_and_flow_forms_are_counted(self):
+        for on_body in ('  push:\n    "branches": [main]',
+                        "  push:\n    'branches': ['main']",
+                        '  push:\n    branches: ["main"]',
+                        "  push: {branches: [main]}",
+                        '  "push":\n    branches:\n      - main'):
+            with self.subTest(on_body=on_body):
+                wf = self._wf(on_body)
+                self.assertEqual(
+                    len(push_branch_filter_keys(wf)),
+                    1,
+                    "a standard authoring style evaded the filter count — the "
+                    "guard would fail on a workflow that is actually correct.",
+                )
+                self.assertTrue(push_targets_main(wf))
+
+    def test_branches_ignore_is_not_counted_as_branches(self):
+        wf = self._wf("  push:\n    branches-ignore:\n      - main")
+        self.assertEqual(
+            push_branch_filter_keys(wf),
+            [],
+            "`branches-ignore:` is the OPPOSITE filter and must not satisfy the "
+            "auto-release check.",
+        )
+
+    def test_a_second_copy_is_reported_not_shadowed(self):
+        wf = self._wf("  push:\n    branches: [release]\n    branches: [main]")
+        self.assertEqual(
+            len(push_branch_filter_keys(wf)),
+            2,
+            "a duplicate `branches:` under `push:` must be reported — with only "
+            "a presence check the second copy silently shadows the first.",
+        )
 
 
 class TestPermissionsBlockTruncation(unittest.TestCase):

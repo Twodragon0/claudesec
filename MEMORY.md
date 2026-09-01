@@ -347,38 +347,84 @@ The largest block in this log and the one whose *method* matters more than its d
   "11 shared functions" were both wrong (real: 15 and 12) — multi-line tuples and structural
   clones need `ast.walk`. And **grep for other implementations before closing a fix.**
 
+### Cycle #497–#504 — the two ways a scheduled check stops, and attribution (merged 2026-08-26 → 09-01)
+
+- **A gate that never fires reads exactly like one that found nothing.** The nightly DAST was
+  gated on an unset `DAST_TARGET_URL`, so 42 consecutive nights reported a clean `skipped`
+  (#399/#497). The gate is gone — the nightly scans this repo's own dashboard container, the
+  same target `dast-baseline.yml` already uses — so it cannot skip.
+- **Removing the skip left the quieter half open: a schedule that never FIRES.** No run at
+  all, so nothing is skipped, nothing is red, and an Actions list sorted by recency still
+  shows the last green run. Five real causes (60-day inactivity shutdown, `gh workflow
+  disable`, best-effort cron — a ~10h delay is on record in run `33070461602` — rename/
+  default-branch change, all-runs-fail). `dast-freshness-watch.yml` (#502) watches the AGE of
+  the newest **`event=schedule`** run and self-heals into one issue. Three load-bearing
+  choices: `event=schedule` only (a `workflow_dispatch` proves someone pressed a button, not
+  that cron is alive); it also runs on `push` to `main` (a cron-only watcher shares the exact
+  failure mode it watches); 48h not 24h (a threshold at the cron period trips on ordinary
+  jitter, and a notifier that cries wolf gets muted — silence again).
+  **Its first commit was INERT**: `listWorkflowRuns` is an Actions-API read and the job had no
+  `actions: read`. Reviewing the logic and not the token grant is how a watcher ships dead.
+- **Guard-scoping, round N: presence is not attribution.** `test_ci_npm_publish.py` asserted
+  `branches:` and `branches: … main` against the whole comment-stripped `npm-publish.yml`.
+  Comment-stripping (#383) answers the *commented-out* regression only. Measured 2026-09-01,
+  PyYAML-confirmed: leave `push:` with just `tags:` and move `branches: - main` to a new
+  `pull_request:` — the version-bump auto-release is dead (`push -> {'tags': ['v*']}`) and
+  **1181 CI guards repo-wide stay GREEN**. Two sibling shapes were equally invisible (`push:`
+  deleted with the filter re-planted elsewhere; `branches:` → its opposite `branches-ignore:`).
+  Fixed by the documented discipline — scope to the block, then assert a COUNT of exactly one
+  — with `trigger_block()` promoted into `_ci_guard_util` so `test_ci_pr_trigger_scope.py`'s
+  copy of that logic became a thin binding rather than a second implementation.
+- **A guard's mutation self-tests must drive the real detector.** The old
+  `TestAutoReleaseTriggerScoping` asserted against a re-implementation of the pattern, so it
+  could not have noticed the block scoping was missing. Same family as #485's `assertIs`
+  identity guard: pin the object the guard actually calls.
+- Related sweeps in the same window: the inline-handler guard scanned 11 of 23 dashboard
+  sources because `_SOURCE_FILES` was hand-written (#501 → glob over `git ls-files`), and four
+  guard checks passed while the control they protect was gone (#503).
+
 ## Open Backlog
 
-Derived from `gh issue list` + verified repo state on 2026-08-26. **Verify before working an
-item** — this list rotted twice (see the maintenance note below).
+Re-derived from `gh issue list` + verified repo state on **2026-09-01**. **Verify before
+working an item** — this list rotted twice before, and the previous revision (2026-08-26)
+listed FOUR already-closed issues (#295, #297, #381, #399) as open.
 
-- **`#295` prowler / alpine freeze — DONE, needs closing, not working.** Verified 2026-08-26:
-  `Dockerfile` is on `alpine:3.23` with `PROWLER_VERSION=5.39.1` and its comment block
-  already records why the alert does not lift the freeze. **The alert was about the wrong
-  boundary:** prowler moving `<3.13` → `<3.14` does not help because **no alpine minor ships
-  py3.13** — alpine jumps 3.12 → 3.14 at the 3.23/3.24 line, and py3.14 is outside prowler's
-  range, so 3.24 reintroduces #220 (build green, `prowler -v` crashes on the backtracked
-  3.11.3/pydantic-v1). The real unblock condition is **prowler accepting py3.14**.
-- **`#405` branch-protection drift-watch is not running** (`REPO_ADMIN_TOKEN` missing). The
-  workflow self-heals into this issue rather than reporting green (#396), so the issue IS the
-  alert — it needs a token, not a code fix.
-- **`#399` DAST nightly full scan is not running** (`DAST_TARGET_URL` unset). Same shape as
-  #405: deliberate, self-reported (#397). Set the repo variable to an authorized target to
-  re-enable; do not point CI at a real external target without written authorization.
-- **`#381` lychee monthly sweep found redirects / link rot.** Use the
-  `lychee-redirect-triage` skill. Remember CI accepts `100..=599`, so a 404 passes.
-- **`#297` quarterly ADR-001 guard adversarial audit due.** The recurring cadence item. Its
-  Class-2 backlog is empty; what it exists for now is the NEXT round of shapes.
+**Closed since the last revision — do NOT re-propose as open:** `#295` (prowler/alpine
+freeze), `#297` (quarterly ADR-001 audit), `#381` (lychee sweep), `#399` (DAST nightly not
+running). Check with `gh issue list --state open` before trusting any entry below.
+
+- **`#405` branch-protection drift-watch is not running** (`REPO_ADMIN_TOKEN` missing).
+  **BLOCKED ON A HUMAN — there is no code fix.** The workflow self-heals into this issue
+  rather than reporting green (#396), so the issue IS the alert, and it re-confirms itself on
+  every scheduled run (last 2026-08-31T21:08). Unblock: a fine-grained PAT scoped to this repo
+  with **Administration: read**, stored as the `REPO_ADMIN_TOKEN` repo secret; the next clean
+  run closes the issue. Check: `gh run list --workflow=protection-drift-watch.yml` runs green
+  either way, so the ISSUE state is the signal, not the run conclusion.
+- **`#498` ZAP full-scan tracker — the BODY is stale, the comments are current.** The nightly
+  reuses one issue and **appends a comment**; it never rewrites the body. So #498's body is
+  still the 2026-08-26 snapshot listing style-src `unsafe-inline` + COEP/COOP/CORP as live,
+  while its own 2026-08-28 comment reports all four under **"Resolved Alerts"** (fixed by
+  #500 on 08-27). Everything still open on it is ZAP INFO-tier: suspicious comments,
+  storable/cacheable content, User Agent Fuzzer. The `.../'+safeHref(hubUrl)+'` "URL" is ZAP
+  scraping a JS string literal out of inline `<script>` source — not an endpoint. Check the
+  NEWEST comment, never the body. The body-never-refreshed behaviour is itself worth fixing:
+  a tracker that shows fixed MEDIUMs as live is the red-while-fixed twin of this repo's
+  green-while-defeated class.
 - **`#39` ISMS-P 29 FAIL controls prioritised remediation plan** and **`#15` incident-response
   process 65% → 80%** are product/content work, not CI.
 - **`#68` ZAP baseline** is the intentional single-tracker issue — keep it open.
-- **ruff ruleset widening** — 548 findings behind `BLE001`/`S110` etc. Changes a required
-  check; needs a decision, not a cleanup pass. See Cycle #469.
-- **zscaler `_unreachable` `reason` is still write-only.** Now unblocked (#472 merged):
-  `transport_error` / `permission_denied` / `unexpected_payload` / `http_error` are produced
-  in `scanner/lib/zscaler-api.py` and no consumer reads them, so `scanner/checks/saas/
-  zscaler.sh` still prints "RBA restricted" for what may be a DNS failure. Also outstanding
-  from that review: `_unreachable`'s docstring says "the three states" then lists four, and
+- **`#12` Zscaler MCP integration**, **`#18` GitHub Projects board**, **`#20` marketplace
+  plugin update** are `enhancement`-labelled product asks, not correctness work.
+- **ruff ruleset widening** — `python-lint` is in `lint-gate.needs`, so widening `select`
+  changes a REQUIRED check; it needs a decision, not a cleanup pass (see Cycle #469). Measure,
+  don't quote a number: `ruff check --isolated --select BLE001,S110 --statistics scanner/
+  scripts/` (61 + 21 on 2026-09-01).
+- **zscaler `_unreachable` `reason` is still write-only** (re-verified 2026-09-01: produced at
+  `scanner/lib/zscaler-api.py:90-93`, zero consumers under `scanner/checks/` or `scripts/`).
+  Unblocked since #472 merged. Four distinct reasons are recorded and none is read, so
+  `scanner/checks/saas/zscaler.sh:81` still prints "RBA restricted" for what may be a DNS
+  failure — a diagnosis the data already contradicts. Also outstanding from that review:
+  `_unreachable`'s docstring says "the three states" then lists four, and
   `_load_saas_sso_stats` rejects the whole file if **any** `saas` entry is a non-dict
   (confirm deliberate before changing).
 - **`MEMORY.md` maintenance** — this file went **~185 PRs stale** once (#470), and then the

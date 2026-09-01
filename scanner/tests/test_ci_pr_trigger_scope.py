@@ -54,6 +54,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     explicit_key_lines,
     extract_on_block,
+    trigger_block,
     yaml_key_pattern,
 )
 
@@ -71,47 +72,21 @@ REQUIRED_WORKFLOWS = {
 # base ref (the stacked-PR blind spot); `paths*` narrows by diff content (#186).
 FORBIDDEN_FILTER_KEYS = ("branches", "branches-ignore", "paths", "paths-ignore")
 
-# `pull_request:` bare OR quoted — a quoted key resolves to the same trigger,
-# and `"on":` is already a normalized idiom in GitHub's docs (bare `on` is the
-# YAML-1.1 boolean `True`), so quoting here is realistic authoring.
-_PR_KEY_RE = re.compile(rf"^(\s*){yaml_key_pattern('pull_request')}:\s*(.*)$")
-
-
 def pull_request_block(text: str) -> str:
     """The content nested under the top-level `on:` -> `pull_request:` key.
 
-    Built on `extract_on_block`, which already drops whole-line comments and
-    trailing inline comments and handles bare/quoted `on:` keys — so the
-    rationale comment sitting above `pull_request:` in each workflow cannot
-    satisfy or trip a check here.
-
-    Membership is decided by INDENTATION relative to the `pull_request:` key,
-    and the block ends at the first non-blank line indented at or above it. A
-    flow-style value on the key line itself (`pull_request: {branches: [main]}`)
-    is captured too, so that form cannot slip past a block-only scan.
-
-    `pull_request_target:` is a different key and is never matched: the regex
-    requires the `:` immediately after `pull_request`.
+    A thin binding over the shared `trigger_block` primitive, kept as a named
+    function because the mutation self-tests below are this guard's non-vacuity
+    evidence and they exercise it by name. See `trigger_block` for the
+    indentation/quoting/flow-style semantics and for why block scoping (not a
+    whole-`on:` scan) is the invariant.
 
     Returns "" when the workflow has no `pull_request:` trigger at all — callers
-    must assert the trigger exists separately (see `test_pull_request_trigger_present`),
-    or an empty block would pass the filter checks vacuously.
+    must assert the trigger exists separately (see
+    `test_pull_request_trigger_present`), or an empty block would pass the
+    filter checks vacuously.
     """
-    body, indent = [], None
-    for line in extract_on_block(text).splitlines():
-        if indent is None:
-            m = _PR_KEY_RE.match(line)
-            if m:
-                indent = len(m.group(1))
-                if m.group(2).strip():
-                    body.append(m.group(2))  # flow-style value on the key line
-            continue
-        if not line.strip():
-            continue
-        if len(line) - len(line.lstrip()) <= indent:
-            break  # dedent to a sibling trigger (`push:`, `schedule:`, ...)
-        body.append(line)
-    return "\n".join(body)
+    return trigger_block(extract_on_block(text), "pull_request")
 
 
 def filter_violations(text: str, label: str) -> list:

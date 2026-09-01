@@ -67,6 +67,7 @@ from _ci_guard_util import (  # noqa: E402
     strip_inline_comment,
     strip_inline_comment_sh,
     top_level_jobs,
+    trigger_block,
     uses_refs,
     workflow_and_action_files,
     yaml_key_pattern,
@@ -279,6 +280,55 @@ class TestExtractOnBlock(unittest.TestCase):
     def test_flow_style_and_quoted_on_key(self):
         self.assertIn("pull_request", extract_on_block("on: [push, pull_request]  # ci\njobs: {}"))
         self.assertIn("schedule", extract_on_block("'on':\n  schedule:\n    - cron: '0 0 * * *'\njobs: {}"))
+
+
+class TestTriggerBlock(unittest.TestCase):
+    """Attribution, not presence: which trigger a filter key BELONGS to."""
+
+    _ON = ("on:\n"
+           "  push:\n    branches:\n      - main\n    tags: ['v*']\n"
+           "  pull_request:\n    paths: ['**.md']\n"
+           "jobs: {}\n")
+
+    def _on(self, text=None):
+        return extract_on_block(text if text is not None else self._ON)
+
+    def test_returns_only_the_named_triggers_children(self):
+        block = trigger_block(self._on(), "push")
+        self.assertIn("branches:", block)
+        self.assertIn("tags:", block)
+        self.assertNotIn("paths:", block, "a sibling trigger's key leaked in")
+
+    def test_sibling_trigger_ends_the_block(self):
+        self.assertNotIn("branches:", trigger_block(self._on(), "pull_request"))
+
+    def test_absent_trigger_returns_empty(self):
+        # The vacuity contract: callers MUST assert the trigger exists, because
+        # every check against "" passes.
+        self.assertEqual(trigger_block(self._on(), "schedule"), "")
+
+    def test_flow_style_value_on_the_key_line_is_captured(self):
+        wf = "on:\n  push: {branches: [main]}\njobs: {}"
+        self.assertIn("branches:", trigger_block(self._on(wf), "push"))
+
+    def test_quoted_trigger_key_is_matched(self):
+        wf = "on:\n  \"push\":\n    branches: [main]\njobs: {}"
+        self.assertIn("branches:", trigger_block(self._on(wf), "push"))
+
+    def test_longer_trigger_name_is_not_matched(self):
+        # `pull_request_target:` is a different trigger; the `:` must follow the
+        # name immediately or its filters get attributed to `pull_request:`.
+        wf = "on:\n  pull_request_target:\n    branches: [main]\njobs: {}"
+        self.assertEqual(trigger_block(self._on(wf), "pull_request"), "")
+
+    def test_comment_line_does_not_end_the_block(self):
+        wf = "on:\n  push:\n    tags: ['v*']\n    # regrouped\n    branches: [main]\njobs: {}"
+        self.assertIn(
+            "branches:",
+            trigger_block(self._on(wf), "push"),
+            "a comment truncated the block — every key after it went invisible "
+            "(the #419 shape).",
+        )
 
 
 class TestTopLevelJobs(unittest.TestCase):

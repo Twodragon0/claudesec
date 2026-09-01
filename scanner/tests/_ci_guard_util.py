@@ -515,6 +515,55 @@ def extract_on_block(text: str) -> str:
     return "\n".join(body)
 
 
+_TRIGGER_KEY_RE_CACHE = {}
+
+
+def trigger_block(on_block: str, trigger: str) -> str:
+    """The content nested under ONE trigger key inside an `on:` block.
+
+    `on_block` is the output of `extract_on_block`, so whole-line comments and
+    trailing inline comments are already gone and a prose line naming a trigger
+    cannot open a block here.
+
+    Membership is decided by INDENTATION relative to the trigger key, and the
+    block ends at the first non-blank line indented at or above it — a sibling
+    trigger (`push:`, `schedule:`, ...) ends it. A flow-style value on the key
+    line itself (`push: {branches: [main]}`) is captured too, so that form
+    cannot slip past a block-only scan.
+
+    The key is matched bare OR quoted via `yaml_key_pattern`, and the `:` is
+    required immediately after the name, so `pull_request_target:` is never
+    attributed to `pull_request:`.
+
+    Returns "" when the trigger is absent — callers MUST assert the trigger
+    exists separately, or every check against the empty block passes vacuously.
+
+    Shared because a whole-`on:`-block scan proves a token EXISTS, never that it
+    belongs to the trigger that fires: moving `branches: - main` from `push:` to
+    `pull_request:` killed npm-publish.yml's version-bump auto-release with all
+    1181 CI guards green (measured 2026-09-01). Scope to the block, then count.
+    """
+    key_re = _TRIGGER_KEY_RE_CACHE.get(trigger)
+    if key_re is None:
+        key_re = re.compile(rf"^(\s*){yaml_key_pattern(trigger)}:\s*(.*)$")
+        _TRIGGER_KEY_RE_CACHE[trigger] = key_re
+    body, indent = [], None
+    for line in on_block.splitlines():
+        if indent is None:
+            m = key_re.match(line)
+            if m:
+                indent = len(m.group(1))
+                if m.group(2).strip():
+                    body.append(m.group(2))  # flow-style value on the key line
+            continue
+        if not line.strip():
+            continue
+        if len(line) - len(line.lstrip()) <= indent:
+            break  # dedent to a sibling trigger
+        body.append(line)
+    return "\n".join(body)
+
+
 # A mapping key at the start of a line, bare or quoted, capturing the key NAME.
 #
 # Deliberately generic rather than composed from `yaml_key_pattern`: that
