@@ -79,12 +79,27 @@ def _unreachable(code: int) -> dict:
     dashboard then claimed the API key reached the ZIA admin surface when
     nothing had been read.
 
-    ``reason`` keeps the three states distinct, since a 403 is real
+    ``reason`` keeps the four states distinct, since a 403 is real
     information (the key reached the API and was denied):
       * ``transport_error``     — code 0, never reached the API
       * ``permission_denied``   — HTTP 403, reached the API, RBA restricted
       * ``unexpected_payload``  — HTTP 200 but not the expected JSON shape
       * ``http_error``          — any other non-200 status
+
+    ``detail`` renders that same state as one human sentence, and exists because
+    ``reason`` was WRITE-ONLY for as long as it existed: four distinct states
+    were recorded here and no consumer read any of them, so
+    ``scanner/checks/saas/zscaler.sh`` printed the fixed string
+    ``"Users API not accessible (RBA restricted)"`` for all four. That is not a
+    vague message — it is a specific, confident diagnosis that is WRONG for three
+    of them, and the data to contradict it was already sitting in the same dict.
+    An operator chasing an RBA grant for what is actually a DNS failure is worse
+    off than one told nothing.
+
+    The mapping lives here rather than in the shell check for the reason
+    #346/#348 moved embedded interpreters out of ``.sh`` files: in Python it is
+    covered by the ``scanner/lib`` gate and unit-tested; re-implemented in bash
+    it would be neither, and a second copy would drift from ``reason``.
     """
     if code == 0:
         reason = "transport_error"
@@ -94,7 +109,38 @@ def _unreachable(code: int) -> dict:
         reason = "unexpected_payload"
     else:
         reason = "http_error"
-    return {"accessible": False, "status_code": code, "reason": reason}
+    return {
+        "accessible": False,
+        "status_code": code,
+        "reason": reason,
+        "detail": _unreachable_detail(reason, code),
+    }
+
+
+# One sentence per `_unreachable` reason. Keyed by reason rather than re-deriving
+# from the status code, so the two can never disagree about the same response.
+_UNREACHABLE_DETAIL = {
+    "transport_error": (
+        "request never reached the API (DNS failure, timeout, TLS error or "
+        "connection reset)"
+    ),
+    "permission_denied": (
+        "HTTP 403 — the API key reached ZIA and was denied (RBA restricted)"
+    ),
+    "unexpected_payload": "HTTP 200 but the payload was not the expected shape",
+}
+
+
+def _unreachable_detail(reason: str, code: int) -> str:
+    """Human-readable rendering of an `_unreachable` reason.
+
+    Falls back to naming the reason verbatim rather than to a generic phrase: an
+    unmapped reason is a bug in this pair of functions, and a message that hides
+    which state it was in reproduces the defect this whole field exists to fix.
+    """
+    if reason == "http_error":
+        return f"HTTP {code}"
+    return _UNREACHABLE_DETAIL.get(reason, f"not read ({reason})")
 
 
 def collect_posture(base: str, session: "requests.Session") -> dict:

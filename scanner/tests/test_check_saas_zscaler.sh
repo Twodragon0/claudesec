@@ -54,7 +54,14 @@ RESULTS=()
 pass()  { RESULTS+=("PASS:$1"); }
 fail()  { RESULTS+=("FAIL:$1:${4:-}"); }
 warn()  { RESULTS+=("WARN:$1"); }
-skip()  { RESULTS+=("SKIP:$1"); }
+# The skip MESSAGE (`$3`) is recorded, not just the check id.
+#
+# It used to be dropped, and that is why "Users API not accessible (RBA
+# restricted)" — a specific diagnosis that was wrong for three of the four states
+# `zscaler-api.py` records — survived here with this suite green. A harness that
+# cannot see the text under test reports on something else. Existing
+# `assert_has_result` calls are unaffected: they prefix-match `SKIP:<id>`.
+skip()  { RESULTS+=("SKIP:$1:${3:-}"); }
 info()  { true; }
 
 source "$LIB_DIR/checks.sh"
@@ -91,6 +98,53 @@ assert_no_result() {
     ((TEST_PASSED++))
   else
     echo "  FAIL: $desc (unexpected $unexpected_type:$check_id found)"
+    ((TEST_FAILED++))
+  fi
+}
+
+assert_result_contains() {
+  local desc="$1" expected_type="$2" check_id="$3" needle="$4"
+  local matched="" found=false
+  for r in "${RESULTS[@]+"${RESULTS[@]}"}"; do
+    if [[ "$r" == "${expected_type}:${check_id}:"* ]]; then
+      matched="${r#"${expected_type}:${check_id}:"}"
+      found=true
+      break
+    fi
+  done
+  if ! $found; then
+    echo "  FAIL: $desc (no $expected_type:$check_id recorded at all)"
+    ((TEST_FAILED++))
+  elif [[ "$matched" == *"$needle"* ]]; then
+    echo "  PASS: $desc"
+    ((TEST_PASSED++))
+  else
+    echo "  FAIL: $desc (expected to contain '$needle', got: '$matched')"
+    ((TEST_FAILED++))
+  fi
+}
+
+assert_result_not_contains() {
+  local desc="$1" expected_type="$2" check_id="$3" needle="$4"
+  local matched="" found=false
+  for r in "${RESULTS[@]+"${RESULTS[@]}"}"; do
+    if [[ "$r" == "${expected_type}:${check_id}:"* ]]; then
+      matched="${r#"${expected_type}:${check_id}:"}"
+      found=true
+      break
+    fi
+  done
+  # Absence of the result is NOT a pass: the message cannot be wrong if it was
+  # never produced, and reporting that as success is the vacuity this file's
+  # own skip() stub already demonstrated once.
+  if ! $found; then
+    echo "  FAIL: $desc (no $expected_type:$check_id recorded — assertion vacuous)"
+    ((TEST_FAILED++))
+  elif [[ "$matched" != *"$needle"* ]]; then
+    echo "  PASS: $desc"
+    ((TEST_PASSED++))
+  else
+    echo "  FAIL: $desc (must NOT contain '$needle', got: '$matched')"
     ((TEST_FAILED++))
   fi
 }
@@ -262,6 +316,62 @@ echo "=== SAAS-ZIA-007: SAML + auto-provision -> PASS ==="
 _sso_good='{"service_status":"ACTIVE","users":{"accessible":false},"advanced_settings":{"accessible":false},"policy_access":{"accessible_count":1,"restricted_count":1},"groups":{"accessible":false},"departments":{"accessible":false},"nss_feeds":{"accessible":false},"auth_settings":{"accessible":true,"saml_enabled":"True","auto_provision":"True","auth_frequency":"SESSION"}}'
 run_check_with_json "$_sso_good"
 assert_has_result "SAML + auto-provision -> PASS SAAS-ZIA-007" "PASS" "SAAS-ZIA-007"
+
+# ── Unreachable sections report WHY, not a fixed sentence ────────────────────
+#
+# `zscaler-api.py`'s `_unreachable` has always recorded four distinct states in
+# `reason` and now renders each as `detail`. Before this, all four printed the
+# same message and SAAS-ZIA-002's asserted "RBA restricted" — a confident,
+# specific claim that is wrong for three of them, contradicted by data sitting in
+# the same JSON. These cases pin that the check reads it.
+
+echo "=== Unreachable sections carry the reason from the API helper ==="
+
+_unreachable_json() {
+  # One section unreachable with the given detail; every other section absent so
+  # the assertion cannot be satisfied by a neighbour's text.
+  printf '{"service_status":"ACTIVE","%s":{"accessible":false,"status_code":%s,"reason":"%s","detail":"%s"},"policy_access":{"accessible_count":1,"restricted_count":1}}' \
+    "$1" "$2" "$3" "$4"
+}
+
+run_check_with_json "$(_unreachable_json users 0 transport_error 'request never reached the API (DNS failure, timeout, TLS error or connection reset)')"
+assert_result_contains "transport_error names the transport failure" \
+  "SKIP" "SAAS-ZIA-002" "never reached the API"
+assert_result_not_contains "transport_error must NOT be blamed on RBA" \
+  "SKIP" "SAAS-ZIA-002" "RBA restricted"
+
+run_check_with_json "$(_unreachable_json users 403 permission_denied 'HTTP 403 — the API key reached ZIA and was denied (RBA restricted)')"
+assert_result_contains "permission_denied still says RBA restricted" \
+  "SKIP" "SAAS-ZIA-002" "RBA restricted"
+
+run_check_with_json "$(_unreachable_json advanced_settings 200 unexpected_payload 'HTTP 200 but the payload was not the expected shape')"
+assert_result_contains "unexpected_payload is reported on SAAS-ZIA-003" \
+  "SKIP" "SAAS-ZIA-003" "not the expected shape"
+
+run_check_with_json "$(_unreachable_json nss_feeds 500 http_error 'HTTP 500')"
+assert_result_contains "http_error carries the status code on SAAS-ZIA-006" \
+  "SKIP" "SAAS-ZIA-006" "HTTP 500"
+
+run_check_with_json "$(_unreachable_json auth_settings 0 transport_error 'request never reached the API (DNS failure, timeout, TLS error or connection reset)')"
+assert_result_contains "SAAS-ZIA-007 reports its own section's reason" \
+  "SKIP" "SAAS-ZIA-007" "never reached the API"
+
+# SAAS-ZIA-005 gates on TWO sections, so it must name both rather than pick one.
+run_check_with_json '{"service_status":"ACTIVE","groups":{"accessible":false,"reason":"permission_denied","detail":"HTTP 403 — the API key reached ZIA and was denied (RBA restricted)"},"departments":{"accessible":false,"reason":"transport_error","detail":"request never reached the API (DNS failure, timeout, TLS error or connection reset)"},"policy_access":{"accessible_count":1,"restricted_count":1}}'
+assert_result_contains "SAAS-ZIA-005 names the groups reason" \
+  "SKIP" "SAAS-ZIA-005" "Groups API not read: HTTP 403"
+assert_result_contains "SAAS-ZIA-005 also names the departments reason" \
+  "SKIP" "SAAS-ZIA-005" "Departments API not read: request never reached"
+
+# A section with no `detail` must say so, not emit an empty tail that reads as a
+# truncated message — and must not fall back to the old fixed diagnosis.
+echo "=== A missing detail is reported as missing, not guessed ==="
+
+run_check_with_json '{"service_status":"ACTIVE","users":{"accessible":false},"policy_access":{"accessible_count":1,"restricted_count":1}}'
+assert_result_contains "absent detail -> 'reason not reported'" \
+  "SKIP" "SAAS-ZIA-002" "reason not reported"
+assert_result_not_contains "absent detail must not invent RBA" \
+  "SKIP" "SAAS-ZIA-002" "RBA restricted"
 
 # Cleanup credentials
 unset ZSCALER_API_KEY ZSCALER_API_ADMIN ZSCALER_API_PASSWORD ZSCALER_BASE_URL \

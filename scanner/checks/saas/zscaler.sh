@@ -35,6 +35,27 @@ else
         "Check network connectivity and ZSCALER_BASE_URL"
     fi
   else
+    # Why a section could not be read, in one sentence.
+    #
+    # `zscaler-api.py`'s `_unreachable` has always recorded four distinct states
+    # (`transport_error` / `permission_denied` / `unexpected_payload` /
+    # `http_error`) and NOTHING here ever read them. Every inaccessible section
+    # printed a fixed string, and SAAS-ZIA-002's was "Users API not accessible
+    # (RBA restricted)" — a specific, confident diagnosis that is wrong for three
+    # of the four, contradicted by data already in the same JSON. An operator sent
+    # to request an RBA grant for what is really a DNS failure is worse off than
+    # one told nothing.
+    #
+    # The section name is passed as ARGV, never interpolated into the Python
+    # source, so this cannot become the CWE-94 shape #349 removed from this tree.
+    _zia_detail() {
+      local _d
+      _d=$(echo "$_zia_json" | python3 -c 'import sys, json; print(json.load(sys.stdin).get(sys.argv[1], {}).get("detail", ""))' "$1" 2>/dev/null)
+      # Empty means the field is missing or the JSON did not parse. Say that,
+      # rather than emitting an empty tail that reads as a truncated message.
+      echo "${_d:-reason not reported}"
+    }
+
     # Auth succeeded
     _zia_status=$(echo "$_zia_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('service_status','UNKNOWN'))" 2>/dev/null)
 
@@ -78,7 +99,7 @@ else
           "Review unassigned users in ZIA Admin Portal > User Management"
       fi
     else
-      skip "SAAS-ZIA-002" "Zscaler user hygiene" "Users API not accessible (RBA restricted)"
+      skip "SAAS-ZIA-002" "Zscaler user hygiene" "Users API not read: $(_zia_detail users)"
     fi
 
     # ── SAAS-ZIA-003: Advanced Settings Audit ───────────────────────────────
@@ -119,7 +140,7 @@ else
           "Audit and reduce bypass rules in ZIA Admin > Advanced Settings"
       fi
     else
-      skip "SAAS-ZIA-003" "Zscaler advanced settings" "Advanced settings API not accessible"
+      skip "SAAS-ZIA-003" "Zscaler advanced settings" "Advanced settings API not read: $(_zia_detail advanced_settings)"
     fi
 
     # ── SAAS-ZIA-004: API Permission Scope Audit ────────────────────────────
@@ -152,7 +173,7 @@ else
         pass "SAAS-ZIA-005" "Zscaler org structure healthy (${_zia_group_count} groups, ${_zia_dept_count} departments)"
       fi
     else
-      skip "SAAS-ZIA-005" "Zscaler org coverage" "Groups/Departments API not accessible"
+      skip "SAAS-ZIA-005" "Zscaler org coverage" "Groups API not read: $(_zia_detail groups); Departments API not read: $(_zia_detail departments)"
     fi
 
     # ── SAAS-ZIA-006: NSS Log Streaming Configuration ─────────────────────
@@ -169,7 +190,7 @@ else
         pass "SAAS-ZIA-006" "Zscaler NSS log streaming configured (${_zia_nss_count} feed(s))"
       fi
     else
-      skip "SAAS-ZIA-006" "Zscaler NSS feeds" "NSS API not accessible"
+      skip "SAAS-ZIA-006" "Zscaler NSS feeds" "NSS API not read: $(_zia_detail nss_feeds)"
     fi
 
     # ── SAAS-ZIA-007: SAML/SSO & Provisioning Configuration ─────────────
@@ -209,7 +230,7 @@ else
           "Enable SAML SSO and SCIM in ZIA Admin > Authentication Settings"
       fi
     else
-      skip "SAAS-ZIA-007" "Zscaler SSO/auth settings" "Auth settings API not accessible"
+      skip "SAAS-ZIA-007" "Zscaler SSO/auth settings" "Auth settings API not read: $(_zia_detail auth_settings)"
     fi
   fi
 fi
