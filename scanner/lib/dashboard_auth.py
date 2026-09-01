@@ -120,6 +120,29 @@ def _load_saas_sso_stats():
     ``None`` ("no SaaS SSO data") plus a ``RuntimeWarning`` — a malformed asset
     file must not take down the whole dashboard build via
     ``build_auth_summary_html``.
+
+    ONE UNREADABLE ENTRY REJECTS THE WHOLE LIST, DELIBERATELY. The obvious
+    alternative — drop the bad entry, keep the rest — was raised in review and is
+    wrong here, because this function's output is a DENOMINATOR. It reports "X of
+    Y SaaS apps use SSO", and dropping an entry shrinks Y silently while the
+    percentage keeps looking exactly as confident. Measured on a five-app file
+    with one unreadable entry, a skip-the-entry implementation returns
+    ``{'sso_count': 3, 'total': 4, 'pct': 75}`` — byte-identical to what it
+    returns for a CLEAN four-app file. Nothing downstream can tell a fifth app
+    existed, and the true coverage is somewhere in 60-80%.
+
+    That is the "corrupt is worse than missing" shape this repo has paid for
+    twice: #471, where an unreadable Prowler file became an empty-but-present
+    provider and scored as a clean prowler-backed PASS instead of degrading to
+    keyword matching; and #489, where a corrupt nmap artifact made
+    ``network_evidence`` truthy and suppressed the very warning that said the
+    evidence was missing. Returning ``None`` renders the section as "N/A" with a
+    named ``RuntimeWarning`` — visibly weaker, and therefore honest.
+
+    Pinned by ``test_dashboard_auth_asset_degradation``'s mixed-list cases. They
+    exist because the all-entries-bad fixture CANNOT distinguish the two designs:
+    a skip implementation that warns once passes all 54 pre-existing tests while
+    silently truncating the denominator (measured 2026-09-01).
     """
     scan_dir = os.environ.get("SCAN_DIR", ".")
     data_path = os.path.join(scan_dir, ".claudesec-assets", "dashboard-data.json")

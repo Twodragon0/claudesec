@@ -146,6 +146,89 @@ def test_saas_list_of_strings_degrades_with_warning():
     assert "'saas' entry is str, expected an object" in msgs[0]
 
 
+# ---------------------------------------------------------------------------
+# The DENOMINATOR, and why one bad entry rejects the whole list
+# ---------------------------------------------------------------------------
+#
+# `_load_saas_sso_stats` reports "X of Y SaaS apps use SSO". The obvious
+# alternative to rejecting the list — drop the unreadable entry, keep the rest —
+# was raised in the #472 review, and it shrinks Y SILENTLY while the percentage
+# keeps looking exactly as confident.
+#
+# The all-entries-bad fixture above CANNOT tell the two designs apart: with every
+# entry dropped the survivor list is empty, so a skip implementation also returns
+# None. Measured 2026-09-01, a skip implementation that warns ONCE (the shape a
+# careful author would write) passed all 54 tests in this file and
+# test_dashboard_auth_gaps.py, and turned a five-app file with one unreadable
+# entry into `{'sso_count': 3, 'total': 4, 'pct': 75}` — byte-identical to a
+# CLEAN four-app file. Nothing downstream could tell a fifth app existed.
+#
+# That is the "corrupt is worse than missing" shape of #471 (an unreadable
+# Prowler file became an empty-but-present provider and scored as a clean
+# prowler-backed PASS) and #489 (a corrupt nmap artifact made `network_evidence`
+# truthy and suppressed the warning that the evidence was missing).
+#
+# These cases pin the choice with a MIXED list, so the two designs diverge.
+
+_MIXED = '{"saas": [{"auth": "Okta SSO"}, {"auth": "SAML"}, "corrupted", ' \
+         '{"auth": "local password"}, {"auth": "sso"}]}'
+_CLEAN_FOUR = '{"saas": [{"auth": "Okta SSO"}, {"auth": "SAML"}, ' \
+              '{"auth": "local password"}, {"auth": "sso"}]}'
+
+
+def test_one_bad_entry_rejects_the_whole_list():
+    stats, msgs = _load_with(_MIXED)
+    assert stats is None, (
+        "a single unreadable entry must reject the list. Skipping it would "
+        f"report {stats} over a silently truncated denominator."
+    )
+    assert len(msgs) == 1
+    assert "'saas' entry is str, expected an object" in msgs[0]
+
+
+def test_the_mixed_result_is_not_the_clean_four_app_result():
+    """The assertion that makes the two designs distinguishable.
+
+    A skip implementation returns the CLEAN four-app stats for the mixed file.
+    Comparing against that exact value is what a `stats is None` check alone
+    cannot do — with the all-bad fixture both designs return None.
+    """
+    mixed, _ = _load_with(_MIXED)
+    clean, clean_msgs = _load_with(_CLEAN_FOUR)
+    assert clean == {"sso_count": 3, "total": 4, "pct": 75, "non_sso": 1}
+    assert clean_msgs == []
+    assert mixed != clean, (
+        "a five-app file with one unreadable entry produced the same stats as a "
+        "clean four-app file — the fifth app vanished from the denominator with "
+        "the percentage unchanged."
+    )
+
+
+def test_a_bad_entry_last_still_rejects_the_list():
+    """Position must not decide the verdict.
+
+    An implementation that breaks out of the loop after accumulating earlier
+    entries would pass the leading-bad-entry case and fail this one.
+    """
+    stats, msgs = _load_with(
+        '{"saas": [{"auth": "sso"}, {"auth": "sso"}, {"auth": "local"}, 42]}'
+    )
+    assert stats is None
+    assert len(msgs) == 1
+    assert "'saas' entry is int, expected an object" in msgs[0]
+
+
+def test_valid_entries_alone_are_still_computed():
+    """No-false-alarm direction.
+
+    A guard that rejected every list would satisfy the cases above for free, so
+    the clean path must be asserted alongside them.
+    """
+    stats, msgs = _load_with(_CLEAN_FOUR)
+    assert stats == {"sso_count": 3, "total": 4, "pct": 75, "non_sso": 1}
+    assert msgs == []
+
+
 def test_saas_key_present_but_null_returns_none_without_warning():
     """`{"saas": null}` is falsy, so it is the same "no data" case as [] ."""
     stats, msgs = _load_with('{"saas": null}')
@@ -233,6 +316,18 @@ class DashboardAuthAssetDegradationTestCase(unittest.TestCase):
 
     def test_saas_list_of_strings(self):
         test_saas_list_of_strings_degrades_with_warning()
+
+    def test_mixed_one_bad_entry(self):
+        test_one_bad_entry_rejects_the_whole_list()
+
+    def test_mixed_is_not_the_clean_result(self):
+        test_the_mixed_result_is_not_the_clean_four_app_result()
+
+    def test_bad_entry_last(self):
+        test_a_bad_entry_last_still_rejects_the_list()
+
+    def test_clean_list_still_computed(self):
+        test_valid_entries_alone_are_still_computed()
 
     def test_saas_null(self):
         test_saas_key_present_but_null_returns_none_without_warning()
