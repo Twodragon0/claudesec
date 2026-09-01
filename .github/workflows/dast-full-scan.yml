@@ -147,6 +147,131 @@ jobs:
           sarif_file: zap_scan.sarif
           category: "DAST"
 
+      # RED-WHILE-FIXED: the tracker body froze on the day it was opened.
+      # ---------------------------------------------------------------------------
+      # `zaproxy/action-full-scan` opens ONE issue titled by `issue_title:` and, on
+      # every later run, APPENDS a comment listing only the delta ("New Alerts" /
+      # "Resolved Alerts"). It never rewrites the body. So the body is a permanent
+      # snapshot of the FIRST run that found anything, and that is the part a reader
+      # sees first.
+      #
+      # Measured on #498: body dated 2026-08-26 listing `CSP: style-src
+      # unsafe-inline` plus missing COEP/COOP/CORP as live, while the issue's own
+      # 2026-08-28 comment reported all four under "Resolved Alerts" — #500 had
+      # fixed them on 08-27. Anyone opening the issue read four current MEDIUM
+      # findings that had not existed for four days.
+      #
+      # That is the mirror image of the failure class the rest of this repo's CI
+      # guards exist for. Green-while-defeated hides a real problem behind a
+      # reassuring surface; red-while-fixed hides a real ALL-CLEAR behind an alarming
+      # one, and it costs the same thing — a reader who trusts the surface stops
+      # trusting the signal. A tracker that cries wolf gets muted, which is how the
+      # nightly went 42 nights unwatched in the first place (#399).
+      #
+      # This step does NOT disable the action's issue writing. The comment stream is
+      # genuinely useful — a delta is information the body cannot carry. Only the
+      # body is wrong, so only the body is replaced, with the current run's full
+      # state and a line saying it is regenerated. The action still owns creation;
+      # if the issue does not exist yet there is nothing to refresh and this is a
+      # no-op, which is why it never creates one itself.
+      - name: Refresh ZAP tracker body
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          # Read through `env`, never interpolated into the script body with
+          # `${{ }}`. This value is a trusted enum, but the repo's remediation for
+          # CWE-94 (#349) is env-vars-not-interpolation applied uniformly — a rule
+          # with a "but this one is safe" carve-out is a rule the next author has to
+          # re-derive.
+          ZAP_OUTCOME: ${{ steps.zap.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            // Must equal the `issue_title:` given to the ZAP action above; pinned by
+            // scanner/tests/test_ci_dast_tracker_body_refresh.py so the two cannot
+            // drift apart into a silent no-op.
+            const TRACKER_TITLE = 'ZAP Full Scan Report';
+            const runUrl =
+              `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}` +
+              `/actions/runs/${context.runId}`;
+
+            const all = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              per_page: 100,
+            });
+            const tracker = all.find(
+              (i) => i.title === TRACKER_TITLE && !i.pull_request,
+            );
+            if (!tracker) {
+              core.info(`No "${TRACKER_TITLE}" issue exists yet — nothing to refresh.`);
+              return;
+            }
+
+            const RISK = { 3: 'High', 2: 'Medium', 1: 'Low', 0: 'Informational' };
+            let snapshot;
+            try {
+              const raw = JSON.parse(fs.readFileSync('report_json.json', 'utf8'));
+              const alerts = (raw.site || []).flatMap((s) => s.alerts || []);
+              const counts = alerts.reduce((acc, a) => {
+                acc[a.riskcode] = (acc[a.riskcode] || 0) + 1;
+                return acc;
+              }, {});
+              const rows = alerts
+                .slice()
+                .sort((a, b) => Number(b.riskcode) - Number(a.riskcode))
+                .slice(0, 50)
+                .map(
+                  (a) =>
+                    `| ${RISK[a.riskcode] || a.riskcode} | ${a.name} | ` +
+                    `${a.instances?.length || 0} |`,
+                );
+              snapshot =
+                `Risk breakdown — High: ${counts[3] || 0}, Medium: ${counts[2] || 0}, ` +
+                `Low: ${counts[1] || 0}, Informational: ${counts[0] || 0}\n\n` +
+                (rows.length
+                  ? `| Risk | Alert | Instances |\n| --- | --- | --- |\n` +
+                    `${rows.join('\n')}\n` +
+                    (alerts.length > 50
+                      ? `\n_${alerts.length - 50} further alert(s) omitted; ` +
+                        `see the run artifacts._\n`
+                      : '')
+                  : `No alerts reported by this run.\n`);
+            } catch (err) {
+              // "I could not read the report" must never render the same as
+              // "I read it and the site is clean" — the distinction #502 was built
+              // to preserve. Say which one this is.
+              snapshot =
+                `> **This run could not read \`report_json.json\`** ` +
+                `(\`${err.message}\`).\n>\n` +
+                `> This is NOT a statement that the target is clean — it is a ` +
+                `statement that this run could not tell. Check the workflow run ` +
+                `and its artifacts.\n`;
+            }
+
+            const body =
+              `<!-- Regenerated by dast-full-scan.yml on every run. Do not hand-edit. -->\n` +
+              `**This body always reflects the most recent nightly full scan.** ` +
+              `The comments below are per-run deltas written by ` +
+              `\`zaproxy/action-full-scan\` (new vs resolved alerts) and are kept ` +
+              `as history.\n\n` +
+              `- Run: ${runUrl}\n` +
+              `- Refreshed (UTC): ${new Date().toISOString()}\n` +
+              `- ZAP step outcome: \`${process.env.ZAP_OUTCOME}\`\n\n` +
+              `${snapshot}\n` +
+              `Full HTML/JSON/SARIF reports are attached to the workflow run ` +
+              `artifacts; SARIF is also published to the Security tab ` +
+              `(category \`DAST\`).`;
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: tracker.number,
+              body,
+            });
+            core.info(`Refreshed issue #${tracker.number} body from run ${context.runId}.`);
+
       - name: Notify on Critical Findings
         if: steps.zap.outcome == 'failure'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
