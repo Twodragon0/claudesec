@@ -429,9 +429,18 @@ running). Check with `gh issue list --state open` before trusting any entry belo
   `_unreachable_detail` (Python, covered by the `scanner/lib` gate) rather than in bash, and
   is keyed on `reason` rather than recomputed from the status code so the two cannot disagree.
   The docstring's "the three states" / lists four is fixed in the same change.
-  **Still open from that review:** `_load_saas_sso_stats` rejects the whole file if **any**
-  `saas` entry is a non-dict — confirm deliberate before changing. Check:
-  `grep -n "_load_saas_sso_stats" -A20 scanner/lib/*.py`.
+  **The last item from that review is now CLOSED as CONFIRMED-DELIBERATE, do not re-propose:**
+  `_load_saas_sso_stats` rejecting the whole `saas` list over one non-dict entry is correct,
+  because the function's output is a DENOMINATOR ("X of Y SaaS apps use SSO") and dropping an
+  entry shrinks Y silently while the percentage keeps looking as confident. Measured
+  2026-09-01: a skip implementation turns a five-app file with one unreadable entry into
+  `{'sso_count': 3, 'total': 4, 'pct': 75}` — byte-identical to a CLEAN four-app file. Same
+  "corrupt is worse than missing" shape as [[project-ocsf-loader-false-pass]] (#471) and #489.
+  **The reason it needed work at all is that the choice was UNPINNED:** the all-entries-bad
+  fixture cannot distinguish the two designs (with every entry dropped, a skip implementation's
+  survivor list is empty, so it also returns `None`), and a skip variant that warns once passed
+  all 54 tests. Four mixed-list cases now pin it, including one asserting the mixed result is
+  NOT EQUAL to the clean four-app result.
 - **`MEMORY.md` maintenance** — this file went **~185 PRs stale** once (#470), and then the
   freshly-written `#295` entry was **false within five hours** of being written: it asserted
   `PROWLER_VERSION=5.30.1 on alpine:3.20` while #473/#479/#481 moved both the same day. The
