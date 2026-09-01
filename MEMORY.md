@@ -419,14 +419,19 @@ running). Check with `gh issue list --state open` before trusting any entry belo
   changes a REQUIRED check; it needs a decision, not a cleanup pass (see Cycle #469). Measure,
   don't quote a number: `ruff check --isolated --select BLE001,S110 --statistics scanner/
   scripts/` (61 + 21 on 2026-09-01).
-- **zscaler `_unreachable` `reason` is still write-only** (re-verified 2026-09-01: produced at
-  `scanner/lib/zscaler-api.py:90-93`, zero consumers under `scanner/checks/` or `scripts/`).
-  Unblocked since #472 merged. Four distinct reasons are recorded and none is read, so
-  `scanner/checks/saas/zscaler.sh:81` still prints "RBA restricted" for what may be a DNS
-  failure — a diagnosis the data already contradicts. Also outstanding from that review:
-  `_unreachable`'s docstring says "the three states" then lists four, and
-  `_load_saas_sso_stats` rejects the whole file if **any** `saas` entry is a non-dict
-  (confirm deliberate before changing).
+- **zscaler `_unreachable` `reason` — WIRED UP in this PR, do not re-propose.** It had been
+  write-only since #472: four distinct states recorded, zero consumers, so all five
+  inaccessible sections printed a fixed sentence and SAAS-ZIA-002's said "RBA restricted" —
+  correct for exactly one of the four and a confident misdiagnosis for the other three.
+  Measured before/after on the same six unreachable sections, `_unreachable(0)` (DNS failure):
+  `"Users API not accessible (RBA restricted)"` → `"Users API not read: request never reached
+  the API (DNS failure, timeout, TLS error or connection reset)"`. The rendering lives in
+  `_unreachable_detail` (Python, covered by the `scanner/lib` gate) rather than in bash, and
+  is keyed on `reason` rather than recomputed from the status code so the two cannot disagree.
+  The docstring's "the three states" / lists four is fixed in the same change.
+  **Still open from that review:** `_load_saas_sso_stats` rejects the whole file if **any**
+  `saas` entry is a non-dict — confirm deliberate before changing. Check:
+  `grep -n "_load_saas_sso_stats" -A20 scanner/lib/*.py`.
 - **`MEMORY.md` maintenance** — this file went **~185 PRs stale** once (#470), and then the
   freshly-written `#295` entry was **false within five hours** of being written: it asserted
   `PROWLER_VERSION=5.30.1 on alpine:3.20` while #473/#479/#481 moved both the same day. The

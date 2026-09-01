@@ -122,6 +122,60 @@ def test_unreachable_preserves_the_status_code():
     assert mod._unreachable(403)["status_code"] == 403
 
 
+def test_unreachable_detail_renders_each_reason_distinctly():
+    """`reason` was WRITE-ONLY: four states recorded, zero consumers.
+
+    `scanner/checks/saas/zscaler.sh` printed one fixed sentence for all four, and
+    for users it was "RBA restricted" — correct for exactly one of them and a
+    confident misdiagnosis for the other three. `detail` is the readable form the
+    shell check now reads, so the four must stay distinguishable HERE too.
+    """
+    mod = _load()
+    details = {code: mod._unreachable(code)["detail"] for code in (0, 403, 200, 500)}
+    assert len(set(details.values())) == 4, details
+    assert "never reached the API" in details[0]
+    assert "RBA restricted" in details[403]
+    assert "RBA" not in details[0], (
+        "a transport failure must not be blamed on an RBA restriction — that is "
+        "the exact misdiagnosis this field exists to end"
+    )
+    assert "not the expected shape" in details[200]
+    assert details[500] == "HTTP 500"
+
+
+def test_unreachable_detail_carries_the_status_code_for_other_http_errors():
+    mod = _load()
+    for code in (401, 404, 429, 502):
+        assert mod._unreachable(code)["detail"] == f"HTTP {code}"
+
+
+def test_unreachable_detail_names_an_unmapped_reason_rather_than_hiding_it():
+    """Fail LOUD on a reason with no sentence.
+
+    A generic "not accessible" fallback would reproduce the original defect one
+    level down: the state would be recorded and still unreadable. Naming it makes
+    an unmapped reason a visible bug instead of a silent one.
+    """
+    mod = _load()
+    assert mod._unreachable_detail("some_new_reason", 418) == "not read (some_new_reason)"
+
+
+def test_unreachable_detail_is_keyed_on_reason_not_recomputed_from_the_code():
+    """The two fields must never disagree about the same response.
+
+    Deriving `detail` from the status code a second time is the two-copies shape
+    that drifts. `_unreachable_detail` takes the reason `_unreachable` already
+    decided, so a change to the code->reason mapping cannot leave the sentence
+    describing the old state.
+    """
+    mod = _load()
+    # A code that maps to `permission_denied` cannot be made to render as a
+    # transport failure, and vice versa, because the reason is the only input
+    # that selects the sentence.
+    assert mod._unreachable_detail("transport_error", 403) == mod._unreachable(0)["detail"]
+    assert mod._unreachable_detail("permission_denied", 0) == mod._unreachable(403)["detail"]
+
+
 # ---------------------------------------------------------------------------
 # collect_posture() — 200 / 403 / other HTTP / transport failure
 # ---------------------------------------------------------------------------
@@ -373,6 +427,18 @@ class ZscalerApiFailClosedTestCase(unittest.TestCase):
 
     def test_unreachable_status_code(self):
         test_unreachable_preserves_the_status_code()
+
+    def test_unreachable_detail_distinct(self):
+        test_unreachable_detail_renders_each_reason_distinctly()
+
+    def test_unreachable_detail_http_codes(self):
+        test_unreachable_detail_carries_the_status_code_for_other_http_errors()
+
+    def test_unreachable_detail_unmapped(self):
+        test_unreachable_detail_names_an_unmapped_reason_rather_than_hiding_it()
+
+    def test_unreachable_detail_keyed_on_reason(self):
+        test_unreachable_detail_is_keyed_on_reason_not_recomputed_from_the_code()
 
     def test_200_accessible(self):
         test_http_200_with_expected_shape_is_accessible()
