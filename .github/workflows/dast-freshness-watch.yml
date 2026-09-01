@@ -1,0 +1,280 @@
+# DAST Freshness Watch
+#
+# NOTIFICATION-ONLY workflow that answers ONE question `dast-full-scan.yml`
+# cannot answer about itself: **did the nightly run at all?**
+#
+# WHY THIS EXISTS (the gap #497 left open)
+#   Before #497 the nightly scan was gated on the `DAST_TARGET_URL` repo
+#   variable. With it unset the job was SKIPPED, the workflow conclusion was a
+#   clean `skipped`, and 42 consecutive nights of ZERO DAST read as green. The
+#   `coverage-notice` job existed to make that visible; #497 removed the gate
+#   itself (the nightly now scans this repo's own container, so it cannot skip)
+#   and removed `coverage-notice` with it, because a notice about a missing
+#   variable would have reported "not running" on every night the scan ran fine.
+#
+#   That was correct for the condition it watched. But it left the STRONGER
+#   condition unwatched: a nightly that never fires produces no run at all, so
+#   there is no job to be green or red and nothing anywhere to notice. Ways that
+#   happens, none of them hypothetical:
+#     - GitHub disables ALL scheduled workflows in a PUBLIC repo after 60 days
+#       without commit activity (documented Actions behaviour; the docs scope it
+#       to public repositories, and `Twodragon0/claudesec` is public — verified
+#       via `gh repo view --json visibility`). If this repo is ever made private
+#       that particular cause goes away; the other four below do not.
+#     - Someone runs `gh workflow disable`, or disables Actions repo-wide.
+#     - `schedule:` is best-effort under load and can be dropped entirely. This
+#       repo has already measured a ~10h delay (run 33070461602, 2026-08-27
+#       12:08 UTC for an 02:00 cron).
+#     - The workflow file is renamed/deleted, or the default branch changes.
+#     - Runs happen but every one fails, so no successful scan exists.
+#   In every case `dast-full-scan.yml` shows a green history that simply stops,
+#   and a workflow list sorted by recency hides the absence.
+#
+# WHAT IT CHECKS
+#   The age of the newest SUCCESSFUL, SCHEDULE-triggered run of
+#   `dast-full-scan.yml`. Older than `MAX_AGE_HOURS` (48) => open/update a single
+#   self-healing issue; fresh again => close it automatically.
+#
+#   `event=schedule` is deliberate. A `workflow_dispatch` run proves someone
+#   pressed a button, not that the cron is alive, so admitting manual runs would
+#   let a hand-run scan mask a dead schedule — the same "looks covered, is not"
+#   shape as the original `skipped` gate.
+#
+#   48h, not 24h: the cron period is 24h and delivery is best-effort, so a
+#   threshold at or below the period alarms on ordinary jitter (see the ~10h
+#   delay above), and a notifier that cries wolf gets muted, which is silence
+#   again (#396). 48h means one whole missed night before anyone is told.
+#
+# WHY IT IS A SEPARATE WORKFLOW, AND WHY IT ALSO RUNS ON `push`
+#   A staleness check inside `dast-full-scan.yml` is circular: if the schedule is
+#   dead, the check is dead too. So it lives here, on its own cron 12.5h out of
+#   phase with the 02:00 nightly.
+#
+#   That alone would still share the failure mode it is trying to catch — the
+#   60-day public-repo inactivity shutdown and a repo-wide Actions disable take
+#   out EVERY schedule, this one included. The `push` trigger is what breaks the
+#   shared
+#   dependency: every merge to `main` re-checks freshness through a mechanism
+#   that is not cron. It is also exactly the right recovery moment — when a
+#   dormant repo wakes up, the first push is when someone is present to be told
+#   that schedules were switched off while nobody was looking.
+#
+#   HONEST TERMINAL LIMIT: if BOTH the cron and pushes to `main` stop, nothing
+#   fires and nothing reports. There is no non-circular fix inside this repo
+#   (any watcher needs a trigger, and every trigger can stop); catching that
+#   would take an external prober. The regress stops here, deliberately, because
+#   a repo with no commits for 60 days has no CI signal worth trusting anyway.
+#
+# WHY AN ISSUE AND NOT A FAILING JOB
+#   Repo convention for notifier workflows (`lychee-redirect-sweep.yml` #298,
+#   `protection-drift-watch.yml` #396): GitHub Actions has no `neutral`
+#   conclusion for a regular job, and a notifier that fails every day until
+#   someone acts trains the owner to ignore it. A single self-healing issue is
+#   the signal. The ONLY thing that fails this job is a tooling error — an
+#   unreadable Actions API — because "I could not check" must never look like
+#   "I checked and it is fine".
+#
+# This workflow MUST NOT run on `pull_request` / `pull_request_target`: it is a
+# notifier and must never become a required PR status check.
+#
+# Pinned by `scanner/tests/test_ci_dast_freshness_watch.py`.
+# Monitoring coverage gap class: OWASP CICD-SEC-10 (Insufficient Logging and
+# Visibility); NIST SP 800-137 (ISCM) — continuous monitoring requires knowing
+# that the monitoring itself is running.
+
+name: DAST Freshness Watch
+
+on:
+  schedule:
+    # 14:30 UTC daily — 12.5h out of phase with the 02:00 UTC nightly scan, so a
+    # late-but-delivered run has most of a day to land before this looks.
+    - cron: '30 14 * * *'
+  # Not a redundant trigger: see "WHY IT ALSO RUNS ON `push`" above. This is the
+  # only path that survives GitHub disabling scheduled workflows.
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  # `actions: read` is REQUIRED and is the whole feature. `listWorkflowRuns` is an
+  # Actions-API read, and GitHub's rule is explicit: "If you specify the access for
+  # any of these permissions, all of those that are not specified are set to
+  # `none`." So a block naming only `contents`/`issues` sets `actions: none` and
+  # every run — cron, push and dispatch alike — 403s on the very first call and
+  # takes the `core.setFailed` path, reporting "freshness UNKNOWN" forever while
+  # never reaching the issue logic. It shipped that way in the first draft of this
+  # file; nothing in the repo caught it, because no other workflow here reads the
+  # Actions API and `actionlint` checks permission-key SYNTAX, not whether the
+  # granted scopes cover the calls the script makes.
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  freshness-watch:
+    name: Check nightly DAST freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Report the age of the last successful scheduled DAST run
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          # Read through env, never interpolated into the script body.
+          WATCHED_WORKFLOW: dast-full-scan.yml
+          MAX_AGE_HOURS: '48'
+          ISSUE_LABEL: dast
+        with:
+          script: |
+            const workflowId = process.env.WATCHED_WORKFLOW;
+            const maxAgeHours = Number(process.env.MAX_AGE_HOURS);
+            const label = process.env.ISSUE_LABEL;
+
+            // Stable title with NO threshold or date in it. The issue is matched
+            // by EXACT title, so a wording change orphans the open one; and the
+            // `dast` label is shared with the scan's own findings tracker
+            // ('[DAST] Full Scan — open critical/high findings'), which this must
+            // never touch.
+            const TITLE = '[DAST] Nightly full scan has stopped running on schedule';
+
+            const runUrl =
+              `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}` +
+              `/actions/runs/${context.runId}`;
+            const historyUrl =
+              `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}` +
+              `/actions/workflows/${workflowId}`;
+
+            // --- read the newest successful SCHEDULED run --------------------
+            let runs;
+            try {
+              const res = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: workflowId,
+                event: 'schedule',
+                status: 'success',
+                per_page: 1,
+              });
+              runs = res.data.workflow_runs;
+            } catch (err) {
+              // A 404 here means the workflow was renamed or deleted; anything
+              // else is an API/permission problem. Both must be LOUD: an
+              // unreadable check that exits 0 is the failure mode this whole
+              // workflow exists to prevent, one level up.
+              core.setFailed(
+                `Could not read runs of ${workflowId}: ${err.status || ''} ${err.message}. ` +
+                `This is a tooling error, not a verdict — DAST freshness is UNKNOWN.`
+              );
+              return;
+            }
+
+            const last = runs.length ? runs[0] : null;
+            const lastAt = last ? (last.run_started_at || last.created_at) : null;
+            const ageHours = lastAt
+              ? (Date.now() - Date.parse(lastAt)) / 3600000
+              : Number.POSITIVE_INFINITY;
+            const stale = ageHours > maxAgeHours;
+
+            const ageText = lastAt
+              ? `${ageHours.toFixed(1)}h ago (${lastAt})`
+              : 'never — no successful scheduled run exists';
+            core.info(`Last successful scheduled ${workflowId}: ${ageText}`);
+            core.summary.addRaw(
+              `### DAST freshness\n\n` +
+              `- watched: \`${workflowId}\` (\`event=schedule\`, \`status=success\`)\n` +
+              `- last successful scheduled run: ${ageText}\n` +
+              `- threshold: ${maxAgeHours}h\n` +
+              `- verdict: **${stale ? 'STALE' : 'fresh'}**\n`
+            );
+            await core.summary.write();
+
+            // --- find the one issue this workflow owns, by EXACT title -------
+            const existing = await github.paginate(
+              github.rest.issues.listForRepo,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'all',
+                labels: label,
+                per_page: 100,
+              }
+            );
+            const notice = existing.find((i) => i.title === TITLE);
+
+            if (!stale) {
+              if (notice && notice.state === 'open') {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: notice.number,
+                  body:
+                    `Nightly DAST is running again — last successful scheduled run ` +
+                    `${ageText}. Closing automatically (${runUrl}).`,
+                });
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: notice.number,
+                  state: 'closed',
+                  state_reason: 'completed',
+                });
+              }
+              return;
+            }
+
+            const body =
+              `The **DAST Full Scan (Nightly)** workflow has no successful\n` +
+              `\`schedule\`-triggered run in the last **${maxAgeHours}h**.\n\n` +
+              `- Last successful scheduled run: **${ageText}**\n` +
+              `- Run history: ${historyUrl}\n\n` +
+              `Nothing is red, because there is no run to be red. A schedule that\n` +
+              `stops firing produces no job at all, so the workflow's history simply\n` +
+              `ends and the Actions list keeps showing the last green run.\n\n` +
+              `### Check these, in order\n\n` +
+              `1. **Are scheduled workflows disabled?** GitHub switches off every\n` +
+              `   \`schedule:\` in a repository after 60 days with no commit activity.\n` +
+              `   \`gh workflow enable ${workflowId}\` re-arms this one.\n` +
+              `2. **Was the workflow disabled by hand?**\n` +
+              `   \`gh workflow list --all\` shows its state.\n` +
+              `3. **Are runs happening but failing?** Open the history link above —\n` +
+              `   this check counts only \`conclusion: success\`, so an all-red streak\n` +
+              `   reads as staleness too, and the fix is the failure, not the cron.\n` +
+              `4. **Was the file renamed or the cron edited?** If the nightly cadence\n` +
+              `   changed on purpose, update \`MAX_AGE_HOURS\` in\n` +
+              `   \`.github/workflows/dast-freshness-watch.yml\` in the same change.\n\n` +
+              `Manual \`workflow_dispatch\` runs are deliberately NOT counted: pressing\n` +
+              `the button proves someone was present, not that the schedule is alive.\n` +
+              `Run one to get a scan now, but this issue closes only when a\n` +
+              `**scheduled** run succeeds.\n\n` +
+              `_Reported by: ${runUrl}_`;
+
+            if (notice) {
+              if (notice.state === 'closed') {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: notice.number,
+                  state: 'open',
+                });
+              }
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: notice.number,
+                body,
+              });
+              core.warning(
+                `Nightly DAST is stale (${ageText}) — updated issue #${notice.number}.`
+              );
+            } else {
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: TITLE,
+                labels: ['security', label],
+                body,
+              });
+              core.warning(
+                `Nightly DAST is stale (${ageText}) — opened issue #${created.data.number}.`
+              );
+            }

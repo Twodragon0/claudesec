@@ -799,6 +799,7 @@ KNOWN_BUCKET_GAP = {
     "cross-os-checks.yml": "non-required macOS/Windows matrix (weekly + path-gated)",
     "dashboard-control-smoke.yml": "non-required headless-Chrome smoke",
     "dast-baseline.yml": "non-required DAST",
+    "dast-freshness-watch.yml": "nightly-DAST liveness notifier",
     "dast-full-scan.yml": "non-required nightly DAST",
     "dependabot-auto-merge.yml": "automation, not a check",
     "lighthouse.yml": "non-required perf audit",
