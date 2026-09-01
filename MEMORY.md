@@ -415,10 +415,23 @@ running). Check with `gh issue list --state open` before trusting any entry belo
 - **`#68` ZAP baseline** is the intentional single-tracker issue — keep it open.
 - **`#12` Zscaler MCP integration**, **`#18` GitHub Projects board**, **`#20` marketplace
   plugin update** are `enhancement`-labelled product asks, not correctness work.
-- **ruff ruleset widening** — `python-lint` is in `lint-gate.needs`, so widening `select`
-  changes a REQUIRED check; it needs a decision, not a cleanup pass (see Cycle #469). Measure,
-  don't quote a number: `ruff check --isolated --select BLE001,S110 --statistics scanner/
-  scripts/` (61 + 21 on 2026-09-01).
+- **ruff ruleset widening — DECIDED 2026-09-01, do not re-propose as open.** `select` is now
+  `["E9", "F", "B", "PLE"]`. `B905` (`zip()` without `strict=`) is why: a length mismatch
+  truncates SILENTLY, this repo's recurring theme, and its two sites needed OPPOSITE answers
+  (`strict=True` for two same-length literals; `strict=False` for a helper whose truncation is
+  a tested contract). `BLE001`/`S110` stay REJECTED **with the numbers**: 61 + 21, concentrated
+  in paths that exist to degrade rather than crash, so enabling them buys 82 `# noqa` for zero
+  defects. `PLW1508`'s 7 sites are all `int(os.environ.get(k, 0))` — harmless by construction.
+  The per-family measurements live in `ruff.toml` beside the `select`; read them there rather
+  than re-deriving. Re-measure with `ruff check --config ruff.toml --select <F> --statistics .`.
+- **`_TEMPLATE_KEYS` / caller arity is uncoupled** (found while doing the above, NOT fixed).
+  `scanner/lib/dashboard_html_helpers.py` has 73 template keys and its single production caller
+  `dashboard-gen.py` passes exactly 73 positional values, with nothing asserting they stay
+  equal — `zip` truncates, so a 74th key added without updating the caller leaves that
+  placeholder unreplaced in the rendered dashboard, silently. Fixing it is a behaviour change
+  (the helper's partial application is deliberately tested), so it needs its own decision.
+  Check: `python3 -c "import sys;sys.path.insert(0,'scanner/lib');import
+  dashboard_html_helpers as m;print(len(m._TEMPLATE_KEYS))"` vs the call site's arg count.
 - **zscaler `_unreachable` `reason` — WIRED UP in this PR, do not re-propose.** It had been
   write-only since #472: four distinct states recorded, zero consumers, so all five
   inaccessible sections printed a fixed sentence and SAAS-ZIA-002's said "RBA restricted" —
