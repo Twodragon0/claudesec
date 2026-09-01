@@ -513,7 +513,7 @@ def render_framework_overview(slide_no: int) -> Image.Image:
         (220, 635, 900, 905),
         (1020, 635, 1700, 905),
     ]
-    for (title, desc, img, color), box in zip(cards, positions):
+    for (title, desc, img, color), box in zip(cards, positions, strict=True):
         image_title_card(image, draw, box, img, title, desc, color)
     rounded_rect(draw, (120, 920, 1800, 980), fill="#1A1918", radius=22)
     draw.text((156, 942), "공통점", font=BODY_SMALL_FONT, fill="#FFF6EE")

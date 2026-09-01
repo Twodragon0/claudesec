@@ -244,4 +244,16 @@ _TEMPLATE_KEYS = [
 
 
 def _build_replacements(*values):
-    return dict(zip(_TEMPLATE_KEYS, (str(v) for v in values)))
+    # `strict=False` is the DELIBERATE answer to B905 here, not a silencer.
+    # Truncation is this helper's tested contract — `test_fewer_values_truncates_result`
+    # and `test_no_values_returns_empty_dict` pin partial application on purpose — so
+    # `strict=True` would change documented behaviour, not just add a check.
+    #
+    # WHERE THE REAL RISK LIVES, since making it explicit means naming it: the
+    # coupling is between `_TEMPLATE_KEYS` (73 entries) and its single production
+    # caller `dashboard-gen.py`, which passes exactly 73 positional values. Nothing
+    # asserts those two stay equal, so adding a 74th key without updating the caller
+    # leaves the 74th placeholder unreplaced in the rendered dashboard, silently.
+    # That is a separate change from widening the lint ruleset and is reported
+    # rather than folded in here.
+    return dict(zip(_TEMPLATE_KEYS, (str(v) for v in values), strict=False))

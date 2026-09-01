@@ -36,7 +36,7 @@ because one cascades into `output_prowler.sh` + several test files):
 
 The guard asserts the computed dead set EQUALS this baseline, so:
   * a NEW dead top-level function fails the guard (it is not in the baseline);
-  * removing/​wiring-up a baselined function ALSO fails until it is dropped from
+  * removing/wiring-up a baselined function ALSO fails until it is dropped from
     `KNOWN_UNREFERENCED` — keeping the allowlist honest and the backlog visible.
 
 Detection is conservative: a name appearing anywhere in production (even inside a

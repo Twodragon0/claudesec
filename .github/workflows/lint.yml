@@ -296,12 +296,15 @@ jobs:
   # because every deleted statement was already COVERED. A gate that scores dead
   # code as fully exercised cannot be the thing that finds it.
   #
-  # VERDICT NARROWED — WHAT IT HIDES: `ruff.toml` selects only `E9` + `F` and
-  # ignores `F541`. Every other ruff rule (548 findings at the time of writing,
-  # dominated by BLE001 blind-except and S110 try-except-pass) does NOT fail this
-  # job. python-lint is in `lint-gate`'s `needs:`, so that narrowing rides the
-  # REQUIRED `Lint` check — widening `select` is a deliberate decision, not a
-  # cleanup. Rationale and the F541 carve-out are argued in `ruff.toml` itself.
+  # VERDICT NARROWED — WHAT IT HIDES: `ruff.toml` selects `E9`, `F`, `B` and
+  # `PLE`, and ignores `F541`. Every other ruff rule does NOT fail this job —
+  # notably BLE001 blind-except (61) and S110 try-except-pass (21), which were
+  # measured and REJECTED on 2026-09-01 because they sit in paths that exist to
+  # degrade rather than crash, so enabling them buys 82 `# noqa` for zero defects.
+  # python-lint is in `lint-gate`'s `needs:`, so that narrowing rides the REQUIRED
+  # `Lint` check — widening `select` is a deliberate decision, not a cleanup. The
+  # per-family measurements, the F541 carve-out, and the rejection rationale are
+  # argued in `ruff.toml` itself; do not re-derive them here.
   #
   # `--no-cache`: a cache hit is keyed on file content, so it cannot mask a
   # finding, but this job runs in seconds and a cache dir would be the only

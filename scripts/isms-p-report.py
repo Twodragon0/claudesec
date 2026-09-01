@@ -126,7 +126,7 @@ def generate_report():
         "3. 개인정보 처리단계별": {"controls": [], "prefix": "3."},
     }
     for c in isms_p:
-        for dname, dinfo in domains.items():
+        for _dname, dinfo in domains.items():
             if c["control"].startswith(dinfo["prefix"]):
                 dinfo["controls"].append(c)
                 break
