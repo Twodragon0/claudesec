@@ -177,19 +177,15 @@ _TEMPLATE_KEYS = [
     "SCORE",
     "GRADE",
     "GRADE_COLOR",
-    "ACTIVE",
     "SCORE_DASH",
     "N_CRIT",
     "N_HIGH",
     "N_MED",
     "N_LOW",
     "N_WARN",
-    "POLICY_022_TOP",
-    "N_INFO",
     "TOTAL_PASSED",
     "TOTAL_PROWLER_FAIL",
     "TOTAL_PROWLER_PASS",
-    "TOTAL_ALL",
     "TOTAL_ISSUES",
     "ENV_HTML",
     "ENV_CONNECTED",
@@ -250,10 +246,11 @@ def _build_replacements(*values):
     # `strict=True` would change documented behaviour, not just add a check.
     #
     # WHERE THE REAL RISK LIVES, since making it explicit means naming it: the
-    # coupling is between `_TEMPLATE_KEYS` (73 entries) and its single production
-    # caller `dashboard-gen.py`, which passes exactly 73 positional values. Nothing
-    # asserts those two stay equal, so adding a 74th key without updating the caller
-    # leaves the 74th placeholder unreplaced in the rendered dashboard, silently.
-    # That is a separate change from widening the lint ruleset and is reported
-    # rather than folded in here.
+    # coupling is between `_TEMPLATE_KEYS` and its single production caller
+    # `dashboard-gen.py`, which passes one positional value per key. Add a key
+    # without updating the caller and the last placeholder is left unreplaced in
+    # the rendered dashboard, silently. `test_ci_template_keys_arity.py` is what
+    # asserts the two stay equal — from OUTSIDE, since `strict=True` is not
+    # available here — and it also pins that every key reaches a `{{KEY}}` in the
+    # template, because arity alone stays green while a key renders nothing.
     return dict(zip(_TEMPLATE_KEYS, (str(v) for v in values), strict=False))

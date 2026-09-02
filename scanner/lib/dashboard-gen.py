@@ -228,7 +228,6 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     grade = sd.get("grade", "F")
     duration = sd.get("duration", 0)
     findings_list = sd.get("findings", [])
-    active = total - skipped
 
     grade_color = {"A": "#22c55e", "B": "#22c55e", "C": "#eab308", "D": "#eab308"}.get(
         grade, "#ef4444"
@@ -428,7 +427,6 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     comp_html = _build_compliance_html(compliance_map)
 
     total_passed = passed + total_prowler_pass
-    total_all = total_prowler_fail + total_prowler_pass + failed + warnings
     total_issues = total_prowler_fail + failed + warnings
     audit_points_detected = load_audit_points_detected(scan_dir)
     # Scan scope: what data is included in this dashboard (for Overview)
@@ -595,8 +593,6 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
     n_high = overview["n_high"]
     n_med = overview["n_med"]
     n_low = overview["n_low"]
-    n_info = overview["n_info"]
-    policy_022_top = overview["policy_022_top"]
     prov_cards = overview["prov_cards"]
     bar_crit = overview["bar_crit"]
     bar_high = overview["bar_high"]
@@ -732,19 +728,15 @@ def generate_dashboard(scan_data, prowler_dir, history_dir, output_file):
         score,
         grade,
         grade_color,
-        active,
         score * 327 // 100,
         n_crit,
         n_high,
         n_med,
         n_low,
         warnings,
-        policy_022_top,
-        n_info,
         total_passed,
         total_prowler_fail,
         total_prowler_pass,
-        total_all,
         total_issues,
         env_html,
         env_connected,
