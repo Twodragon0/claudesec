@@ -65,9 +65,18 @@ command fails, so nothing signals it.
 Two cheap confirmations, because the failure is silent by construction:
 
 - `git log --oneline -1` right after branching must be the commit you expect.
-- `git diff --stat origin/main` before committing must list only your files, and
-  the file list `gh pr merge` prints must match. A file you never touched
-  appearing there means stop, not ship.
+- `git diff --stat origin/main` before committing must list only your files.
+- After merging, `git show --stat --format="" <squash-sha>` must list only your
+  files. A file you never touched appearing there means stop, not ship.
+
+**Do NOT use the file list `gh pr merge` prints for that last check.** With
+`--delete-branch` it switches to `main` and pulls, so what it prints is the
+LOCAL CATCH-UP diff — every commit you did not have yet, not your squash.
+Measured 2026-09-02 on #516, a one-file docs PR: `gh pr merge` printed 7 files
+(it was catching up on #515), while `git show --stat --format="" 56e58cf` showed
+the actual 1. Reading that output as the squash produces a false alarm on every
+PR merged after someone else's, and a check that cries wolf gets ignored —
+which would cost exactly the detection this section exists to provide.
 
 ### Pre-PR validation (docs changes)
 
