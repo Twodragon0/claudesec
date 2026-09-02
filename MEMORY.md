@@ -471,15 +471,20 @@ running). Check with `gh issue list --state open` before trusting any entry belo
   widening (#508), `_TEMPLATE_KEYS` caller arity (#509), the zscaler `_unreachable` `reason`
   wiring (#506), and `_load_saas_sso_stats`'s reject-the-whole-list behaviour, which is
   CONFIRMED-DELIBERATE and correct (#507).
-- **Four dead template keys — the one genuinely OPEN item from that block.** `ACTIVE`,
-  `POLICY_022_TOP`, `N_INFO`, `TOTAL_ALL` are computed, passed through a 73-argument call, and
-  never substituted. They are baselined rather than deleted because removing a key means
-  removing its positional argument from that call — a behaviour change and an off-by-one
-  waiting to happen — so this is a product decision, not a guard. `CSP_NONCE` is the one
-  baselined orphan PLACEHOLDER and must STAY (nginx `sub_filter` supplies it per request).
-  Re-derive the current set with
-  `python3 -m pytest scanner/tests/test_ci_template_keys_arity.py -q`, which asserts the dead
-  set EQUAL to its baseline in both directions, rather than trusting the four names above.
+- **Four dead template keys — DONE 2026-09-02, do NOT re-propose.** `ACTIVE`,
+  `POLICY_022_TOP`, `N_INFO`, `TOTAL_ALL` were computed, passed through the call and never
+  substituted; removed together with their positional arguments AND the four locals they were
+  the only consumers of, so `KNOWN_DEAD_KEYS` is now empty. **How the off-by-one was ruled
+  out, because arity cannot see a shift** — a shifted call passes the same NUMBER of
+  arguments, just against the wrong keys: pair every key with its argument EXPRESSION by AST
+  across both files, before and after, and assert the survivors byte-identical. That is the
+  check to repeat, not a re-render (timestamps make a render diff noisy and it proves less).
+  `CSP_NONCE` stays as the one baselined orphan PLACEHOLDER (nginx `sub_filter` supplies it
+  per request). Deliberately NOT chased upstream: `overview["n_info"]` and
+  `overview["policy_022_top"]` are still produced by `dashboard_html_overview.py` with no
+  consumer left — a wider change into a dict with its own tests, reported rather than folded
+  in. Re-derive state with `python3 -m pytest scanner/tests/test_ci_template_keys_arity.py -q`
+  rather than trusting this entry.
 - **`MEMORY.md` maintenance** — this file went **~185 PRs stale** once (#470), and then the
   freshly-written `#295` entry was **false within five hours** of being written: it asserted
   `PROWLER_VERSION=5.30.1 on alpine:3.20` while #473/#479/#481 moved both the same day. The
