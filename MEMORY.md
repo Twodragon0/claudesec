@@ -383,9 +383,62 @@ The largest block in this log and the one whose *method* matters more than its d
   sources because `_SOURCE_FILES` was hand-written (#501 → glob over `git ls-files`), and four
   guard checks passed while the control they protect was gone (#503).
 
+### Cycle #505–#511 — the reassuring surface, and an error nobody could see (merged 2026-09-01 → 09-02)
+
+- **Red-while-fixed, the mirror of this file's usual class.** The ZAP tracker's issue body
+  froze on the day the action opened it: `zaproxy/action-full-scan` only ever APPENDS a delta
+  comment, so #498's body showed four MEDIUMs as live for four days after #500 fixed them
+  (#505). It costs what green-while-defeated costs — a tracker that cries wolf gets muted, and
+  a muted DAST tracker is how the nightly went 42 nights unwatched. Read the NEWEST comment,
+  never the body, on any tracker an action maintains.
+- **Write-only state is not state.** zscaler's `_unreachable` `reason` had recorded four
+  distinct causes with zero consumers since #472, so all five inaccessible sections printed
+  one fixed sentence and SAAS-ZIA-002's claimed "RBA restricted" — right for one of the four
+  causes and a confident misdiagnosis for the other three (#506). Rendering lives in
+  `_unreachable_detail` (Python, under the `scanner/lib` gate) and is keyed on `reason` rather
+  than recomputed from the status code, so the two cannot disagree.
+- **An unpinned design choice is not a decision.** `_load_saas_sso_stats` rejecting the whole
+  list over one bad entry is CORRECT — its output is a DENOMINATOR, and skipping an entry
+  shrinks Y silently while the percentage keeps looking confident. It needed work only because
+  nothing distinguished it from the skip design: the all-entries-bad fixture cannot (both
+  return `None`), and a warning skip variant passed all 54 tests. Four mixed-list cases pin it
+  now (#507). Same "corrupt is worse than missing" shape as #471/#489.
+- **`zip` truncates, so 73 keys and 73 positional arguments needed something holding them
+  equal** (#509). The reason arity alone was not enough: a key with no `{{KEY}}` in the
+  template is a DEAD replacement and FOUR already existed, so the common drift is adding
+  key+argument and forgetting the template. Baselined as EQUAL, not merely non-growing, so
+  wiring one up also fails until it is dropped. **Deleting those four dead keys and their
+  caller arguments is still OPEN** — it is a behaviour change in a 73-argument call, not a
+  guard.
+- **ruff widened to `["E9","F","B","PLE"]`** (#508). `B905` (`zip()` without `strict=`) is why,
+  and its two sites needed OPPOSITE answers. `BLE001`/`S110` stay REJECTED **with the numbers**
+  (61 + 21, concentrated in paths that exist to degrade rather than crash — 82 `# noqa` for
+  zero defects); `PLW1508`'s 7 sites are all `int(os.environ.get(k, 0))`. Per-family
+  measurements live in `ruff.toml` beside the `select`; re-measure with
+  `ruff check --config ruff.toml --select <F> --statistics .` rather than re-deriving by hand.
+- **`templates/codeql.yml` drifted behind the repo's own pin for the second time.** Dependabot
+  bumps only what it can see, and a template workflow shipped to other repos is not in
+  `.github/workflows/` — so #511's codeql bump moved one site and left three. Identical to
+  #478→#483. `test_ci_template_pin_policy` caught it both times and is the only thing that
+  will; the manual step is permanent, so **bump all FOUR sites** (`dast-full-scan.yml` +
+  `templates/codeql.yml` ×3) whenever codeql moves. Note the blast radius of a guard that runs
+  in two jobs: the three red checks on #511 (`ci-guards`, `scanner-unit-tests`, `Lint`) were
+  one root cause, and reading them as three problems sends you chasing the action bumps.
+- **An `##[error]` inside a green job is invisible.** The `Publish scanner unittest report`
+  step had been printing two of them on every run — including green pushes to `main` — because
+  `report_paths: 'test-reports/*.xml'` fed the Cobertura `coverage.xml` to a JUnit parser, and
+  because creating a check run needs `checks: write` while `lint.yml` grants `contents: read`.
+  Non-fatal both times (`fail_on_parse_error` and `fail_on_failure` default to `false`), so the
+  `JUnit Test Report` check run the repo believed it published **had never once existed**.
+  Fixed by cross-referencing `report_paths` to the producing `--junitxml=` path and setting
+  `annotate_only: true`; pinned by `test_ci_junit_reporter_live.py`, whose either/or on the
+  permissions arm carries a positive control so the arm cannot be dead text. **The general
+  lesson: a step's declared config and its observed behaviour are different claims.** Nothing
+  in this repo reads job logs, so a reporter can 403 forever behind a green check.
+
 ## Open Backlog
 
-Re-derived from `gh issue list` + verified repo state on **2026-09-01**. **Verify before
+Re-derived from `gh issue list` + verified repo state on **2026-09-02**. **Verify before
 working an item** — this list rotted twice before, and the previous revision (2026-08-26)
 listed FOUR already-closed issues (#295, #297, #381, #399) as open.
 
@@ -400,66 +453,33 @@ running). Check with `gh issue list --state open` before trusting any entry belo
   with **Administration: read**, stored as the `REPO_ADMIN_TOKEN` repo secret; the next clean
   run closes the issue. Check: `gh run list --workflow=protection-drift-watch.yml` runs green
   either way, so the ISSUE state is the signal, not the run conclusion.
-- **`#498` ZAP full-scan tracker — the BODY is stale, the comments are current.** The nightly
-  reuses one issue and **appends a comment**; it never rewrites the body. So #498's body is
-  still the 2026-08-26 snapshot listing style-src `unsafe-inline` + COEP/COOP/CORP as live,
-  while its own 2026-08-28 comment reports all four under **"Resolved Alerts"** (fixed by
-  #500 on 08-27). Everything still open on it is ZAP INFO-tier: suspicious comments,
-  storable/cacheable content, User Agent Fuzzer. The `.../'+safeHref(hubUrl)+'` "URL" is ZAP
-  scraping a JS string literal out of inline `<script>` source — not an endpoint. Check the
-  NEWEST comment, never the body. The body-never-refreshed behaviour is itself worth fixing:
-  a tracker that shows fixed MEDIUMs as live is the red-while-fixed twin of this repo's
-  green-while-defeated class.
+- **`#498` ZAP full-scan tracker — stays open; the body-freeze is FIXED, do NOT re-propose it.**
+  #505 added a step that rewrites the body from the newest run, pinned by
+  `test_ci_dast_tracker_body_refresh.py`. Everything still open on the issue is ZAP INFO-tier:
+  suspicious comments, storable/cacheable content, User Agent Fuzzer. The
+  `.../'+safeHref(hubUrl)+'` "URL" is ZAP scraping a JS string literal out of inline
+  `<script>` source — not an endpoint. **The reading habit survives the fix**: on any tracker
+  an action maintains, check the newest comment rather than the body, because the action's own
+  delta stream is still append-only and only this repo's step refreshes the body.
 - **`#39` ISMS-P 29 FAIL controls prioritised remediation plan** and **`#15` incident-response
   process 65% → 80%** are product/content work, not CI.
 - **`#68` ZAP baseline** is the intentional single-tracker issue — keep it open.
 - **`#12` Zscaler MCP integration**, **`#18` GitHub Projects board**, **`#20` marketplace
   plugin update** are `enhancement`-labelled product asks, not correctness work.
-- **ruff ruleset widening — DECIDED 2026-09-01, do not re-propose as open.** `select` is now
-  `["E9", "F", "B", "PLE"]`. `B905` (`zip()` without `strict=`) is why: a length mismatch
-  truncates SILENTLY, this repo's recurring theme, and its two sites needed OPPOSITE answers
-  (`strict=True` for two same-length literals; `strict=False` for a helper whose truncation is
-  a tested contract). `BLE001`/`S110` stay REJECTED **with the numbers**: 61 + 21, concentrated
-  in paths that exist to degrade rather than crash, so enabling them buys 82 `# noqa` for zero
-  defects. `PLW1508`'s 7 sites are all `int(os.environ.get(k, 0))` — harmless by construction.
-  The per-family measurements live in `ruff.toml` beside the `select`; read them there rather
-  than re-deriving. Re-measure with `ruff check --config ruff.toml --select <F> --statistics .`.
-- **`_TEMPLATE_KEYS` / caller arity — PINNED in this PR, do not re-propose.** 73 keys, one
-  production caller (`dashboard-gen.py`) passing 73 positional values, and nothing asserting
-  they stay equal; `zip` truncates, so a 74th key without a caller update left that placeholder
-  unreplaced in the rendered dashboard silently. `test_ci_template_keys_arity.py` now pins the
-  arity, REFUSES a `*args` splat (unknowable statically ⇒ fail closed), and checks both orphan
-  directions against baselines. **The reason arity alone was not enough:** a key with no
-  `{{KEY}}` in the template is a dead replacement, and FOUR already existed — `ACTIVE`,
-  `POLICY_022_TOP`, `N_INFO`, `TOTAL_ALL` — so the common drift is adding key+argument and
-  forgetting the template. Those four are baselined (asserted EQUAL, so wiring one up also
-  fails until it is dropped) rather than deleted: removing a key means removing its positional
-  argument from a 73-argument call, which is a behaviour change and an off-by-one waiting to
-  happen. `CSP_NONCE` is the one baselined orphan placeholder — nginx `sub_filter` supplies it
-  per request. **Deleting the four dead keys + their caller args is the one thing still OPEN
-  here**, and it is a behaviour decision, not a guard.
-- **zscaler `_unreachable` `reason` — WIRED UP in this PR, do not re-propose.** It had been
-  write-only since #472: four distinct states recorded, zero consumers, so all five
-  inaccessible sections printed a fixed sentence and SAAS-ZIA-002's said "RBA restricted" —
-  correct for exactly one of the four and a confident misdiagnosis for the other three.
-  Measured before/after on the same six unreachable sections, `_unreachable(0)` (DNS failure):
-  `"Users API not accessible (RBA restricted)"` → `"Users API not read: request never reached
-  the API (DNS failure, timeout, TLS error or connection reset)"`. The rendering lives in
-  `_unreachable_detail` (Python, covered by the `scanner/lib` gate) rather than in bash, and
-  is keyed on `reason` rather than recomputed from the status code so the two cannot disagree.
-  The docstring's "the three states" / lists four is fixed in the same change.
-  **The last item from that review is now CLOSED as CONFIRMED-DELIBERATE, do not re-propose:**
-  `_load_saas_sso_stats` rejecting the whole `saas` list over one non-dict entry is correct,
-  because the function's output is a DENOMINATOR ("X of Y SaaS apps use SSO") and dropping an
-  entry shrinks Y silently while the percentage keeps looking as confident. Measured
-  2026-09-01: a skip implementation turns a five-app file with one unreadable entry into
-  `{'sso_count': 3, 'total': 4, 'pct': 75}` — byte-identical to a CLEAN four-app file. Same
-  "corrupt is worse than missing" shape as [[project-ocsf-loader-false-pass]] (#471) and #489.
-  **The reason it needed work at all is that the choice was UNPINNED:** the all-entries-bad
-  fixture cannot distinguish the two designs (with every entry dropped, a skip implementation's
-  survivor list is empty, so it also returns `None`), and a skip variant that warns once passed
-  all 54 tests. Four mixed-list cases now pin it, including one asserting the mixed result is
-  NOT EQUAL to the clean four-app result.
+- **Merged 2026-09-01 → 09-02, do NOT re-propose as open.** The reasoning moved into the
+  `#505–#511` cycle entry above and should be read there, not re-derived: the ruff `select`
+  widening (#508), `_TEMPLATE_KEYS` caller arity (#509), the zscaler `_unreachable` `reason`
+  wiring (#506), and `_load_saas_sso_stats`'s reject-the-whole-list behaviour, which is
+  CONFIRMED-DELIBERATE and correct (#507).
+- **Four dead template keys — the one genuinely OPEN item from that block.** `ACTIVE`,
+  `POLICY_022_TOP`, `N_INFO`, `TOTAL_ALL` are computed, passed through a 73-argument call, and
+  never substituted. They are baselined rather than deleted because removing a key means
+  removing its positional argument from that call — a behaviour change and an off-by-one
+  waiting to happen — so this is a product decision, not a guard. `CSP_NONCE` is the one
+  baselined orphan PLACEHOLDER and must STAY (nginx `sub_filter` supplies it per request).
+  Re-derive the current set with
+  `python3 -m pytest scanner/tests/test_ci_template_keys_arity.py -q`, which asserts the dead
+  set EQUAL to its baseline in both directions, rather than trusting the four names above.
 - **`MEMORY.md` maintenance** — this file went **~185 PRs stale** once (#470), and then the
   freshly-written `#295` entry was **false within five hours** of being written: it asserted
   `PROWLER_VERSION=5.30.1 on alpine:3.20` while #473/#479/#481 moved both the same day. The
