@@ -52,7 +52,7 @@ class TestHelpersPureFunctions(unittest.TestCase):
 
     def test_compute_severity_counts_empty(self):
         counts = dashboard_html_helpers._compute_severity_counts({}, [])
-        for key in ("n_crit", "n_high", "n_med", "n_low", "n_info", "policy_022_top"):
+        for key in ("n_crit", "n_high", "n_med", "n_low"):
             self.assertIn(key, counts)
             self.assertEqual(counts[key], 0)
 

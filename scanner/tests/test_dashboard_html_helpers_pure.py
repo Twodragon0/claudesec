@@ -251,13 +251,15 @@ class TestComputeSeverityCounts(unittest.TestCase):
             "aws": {"critical": 1, "high": 2, "medium": 3, "low": 4, "informational": 5},
             "gcp": {"critical": 0, "high": 1, "medium": 0, "low": 0, "informational": 2},
         }
+        # `informational` stays in the fixture on purpose: it is a real key in
+        # prowler's provider summary, and this asserts the sum IGNORES it rather
+        # than folding it into another severity.
         result = helpers._compute_severity_counts(prov_summary, [])
         self.assertEqual(result["n_crit"], 1)
         self.assertEqual(result["n_high"], 3)
         self.assertEqual(result["n_med"], 3)
         self.assertEqual(result["n_low"], 4)
-        self.assertEqual(result["n_info"], 7)
-        self.assertEqual(result["policy_022_top"], 0)
+        self.assertNotIn("n_info", result)
 
     def test_findings_severity_merged_into_counts(self):
         findings = [
@@ -276,21 +278,18 @@ class TestComputeSeverityCounts(unittest.TestCase):
         self.assertEqual(result["n_med"], 1)
         self.assertEqual(result["n_low"], 1)
 
-    def test_policy_022_counted_case_insensitive(self):
-        findings = [
-            {"severity": "high", "id": "saas-api-022"},
-            {"severity": "high", "id": "SAAS-API-022-X"},
-            {"severity": "high", "id": "OTHER"},
-        ]
-        result = helpers._compute_severity_counts({}, findings)
-        self.assertEqual(result["policy_022_top"], 2)
+    def test_returns_only_the_four_bar_severities(self):
+        """The returned keys ARE the contract — pin them, not just their values.
 
-    def test_missing_informational_key_defaults_to_zero(self):
-        prov_summary = {
-            "aws": {"critical": 0, "high": 0, "medium": 0, "low": 0},
-        }
-        result = helpers._compute_severity_counts(prov_summary, [])
-        self.assertEqual(result["n_info"], 0)
+        `n_info` and `policy_022_top` used to be here and were never consumed:
+        no `{{N_INFO}}` / `{{POLICY_022_TOP}}` ever existed in the template. An
+        equality assertion is what stops a value being recomputed and quietly
+        going unrendered again; `assertIn` on four keys would not.
+        """
+        result = helpers._compute_severity_counts({}, [])
+        self.assertEqual(
+            sorted(result), ["n_crit", "n_high", "n_low", "n_med"]
+        )
 
     def test_empty_inputs_return_zero_counts(self):
         result = helpers._compute_severity_counts({}, [])
@@ -298,8 +297,6 @@ class TestComputeSeverityCounts(unittest.TestCase):
         self.assertEqual(result["n_high"], 0)
         self.assertEqual(result["n_med"], 0)
         self.assertEqual(result["n_low"], 0)
-        self.assertEqual(result["n_info"], 0)
-        self.assertEqual(result["policy_022_top"], 0)
 
 
 # ===========================================================================

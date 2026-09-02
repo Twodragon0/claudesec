@@ -434,8 +434,6 @@ def build_overview_blocks(
     n_high = sev["n_high"]
     n_med = sev["n_med"]
     n_low = sev["n_low"]
-    n_info = sev["n_info"]
-    policy_022_top = sev["policy_022_top"]
 
     prov_cards = _build_provider_cards(prov_summary)
 
@@ -503,8 +501,6 @@ def build_overview_blocks(
         "n_high": n_high,
         "n_med": n_med,
         "n_low": n_low,
-        "n_info": n_info,
-        "policy_022_top": policy_022_top,
         "prov_cards": prov_cards,
         "bar_crit": bars["bar_crit"],
         "bar_high": bars["bar_high"],
