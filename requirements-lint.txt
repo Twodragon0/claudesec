@@ -19,4 +19,4 @@
 # WHY EXACT PINS: see the header of requirements-ci.txt. A `>=` floor also makes
 # a linter non-deterministic across runs — a new rule shipped mid-week would fail
 # an untouched PR with no diff to point at.
-ruff==0.16.4
+ruff==0.16.5
