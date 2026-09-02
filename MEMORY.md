@@ -424,14 +424,20 @@ running). Check with `gh issue list --state open` before trusting any entry belo
   defects. `PLW1508`'s 7 sites are all `int(os.environ.get(k, 0))` — harmless by construction.
   The per-family measurements live in `ruff.toml` beside the `select`; read them there rather
   than re-deriving. Re-measure with `ruff check --config ruff.toml --select <F> --statistics .`.
-- **`_TEMPLATE_KEYS` / caller arity is uncoupled** (found while doing the above, NOT fixed).
-  `scanner/lib/dashboard_html_helpers.py` has 73 template keys and its single production caller
-  `dashboard-gen.py` passes exactly 73 positional values, with nothing asserting they stay
-  equal — `zip` truncates, so a 74th key added without updating the caller leaves that
-  placeholder unreplaced in the rendered dashboard, silently. Fixing it is a behaviour change
-  (the helper's partial application is deliberately tested), so it needs its own decision.
-  Check: `python3 -c "import sys;sys.path.insert(0,'scanner/lib');import
-  dashboard_html_helpers as m;print(len(m._TEMPLATE_KEYS))"` vs the call site's arg count.
+- **`_TEMPLATE_KEYS` / caller arity — PINNED in this PR, do not re-propose.** 73 keys, one
+  production caller (`dashboard-gen.py`) passing 73 positional values, and nothing asserting
+  they stay equal; `zip` truncates, so a 74th key without a caller update left that placeholder
+  unreplaced in the rendered dashboard silently. `test_ci_template_keys_arity.py` now pins the
+  arity, REFUSES a `*args` splat (unknowable statically ⇒ fail closed), and checks both orphan
+  directions against baselines. **The reason arity alone was not enough:** a key with no
+  `{{KEY}}` in the template is a dead replacement, and FOUR already existed — `ACTIVE`,
+  `POLICY_022_TOP`, `N_INFO`, `TOTAL_ALL` — so the common drift is adding key+argument and
+  forgetting the template. Those four are baselined (asserted EQUAL, so wiring one up also
+  fails until it is dropped) rather than deleted: removing a key means removing its positional
+  argument from a 73-argument call, which is a behaviour change and an off-by-one waiting to
+  happen. `CSP_NONCE` is the one baselined orphan placeholder — nginx `sub_filter` supplies it
+  per request. **Deleting the four dead keys + their caller args is the one thing still OPEN
+  here**, and it is a behaviour decision, not a guard.
 - **zscaler `_unreachable` `reason` — WIRED UP in this PR, do not re-propose.** It had been
   write-only since #472: four distinct states recorded, zero consumers, so all five
   inaccessible sections printed a fixed sentence and SAAS-ZIA-002's said "RBA restricted" —
