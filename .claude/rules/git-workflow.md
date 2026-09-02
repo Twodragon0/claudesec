@@ -42,6 +42,33 @@ When creating PRs:
 - Use `--delete-branch` on merge to keep the remote clean. If the PR has open
   PRs stacked on it, retarget those FIRST — see [Stacked PRs](#stacked-prs-base--another-feature-branch).
 
+### Always name the branch point
+
+```bash
+git fetch origin main -q && git switch -c <branch> origin/main
+```
+
+**Never bare `git switch -c <branch>`**, and never treat a `git status` taken
+earlier in the session as evidence of where `HEAD` is now. This checkout is
+shared — concurrent agent sessions and the hourly automation both run `git
+checkout` in it.
+
+Measured 2026-09-02: a session read `## main...origin/main` clean at startup,
+and 35 seconds before it branched, another session created a branch and
+committed to it. `git pull --ff-only origin main` then ran while `HEAD` was on
+that branch — which merges `origin/main` INTO it and reports `Already up to
+date`, without moving to `main` — and bare `git switch -c` forked from its tip.
+The other session's commit rode into PR #513 and was squash-merged to `main`
+unreviewed, leaving its own PR #512 open with an empty effective diff. Neither
+command fails, so nothing signals it.
+
+Two cheap confirmations, because the failure is silent by construction:
+
+- `git log --oneline -1` right after branching must be the commit you expect.
+- `git diff --stat origin/main` before committing must list only your files, and
+  the file list `gh pr merge` prints must match. A file you never touched
+  appearing there means stop, not ship.
+
 ### Pre-PR validation (docs changes)
 
 Run locally before opening a docs PR:
