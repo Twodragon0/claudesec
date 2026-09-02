@@ -67,12 +67,30 @@ jobs:
     name: Datadog CI Collect (optional)
     runs-on: ubuntu-latest
     needs: token_expiry_gate
-    if: ${{ secrets.DD_API_KEY != '' && secrets.DD_APP_KEY != '' }}
+    # THE GATE IS ON THE STEPS, NOT THE JOB, AND IT HAS TO BE.
+    # A job-level `if:` admits only `github`, `inputs`, `needs` and `vars` — NOT
+    # `secrets`, and NOT `env` either, so there is no job-level spelling of
+    # "only when this secret is set". This job carried
+    # `if: ${{ secrets.DD_API_KEY != '' && … }}`, which GitHub rejects with
+    # `Unrecognized named-value: 'secrets'` — and that rejection kills the WHOLE
+    # workflow file, so codeql, semgrep, trivy, gitleaks and both osv_scanner
+    # jobs never ran either. Confirmed with actionlint 1.7.12:
+    #   context "secrets" is not allowed here.
+    #   available contexts are "github", "inputs", "needs", "vars".
+    # Mapping the keys into job `env:` and testing `env.*` in each step `if:` is
+    # the spelling that works: `env` IS allowed in a step `if:`. The trade-off is
+    # deliberate — without the DD secrets this job now runs and no-ops (checkout
+    # only) instead of being skipped. `security_summary` is `if: always()`, so
+    # its verdict is unaffected either way.
+    env:
+      DD_API_KEY: ${{ secrets.DD_API_KEY }}
+      DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Collect Datadog CI logs/signals/cases for dashboard
+        if: ${{ env.DD_API_KEY != '' && env.DD_APP_KEY != '' }}
         uses: ./.github/actions/datadog-ci-collect
         with:
           dd-api-key: ${{ secrets.DD_API_KEY }}
@@ -84,6 +102,7 @@ jobs:
           dd-tags: service:security-scan-suite,env:ci,ci_pipeline_id:${{ github.run_id }}
 
       - name: Upload Datadog sanitized artifacts
+        if: ${{ env.DD_API_KEY != '' && env.DD_APP_KEY != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: security-scan-suite-datadog
