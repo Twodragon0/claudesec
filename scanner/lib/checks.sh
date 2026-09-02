@@ -17,11 +17,15 @@ run_with_timeout() {
   elif has_command gtimeout; then
     gtimeout "$timeout_sec" "$@" 2>/dev/null
   elif has_command python3; then
+    # stdout must pass through to the caller: many call sites capture it via
+    # `$(...)` or pipe it to grep. Discarding it here silently broke every such
+    # check on hosts without GNU timeout/gtimeout (e.g. stock macOS).
+    # stderr stays suppressed to match the timeout/gtimeout branches above.
     python3 -c 'import subprocess, sys
 timeout=float(sys.argv[1])
 cmd=sys.argv[2:]
 try:
-  p=subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
+  p=subprocess.run(cmd, stderr=subprocess.DEVNULL, timeout=timeout)
   raise SystemExit(p.returncode)
 except subprocess.TimeoutExpired:
   raise SystemExit(124)
