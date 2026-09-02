@@ -1025,16 +1025,35 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Check for PII and personal information
         run: |
-          find . -type f \( -name '*.py' -o -name '*.sh' -o -name '*.md' -o -name '*.yml' -o -name '*.yaml' -o -name '*.json' -o -name '*.html' -o -name '*.svg' \) \
-            ! -path './node_modules/*' ! -path './.git/*' ! -path './package-lock.json' \
-            ! -path './.claudesec-assets/*' ! -path './.claudesec-saas-best-practices/*' \
-            # -r (--no-run-if-empty): without it GNU xargs runs the command ONCE
-            # with no arguments when find matches nothing, and the hook's
-            # no-argument form is a DIFFERENT mode — it scans the git index
-            # instead of the paths it was meant to check, then exits 0. A mode
-            # switch that reads as a pass. BSD xargs already declines to run on
-            # empty input; this job is ubuntu-only, so -r is the portable-here fix.
-            -print0 | xargs -0 -r bash hooks/pii-check.sh
+          # THE `find` IS ONE PHYSICAL LINE ON PURPOSE. DO NOT re-wrap it with
+          # `\` continuations. It was `\`-continued until 2026-09-02, and a `#`
+          # comment placed between two of those lines scanned NOTHING for a week
+          # on a job `lint-gate` requires: bash removes `\`+newline BEFORE
+          # tokenizing, so the `#` opened a comment on the JOINED line and ended
+          # `find` right there. Measured on run 33596066956, a GREEN push to
+          # `main`: `line 10: -print0: command not found`, raw `find` output in
+          # the log, `hooks/pii-check.sh` never invoked. Introduced by #496 —
+          # the PR that was fixing this very command — and its explanatory
+          # comment is what broke it. A long line cannot be split by a comment.
+          #
+          # `set -euo pipefail` is a SECOND layer and covers less than it looks.
+          # It makes the shape above loud (orphaned `-print0` -> 127 in the left
+          # half of the pipe, which without pipefail became the right half's 0).
+          # It does NOT catch every re-wrap: if the orphan begins with `!`, bash
+          # reads it as pipeline NEGATION and `! -path …` exits 0 even under
+          # pipefail — measured 2026-09-02. Only
+          # `scanner/tests/test_ci_pii_check_executes.py` covers both, by
+          # EXECUTING this block and asserting the hook's own verdict line
+          # appears. A config-shape assertion cannot see any of it: the string
+          # `hooks/pii-check.sh` was present and correct the whole time.
+          set -euo pipefail
+          # -r (--no-run-if-empty): without it GNU xargs runs the command ONCE
+          # with no arguments when find matches nothing, and the hook's
+          # no-argument form is a DIFFERENT mode — it scans the git index
+          # instead of the paths it was meant to check, then exits 0. A mode
+          # switch that reads as a pass. BSD xargs already declines to run on
+          # empty input; this job is ubuntu-only, so -r is the portable-here fix.
+          find . -type f \( -name '*.py' -o -name '*.sh' -o -name '*.md' -o -name '*.yml' -o -name '*.yaml' -o -name '*.json' -o -name '*.html' -o -name '*.svg' \) ! -path './node_modules/*' ! -path './.git/*' ! -path './package-lock.json' ! -path './.claudesec-assets/*' ! -path './.claudesec-saas-best-practices/*' -print0 | xargs -0 -r bash hooks/pii-check.sh
 
   workflow-fork-guard:
     # Regression-prevention: every job in a pull_request_target workflow must
