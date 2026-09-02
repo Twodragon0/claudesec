@@ -126,14 +126,9 @@ def _compute_severity_counts(prov_summary, findings_list):
     n_high = sum(v["high"] for v in prov_summary.values())
     n_med = sum(v["medium"] for v in prov_summary.values())
     n_low = sum(v["low"] for v in prov_summary.values())
-    n_info = sum(v.get("informational", 0) for v in prov_summary.values())
     # Merge scanner findings into severity counts for unified bar
-    policy_022_top = 0
     for f in findings_list:
         sev = (f.get("severity") or "").lower()
-        fid = str(f.get("id") or "").upper()
-        if "SAAS-API-022" in fid:
-            policy_022_top += 1
         if sev == "critical":
             n_crit += 1
         elif sev == "high":
@@ -147,8 +142,6 @@ def _compute_severity_counts(prov_summary, findings_list):
         "n_high": n_high,
         "n_med": n_med,
         "n_low": n_low,
-        "n_info": n_info,
-        "policy_022_top": policy_022_top,
     }
 
 

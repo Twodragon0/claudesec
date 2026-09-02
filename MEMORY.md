@@ -480,11 +480,17 @@ running). Check with `gh issue list --state open` before trusting any entry belo
   across both files, before and after, and assert the survivors byte-identical. That is the
   check to repeat, not a re-render (timestamps make a render diff noisy and it proves less).
   `CSP_NONCE` stays as the one baselined orphan PLACEHOLDER (nginx `sub_filter` supplies it
-  per request). Deliberately NOT chased upstream: `overview["n_info"]` and
-  `overview["policy_022_top"]` are still produced by `dashboard_html_overview.py` with no
-  consumer left — a wider change into a dict with its own tests, reported rather than folded
-  in. Re-derive state with `python3 -m pytest scanner/tests/test_ci_template_keys_arity.py -q`
-  rather than trusting this entry.
+  per request). The upstream half followed in a second pass: `n_info` and `policy_022_top`
+  were computed in `_compute_severity_counts`, re-exported through `build_overview_blocks`,
+  and consumed by nothing. **`git log -S"POLICY_022_TOP" -- scanner/lib/dashboard-template.html`
+  returns EMPTY — neither placeholder ever existed**, so these were born dead and survived
+  three refactors. Removed with their tests; `_compute_severity_counts` now returns exactly
+  the four bar severities and a test asserts the KEY SET by equality, because `assertIn` on
+  four keys would not notice a fifth being recomputed and going unrendered again.
+  `SAAS-API-022` itself is a LIVE Okta scope check — only its counter was dead, so re-adding
+  the metric is three lines if anyone ever wants it on screen. Re-derive state with
+  `python3 -m pytest scanner/tests/test_ci_template_keys_arity.py -q` rather than trusting
+  this entry.
 - **`MEMORY.md` maintenance** — this file went **~185 PRs stale** once (#470), and then the
   freshly-written `#295` entry was **false within five hours** of being written: it asserted
   `PROWLER_VERSION=5.30.1 on alpine:3.20` while #473/#479/#481 moved both the same day. The

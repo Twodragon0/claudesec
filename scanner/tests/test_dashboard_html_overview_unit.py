@@ -361,8 +361,7 @@ def test_overview_blocks_returns_expected_keys():
     """build_overview_blocks returns the documented dict contract."""
     result = build_overview_blocks(**_overview_kwargs())
     expected = {
-        "n_crit", "n_high", "n_med", "n_low", "n_info",
-        "policy_022_top", "prov_cards",
+        "n_crit", "n_high", "n_med", "n_low", "prov_cards",
         "bar_crit", "bar_high", "bar_med", "bar_warn", "bar_low",
         "top_findings_html", "env_connected", "env_total",
         "service_surface_html", "priority_queue_html",
