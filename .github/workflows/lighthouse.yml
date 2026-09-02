@@ -53,4 +53,19 @@ jobs:
           name: lighthouse-report-${{ github.run_id }}
           path: .lighthouseci/
           retention-days: 14
-          if-no-files-found: ignore
+          # BOTH LINES BELOW ARE THE FIX FOR AN UPLOAD THAT NEVER UPLOADED.
+          # `.lighthouseci/` is a HIDDEN directory and `upload-artifact` excludes
+          # hidden files by default, so every run logged
+          # `No files were found with the provided path: .lighthouseci/` and
+          # `if-no-files-found: ignore` turned that into green. Measured
+          # 2026-09-02: 0 artifacts on runs 33596066911, 33582849697 and
+          # 33500957863, while the step immediately above them logged
+          # `Dumping 3 reports to disk at …/.lighthouseci`. `retention-days: 14`
+          # was retaining nothing.
+          #
+          # `error` rather than `ignore` because this step's whole purpose is
+          # producing the artifact: "nothing to upload" is the failure, not an
+          # acceptable outcome. The Lighthouse ASSERTION gate is a different step
+          # and was never affected — only post-hoc diagnosis of a regression was.
+          include-hidden-files: true
+          if-no-files-found: error

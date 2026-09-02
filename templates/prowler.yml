@@ -23,6 +23,13 @@ jobs:
   prowler-aws:
     name: AWS Security Scan
     runs-on: ubuntu-latest
+    # `secrets` is NOT an allowed context in ANY `if:` — not at step level and
+    # not at job level. Mapping the two keys into job `env:` here is what makes
+    # the optional-Datadog step gate-able below, because `env` IS allowed in a
+    # STEP `if:`. Empty when the secret is unset, which is exactly the test.
+    env:
+      DD_API_KEY: ${{ secrets.DD_API_KEY }}
+      DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
     steps:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -93,7 +100,8 @@ jobs:
           slack-bot-token-expires-at: ${{ vars.SLACK_BOT_TOKEN_EXPIRES_AT || '' }}
 
       - name: Collect Datadog CI logs/signals/cases for dashboard (optional)
-        if: ${{ secrets.DD_API_KEY != '' && secrets.DD_APP_KEY != '' }}
+        # `env`, not `secrets` — see the job-level `env:` block above.
+        if: ${{ env.DD_API_KEY != '' && env.DD_APP_KEY != '' }}
         uses: ./.github/actions/datadog-ci-collect
         with:
           dd-api-key: ${{ secrets.DD_API_KEY }}
