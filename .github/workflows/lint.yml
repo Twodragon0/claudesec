@@ -638,40 +638,6 @@ jobs:
           path: test-reports/*.xml
           retention-days: 14
           if-no-files-found: ignore
-      - name: Upload coverage to Codecov
-        if: always()
-        # VERDICT SUPPRESSED — WHAT IT HIDES: `continue-on-error` +
-        # `fail_ci_if_error: false` mean an upload failure (Codecov outage, missing
-        # or expired CODECOV_TOKEN, rate-limit) is invisible. What is lost is only
-        # REPORTING: the badge and the Codecov diff go stale silently. No gate is
-        # lost — the 99% floor is enforced locally by `--cov-fail-under=99` above,
-        # not by Codecov. Deliberate: a third-party outage must not block merges.
-        #
-        # THIS IS NOT HYPOTHETICAL — IT IS THE CURRENT STATE. Measured 2026-09-02,
-        # every retained run rejects the upload:
-        #   error -- Upload queued for processing failed:
-        #            {"message":"Token required - not valid tokenless upload"}
-        # Seen on runs 33596066956, 33578709890, 32085492644 (08-18) and
-        # 31363093761 (08-10, the OLDEST retained run — so >= 23 days, start
-        # unknown). Confirmed outside the logs: the badge URL in README.md renders
-        # `>unknown<`, i.e. Codecov holds no data for this repo at all.
-        # `CODECOV_TOKEN` is passed below but is empty or invalid, so the CLI falls
-        # through to a tokenless upload and is refused.
-        # The paragraph above still holds — no GATE is lost — but "goes stale
-        # silently" understates it: there is nothing to go stale.
-        # NEEDS A DECISION, not a code tweak: set a valid `CODECOV_TOKEN` secret,
-        # or delete this step AND the README badge. A third option, if the signal
-        # is wanted without the third-party coupling, is `fail_ci_if_error: true`
-        # limited to `push` on `main` so a token expiry is loud without blocking
-        # PRs on an outage.
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
-        continue-on-error: true
-        with:
-          files: test-reports/coverage.xml
-          flags: scanner-lib
-          fail_ci_if_error: false
-          verbose: true
-          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Fail workflow on scanner unittest / coverage failure
         if: always() && steps.scanner_tests.outputs.test_exit_code != '0'
         run: |

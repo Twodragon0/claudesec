@@ -154,18 +154,20 @@ REDIRECT_KEYS_NOTE = (
 ALLOWED_STEP_REDIRECT: frozenset = frozenset()
 
 # Reviewed exceptions, `(workflow file, job key, step name)`. Each one is a step
-# whose failure genuinely must not fail the build.
+# whose failure genuinely must not fail the build. Empty: no step in the required
+# graph carries `continue-on-error` today.
 #
-# Codecov upload: a third-party artifact upload, not an enforcement step. The
-# coverage FLOOR is enforced separately and blockingly by the
+# It held one entry until 2026-09-03 — the Codecov upload, excused as "a
+# third-party artifact upload, not an enforcement step". That reasoning was
+# sound and the step is now GONE, not re-excused: measured 2026-09-02, the repo
+# has zero Actions secrets (`total_count: 0`), so `CODECOV_TOKEN` was never set,
+# every upload since at least 2026-08-10 was refused with
+# `Token required - not valid tokenless upload`, and the README badge rendered
+# `unknown`. Nothing was lost by deleting it — the coverage FLOOR is enforced
+# blockingly by `--cov-fail-under=99` and the
 # `Fail workflow on scanner unittest / coverage failure` step in the same job
-# (and pinned by test_ci_coverage_thresholds.py), so a flaky upload cannot hide a
-# coverage regression.
-ALLOWED_STEP_EXCEPTIONS = frozenset(
-    {
-        ("lint.yml", "scanner-unit-tests", "Upload coverage to Codecov"),
-    }
-)
+# (pinned by test_ci_coverage_thresholds.py).
+ALLOWED_STEP_EXCEPTIONS: frozenset = frozenset()
 
 # `if:` on a step in the required graph.
 #
