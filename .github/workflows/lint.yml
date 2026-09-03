@@ -675,15 +675,28 @@ jobs:
       CLAUDESEC_DASHBOARD_OFFLINE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # CACHES A RUNNER-OWNED STAGING PREFIX, NOT /usr/local — THAT IS THE FIX.
+      # The previous `path:` listed /usr/local/{bin,share/doc,share}/kcov. Saving
+      # only needs read, so an entry was created; RESTORING needs write, and the
+      # unprivileged runner cannot mkdir under /usr/local/share. Every run since
+      # logged, inside a GREEN job:
+      #   Cache hit for: kcov-v42-Linux-X64-noble-v1
+      #   /usr/bin/tar: ../../../../../usr/local/share/doc/kcov: Cannot mkdir: Permission denied
+      #   ##[warning]Failed to restore: "/usr/bin/tar" failed with error: ... exit code 2
+      #   Cache not found for input keys: kcov-v42-Linux-X64-noble-v1
+      #   Failed to save: Unable to reserve cache with key ..., another job may be creating this cache.
+      # so the entry could never be replaced either — permanently poisoned. Only
+      # build minutes were lost (the `cache-hit != 'true'` gate below correctly
+      # fell through and coverage was genuinely produced), but the comment above
+      # claiming the compile "only runs on cache miss" was false: it ran every time.
+      # Observed live again on 2026-09-02 in run 33609540144.
+      # `-v2` discards the poisoned `-v1` entry; reusing the key would inherit it.
       - name: Cache kcov v42 binary
         id: kcov-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: |
-            /usr/local/bin/kcov
-            /usr/local/share/doc/kcov
-            /usr/local/share/kcov
-          key: kcov-v42-${{ runner.os }}-${{ runner.arch }}-noble-v1
+          path: ${{ runner.temp }}/kcov-prefix
+          key: kcov-v42-${{ runner.os }}-${{ runner.arch }}-noble-v2
       - name: Install kcov runtime dependencies
         run: |
           sudo apt-get update
@@ -700,9 +713,15 @@ jobs:
           curl -fsSL https://github.com/SimonKagstrom/kcov/archive/refs/tags/v42.tar.gz | tar xz
           cd kcov-42
           mkdir build && cd build
-          cmake -DCMAKE_INSTALL_PREFIX=/usr/local ..
+          cmake -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/kcov-prefix" ..
           make -j"$(nproc)"
-          sudo make install
+          make install
+      # Runs on hit AND miss: the cache holds the staging prefix, so the copy
+      # into /usr/local is what actually installs kcov either way. `sudo` is
+      # needed here and only here — which is precisely why the cache must not
+      # point at the destination.
+      - name: Install kcov into /usr/local
+        run: sudo cp -a "$RUNNER_TEMP/kcov-prefix/." /usr/local/
       - name: Verify kcov binary
         run: kcov --version
       - name: Run scanner shell tests under kcov

@@ -807,6 +807,7 @@ KNOWN_BUCKET_GAP = {
     "npm-publish.yml": "release-time only, runs on tag/version bump",
     "og-meta-verify.yml": "non-required metadata check",
     "protection-drift-watch.yml": "scheduled drift notifier",
+    "prowler-python-watch.yml": "scheduled alpine-unblock notifier",
     "provenance-verify.yml": "non-required daily provenance check",
 }
 
