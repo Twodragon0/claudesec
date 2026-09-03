@@ -131,8 +131,11 @@ Success criteria:
   v0.24.x nests the binary in a `lychee-<triple>/` subdir the pinned
   lychee-action installer can't find (`install: cannot stat`). #204 bumped it
   and broke CI; reverted in #209/#210.
-- **codecov badge SVG** stays on apex `codecov.io` (not `app.codecov.io`) — the
-  apex is the canonical badge host; don't "fix" its redirect.
+- ~~**codecov badge SVG** stays on apex `codecov.io`~~ — **moot since 2026-09-03**:
+  the badge was removed from `README.md` along with the upload step, so no
+  codecov URL is left for lychee to follow. Kept as a struck-through note rather
+  than deleted, because the underlying rule still applies to any badge host — an
+  apex that redirects to an `app.` subdomain is canonical, not rot.
 - **A green PR `link-check` is not proof of link health** — see the top section.
 
 ## Related
