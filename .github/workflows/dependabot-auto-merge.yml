@@ -41,15 +41,36 @@ jobs:
 
       # Gather the list of files changed in this PR for path-based exclusion.
       # PR_URL is passed via env var (never interpolated directly into shell).
-      # Fail-closed: if `gh` errors we emit an empty string and the eligibility
-      # check below will not arm auto-merge.
+      #
+      # THE PREVIOUS COMMENT HERE CLAIMED THIS WAS FAIL-CLOSED. IT WAS NOT.
+      # It said "if `gh` errors we emit an empty string and the eligibility check
+      # below will not arm auto-merge". Measured 2026-09-03 by EXECUTING the
+      # eligibility body with a stubbed `gh`: an empty string makes the path loop
+      # read one empty line, `continue`, and finish with `path_excluded=false`, so
+      # NOTHING is excluded —
+      #   CHANGED_PATHS=""  UPDATE_TYPE=version-update:semver-patch  ECOSYSTEM=docker
+      #   -> "PR is eligible" -> gh pr merge --auto --squash   (ARMED)
+      # and a `docker`-ecosystem Dependabot PR touches `Dockerfile` BY DEFINITION,
+      # which is the first hard-exclude in the list. The exact case the exclude
+      # exists for was the case that failed open, and `2>/dev/null` hid the reason.
+      #
+      # `paths_known` is what makes the claim true: the eligibility step refuses to
+      # arm unless the list was actually retrieved. stderr is no longer discarded,
+      # so a failure says why.
       - name: Get changed file paths
         id: changed-paths
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          changed=$(gh pr diff "$PR_URL" --name-only 2>/dev/null || true)
+          if changed=$(gh pr diff "$PR_URL" --name-only); then
+            paths_known=true
+          else
+            echo "::warning::Could not determine the changed paths for this PR — auto-merge will NOT be armed."
+            changed=""
+            paths_known=false
+          fi
+          echo "paths_known=${paths_known}" >> "$GITHUB_OUTPUT"
           {
             echo "changed<<EOF"
             echo "$changed"
@@ -105,13 +126,26 @@ jobs:
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
           ECOSYSTEM: ${{ steps.metadata.outputs.package-ecosystem }}
           CHANGED_PATHS: ${{ steps.changed-paths.outputs.changed }}
+          PATHS_KNOWN: ${{ steps.changed-paths.outputs.paths_known }}
         run: |
           set -euo pipefail
 
+          # ── Hard-exclude: the path list could not be retrieved ────────────
+          # FIRST, because every check below reasons about paths and none of them
+          # can be trusted without one. This is the branch the old "Fail-closed"
+          # comment described and did not implement.
+          if [ "${PATHS_KNOWN:-false}" != "true" ]; then
+            echo "Changed paths could not be determined — refusing to auto-arm."
+            gh pr comment "$PR_URL" --body "Auto-merge was NOT armed: this workflow could not retrieve the list of changed files, so it cannot rule out a sensitive path (Dockerfile, .github, scanner, hooks, scripts). Re-run the workflow, or merge after human review."
+            exit 0
+          fi
+
           # ── Hard-exclude: path-based checks ──────────────────────────────
           path_excluded=false
+          path_count=0
           while IFS= read -r path; do
             [ -z "$path" ] && continue
+            path_count=$((path_count + 1))
             case "$path" in
               Dockerfile|Dockerfile.nginx|Dockerfile.*)
                 path_excluded=true ; break ;;
@@ -129,6 +163,18 @@ jobs:
           if [ "$path_excluded" = "true" ]; then
             echo "PR touches a hard-excluded path (Dockerfile / .github / scanner / hooks / scripts). Requires human code-owner review."
             gh pr comment "$PR_URL" --body "This Dependabot PR touches a sensitive path (Dockerfile, .github, scanner, hooks, or scripts) and is not eligible for auto-merge. Requires human code-owner review."
+            exit 0
+          fi
+
+          # ── Hard-exclude: the list came back empty ────────────────────────
+          # A Dependabot PR always changes at least one file, so zero observed
+          # paths means the retrieval succeeded but returned nothing usable —
+          # the same "cannot rule out a sensitive path" position as PATHS_KNOWN
+          # above, reached by a different route. Checked separately so the two
+          # causes stay distinguishable in the log.
+          if [ "$path_count" -eq 0 ]; then
+            echo "Changed-path list is empty — refusing to auto-arm."
+            gh pr comment "$PR_URL" --body "Auto-merge was NOT armed: the changed-file list for this PR came back empty, so this workflow cannot rule out a sensitive path. Re-run the workflow, or merge after human review."
             exit 0
           fi
 
