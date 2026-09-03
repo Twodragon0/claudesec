@@ -436,6 +436,53 @@ The largest block in this log and the one whose *method* matters more than its d
   lesson: a step's declared config and its observed behaviour are different claims.** Nothing
   in this repo reads job logs, so a reporter can 403 forever behind a green check.
 
+### Cycle #513–#522 — nine dead controls, and the sweep that reported none of them (merged 2026-09-02 → 09-03)
+
+Full write-up in `docs/reports/green-while-dead-retrospective.md`. The METHOD is the
+deliverable here; the diffs are small.
+
+- **Nine instances of one shape: the declared capability and the observed behaviour were
+  different claims and nothing compared them.** Worst two were on a required gate and a
+  permission boundary — `pii-check` ran `find` and nothing else for 7 days (a `#` after a
+  `\` continuation truncated the command; `bash -e` without pipefail hid the 127 in the
+  left half of the pipe), and the Dependabot auto-arm's documented "Fail-closed" comment
+  was FALSE (an empty path list walks the exclusion loop and arms auto-merge on a
+  `Dockerfile` PR). The rest cost reporting only — but "it is only reporting" is a verdict
+  you may state AFTER measuring, not instead of.
+- **A positive control validates the MARKER it exercised, not "detection".** My log sweep
+  proved it caught `##[error]` on a known-bad run, then reported 0 findings across 37 jobs.
+  Wrong: `"error - "` (Codecov's own logger, lowercase, not an annotation) and
+  `No files were found with the provided path` were not in the pattern set, and the static
+  half only compared tokens against API calls, so it could not see shell-level swallowing.
+  Three real defects sat inside the "clean" range.
+- **`outcome=failure` matched ZERO times anywhere** — re-derived independently on 18 jobs
+  of run `33745520620`, not taken on trust. It is the most plausible marker for a swallowed
+  failure and it misses the whole class, because `fail_ci_if_error: false` makes the action
+  exit 0 while its own logger writes at error level.
+- **Static and log-empirical are complementary, not alternatives.** The junit `checks.create`
+  call has no string in any YAML (it is inside a third-party action) so static cannot see
+  it; the two broken `templates/` workflows never run here — one is rejected by GitHub
+  outright — so no log can exist for them, and `actionlint` was the third surface.
+- **A fix creates the class, three times over.** #496's explanatory comment is what broke
+  `pii-check`. My own first `pii-check` fix was incomplete: `set -euo pipefail` catches the
+  shipped shape but NOT the one where the orphan begins with `!`, because bash reads that as
+  pipeline negation and exits 0 — so the `find` was collapsed onto one physical line, which
+  makes the arrangement impossible rather than detected. And #516's own new merge-time check
+  read the wrong diff (`gh pr merge --delete-branch` prints the local catch-up, not the
+  squash), false-alarming twice before #517 fixed it.
+- **A mutation that does not reproduce the hole may be defence in depth.** Stripping
+  `PATHS_KNOWN` alone left the sibling empty-list gate holding. The guard's own message
+  ("check the SECOND possibility first") is what surfaced it; the fixture now strips both
+  and measures each gate's independent sufficiency.
+- **Narrowing a guard's scope is a decision that needs its numbers.**
+  `test_ci_watcher_states_consumed` deliberately is NOT a general dataflow analyser: a
+  repo-wide survey reported four "unconsumed" states in `npm-publish.yml`, all false
+  positives via job-level `outputs:` re-export. A guard people have to fight gets weakened,
+  not repaired (#414).
+- Guards 1088 → **1126**; catalog rows 62 → **67**; five new guards, three of which EXECUTE
+  their subject. Codecov deleted outright — the repo has **zero** Actions secrets
+  (`total_count: 0`), so no token ever existed and the badge rendered `unknown`.
+
 ## Open Backlog
 
 Re-derived from `gh issue list` + verified repo state on **2026-09-02**. **Verify before
