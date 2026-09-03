@@ -237,3 +237,25 @@ jobs:
           gh issue close "${EXISTING_ISSUE}" \
             --repo "${GITHUB_REPOSITORY}" \
             --reason completed
+
+      # The `error` state had NO consumer until 2026-09-03: `state=error` was
+      # written above and every downstream `if:` tested only `findings` or
+      # `clean`, so a lychee tooling blip produced a `::warning::` inside a GREEN
+      # job and nothing else. That is the failure this sweep cannot afford to
+      # have. `lint.yml`'s own suppression note names it: the PR-time
+      # `link-check` runs with `--accept '100..=599'`, so a 404 PASSES there by
+      # design and "If that sweep is ever removed OR GOES DARK, link rot has NO
+      # detector anywhere in CI." A sweep that silently errors is going dark.
+      #
+      # Fails the run rather than opening an issue, deliberately: no verdict was
+      # reached, so there is nothing to report as a finding, and a false
+      # "redirects detected" issue is what the `error` branch above exists to
+      # avoid. Same arm, same wording, as `protection-drift-watch.yml`'s
+      # `Fail on tooling error`.
+      - name: Fail on tooling error
+        if: steps.result.outputs.state == 'error'
+        run: |
+          echo "::error::lychee reported no exit code — the sweep did NOT run to a verdict."
+          echo "This is NOT confirmed link rot: no issue was opened and no issue was closed."
+          echo "Check the lychee-action step above (binary install, network, or the v0.23.0 pin)."
+          exit 1
