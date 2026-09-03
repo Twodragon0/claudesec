@@ -76,8 +76,40 @@ jobs:
           echo "requires_python=${requires_python}"  >> "${GITHUB_OUTPUT}"
           echo "ceiling_lifted=${ceiling_lifted}"    >> "${GITHUB_OUTPUT}"
 
+          # THREE STATES, NOT TWO. `result_code` was captured here and never read
+          # again (shellcheck SC2034), and `prowler_version=unknown` — what the
+          # script emits when curl cannot reach PyPI — printed the SAME
+          # "Still frozen" line as a real verdict. So "the ceiling is still in
+          # place" and "this watcher reached no verdict at all" were
+          # indistinguishable, both green, both silent. That is the failure mode
+          # a watcher exists to not have.
+          #
+          # NOT a hard failure for the unknown case: the script deliberately
+          # exits 0 on a network error (see its header) so a transient PyPI
+          # outage does not cry wolf on a scheduled run, and a notifier that
+          # cries wolf gets muted — the lesson #502 recorded. It is surfaced as a
+          # warning AND written to the step summary, so it is visible on the run
+          # page rather than buried in a log nobody opens.
+          #
+          # An exit code that is neither 0 nor 2 IS a hard failure: those are the
+          # script's only documented exits, so anything else means the script
+          # itself broke rather than declining to answer.
+          if [ "${result_code}" -ne 0 ] && [ "${result_code}" -ne 2 ]; then
+            echo "::error::check-prowler-python-ceiling.sh exited ${result_code}; its only documented exits are 0 (frozen/no-op) and 2 (lifted)."
+            exit 1
+          fi
+
           if [ "${ceiling_lifted}" = "true" ]; then
             echo "CEILING LIFTED: prowler ${prowler_version} now allows py3.14 — the alpine 3.24 line is in range"
+          elif [ "${prowler_version}" = "unknown" ]; then
+            echo "::warning::No verdict reached — prowler version is 'unknown' (PyPI unreachable). The ceiling was NOT checked this run."
+            {
+              echo "### prowler Python ceiling watch — NO VERDICT"
+              echo ""
+              echo "PyPI could not be reached, so this run did not check the ceiling."
+              echo "This is **not** the same as \"still frozen\" — nothing was measured."
+              echo "Transient on a single run; investigate if consecutive runs report it."
+            } >> "${GITHUB_STEP_SUMMARY}"
           else
             echo "Still frozen: prowler ${prowler_version} requires_python='${requires_python}' — no action needed"
           fi
