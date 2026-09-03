@@ -198,10 +198,25 @@ jobs:
           # `github_actions` is deliberately absent — see the note above. It is
           # already unreachable via the `.github/**` hard-exclude, so this is a
           # second, independent refusal rather than the only one.
+          #
+          # `docker` was removed 2026-09-03 for the same reason, but the claim is
+          # WEAKER than the `github_actions` one and the difference matters.
+          # Measured: every docker-ecosystem Dependabot PR in this repo's history
+          # touches a hard-excluded path — #476, #353, #293, #273, #235
+          # (`Dockerfile.nginx`) and #220 (`Dockerfile` + `Dockerfile.nginx`) —
+          # so on the OBSERVED population this changes nothing. It is NOT
+          # unreachable by construction: a docker-ecosystem PR touching only,
+          # say, `docker-compose.yml` would have armed before and is refused now.
+          # That tightening is intended, not incidental — auto-merge on an image
+          # bump rested entirely on a path match, and the path match was shown to
+          # fail open (#522).
+          # RE-ADD CONDITION: a docker bump that must auto-merge and provably
+          # cannot touch a `Dockerfile*`. Re-add it deliberately, with the
+          # measurement, and update `test_ci_dependabot_auto_merge_fail_closed`.
           case "$ECOSYSTEM" in
-            pip|docker) ;;
+            pip) ;;
             *)
-              echo "Ecosystem '$ECOSYSTEM' is not in the auto-arm allowlist (pip, docker) — skipping."
+              echo "Ecosystem '$ECOSYSTEM' is not in the auto-arm allowlist (pip) — skipping."
               exit 0
               ;;
           esac

@@ -135,10 +135,20 @@ CASES = (
      "version-update:semver-patch", "pip", False),
     ("semver-major", "true", "requirements-ci.txt",
      "version-update:semver-major", "pip", False),
+    # `docker` left the ecosystem allowlist on 2026-09-03. Pinned as its own case
+    # because it is the ONE input whose behaviour that change altered: every
+    # docker PR in this repo's history touches a hard-excluded `Dockerfile*` and
+    # was already refused, but a docker PR touching only e.g. `README.md` armed
+    # before and must not now. The tightening is the point — an image bump's
+    # safety rested entirely on a path match, and the path match failed open.
+    ("docker touching no Dockerfile", "true", "README.md",
+     "version-update:semver-minor", "docker", False),
     # The no-regression case. Without it this guard would pass on a step that
     # refuses everything, which gates nothing usable.
     ("eligible pip patch", "true", "requirements-ci.txt",
      "version-update:semver-patch", "pip", True),
+    ("eligible pip minor", "true", "requirements-ci.txt",
+     "version-update:semver-minor", "pip", True),
 )
 
 
@@ -208,6 +218,15 @@ class TestEligibilityFailsClosed(unittest.TestCase):
                     f"--- output ---\n{out}",
                 )
 
+    # NO ecosystem-allowlist assertion here ON PURPOSE. `test_ci_dependabot_automerge.py`
+    # already pins it (`REQUIRED_TOKENS["eligible_ecosystems"]`) and has its own
+    # mutation test for a widening, so a second copy would be the weak-duplicate
+    # shape ADR-001 warns about: two guards at different strictness over one
+    # invariant, where the narrower one rots into an inert restatement. This file
+    # owns BEHAVIOUR (what the step does with a given input); that one owns the
+    # allowlist TEXT. The `docker touching no Dockerfile` case above is the
+    # behavioural half of the same change.
+
     def test_the_unknown_case_explains_itself(self):
         """Fail-closed AND visible. Silence here is the class, one step over."""
         _, out = arms_auto_merge(
@@ -234,9 +253,17 @@ class TestGuardIsNonVacuous(unittest.TestCase):
     )
     EMPTY_LIST_GATE = r'(?m)^if \[ "\$path_count" -eq 0 \]; then$.*?^fi$\n'
 
+    # `pip`, not `docker`. The shipped defect was observed on a docker PR, but
+    # `docker` left the ecosystem allowlist on 2026-09-03, so a docker input is
+    # now refused at the ecosystem arm BEFORE either path gate is reached — the
+    # mutation would look "caught" while proving nothing about the gates. The
+    # guard caught that stale fixture itself ("stripping both gates did NOT
+    # re-open the hole. Check that FIRST"), which is the same lesson one turn
+    # later: a fix moves the terrain, so re-attack the new version on its own
+    # terms rather than replaying the old input.
     UNKNOWN_INPUT = dict(
         paths_known="false", changed_paths="",
-        update_type="version-update:semver-patch", ecosystem="docker",
+        update_type="version-update:semver-patch", ecosystem="pip",
     )
 
     @classmethod

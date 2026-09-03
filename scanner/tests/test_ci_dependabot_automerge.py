@@ -23,8 +23,13 @@ Control / CICD-SEC-4 Poisoned Pipeline Execution; NIST SSDF PW.4/PO.3):
   3. **Update-type allowlist** — only `version-update:semver-patch` /
      `semver-minor` may auto-arm; `semver-major` is hard-excluded. Broadening
      this would auto-merge breaking bumps.
-  4. **Ecosystem allowlist** — only `pip|docker`. Adding e.g.
-     `npm` here is a policy change that must be reviewed, not slipped in.
+  4. **Ecosystem allowlist** — only `pip`. `docker` was removed 2026-09-03:
+     every docker-ecosystem PR in this repo's history touches a hard-excluded
+     `Dockerfile*` (#476/#353/#293/#273/#235/#220), so the arm was reachable
+     only for a docker PR that touched none — which would have rested
+     entirely on the path match that #522 showed can fail open. Adding e.g.
+     `npm` or re-adding `docker` is a policy change that must be reviewed,
+     not slipped in.
   5. **No bypass** — the arm must stay `gh pr merge --auto` (server-side, still
      gated by branch protection + the human code-owner review). `--admin` must
      never appear (an admin bypass of branch protection is wrong regardless; `require_code_owner_reviews` is now false, but `enforce_admins` and the two required contexts still gate every merge), and the broken
@@ -84,7 +89,7 @@ REQUIRED_TOKENS = {
     # 4. Ecosystem allowlist. `github-actions` was REMOVED, not narrowed — it
     #    was unreachable twice over (see
     #    `test_actions_ecosystem_stays_out_of_the_allowlist`).
-    "eligible_ecosystems": "pip|docker)",
+    "eligible_ecosystems": "pip)",
     # 5. The arm must be server-side auto-merge (gated by branch protection)
     "arm_is_auto_merge": "gh pr merge --auto",
     # Sanity: this is the pull_request_target workflow we think it is
@@ -207,8 +212,9 @@ class TestDependabotAutoMergeGuard(unittest.TestCase):
         )
         self.assertIn(
             REQUIRED_TOKENS["eligible_ecosystems"], self.scan,
-            "Ecosystem allowlist changed from pip|docker — a policy "
-            "change that must be reviewed, not slipped in.",
+            "Ecosystem allowlist changed from pip — a policy change that "
+            "must be reviewed, not slipped in. Re-adding `docker` needs the "
+            "measurement in this file's docstring re-derived first.",
         )
 
     def test_actions_ecosystem_stays_out_of_the_allowlist(self):
@@ -295,7 +301,7 @@ class TestDependabotAutoMergeGuardMutation(unittest.TestCase):
             "  scripts/*|scripts)",
             'if [ "$UPDATE_TYPE" = "version-update:semver-major" ]; then',
             "  version-update:semver-patch|version-update:semver-minor) ;;",
-            "  pip|docker) ;;",
+            "  pip) ;;",
             'gh pr merge --auto --squash "$PR_URL"',
         ]
     )
@@ -392,8 +398,8 @@ class TestDependabotAutoMergeGuardMutation(unittest.TestCase):
 
     def test_broadening_ecosystems_is_detected(self):
         mutant = self._GOOD.replace(
-            "  pip|docker) ;;",
-            "  pip|docker|npm) ;;",
+            "  pip) ;;",
+            "  pip|npm) ;;",
         )
         self.assertTrue(
             any("eligible_ecosystems" in p for p in _violations(mutant)),

@@ -115,6 +115,7 @@ esac
 
 log()  { echo "[sync-repo-protection] $*"; }
 err()  { echo "[sync-repo-protection] ERROR: $*" >&2; }
+warn() { echo "[sync-repo-protection] WARNING: $*" >&2; }
 
 check_deps() {
   local missing=0
@@ -135,6 +136,7 @@ check_deps() {
 
 PROTECTION_JSON=""
 REPO_JSON=""
+COLLABORATORS_JSON="[]"
 
 read_current_state() {
   log "Reading current branch-protection settings for ${REPO}:${BRANCH}..."
@@ -148,6 +150,17 @@ read_current_state() {
     err "Failed to read repo settings."
     exit 1
   }
+
+  # Read for the review PRECONDITION check below, not to configure anything.
+  # DESIRED_APPROVING_COUNT=0 is only defensible while there is exactly one
+  # person who could review; the comment above records that as a revisit
+  # trigger, and prose does not fire. Failing to read it is reported as
+  # "unknown" rather than assumed fine — an unread precondition is not a met one.
+  log "Reading collaborators for ${REPO} (review-precondition check)..."
+  COLLABORATORS_JSON="$(gh api "repos/${REPO}/collaborators" --paginate)" || {
+    warn "Failed to read collaborators — the review precondition cannot be checked."
+    COLLABORATORS_JSON="null"
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -160,7 +173,7 @@ DRIFT_EXIT=0
 compute_drift() {
   local pyout
   local pyexit=0
-  pyout="$(python3 - \
+  pyout="$(COLLABORATORS_JSON="${COLLABORATORS_JSON}" python3 - \
     "${PROTECTION_JSON}" \
     "${REPO_JSON}" \
     "${DESIRED_STRICT}" \
@@ -175,7 +188,7 @@ compute_drift() {
     "${DESIRED_DELETE_BRANCH}" \
     "${DESIRED_MERGE_COMMIT}" \
     "${DESIRED_REBASE_MERGE}" <<'PYEOF'
-import json, sys
+import json, os, sys
 
 protection = json.loads(sys.argv[1])
 repo       = json.loads(sys.argv[2])
@@ -235,8 +248,51 @@ if drifted:
 else:
     lines.append("  No drift detected -- settings match desired state.")
 
+# ---------------------------------------------------------------------------
+# Review PRECONDITION -- reported separately because --apply cannot fix it.
+#
+# `approving_count = 0` is deliberate and is documented above with a revisit
+# trigger: "the moment a second person gets write access, this should go back to
+# true with a non-zero approving count." That trigger lived only in prose, so
+# nothing would ever fire it. This is the mechanism.
+#
+# It is NOT folded into `drifted`: the live settings match the codified desire,
+# so calling it drift would be false, and the "Run with --apply" line would be
+# advice that cannot work. What changed is the WORLD the desire was chosen for.
+#
+# Counted by push access, not membership, so a read-only or bot collaborator
+# does not trip it.
+precondition_failed = False
+raw = os.environ.get("COLLABORATORS_JSON", "null")
+try:
+    collaborators = json.loads(raw)
+except ValueError:
+    collaborators = None
+
+if desired["approving_count"] == 0:
+    lines.append("")
+    if collaborators is None:
+        lines.append("  REVIEW PRECONDITION: UNKNOWN -- collaborator list could not be read.")
+        lines.append("  approving_count=0 assumes a single reviewer; that was not verified.")
+        precondition_failed = True
+    else:
+        pushers = sorted(
+            c.get("login", "?") for c in collaborators
+            if (c.get("permissions") or {}).get("push")
+        )
+        if len(pushers) > 1:
+            lines.append(f"  REVIEW PRECONDITION FAILED: {len(pushers)} collaborators have push: {', '.join(pushers)}")
+            lines.append("  approving_count=0 was chosen because a lone maintainer approving their")
+            lines.append("  own work is theatre. That is no longer the situation.")
+            lines.append("  DECIDE: raise DESIRED_APPROVING_COUNT (and likely DESIRED_CODE_OWNER_REVIEWS)")
+            lines.append("  in this script, or record why 0 is still right. --apply cannot fix this.")
+            precondition_failed = True
+        else:
+            who = pushers[0] if pushers else "<none>"
+            lines.append(f"  Review precondition OK: 1 collaborator with push ({who}); approving_count=0 stands.")
+
 print("\n".join(lines))
-sys.exit(1 if drifted else 0)
+sys.exit(1 if (drifted or precondition_failed) else 0)
 PYEOF
   )" || pyexit=$?
   DRIFT_REPORT="$pyout"
