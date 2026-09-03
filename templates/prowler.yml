@@ -7,6 +7,19 @@
 # SHA fresh here — a stale pin shipped as advice is worse than a visible tag.
 # Pin each to a 40-hex commit SHA when you adopt it (OWASP CICD-SEC-3): a tag
 # is mutable and can be repointed at attacker code.
+#
+# PREREQUISITES — copying THIS FILE ALONE is not enough.
+# The header above tells you to copy it deliberately, and the steps below
+# reference two LOCAL composite actions plus the script they call. `uses: ./…`
+# resolves inside YOUR repository, so without these three paths the run fails
+# immediately with `Can't find 'action.yml'`:
+#   .github/actions/token-expiry-gate/action.yml
+#   .github/actions/datadog-ci-collect/action.yml
+#   scripts/token-expiry-gate.py
+# `scripts/setup.sh` installs all three (it mkdirs both action directories),
+# so running it once provisions them even though it does not install this
+# workflow. Otherwise copy them by hand. See the "Composite actions" table in
+# README.md for the template-to-action mapping.
 name: Cloud Security Scan (Prowler)
 
 on:
@@ -91,7 +104,6 @@ jobs:
           strict-providers: ${{ vars.CLAUDESEC_TOKEN_EXPIRY_STRICT_PROVIDERS || 'false' }}
           gate-mode: ${{ vars.CLAUDESEC_TOKEN_EXPIRY_GATE_MODE || '24h' }}
           gh-token-expires-at: ${{ vars.GH_TOKEN_EXPIRES_AT || '' }}
-          github-token-expires-at: ${{ vars.GITHUB_TOKEN_EXPIRES_AT || '' }}
           okta-oauth-token-expires-at: ${{ vars.OKTA_OAUTH_TOKEN_EXPIRES_AT || '' }}
           datadog-token-expires-at: ${{ vars.DATADOG_TOKEN_EXPIRES_AT || '' }}
           dd-token-expires-at: ${{ vars.DD_TOKEN_EXPIRES_AT || '' }}
