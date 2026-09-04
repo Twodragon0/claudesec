@@ -46,9 +46,14 @@ Three things follow, each with a cost worth stating:
   3-digit id fell between them — invisible to both classes AND to `_CITE_RE`.
   Review measured it as a REGRESSION against `378d09d`, where the narrower
   `(?<!ADR-001 )` exemption had kept those in `bare-decision`. Nothing in the
-  suite failed. `test_no_word_form_decision_escapes_BOTH_word_classes` now pins
-  the complement in one direction and
-  `test_the_canonical_word_form_is_claimed_by_exactly_one_class` in the other.
+  suite failed. `test_no_word_form_decision_escapes_BOTH_word_classes` pins the
+  SAFETY direction — nothing escapes both classes — and that is the only
+  direction in which they are complements. Python's lookbehind must be
+  fixed-width, so it cannot invert the variable-width id matcher, and seven
+  shapes fire BOTH classes; a first draft of this paragraph called the pair an
+  exact complement and review measured that false. The over-report is a false
+  alarm on a line forbidden either way, and it is pinned as an explicit SET
+  (`OVER_REPORTED`) plus a boundary test, so it cannot grow unnoticed.
 
 - **What the known-id gate costs**, pinned as a MATRIX in
   `TestTheWholeSeriesIsCovered` rather than as a sentence — an earlier draft of
@@ -435,8 +440,13 @@ FORBIDDEN = (
     # `decision <N>`, `Decision #<N>`, `Decision-<N>`, and `Decision <4-digit year>`
     # as a false positive that fails loudly rather than silently.
     #
-    # The exemption is the EXACT complement of `adr-decision` above, and the two
-    # must be read together: whatever this exempts, that must claim.
+    # The exemption is the complement of `adr-decision` above IN THE SAFETY
+    # DIRECTION, and the two must be read together: whatever this exempts, that
+    # must claim. Not an EXACT complement, which an earlier version of this
+    # comment claimed and review measured false — a fixed-width lookbehind (the
+    # only kind Python allows) cannot be the exact inverse of the variable-width
+    # id matcher above, so seven shapes fire BOTH classes. Those are false alarms
+    # on a line forbidden either way, pinned as a set in `OVER_REPORTED`.
     #
     # The outer lookbehind stays FIXED-WIDTH (8), which is what Python requires;
     # a `\d{1,4}` there is a compile error. The NESTED `(?<![-\w])` inside it is
@@ -444,8 +454,8 @@ FORBIDDEN = (
     # eight preceding characters do read `ADR-002 `) while `adr-decision`'s own
     # `(?<![-\w])` refused it, so the two guards' boundaries did not line up and a
     # word-glued anchor fell between them. Both classes now carry the same
-    # not-preceded-by-a-word-character condition, so the complement holds by
-    # construction rather than by enumeration (ADR-001 §5).
+    # not-preceded-by-a-word-character condition, so the SAFETY half of the
+    # complement holds by construction rather than by enumeration (ADR-001 §5).
     (
         "bare-decision",
         re.compile(r"(?<!(?<![-\w])ADR-\d{3} )\bDecisions? (\d+)()"),
@@ -1248,13 +1258,51 @@ class TestTheWholeSeriesIsCovered(unittest.TestCase):
                 )
 
     def test_the_canonical_word_form_is_claimed_by_exactly_one_class(self):
-        # The other direction: the complement must not become a blanket
-        # double-report. A double key is only a false alarm, but it would churn
-        # the baseline on every future word-form citation, and the nested
-        # lookbehind exists precisely to avoid that.
+        # The other direction: the CANONICAL shape must not double-report, or the
+        # baseline would churn on every future word-form citation. This is the
+        # shape that actually occurs; the over-report set below is the rest.
         for adr in ("001", self.ADR, self.UNPINNED):
             with self.subTest(adr=adr):
                 self.assertEqual(self._slugs(_word(4, adr=adr)), ["adr-decision"])
+
+    # Shapes where BOTH word classes fire. Named, because "EXACT complement" was
+    # measured false in this direction: `adr-decision`'s id is a variable-width
+    # `[^\w§]{1,2}0*\d{3}[ \t]*` while `bare-decision`'s exemption is a
+    # FIXED-WIDTH lookbehind (`ADR-` + 3 digits + one space) — Python allows no
+    # other kind — so the two cannot be exact complements by construction. They
+    # are complements in the SAFETY direction only, which is the direction that
+    # matters and is pinned above.
+    #
+    # A double key is a false alarm on a line forbidden either way, never a miss.
+    # It is pinned as a SET so the over-report cannot quietly grow: a new shape
+    # appearing here is a review moment, not a silent extra baseline line.
+    OVER_REPORTED = (
+        ("lower case", "adr-003 "),
+        ("no hyphen", "ADR 003 "),
+        ("dot separator", "ADR.003 "),
+        ("double space", "ADR-003  "),
+        ("tab separator", "ADR-003\t"),
+        ("four-digit id", "ADR-0004 "),
+        ("five-digit id", "ADR-00004 "),
+    )
+
+    def test_the_over_report_set_is_exactly_as_documented(self):
+        for label, prefix in self.OVER_REPORTED:
+            with self.subTest(shape=label):
+                self.assertEqual(
+                    sorted(set(self._slugs(prefix + _bare(4)))),
+                    ["adr-decision", "bare-decision"],
+                    f"{label}: expected BOTH word classes to fire",
+                )
+
+    def test_nothing_outside_that_set_double_reports(self):
+        # The boundary. Without it, `OVER_REPORTED` would be a list of examples
+        # rather than a limit, and the set could grow without anyone noticing.
+        singles = ("ADR-003 ", "ADR-777 ", "`ADR-003` ", "ADR-3 ", "SADR-003 ",
+                   "ADR-2026 ", "ADR_003 ", "the ")
+        for prefix in singles:
+            with self.subTest(prefix=prefix):
+                self.assertEqual(len(set(self._slugs(prefix + _bare(4)))), 1, prefix)
 
     def test_a_MISSPELLED_unpinned_id_is_seen_by_NEITHER_guard(self):
         # Rows 3-5, and the actual gap. Both conditions are required: the id must

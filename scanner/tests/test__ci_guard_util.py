@@ -68,6 +68,7 @@ from _ci_guard_util import (  # noqa: E402
     strip_inline_comment,
     strip_inline_comment_sh,
     top_level_jobs,
+    truncate_at_unclosed_html_comment,
     trigger_block,
     uses_refs,
     workflow_and_action_files,
@@ -365,43 +366,42 @@ class TestStripHtmlComments(unittest.TestCase):
     def test_text_without_comments_is_unchanged(self):
         self.assertEqual(strip_html_comments("plain text"), "plain text")
 
-    def test_to_eof_drops_an_unclosed_opener_and_everything_after(self):
-        # The opt-in policy for a PARSE consumer, where under-strip is a silent
-        # pass rather than one false negative. CommonMark runs an HTML block
-        # opened by `<!--` to the closing line or to end of document, so this is
-        # what a reader actually sees.
+
+class TestTruncateAtUnclosedHtmlComment(unittest.TestCase):
+    """The counterpart to `strip_html_comments`'s deliberate under-strip, for
+    callers that PARSE and so read absence as deletion."""
+
+    def test_an_unclosed_opener_takes_everything_after_it(self):
         self.assertEqual(
-            strip_html_comments("live\n<!-- dangling\nhidden\n", unclosed="to_eof"),
+            truncate_at_unclosed_html_comment("live\n<!-- dangling\nhidden\n"),
             "live\n",
         )
 
-    def test_to_eof_still_removes_closed_comments_normally(self):
-        # The closed case must not change between policies, or the two consumers
-        # would disagree about ordinary comments as well.
-        text = "a <!-- x --> b"
+    def test_text_with_no_opener_is_unchanged(self):
+        self.assertEqual(truncate_at_unclosed_html_comment("a\nb"), "a\nb")
+
+    def test_it_assumes_closed_comments_are_already_gone(self):
+        # Documented precondition, pinned so the composition order cannot be
+        # reversed silently: run `strip_html_comments` first, or a CLOSED comment
+        # truncates the document.
+        self.assertEqual(truncate_at_unclosed_html_comment("a<!--x-->b"), "a")
         self.assertEqual(
-            strip_html_comments(text, unclosed="to_eof"), strip_html_comments(text)
+            truncate_at_unclosed_html_comment(strip_html_comments("a<!--x-->b")), "ab"
         )
 
-    def test_to_eof_only_truncates_at_an_UNCLOSED_opener(self):
-        # A closed comment earlier in the file must not be mistaken for the
-        # unterminated one: the closed ones are removed first, so the `find`
-        # cannot land on them.
+    def test_composed_after_the_stripper_only_the_unclosed_one_cuts(self):
         self.assertEqual(
-            strip_html_comments("a<!--x-->b\n<!-- open\nz", unclosed="to_eof"), "ab\n"
+            truncate_at_unclosed_html_comment(
+                strip_html_comments("a<!--x-->b\n<!-- open\nz")
+            ),
+            "ab\n",
         )
 
-    def test_the_default_is_still_keep(self):
-        # The existing catalog consumers must be untouched by the new parameter.
+    def test_strip_html_comments_still_keeps_an_unclosed_opener(self):
+        # The other consumer must not have moved: this is a separate function
+        # precisely so the presence-check callers keep their under-strip.
         text = "live row\n<!-- dangling"
         self.assertEqual(strip_html_comments(text), text)
-
-    def test_an_unknown_policy_raises(self):
-        # Fail loudly on a typo rather than silently falling back to `keep`,
-        # which would be the under-strip direction for a caller that asked for
-        # the other one.
-        with self.assertRaises(ValueError):
-            strip_html_comments("x", unclosed="eof")
 
 
 class TestStripCodeFences(unittest.TestCase):

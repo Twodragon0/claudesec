@@ -344,7 +344,7 @@ def strip_inline_comment_sh(line: str) -> str:
     return line
 
 
-def strip_html_comments(text: str, *, unclosed: str = "keep") -> str:
+def strip_html_comments(text: str) -> str:
     """`text` with HTML/Markdown comments (`<!-- ... -->`, possibly multi-line)
     removed.
 
@@ -355,32 +355,43 @@ def strip_html_comments(text: str, *, unclosed: str = "keep") -> str:
     from the published inventory while `test_ci_catalog_completeness` stays
     green (the comment-evasion class of ADR-001 §1, in Markdown).
 
-    `unclosed` decides what a stray `<!--` with no `-->` means, and the two
-    answers are opposite because the two consumers fail in opposite directions:
+    An UNCLOSED `<!--` is left intact rather than eating the rest of the file:
+    the pattern requires a closing `-->`, so a stray opener degrades to
+    no-strip (under-strip, a false NEGATIVE for that one row) instead of
+    blanking the document (which would make every consumer fail at once).
 
-    - `"keep"` (default) leaves it intact. Right for a PRESENCE check over the
-      catalog: under-strip costs one false negative, while blanking the document
-      would make every consumer fail at once.
-    - `"to_eof"` drops it and everything after it. Right for a PARSE that treats
-      absence as deletion, and it is what CommonMark actually renders — an HTML
-      block opened by `<!--` runs to the line containing `-->` or to the END OF
-      DOCUMENT. Under `"keep"`, a decision "retired" behind an unclosed opener
-      stayed in `test_ci_adr_decision_numbering`'s parsed list while vanishing
-      from the rendered ADR along with everything below it — a silent pass one
-      character away from the closed form that guard does catch. Over-strip there
-      is a loud failure; under-strip is a green one.
+    A caller that PARSES, and so reads absence as deletion, needs the opposite
+    answer — see `truncate_at_unclosed_html_comment`, which is a separate step on
+    purpose because it must run AFTER fences are stripped."""
+    return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
 
-    Adjudicated against `markdown-it-py`'s CommonMark mode, not inferred."""
-    if unclosed not in ("keep", "to_eof"):
-        raise ValueError(f"unclosed must be 'keep' or 'to_eof', got {unclosed!r}")
-    out = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
-    if unclosed == "to_eof":
-        # Every CLOSED comment is gone by now, so any `<!--` still present is
-        # unterminated by construction — no second parse needed.
-        opener = out.find("<!--")
-        if opener != -1:
-            out = out[:opener]
-    return out
+
+def truncate_at_unclosed_html_comment(text: str) -> str:
+    """`text` cut at the first `<!--` that has no `-->`, matching what CommonMark
+    renders: an HTML block opened by `<!--` runs to the line containing `-->` or
+    to the END OF DOCUMENT.
+
+    The counterpart to `strip_html_comments`'s deliberate under-strip, for the
+    callers that need the other direction. For a PRESENCE check an unterminated
+    opener costs one false negative; for a PARSE it is a silent pass — a decision
+    "retired" behind an unclosed opener stayed in
+    `test_ci_adr_decision_numbering`'s list while vanishing from the rendered ADR
+    along with everything below it.
+
+    ORDER MATTERS, and getting it wrong was measured rather than reasoned about.
+    Run this AFTER `strip_code_fences`, never before: a `<!--` shown as sample
+    code inside a fence is not an HTML block to CommonMark, and truncating on it
+    deleted decisions that render perfectly well (`markdown-it-py` 4.0.0
+    `commonmark` mode: `<h3>` ids `[1, 2]` against the parse's `[]`). Running
+    fences FIRST is not the fix either, taken alone — a fence marker living only
+    inside a closed comment would then blank real content — so the sequence is:
+    closed comments, then fences, then this.
+
+    Assumes closed comments are already gone, which is what makes the search for
+    a remaining `<!--` sound: after `strip_html_comments` any opener still
+    present is unterminated by construction."""
+    opener = text.find("<!--")
+    return text if opener == -1 else text[:opener]
 
 
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")

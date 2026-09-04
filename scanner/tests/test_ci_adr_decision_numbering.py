@@ -102,6 +102,7 @@ from _ci_guard_util import (  # noqa: E402
     REPO_ROOT,
     strip_code_fences,
     strip_html_comments,
+    truncate_at_unclosed_html_comment,
 )
 
 # The ADR series. `adr-index.md` is deliberately NOT matched: an index cites ADRs,
@@ -253,18 +254,31 @@ def decision_section(text: str) -> str:
     docstring promises to catch, going through green. Measured on a real edit to
     ADR-002 that removed a decision both ways: 92 passed, both times.
 
-    `unclosed="to_eof"` is not a detail. The shared stripper's DEFAULT leaves an
-    unterminated `<!--` intact, which is right for a presence check and a silent
-    pass here: an unclosed opener hides everything below it in the rendered
-    document — measured on ADR-002, three decisions and the whole Consequences
-    section — while this parse still saw every one of them. One character away
-    from the closed form above, and the closed form was already fixed. Both
-    strippers now fail in the LOUD direction for this consumer.
+    The UNCLOSED opener needs its own step, and it must come LAST. The shared
+    comment stripper deliberately leaves an unterminated `<!--` intact — right
+    for a presence check, a silent pass here: an unclosed opener hides everything
+    below it in the rendered document (measured on ADR-002: three decisions and
+    the whole Consequences section) while this parse still saw every one of them,
+    one character away from the closed form above.
+
+    But truncating BEFORE fences are stripped is wrong in the other direction: a
+    `<!--` shown as sample code inside a fence is not an HTML block to CommonMark,
+    and truncating on it deleted decisions that render fine. Both orderings were
+    adjudicated against `markdown-it-py` rather than argued, and the sequence
+    below — closed comments, fences, then the unclosed opener — is the only one
+    that matches the renderer on every case measured.
+
+    The terminator is `^## ` OR END OF TEXT. With `^## ` alone, truncating at an
+    unclosed opener also removed the `## Consequences` that ends the section, so
+    the whole parse went empty and the failure read "nothing parsed" instead of
+    naming the decisions that vanished. Both fail, but only one says what broke.
 
     Routed through `_ci_guard_util`'s block primitives rather than re-implemented
     (ADR-001 §9), and comment-stripped before matching (ADR-001 §1)."""
-    clean = strip_code_fences(strip_html_comments(text, unclosed="to_eof"))
-    m = re.search(r"^## Decision\s*$(.*?)^## ", clean, re.M | re.S)
+    clean = truncate_at_unclosed_html_comment(
+        strip_code_fences(strip_html_comments(text))
+    )
+    m = re.search(r"^## Decision\s*$(.*?)(?=^## |\Z)", clean, re.M | re.S)
     return m.group(1) if m else ""
 
 
@@ -662,10 +676,17 @@ class TestRetiringADecisionInPlaceIsCaught(unittest.TestCase):
     def test_an_UNCLOSED_comment_is_caught_too(self):
         # One character away from the closed case above, and strictly worse: an
         # unterminated `<!--` hides everything BELOW it in the rendered document,
-        # so §2 and §3 both vanish from the ADR a reader sees. The shared
-        # stripper's default would have left all three parsed — a silent pass.
+        # so §2 and §3 both vanish from the ADR a reader sees. Without the
+        # truncation step all three stayed parsed — a silent pass.
+        #
+        # §1 SURVIVES, and that is the correct answer rather than a leak: it sits
+        # above the opener and the renderer still shows it. An earlier version of
+        # this assertion expected `[]`, which the section regex produced only
+        # because truncating also removed the `## Consequences` that terminated
+        # the section — a right failure for a wrong reason, and a message that
+        # said "nothing parsed" instead of naming what vanished.
         body = self.ALIVE.replace(self.BETA, "<!-- RETIRED\n### §2 — Beta\n\nbody\n")
-        self.assertEqual(self._parse(body), [])
+        self.assertEqual(self._parse(body), [1])
 
     def test_an_unclosed_comment_ABOVE_the_list_empties_it(self):
         # The same defect at the top of the section: everything is hidden, so the
@@ -674,15 +695,19 @@ class TestRetiringADecisionInPlaceIsCaught(unittest.TestCase):
         # different assertions.
         self.assertEqual(self._parse("<!-- RETIRED\n" + self.ALIVE), [])
 
-    def test_a_comment_opened_inside_a_fence_does_not_leak(self):
-        # The strippers run in a fixed order (comments, then fences), so the
-        # order itself is worth attacking. A `<!--` that only exists as sample
-        # code inside a fence still triggers the comment strip first — which
-        # over-strips, and over-strip here is a loud failure, never a pass.
+    def test_an_unclosed_opener_INSIDE_a_fence_is_not_an_html_block(self):
+        # The order the strippers run in is itself attackable, and getting it
+        # wrong cost a real divergence: with the truncation applied BEFORE fences
+        # were stripped, a `<!--` shown as sample code inside a fence read as an
+        # HTML-block opener and deleted decisions that render perfectly well.
+        # CommonMark says the fenced code block wins. Over-strip is a loud
+        # failure rather than a silent pass, but a guard that fails on a
+        # legitimate document is a guard people delete.
         body = self.ALIVE.replace(
-            self.BETA, f"{self._FENCE}\n<!-- sample\n{self._FENCE}\n\n### §2 — Beta\n\nbody\n"
+            self.BETA,
+            f"{self._FENCE}\n<!-- sample opener\n{self._FENCE}\n\n### §2 — Beta\n\nbody\n",
         )
-        self.assertNotEqual(self._parse(body), [1, 2, 3])
+        self.assertEqual(self._parse(body), [1, 2, 3])
 
     def test_a_fence_marker_inside_a_comment_does_not_reopen_the_document(self):
         # The mirror case: a fence opener living only inside a closed comment is
@@ -702,6 +727,67 @@ class TestRetiringADecisionInPlaceIsCaught(unittest.TestCase):
             f"### §2 — Beta\n\n{self._FENCE}bash\nrm -rf /tmp/x\n{self._FENCE}\n",
         )
         self.assertEqual(self._parse(body), [1, 2, 3])
+
+
+class TestTheParseAgreesWithCommonMark(unittest.TestCase):
+    """The strip order is adjudicated against a real renderer, not argued.
+
+    Two orderings were each defensible in prose and each wrong on one case, so
+    the claim "this is what CommonMark renders" is checked by rendering. `<h3>`
+    ELEMENTS, not a substring search: an HTML block passes its source through
+    verbatim, so `"§2" in html` is true even when a reader sees nothing — the
+    first version of this probe made exactly that mistake and reported the
+    unclosed-opener case as agreeing when it did not.
+
+    SKIPPED, not failed, when `markdown-it-py` is absent: it is not a dependency
+    of this suite, and the cases below are also pinned individually above without
+    it. This class is the cross-check, not the coverage.
+    """
+
+    _F = "`" * 3
+    A = "### §1 — Alpha\n\nbody\n\n"
+    B = "### §2 — Beta\n\nbody\n\n"
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from markdown_it import MarkdownIt
+        except ImportError:  # pragma: no cover - depends on the local env
+            # `from None`: a missing optional dependency is a CONDITION, not an
+            # error being handled, so chaining would print a traceback that reads
+            # like a failure. Required by the repo's ruff config (B904).
+            raise unittest.SkipTest("markdown-it-py not installed") from None
+        cls.md = MarkdownIt("commonmark")
+
+    def _rendered_ids(self, src: str) -> list:
+        return sorted(int(n) for n in re.findall(r"<h3>§(\d+)", self.md.render(src)))
+
+    def test_the_parse_matches_the_renderer_on_every_stripper_case(self):
+        cases = {
+            "control": self.A + self.B,
+            "closed comment": self.A + "<!-- note -->\n\n" + self.B,
+            "closed fence": self.A + f"{self._F}\nx\n{self._F}\n\n" + self.B,
+            "unclosed opener inside a fence":
+                self.A + f"{self._F}\n<!-- sample\n{self._F}\n\n" + self.B,
+            "fence marker inside a closed comment":
+                self.A + f"<!--\n{self._F}\nretired\n-->\n\n" + self.B,
+            "genuine unclosed opener": self.A + "<!-- RETIRED\n" + self.B,
+        }
+        for label, body in cases.items():
+            src = "## Decision\n\n" + body + "\n## Consequences\n\nx\n"
+            with self.subTest(case=label):
+                self.assertEqual(
+                    sorted(parsed_decisions(src)),
+                    self._rendered_ids(src),
+                    f"{label}: the parse and the renderer disagree about which "
+                    "decisions a reader can see",
+                )
+
+    def test_the_renderer_probe_is_not_vacuous(self):
+        # Without this, a `_rendered_ids` that always returned [] would make the
+        # comparison above pass on any parse that also returned [].
+        src = "## Decision\n\n" + self.A + self.B + "\n## Consequences\n\nx\n"
+        self.assertEqual(self._rendered_ids(src), [1, 2])
 
 
 class TestFormAmbiguityIsRefused(unittest.TestCase):
