@@ -91,7 +91,23 @@ bind owner-authored PRs. Verified before flipping: with the flag on and the coun
 still 0, owner PR #525 stayed `MERGEABLE`/`CLEAN` with an empty `reviewDecision`,
 re-read 65 s apart to rule out cached mergeability, then reverted to a byte-equal
 baseline. Re-confirmed after apply on #512 — `MERGEABLE`/`BEHIND`, empty
-`reviewDecision`; `BEHIND` is strict mode, not a review block.
+`reviewDecision`; `BEHIND` is strict mode, not a review block. Re-confirmed a
+third time on this ADR's own PR #527 — `MERGEABLE`/`CLEAN`, empty
+`reviewDecision`, on a `docs/`-only diff rather than the `templates/` of #525 or
+the `scanner/lib/` of #512.
+
+**What that empty `reviewDecision` does and does not establish.** It rules out
+two readings. Not a coverage gap: `CODEOWNERS` opens with `* @Twodragon0`, so no
+path is unowned and no PR escapes by touching a file nobody owns — the three
+observations above span three different path classes and all are matched. Not a
+stale field either: on #527 `requested_reviewers` is empty for both users and
+teams with zero reviews recorded, so GitHub asked nobody, rather than asking and
+having the answer not land. What it does **not** do is separate the two live
+explanations — the owner-exemption, and the possibility that
+`required_approving_review_count: 0` leaves the flag binding *nobody*. Both
+predict exactly this reading on an owner-authored PR, and every measurement so
+far is owner-authored. Only a PR with a different author can tell them apart,
+which is the same open item below and not an independent one.
 
 **Still open, recorded rather than assumed:** that a Dependabot PR now reports
 `REVIEW_REQUIRED`. No Dependabot PR has been open since the flip, so the evidence
