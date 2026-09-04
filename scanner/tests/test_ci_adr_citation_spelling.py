@@ -1,5 +1,5 @@
 r"""
-Guard: a NEW citation of an ADR-001 decision must use the canonical spelling, so
+Guard: a NEW citation of ANY ADR's decision must use the canonical spelling, so
 the population stays inside the regex `test_ci_adr_decision_numbering.py` scans.
 
 WHY THIS IS A CI INVARIANT AND NOT A STYLE PREFERENCE
@@ -22,6 +22,38 @@ Widening `_CITE_RE` is not the fix — a bare `Decision <N>` is unquotably commo
 prose, so a wider regex buys false positives instead of coverage. Narrowing what
 gets WRITTEN is. This guard is that narrowing.
 
+THE WHOLE SERIES, NOT JUST ADR-001
+----------------------------------
+Written when ADR-001 was the only ADR, and every class was pinned to that literal.
+Widened when ADR-002 landed with ZERO citations (`378d09d`) — the one moment the
+change costs no baseline churn, and the moment before the population it would have
+to be retro-fitted to starts existing.
+
+Three things follow, each with a cost worth stating:
+
+- **The id set is IMPORTED**, from the numbering guard's `DECISIONS_BY_ADR`, which
+  is itself checked against the files on disk. Known ids and not `\d+`: a bare
+  `\d+` would read the year in a `2026` reference as an ADR id. The cost is a
+  named limit — a citation of an ADR that does not exist yet is invisible HERE,
+  and is caught THERE instead, because an unknown id cannot resolve to a decision.
+  `TestTheWholeSeriesIsCovered` pins both halves so neither is read as coverage of
+  the other.
+- **The BASELINE KEY still carries no ADR id**, and cannot. `mis-anchored` is the
+  class whose defect often IS the missing id, so there is frequently no id to key
+  on; keying only the classes that have one would make the baseline inconsistent
+  between classes. The consequence, stated rather than discovered later: two
+  grandfathered non-canonical citations in the same file, same class, same number
+  but different ADRs are ONE key. That is a strictly smaller hole than the
+  pairwise-swap one already documented below, and no live instance exists (the
+  baseline's twelve entries are all ADR-001).
+- **The `adr001-decision` slug is now `adr-decision`**, since the class covers any
+  id. The four baseline keys carrying it were renamed in the same commit; a missed
+  one would have failed `test_grandfather_baseline_has_no_stale_entries`.
+
+Below, `ADR-001` in a rule's description means "the canonical anchor" and applies
+to every id in the series; where it names a specific historical measurement it is
+ADR-001's own and is left as measured.
+
 FORBIDDEN SPELLINGS, by slug
 ----------------------------
 - `mis-anchored` — the anchor is not exactly `ADR-001` plus ONE SPACE plus a
@@ -34,7 +66,7 @@ FORBIDDEN SPELLINGS, by slug
   `TestSpellingDetector` that pin each shape AND the false-positive boundary. (No
   count here on purpose: an earlier draft of the catalog row miscounted them, in a
   PR about a miscounted population.)
-- `adr001-decision` — the word form instead of the mark, `ADR` and `Decision` both
+- `adr-decision` — the word form instead of the mark, `ADR` and `Decision` both
   case-insensitive, id required.
 - `anchored-chain` — `ADR-001 §<N>/§<M>`: head visible, tail invisible. Cite the
   pair by REPEATING the prefix (`ADR-001 §<N> and ADR-001 §<M>`), which is the only
@@ -204,12 +236,22 @@ from _ci_guard_util import (  # noqa: E402
 )
 from test_ci_adr_decision_numbering import (  # noqa: E402
     ADR_REL,
+    DECISIONS_BY_ADR,
     _CITED_GLOBS,
+    adr_files,
     cited_paths,
     in_nested_checkout,
 )
 
 THIS_REL = "scanner/tests/test_ci_adr_citation_spelling.py"
+
+# The ADR ids this guard knows about, longest first so `0*(?:10|1)` cannot stop
+# at the `1` of `010` and strand the rest against the joint. Imported rather than
+# restated: the numbering guard already fails when an ADR on disk is unpinned, so
+# there is exactly one place that decides what an ADR id is.
+_KNOWN_IDS = "|".join(
+    sorted({str(int(i)) for i in DECISIONS_BY_ADR}, key=lambda s: (-len(s), s))
+)
 
 # One more `§<digits>` hop in a chain.
 #
@@ -227,15 +269,23 @@ THIS_REL = "scanner/tests/test_ci_adr_citation_spelling.py"
 _CHAIN_SEP = r"(?:/[ \t]*§?|[,;&+|~–—-][ \t]*§)"
 _CHAIN_HOP = rf"(?:[ \t]*{_CHAIN_SEP}\d+)"
 
-# The ADR's own identifier after the `ADR` token: a separator plus a zero-padded 1,
-# so `-001`, ` 001` and adr-tools' 4-digit `-0001` all read as the id.
+# The ADR's own identifier after the `ADR` token: a separator plus a zero-padded
+# KNOWN id, so `-001`, ` 001`, `-002` and adr-tools' 4-digit `-0001` all read as
+# the id.
+#
+# Known ids, not `\d+`. A bare `\d+` here would read the year in `ADR, 2026 §4` as
+# an id, and the whole point of the id branch is to tell an ADR reference apart
+# from prose that merely contains those characters. The cost is named: a citation
+# of an ADR that does not exist yet is invisible to THIS guard — it is the
+# numbering guard's `test_every_citation_resolves` that fails on it, since an
+# unknown id cannot resolve to a decision. Two guards, one gap each, no overlap.
 #
 # The separator class EXCLUDES `§` deliberately. With a plain `\W` there, the
 # `ADR §<N>/§<M>` in the 2026-08 retrospective parsed as id=`ADR §<N>` and keyed as a
 # `mis-anchored|2` rather than `|1/2` — the id matcher ate the first decision
 # number. Caught by re-measuring the live hit set after the widening, not by
 # review; see the harness discipline in ADR-001 §4.
-_ADR_ID = r"(?:[^\w§]{1,2}0*1)?"
+_ADR_ID = rf"(?:[^\w§]{{1,2}}0*(?:{_KNOWN_IDS}))?"
 
 # The joint between the anchor and what follows it: up to three non-word chars on
 # the same line, OR a line wrap with any indent and an optional continuation
@@ -254,23 +304,23 @@ _JOINT = r"(?:\](?:\([^)\s]*\))?)?(?:\W{0,3}|[ \t]*\n[ \t]*(?:[#>*+-][ \t]*)*)"
 # class excludes the canonical anchor with a lookahead, and `bare-decision`
 # excludes the `ADR-001 ` prefix its own class owns. The one residual overlap is
 # an over-report: a LOWERCASE word form (`adr-001 Decision <N>`) is claimed by both
-# `adr001-decision` and `bare-decision`, because the latter's lookbehind is
+# `adr-decision` and `bare-decision`, because the latter's lookbehind is
 # case-sensitive. Two keys on a line that is forbidden either way — a false alarm,
 # never a miss.
 FORBIDDEN = (
     # `ADR-001 §<N>/§<M>` — the head is canonical, so the line is VISIBLE to
     # `_CITE_RE` while the tail is not. Requires at least one hop, so plain
     # `ADR-001 §1` and a pair with the prefix repeated are untouched.
-    ("anchored-chain", re.compile(rf"ADR-001 §(\d+)((?:{_CHAIN_HOP})+)")),
+    ("anchored-chain", re.compile(rf"ADR-\d{{3}} §(\d+)((?:{_CHAIN_HOP})+)")),
     # The word form. `ADR` and `Decision` are both case-insensitive, and the
     # joint between them and the number is `\W{0,3}`, so a lower-case word form and
     # a parenthesised number are both covered. The id is REQUIRED here, which keeps
     # slug honest; a bare `ADR Decision <N>` with no id is a named limit below.
     (
-        "adr001-decision",
+        "adr-decision",
         re.compile(
-            rf"(?<![-\w])(?i:ADR)[^\w§]{{1,2}}0*1[ \t]*(?i:Decisions?)\W{{0,3}}"
-            rf"(\d+)((?:{_CHAIN_HOP})*)"
+            rf"(?<![-\w])(?i:ADR)[^\w§]{{1,2}}0*(?:{_KNOWN_IDS})[ \t]*"
+            rf"(?i:Decisions?)\W{{0,3}}(\d+)((?:{_CHAIN_HOP})*)"
         ),
     ),
     # The ANCHOR is not exactly `ADR-001` plus one space before the section mark.
@@ -310,7 +360,7 @@ FORBIDDEN = (
     (
         "mis-anchored",
         re.compile(
-            rf"(?<![-\w])(?!ADR-001 §\d)(?i:ADR){_ADR_ID}{_JOINT}"
+            rf"(?<![-\w])(?!ADR-\d{{3}} §\d)(?i:ADR){_ADR_ID}{_JOINT}"
             rf"§\W{{0,3}}(\d+)((?:{_CHAIN_HOP})*)"
         ),
     ),
@@ -341,7 +391,11 @@ FORBIDDEN = (
     # Named limits, all measured at zero live instances on `dc3a959`: lower-case
     # `decision <N>`, `Decision #<N>`, `Decision-<N>`, and `Decision <4-digit year>`
     # as a false positive that fails loudly rather than silently.
-    ("bare-decision", re.compile(r"(?<!ADR-001 )\bDecisions? (\d+)()")),
+    #
+    # The lookbehind is `ADR-\d{3} ` and stays FIXED-WIDTH (8), which is what
+    # Python requires; a `\d{1,4}` there is a compile error, so widening the id
+    # shape further would need a different construction, not a looser quantifier.
+    ("bare-decision", re.compile(r"(?<!ADR-\d{3} )\bDecisions? (\d+)()")),
 )
 
 # Slug -> path GLOBS where that slug is not a violation. See "THE ADR'S OWN
@@ -371,10 +425,10 @@ EXEMPT_PATH_GLOBS = {"bare-decision": ("docs/devsecops/adr-[0-9]*.md",)}
 GRANDFATHERED = frozenset(
     {
         # The authoring skill's four, written `5a35454` in the word form.
-        ".claude/skills/ci-config-guard-claudesec/SKILL.md|adr001-decision|1|#1",
-        ".claude/skills/ci-config-guard-claudesec/SKILL.md|adr001-decision|3|#1",
-        ".claude/skills/ci-config-guard-claudesec/SKILL.md|adr001-decision|4|#1",
-        ".claude/skills/ci-config-guard-claudesec/SKILL.md|adr001-decision|5|#1",
+        ".claude/skills/ci-config-guard-claudesec/SKILL.md|adr-decision|1|#1",
+        ".claude/skills/ci-config-guard-claudesec/SKILL.md|adr-decision|3|#1",
+        ".claude/skills/ci-config-guard-claudesec/SKILL.md|adr-decision|4|#1",
+        ".claude/skills/ci-config-guard-claudesec/SKILL.md|adr-decision|5|#1",
         # The ADR's own drift tables, quoting the old spelling of a fixed site.
         "docs/devsecops/adr-001-ci-guard-hardening-and-audit-cadence.md"
         "|mis-anchored|3|#1",
@@ -400,7 +454,7 @@ GRANDFATHERED = frozenset(
     }
 )
 
-_CANONICAL_RE = re.compile(r"ADR-001 §\d+")
+_CANONICAL_RE = re.compile(r"ADR-\d{3} §\d+")
 
 
 def _numbers(head: str, chain: str) -> str:
@@ -473,6 +527,13 @@ class TestAdrCitationSpelling(unittest.TestCase):
         self.assertTrue(rels, "no files matched the imported citation globs")
         self.assertIn(ADR_REL, rels, f"{ADR_REL} dropped out of the scanned globs")
         self.assertIn(THIS_REL, rels, "this guard file is not in its own scan")
+        # Every ADR, not just the first: a later ADR falling out of the scanned
+        # globs would take its own drift tables out of the baseline with it, and
+        # `assertIn(ADR_REL)` alone would still pass.
+        missing = sorted(set(adr_files().values()) - set(rels))
+        self.assertEqual(
+            missing, [], f"ADR files outside the scanned globs: {missing}"
+        )
         canonical = sum(len(_CANONICAL_RE.findall(t)) for _, t in self.files)
         self.assertGreaterEqual(
             canonical,
@@ -495,7 +556,7 @@ class TestAdrCitationSpelling(unittest.TestCase):
             "pre-renumbering errors were in the invisible 17).\n"
             "  mis-anchored    -> the anchor must be exactly `ADR-001 ` (right "
             "hyphen, right case, nothing between it and the mark, same line).\n"
-            "  adr001-decision -> use the section mark, not the word.\n"
+            "  adr-decision    -> use the section mark, not the word.\n"
             "  anchored-chain  -> REPEAT the prefix before the second number; a "
             "chain hides its tail from the scan while the head keeps the line "
             "looking triaged, and un-chaining alone does not fix that (the scan "
@@ -545,35 +606,43 @@ class TestAdrCitationSpelling(unittest.TestCase):
 _S = "§"  # §
 
 
-def _canon(*nums) -> str:
+# Every fixture takes the ADR id, defaulting to `001` so the pre-existing
+# assertions read unchanged. The id is a PARAMETER rather than a second set of
+# `_canon2`-style helpers: the classes are id-agnostic by construction now, and a
+# per-id helper would be the enumeration ADR-001 §5 rules out.
+_DEFAULT_ADR = "001"
+
+
+def _canon(*nums, adr: str = _DEFAULT_ADR) -> str:
     """The canonical form, one or two decisions (`... and ...`) — the encouraged
     spelling, and the negative control for every assertion below."""
-    return " and ".join(f"ADR-001 {_S}{n}" for n in nums)
+    return " and ".join(f"ADR-{adr} {_S}{n}" for n in nums)
 
 
 def _misanchored(*nums) -> str:
-    """The `-001`-dropped instance of `mis-anchored` — #434's enumerated one, and
-    the shape of all five live sites. The other shapes that class now covers (bad
-    hyphen, missing hyphen, intervening markup, wrong case) are written inline in
-    their own tests, since each one IS the thing under test."""
+    """The id-dropped instance of `mis-anchored` — #434's enumerated one, and
+    the shape of all five live sites. Takes no id BY CONSTRUCTION: a dropped id is
+    what this fixture is. The other shapes that class now covers (bad hyphen,
+    missing hyphen, intervening markup, wrong case) are written inline in their own
+    tests, since each one IS the thing under test."""
     return "ADR " + "/".join(f"{_S}{n}" for n in nums)
 
 
-def _word(n) -> str:
-    """The `adr001-decision` word form."""
-    return f"ADR-001 Decision {n}"
+def _word(n, adr: str = _DEFAULT_ADR) -> str:
+    """The `adr-decision` word form."""
+    return f"ADR-{adr} Decision {n}"
 
 
-def _word_joint(joint, n, word="Decision") -> str:
+def _word_joint(joint, n, word="Decision", adr: str = _DEFAULT_ADR) -> str:
     """The word form with an arbitrary joint between the word and the number, and
     an arbitrary spelling of the word itself. Assembled, so no literal instance of
     any of these shapes exists in this file."""
-    return f"ADR-001 {word}{joint}{n}"
+    return f"ADR-{adr} {word}{joint}{n}"
 
 
-def _chain(*nums) -> str:
+def _chain(*nums, adr: str = _DEFAULT_ADR) -> str:
     """The `anchored-chain` spelling: a canonical head, an invisible tail."""
-    return "ADR-001 " + "/".join(f"{_S}{n}" for n in nums)
+    return f"ADR-{adr} " + "/".join(f"{_S}{n}" for n in nums)
 
 
 def _bare(n, plural: bool = False) -> str:
@@ -606,7 +675,7 @@ class TestSpellingDetector(unittest.TestCase):
     def test_word_form_decision_is_detected(self):
         self.assertEqual(
             self._keys(f"per {_word(3)}, review twice"),
-            [f"{self.OTHER}|adr001-decision|3|#1"],
+            [f"{self.OTHER}|adr-decision|3|#1"],
         )
 
     def test_anchored_chain_is_detected(self):
@@ -703,7 +772,7 @@ class TestSpellingDetector(unittest.TestCase):
 
     def test_canonical_does_not_leak_into_the_bare_decision_class(self):
         # The fixed-width lookbehind is what keeps the word form in one class.
-        self.assertEqual(self._slugs(_word(3)), ["adr001-decision"])
+        self.assertEqual(self._slugs(_word(3)), ["adr-decision"])
 
     def test_a_bare_section_mark_is_not_a_citation(self):
         # Other standards and this repo's own skills use the section mark;
@@ -887,7 +956,7 @@ class TestSpellingDetector(unittest.TestCase):
     # --- L-2 / L-1: what the tail classes do and do not cover ------------------
 
     def test_a_lower_case_word_form_is_detected(self):
-        self.assertIn("adr001-decision", self._slugs(f"per {_word(4).lower()}"))
+        self.assertIn("adr-decision", self._slugs(f"per {_word(4).lower()}"))
 
     def test_the_word_form_joint_is_not_a_single_space(self):
         # The gap the second pass found: L-2 widened this class's joint from one
@@ -905,7 +974,7 @@ class TestSpellingDetector(unittest.TestCase):
             text = _word_joint(joint, 4, word)
             self.assertEqual(
                 self._slugs(text),
-                ["adr001-decision"],
+                ["adr-decision"],
                 f"{label} joint ({text!r}) not read as the word form",
             )
 
@@ -985,6 +1054,86 @@ class TestAdrExemptionIsNarrow(unittest.TestCase):
             )
 
 
+class TestTheWholeSeriesIsCovered(unittest.TestCase):
+    """Every class must fire on a NON-001 id, and the canonical form of one must
+    stay quiet.
+
+    Without this class the suite's green says nothing about ADR-002: every other
+    assertion uses the `001` default, so a pattern that had silently stayed pinned
+    to `ADR-001` would pass all sixty of them. The generalisation is the claim, so
+    the generalisation is what gets measured — the population itself cannot show
+    it, because ADR-002 had zero citations when this landed (`378d09d`).
+    """
+
+    OTHER = "docs/x.md"
+    ADR = "002"
+
+    def _slugs(self, text):
+        return [k.split("|")[1] for k in spelling_findings(text, self.OTHER)]
+
+    def test_the_canonical_form_of_a_later_adr_is_not_flagged(self):
+        # The control, and the one that would break loudest if `_ADR_ID` or the
+        # `mis-anchored` lookahead were left at a literal `001`.
+        self.assertEqual(spelling_findings(_canon(3, adr=self.ADR), self.OTHER), [])
+
+    def test_each_forbidden_class_fires_on_a_later_adr(self):
+        for slug, text in (
+            ("anchored-chain", _chain(1, 3, adr=self.ADR)),
+            ("adr-decision", _word(4, adr=self.ADR)),
+            ("mis-anchored", f"adr-{self.ADR} {_S}3"),
+        ):
+            with self.subTest(slug=slug):
+                self.assertEqual(self._slugs(text), [slug], text)
+
+    def test_the_mis_anchored_shapes_all_fire_on_a_later_adr(self):
+        # The same family the `001` tests pin, re-measured on a different id: the
+        # id is inside `_ADR_ID`, so a shape can pass for one id and fail for
+        # another if the alternation is built wrong.
+        for label, text in (
+            ("non-ascii hyphen", f"ADR‑{self.ADR} {_S}3"),
+            ("missing hyphen", f"ADR {self.ADR} {_S}3"),
+            ("backticked", f"`ADR-{self.ADR}` {_S}3"),
+            ("four-digit id", f"ADR-0{self.ADR} {_S}3"),
+            ("wrap", f"ADR-{self.ADR}\n    {_S}3"),
+            ("plural mark", f"ADR-{self.ADR} {_S}{_S}3"),
+            ("markdown link", f"[ADR-{self.ADR}](../x.md) {_S}3"),
+        ):
+            with self.subTest(shape=label):
+                self.assertEqual(self._slugs(text), ["mis-anchored"], label)
+
+    def test_the_ids_come_from_the_numbering_guard(self):
+        # Single source. A second hand-kept id list is where the two guards would
+        # disagree about what an ADR is.
+        self.assertEqual(
+            sorted(_KNOWN_IDS.split("|"), key=int),
+            sorted((str(int(i)) for i in DECISIONS_BY_ADR), key=int),
+        )
+        self.assertIn("2", _KNOWN_IDS.split("|"), "ADR-002 is not a known id here")
+
+    def test_an_unknown_id_is_this_guard_s_NAMED_LIMIT(self):
+        # Deliberate, and paired with its other half below so the green is not
+        # read as coverage: the spelling guard cannot judge an id it does not
+        # know, because `\d+` there would read a year as an id.
+        self.assertEqual(spelling_findings(f"ADR-777 {_S}1", self.OTHER), [])
+
+    def test_the_unknown_id_gap_is_closed_by_the_numbering_guard(self):
+        # The other half. An id with no pinned decisions cannot resolve, so the
+        # citation is dangling there — including a number that exists in a
+        # DIFFERENT ADR, which is the cross-series case a per-number check
+        # would miss.
+        import test_ci_adr_decision_numbering as numbering
+
+        for text in (f"ADR-777 {_S}1", f"ADR-{self.ADR} {_S}99"):
+            hits = numbering._CITE_RE.findall(text)
+            self.assertTrue(hits, f"the numbering guard does not even see {text!r}")
+            dangling = [
+                (a, int(d))
+                for a, d in hits
+                if int(d) not in numbering.DECISIONS_BY_ADR.get(a, {})
+            ]
+            self.assertEqual(len(dangling), len(hits), f"{text!r} resolved")
+
+
 class TestRealFileMutation(unittest.TestCase):
     """Non-vacuity against real on-disk text: the detector must be quiet on the
     file as committed and fire on a canonical citation degraded to each forbidden
@@ -1017,7 +1166,7 @@ class TestRealFileMutation(unittest.TestCase):
     def test_each_degradation_of_a_real_citation_is_caught(self):
         cases = {
             "mis-anchored": _misanchored(5),
-            "adr001-decision": _word(5),
+            "adr-decision": _word(5),
             "anchored-chain": _chain(5, 9),
             "bare-decision": _bare(5),
         }
@@ -1120,6 +1269,18 @@ class TestNestedCheckoutExclusion(unittest.TestCase):
 
         self.assertEqual(ADR_REL, numbering.ADR_REL)
         self.assertTrue((REPO_ROOT / ADR_REL).is_file(), f"{ADR_REL} not on disk")
+
+    def test_the_adr_series_comes_from_the_numbering_guard(self):
+        # The series is DISCOVERED there and imported here, so the two guards
+        # cannot disagree about which files are ADRs — the same reason
+        # `cited_paths` is shared rather than re-globbed.
+        import test_ci_adr_decision_numbering as numbering
+
+        self.assertIs(adr_files, numbering.adr_files)
+        series = adr_files()
+        self.assertIn("001", series, f"the ADR series glob broke: {series}")
+        for rel in series.values():
+            self.assertTrue((REPO_ROOT / rel).is_file(), f"{rel} not on disk")
 
 
 if __name__ == "__main__":
