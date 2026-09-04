@@ -31,13 +31,40 @@ to be retro-fitted to starts existing.
 
 Three things follow, each with a cost worth stating:
 
-- **The id set is IMPORTED**, from the numbering guard's `DECISIONS_BY_ADR`, which
-  is itself checked against the files on disk. Known ids and not `\d+`: a bare
-  `\d+` would read the year in a `2026` reference as an ADR id. The cost is a
-  named limit — a citation of an ADR that does not exist yet is invisible HERE,
-  and is caught THERE instead, because an unknown id cannot resolve to a decision.
-  `TestTheWholeSeriesIsCovered` pins both halves so neither is read as coverage of
-  the other.
+- **ONE class is gated on the pinned id set, and three are not.** The rule, which
+  took two review rounds to state correctly: a class that mirrors what `_CITE_RE`
+  can SEE uses `_CITE_RE`'s own `\d{3}` anchor shape (`anchored-chain`,
+  `adr-decision`, and `bare-decision`'s exemption). Only `mis-anchored` uses the
+  imported known ids, because it is the one class recognising an ADR reference
+  that is NOT `_CITE_RE`-shaped, and so the one with no other signal to tell such
+  a reference from prose containing a year — a bare `\d+` there reads `2026` as an
+  id.
+
+  Getting that split wrong is not cosmetic. The first draft gated `adr-decision`
+  on the known ids while `bare-decision` exempted `\d{3}`, so the exemption was
+  wider than the coverage and an uppercase word-form citation of an unpinned
+  3-digit id fell between them — invisible to both classes AND to `_CITE_RE`.
+  Review measured it as a REGRESSION against `378d09d`, where the narrower
+  `(?<!ADR-001 )` exemption had kept those in `bare-decision`. Nothing in the
+  suite failed. `test_no_word_form_decision_escapes_BOTH_word_classes` now pins
+  the complement in one direction and
+  `test_the_canonical_word_form_is_claimed_by_exactly_one_class` in the other.
+
+- **What the known-id gate costs**, pinned as a MATRIX in
+  `TestTheWholeSeriesIsCovered` rather than as a sentence — an earlier draft of
+  this paragraph said "a citation of an ADR that does not exist yet is invisible
+  here and caught there", which review measured as wrong in both directions:
+
+      shape (id not pinned)      this guard        numbering guard
+      canonical                  -                 sees it, dangling
+      chain                      anchored-chain    sees the head, dangling
+      word form                  adr-decision      -
+      lower case                 -                 -
+      missing hyphen             -                 -
+
+  The bottom two rows are the whole remaining gap, and reaching it needs BOTH an
+  unpinned id and a non-canonical spelling. Closing it means `\d+` in `_ADR_ID`,
+  which costs the year false positives above.
 - **The BASELINE KEY still carries no ADR id**, and cannot. `mis-anchored` is the
   class whose defect often IS the missing id, so there is frequently no id to key
   on; keying only the classes that have one would make the baseline inconsistent
@@ -316,10 +343,26 @@ FORBIDDEN = (
     # joint between them and the number is `\W{0,3}`, so a lower-case word form and
     # a parenthesised number are both covered. The id is REQUIRED here, which keeps
     # slug honest; a bare `ADR Decision <N>` with no id is a named limit below.
+    #
+    # THE ID IS `\d{3}`, NOT `_KNOWN_IDS`, AND THAT IS LOAD-BEARING. It must be
+    # exactly the shape `bare-decision` exempts below, or the exemption is not
+    # this class's coverage and the difference between them is a hole. Written as
+    # `_KNOWN_IDS` against a `\d{3}` exemption it WAS one: `ADR-777 Decision <N>`
+    # and `ADR-003 Decision <N>` — an id not pinned YET, which is the ordinary way
+    # to cite an ADR you are about to add — were claimed by NEITHER class, and are
+    # invisible to `_CITE_RE` too. Measured as a REGRESSION against `378d09d`,
+    # where the narrower `(?<!ADR-001 )` exemption left `bare-decision` covering
+    # them. Found by review; nothing in the suite failed.
+    #
+    # The general rule, so it is not re-derived per class: a class that mirrors
+    # what `_CITE_RE` can SEE uses `_CITE_RE`'s own `\d{3}` anchor shape. Only
+    # `mis-anchored`, whose job is to recognise an ADR reference that is NOT
+    # `_CITE_RE`-shaped, needs the known-id heuristic — it is the only class with
+    # no other signal to tell an ADR reference from prose containing a year.
     (
         "adr-decision",
         re.compile(
-            rf"(?<![-\w])(?i:ADR)[^\w§]{{1,2}}0*(?:{_KNOWN_IDS})[ \t]*"
+            rf"(?<![-\w])(?i:ADR)[^\w§]{{1,2}}0*\d{{3}}[ \t]*"
             rf"(?i:Decisions?)\W{{0,3}}(\d+)((?:{_CHAIN_HOP})*)"
         ),
     ),
@@ -392,10 +435,21 @@ FORBIDDEN = (
     # `decision <N>`, `Decision #<N>`, `Decision-<N>`, and `Decision <4-digit year>`
     # as a false positive that fails loudly rather than silently.
     #
-    # The lookbehind is `ADR-\d{3} ` and stays FIXED-WIDTH (8), which is what
-    # Python requires; a `\d{1,4}` there is a compile error, so widening the id
-    # shape further would need a different construction, not a looser quantifier.
-    ("bare-decision", re.compile(r"(?<!ADR-\d{3} )\bDecisions? (\d+)()")),
+    # The exemption is the EXACT complement of `adr-decision` above, and the two
+    # must be read together: whatever this exempts, that must claim.
+    #
+    # The outer lookbehind stays FIXED-WIDTH (8), which is what Python requires;
+    # a `\d{1,4}` there is a compile error. The NESTED `(?<![-\w])` inside it is
+    # not decoration: without it, `SADR-002 Decision <N>` was exempted here (the
+    # eight preceding characters do read `ADR-002 `) while `adr-decision`'s own
+    # `(?<![-\w])` refused it, so the two guards' boundaries did not line up and a
+    # word-glued anchor fell between them. Both classes now carry the same
+    # not-preceded-by-a-word-character condition, so the complement holds by
+    # construction rather than by enumeration (ADR-001 §5).
+    (
+        "bare-decision",
+        re.compile(r"(?<!(?<![-\w])ADR-\d{3} )\bDecisions? (\d+)()"),
+    ),
 )
 
 # Slug -> path GLOBS where that slug is not a violation. See "THE ADR'S OWN
@@ -1110,20 +1164,53 @@ class TestTheWholeSeriesIsCovered(unittest.TestCase):
         )
         self.assertIn("2", _KNOWN_IDS.split("|"), "ADR-002 is not a known id here")
 
-    def test_an_unknown_id_is_this_guard_s_NAMED_LIMIT(self):
-        # Deliberate, and paired with its other half below so the green is not
-        # read as coverage: the spelling guard cannot judge an id it does not
-        # know, because `\d+` there would read a year as an id.
-        self.assertEqual(spelling_findings(f"ADR-777 {_S}1", self.OTHER), [])
+    # --- the UNPINNED-ID limit, as a matrix rather than a sentence -------------
+    #
+    # An earlier draft of this file's docstring stated the limit as "a citation of
+    # an ADR that does not exist yet is invisible HERE and caught THERE". Review
+    # measured that as wrong in BOTH directions, so it is written as a table now:
+    # a prose limit that nothing executes is how a named gap drifts into a false
+    # reassurance. Column 3 is the only one that matters — whether ANY guard sees
+    # it — and the two rows where nothing does are the real, narrow gap.
+    UNPINNED = "777"
+    UNPINNED_MATRIX = (
+        # (label, text-suffix builder result, spelling slugs, numbering sees?)
+        ("canonical", f"ADR-{UNPINNED} {_S}1", [], True),
+        ("chain", f"ADR-{UNPINNED} {_S}1/{_S}3", ["anchored-chain"], True),
+        # Caught because `adr-decision`'s id is `\d{3}`, not the pinned set. This
+        # row was `[]` in the first draft and that was the HIGH regression.
+        # ASSEMBLED, like every other fixture here: written as a literal it put a
+        # real `bare-decision` instance into this file's own source and
+        # `test_this_guard_declares_no_citations_of_its_own` caught it — the
+        # second time in this change that a guard flagged its author's prose.
+        ("word form", _word(4, adr=UNPINNED), ["adr-decision"], False),
+        ("lower case", f"adr-{UNPINNED} {_S}1", [], False),
+        ("missing hyphen", f"ADR {UNPINNED} {_S}1", [], False),
+    )
 
-    def test_the_unknown_id_gap_is_closed_by_the_numbering_guard(self):
-        # The other half. An id with no pinned decisions cannot resolve, so the
-        # citation is dangling there — including a number that exists in a
-        # DIFFERENT ADR, which is the cross-series case a per-number check
-        # would miss.
+    def test_the_unpinned_id_matrix_is_exactly_as_documented(self):
         import test_ci_adr_decision_numbering as numbering
 
-        for text in (f"ADR-777 {_S}1", f"ADR-{self.ADR} {_S}99"):
+        for label, text, want_slugs, want_seen in self.UNPINNED_MATRIX:
+            with self.subTest(shape=label):
+                self.assertEqual(self._slugs(text), want_slugs, f"{label}: {text!r}")
+                self.assertEqual(
+                    bool(numbering._CITE_RE.findall(text)), want_seen, label
+                )
+
+    def test_a_canonically_spelled_unpinned_id_is_caught_by_the_numbering_guard(self):
+        # Rows 1 and 2 of the matrix: the id is unknown HERE, but the anchor is
+        # `_CITE_RE`-shaped, so the citation resolves against an ADR with no
+        # pinned decisions and is dangling there. `ADR-<known> §99` is the
+        # cross-series case in the same shape — a number that exists in a
+        # DIFFERENT ADR must not resolve.
+        import test_ci_adr_decision_numbering as numbering
+
+        for text in (
+            f"ADR-{self.UNPINNED} {_S}1",
+            f"ADR-{self.UNPINNED} {_S}1/{_S}3",
+            f"ADR-{self.ADR} {_S}99",
+        ):
             hits = numbering._CITE_RE.findall(text)
             self.assertTrue(hits, f"the numbering guard does not even see {text!r}")
             dangling = [
@@ -1132,6 +1219,69 @@ class TestTheWholeSeriesIsCovered(unittest.TestCase):
                 if int(d) not in numbering.DECISIONS_BY_ADR.get(a, {})
             ]
             self.assertEqual(len(dangling), len(hits), f"{text!r} resolved")
+
+    def test_no_word_form_decision_escapes_BOTH_word_classes(self):
+        # The invariant behind the `\d{3}`/`\d{3}` pairing of `adr-decision` and
+        # `bare-decision`. Every `Decision <N>` must be claimed by at least one of
+        # them, whatever precedes it — the exemption of one IS the coverage of the
+        # other, so a mismatch between the two shapes is a hole rather than a
+        # style difference. All four rows below were measured invisible to BOTH at
+        # some point during this change.
+        for label, prefix in (
+            ("unpinned 3-digit id", f"ADR-{self.UNPINNED} "),
+            ("not-yet-created id", "ADR-003 "),
+            ("two-digit-looking id", "ADR-021 "),
+            ("word-glued anchor", f"SADR-{self.ADR} "),
+            ("four-digit id", "ADR-0002 "),
+            ("short id", "ADR-1 "),
+            ("no anchor at all", "the "),
+            ("a year, not an id", "ADR-2026 "),
+        ):
+            text = prefix + _bare(4)
+            with self.subTest(shape=label):
+                slugs = self._slugs(text)
+                self.assertTrue(
+                    {"adr-decision", "bare-decision"} & set(slugs),
+                    f"{label} ({text!r}) is claimed by NEITHER word class — the "
+                    "`bare-decision` exemption and the `adr-decision` id have "
+                    f"drifted apart. slugs: {slugs}",
+                )
+
+    def test_the_canonical_word_form_is_claimed_by_exactly_one_class(self):
+        # The other direction: the complement must not become a blanket
+        # double-report. A double key is only a false alarm, but it would churn
+        # the baseline on every future word-form citation, and the nested
+        # lookbehind exists precisely to avoid that.
+        for adr in ("001", self.ADR, self.UNPINNED):
+            with self.subTest(adr=adr):
+                self.assertEqual(self._slugs(_word(4, adr=adr)), ["adr-decision"])
+
+    def test_a_MISSPELLED_unpinned_id_is_seen_by_NEITHER_guard(self):
+        # Rows 3-5, and the actual gap. Both conditions are required: the id must
+        # be unpinned (so `_ADR_ID` rejects it) AND the spelling non-canonical (so
+        # `_CITE_RE` cannot see it either). Closing it would mean `\d+` ids here,
+        # which reads a year as an ADR id — measured and rejected. Named as a
+        # RED-when-fixed test: if this ever goes green the gap closed and the
+        # docstring must stop claiming it.
+        import test_ci_adr_decision_numbering as numbering
+
+        # A row is a genuine miss only when NEITHER guard covers it. Deriving that
+        # from both matrix columns rather than from `seen` alone is the point: the
+        # first version filtered on the numbering guard only, so when the
+        # `adr-decision` fix made the word-form row covered HERE, that row stayed
+        # in this list and the test failed loudly instead of quietly asserting a
+        # miss that no longer existed.
+        misses = [
+            (label, text)
+            for label, text, slugs, seen in self.UNPINNED_MATRIX
+            if not slugs and not seen
+        ]
+        self.assertTrue(misses, "no rows left in the gap — good; delete this test "
+                                "and the paragraph in the docstring that names it")
+        for label, text in misses:
+            with self.subTest(shape=label):
+                self.assertEqual(self._slugs(text), [], label)
+                self.assertEqual(numbering._CITE_RE.findall(text), [], label)
 
 
 class TestRealFileMutation(unittest.TestCase):

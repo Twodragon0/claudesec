@@ -18,11 +18,11 @@ citations meant it. The most plausible history is an item inserted above it, whi
 is the operation this guard now forces into the open.
 
 "Into the open", not "blocks": the pin is one-sided. Renumbering the ADR while
-reordering `DECISIONS` in the SAME commit passes all ten tests (measured 2026-08-12
-by in-memory mutation; the one-sided control — ADR renumbered, `DECISIONS` untouched
+reordering `DECISIONS_BY_ADR` in the SAME commit passes the whole suite (measured 2026-08-12
+by in-memory mutation; the one-sided control — ADR renumbered, the pin untouched
 — correctly fails `test_numbers_map_to_the_same_decisions`). The guarantee is that a
 renumber cannot be a silent one-line edit: it must arrive as a lockstep diff through
-this file, where a reviewer sees it. An APPEND without its `DECISIONS` line does fail
+this file, where a reviewer sees it. An APPEND without its `DECISIONS_BY_ADR` line does fail
 outright, because `test_no_extra_or_missing_decisions` is a set equality.
 
 The fix for that drift was to correct the citations, not to renumber the ADR back:
@@ -62,8 +62,9 @@ still carrying a pre-renumbering number in that remainder: four invisible outrig
 and one (`ci-config-regression-guards.md:324`, `ADR-001 §1/§3`) on a line this scan
 DOES match — it resolved the `§1` and never saw the `/§3`, so a chained citation
 hides its tail from the only scanner that reads these. Widening the regex is not the
-fix (a bare `Decision N` is unquotably common in prose); writing new citations as
-`ADR-001 §N`, and spelling two out as `§1 and §4`, is. See "On citing this ADR".
+fix (a bare `Decision N` is unquotably common in prose); writing new citations in
+the canonical anchored form, and spelling a pair out with the prefix REPEATED, is.
+See "On citing this ADR".
 
 DIRECTION
 ---------
@@ -73,11 +74,12 @@ PIN (`==`) on the mapping `number -> title`. Any of these fails:
 - renumbering, reordering, or deleting a decision;
 - retitling one (the title is how a reader confirms a citation resolves, so a
   retitle is exactly as confusing as a renumber and gets the same review);
-- a citation to a number that does not exist (`§10` today).
+- a citation to a number that does not exist in the ADR it NAMES (so a number
+  valid in one ADR still dangles when cited against another).
 
 APPENDING is allowed and costs one line here. That is the point: it is a review
 moment, not a silent re-pointing of sixty citations. When you append, add the entry
-to `DECISIONS` in the same commit.
+to `DECISIONS_BY_ADR` in the same commit.
 
 Titles are matched by PREFIX, so rewording the body of a decision — or the tail of
 a long title — does not trip this. Only the identity of the rule does.
@@ -96,12 +98,34 @@ from glob import glob
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import REPO_ROOT  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    REPO_ROOT,
+    strip_code_fences,
+    strip_html_comments,
+)
 
 # The ADR series. `adr-index.md` is deliberately NOT matched: an index cites ADRs,
-# it does not define decisions. `[0-9]*` covers adr-tools' 4-digit ids too.
+# it does not define decisions.
+#
+# The glob is DELIBERATELY wider than the convention: it matches any digit run,
+# so an off-convention id is DISCOVERED and then fails
+# `test_every_adr_id_is_three_digits` by name. Narrowing the glob to `[0-9][0-9]`
+# `[0-9]` instead would make the same file invisible, which is the failure this
+# whole discovery step exists to prevent. An earlier version of this comment
+# claimed the glob 'covers adr-tools' 4-digit ids too' — it covers them for
+# DISCOVERY only, and `_CITE_RE` can never see a 4-digit citation, so such an ADR
+# would be pinned and permanently uncitable. Review walked that through; the
+# guard now rejects it rather than advertising support for it.
 ADR_GLOB = "docs/devsecops/adr-[0-9]*.md"
-_ADR_FILE_RE = re.compile(r"adr-(\d+)-")
+
+# No trailing hyphen. Written `adr-(\d+)-` it required a slug after the id, so
+# `adr-005.md` and `adr-005_thing.md` matched the GLOB, failed this regex, and
+# were dropped from the series in silence — an ADR whose numbers were then
+# unpinned and unscanned while every test stayed green. Found by review, not by
+# the suite, which is why `test_the_glob_and_the_id_regex_agree` now pins the two
+# against each other: a derived list is only derived if nothing filters it
+# invisibly afterwards (#501).
+_ADR_FILE_RE = re.compile(r"adr-(\d+)")
 
 # `adr id -> {number -> title prefix}`, pinned. Prefix match: reword the tail
 # freely, but the rule a number denotes may not change without this line changing
@@ -132,9 +156,13 @@ DECISIONS_BY_ADR = {
 # ADR-001 stays addressable by name: the spelling guard's real-file mutation test
 # and several of its fixtures are specifically about it, and naming it there beats
 # indexing into the dict at every call site.
+#
+# There is deliberately NO `DECISIONS` alias for `DECISIONS_BY_ADR["001"]`. The
+# first draft kept one "for back-compat" and nothing read it, so the docstrings
+# and the catalog went on routing readers to a dead name while every failure
+# message named the live one.
 ADR_REL = "docs/devsecops/adr-001-ci-guard-hardening-and-audit-cadence.md"
 ADR = REPO_ROOT / ADR_REL
-DECISIONS = DECISIONS_BY_ADR["001"]
 
 # Form 1 (ADR-001): a numbered list item whose first line opens with `**`. The
 # Context section also uses a numbered list, so items are collected only from the
@@ -151,11 +179,13 @@ _FORMS = (("list", _ITEM_RE), ("section", _SECTION_RE))
 # id, group 2 the decision number — a citation resolves against ITS OWN ADR, so a
 # number that exists in one ADR is still dangling when cited against another.
 #
-# No literal citation is written in this file, deliberately. The first draft of
-# this comment spelled that example out and `test_every_citation_resolves` failed
-# on it immediately: a guard's own prose is inside the population it scans, which
-# is the same discipline `test_this_guard_declares_no_citations_of_its_own`
-# enforces one file over.
+# No DANGLING example citation is written in this file, deliberately — resolvable
+# ones are written freely above, and stating the rule as 'no literal citation'
+# was itself false in the file that said it. The first draft of this comment
+# spelled a non-existent decision out and `test_every_citation_resolves` failed on
+# it immediately: a guard's own prose is inside the population it scans, which is
+# the same discipline `test_this_guard_declares_no_citations_of_its_own` enforces
+# one file over.
 _CITE_RE = re.compile(r"ADR-(\d{3}) §(\d+)")
 
 # Where citations live. Kept broad on purpose: a dangling `§10` in any of these is
@@ -211,8 +241,22 @@ def cited_paths() -> list:
 
 
 def decision_section(text: str) -> str:
-    """The text between the `## Decision` heading and the next `##` heading."""
-    m = re.search(r"^## Decision\s*$(.*?)^## ", text, re.M | re.S)
+    """The text between the `## Decision` heading and the next `##` heading,
+    with HTML comments and fenced code blocks blanked out first.
+
+    THE STRIP IS THE CONTROL, not tidiness. Scanning raw text here UNDER-reports,
+    which is the opposite of the spelling guard's situation: there a raw scan can
+    only over-report (a false alarm a baseline line settles), so it deliberately
+    reads raw. Here a decision "retired" by wrapping it in `<!-- -->` or in a
+    fence still parsed, so the whole list looked intact and
+    `test_no_extra_or_missing_decisions` passed — the exact deletion this guard's
+    docstring promises to catch, going through green. Measured on a real edit to
+    ADR-002 that removed a decision both ways: 92 passed, both times.
+
+    Routed through `_ci_guard_util`'s block primitives rather than re-implemented
+    (ADR-001 §9), and comment-stripped before matching (ADR-001 §1)."""
+    clean = strip_code_fences(strip_html_comments(text))
+    m = re.search(r"^## Decision\s*$(.*?)^## ", clean, re.M | re.S)
     return m.group(1) if m else ""
 
 
@@ -262,19 +306,30 @@ def citation_numbers() -> dict:
     return out
 
 
+def adr_glob_paths() -> list:
+    """Repo-relative paths of every `ADR_GLOB` match, nested checkouts excluded.
+
+    Separate from `adr_files()` so the two can be COMPARED. The id regex used to
+    be able to drop a glob match silently, and a discovery step that can lose a
+    file without saying so is the failure `adr_files`'s own docstring claims it
+    prevents."""
+    return sorted(
+        str(Path(path).relative_to(REPO_ROOT))
+        for path in glob(str(REPO_ROOT / ADR_GLOB))
+        if not in_nested_checkout(path, REPO_ROOT)
+    )
+
+
 def adr_files() -> dict:
     """`{adr id: relpath}` for every ADR on disk, nested checkouts excluded.
 
     Derived, not listed: a hand-written file list is the drift `_SOURCE_FILES`
     already demonstrated (#501), one level up from the pin it feeds."""
     out = {}
-    for path in glob(str(REPO_ROOT / ADR_GLOB)):
-        if in_nested_checkout(path, REPO_ROOT):
-            continue
-        p = Path(path)
-        m = _ADR_FILE_RE.match(p.name)
+    for rel in adr_glob_paths():
+        m = _ADR_FILE_RE.match(Path(rel).name)
         if m:
-            out[m.group(1)] = str(p.relative_to(REPO_ROOT))
+            out[m.group(1)] = rel
     return out
 
 
@@ -301,6 +356,54 @@ class TestAdrDecisionNumbering(unittest.TestCase):
             self.on_disk,
             f"`{ADR_GLOB}` matched no ADR-001 — the series glob broke: "
             f"{self.on_disk}",
+        )
+
+    def test_the_glob_and_the_id_regex_agree(self):
+        # The fail-closed hinge of the whole discovery step, and the one the
+        # first draft did NOT have: `test_every_adr_is_pinned` compares the
+        # pinned set against `adr_files()`, so a file the ID REGEX dropped is
+        # absent from BOTH sides and the comparison passes. Reviewed into
+        # existence after `adr-005.md` (no slug after the id) was measured
+        # invisible while all 90 tests stayed green.
+        #
+        # Equality of counts also catches a COLLISION — two files yielding the
+        # same id, where the dict would keep one and lose the other just as
+        # quietly.
+        paths = adr_glob_paths()
+        found = adr_files()
+        self.assertEqual(
+            len(found),
+            len(paths),
+            "the ADR glob and the id regex disagree: every "
+            f"`{ADR_GLOB}` match must yield exactly one id, and two matches must "
+            "not share one. matched: "
+            f"{paths}, keyed: {found}",
+        )
+
+    def test_every_adr_id_is_three_digits(self):
+        # `adr-index.md` documents the id as a zero-padded 3-digit number, and
+        # `_CITE_RE` can only see exactly that. An `adr-0004-*.md` is therefore
+        # DISCOVERABLE but permanently UNCITABLE: it would pin under the key
+        # `0004`, while a citation written with three digits keys `004` and
+        # dangles forever, and one written with four is invisible to the citation
+        # scan entirely. Three id spellings in one system, and no test connected
+        # them until review walked it through.
+        #
+        # (Written without a literal example on purpose. The first draft spelled
+        # both citations out and `test_every_citation_resolves` failed on them —
+        # the third time in this change that a guard caught its author's prose.)
+        #
+        # Failing here rather than normalising: the convention is the repo's, not
+        # this guard's, so a file that breaks it should be renamed. Guard B's
+        # four-digit tests are about DETECTING a four-digit CITATION as a
+        # mis-spelling, which is the same position stated from the other side.
+        bad = {i: rel for i, rel in self.on_disk.items() if not re.fullmatch(r"\d{3}", i)}
+        self.assertEqual(
+            bad,
+            {},
+            "ADR filenames must carry a zero-padded THREE-digit id, per "
+            "`docs/devsecops/adr-index.md`, because that is the only id shape a "
+            f"citation can be written in and be seen. Rename: {bad}",
         )
 
     def test_every_adr_is_pinned(self):
@@ -490,6 +593,73 @@ class TestSectionFormParserBehaviour(unittest.TestCase):
     def test_a_reworded_body_is_not_caught(self):
         mutant = self._ADR.replace("### §1 — First rule\n\nbody", "### §1 — First rule\n\nrewritten")
         self.assertEqual(parsed_decisions(mutant)[1], "First rule")
+
+
+class TestRetiringADecisionInPlaceIsCaught(unittest.TestCase):
+    """Commenting a decision out, or fencing it, must read as a DELETION.
+
+    Found by adversarial review, not by this suite: `decision_forms` matched
+    line by line, so a decision wrapped in `<!-- -->` or in a code fence stayed
+    in the parsed list while disappearing from the rendered document. The pin,
+    the set-equality check and the citation resolver all went on asserting it
+    existed. Measured on a real ADR-002 edit removing a decision both ways:
+    92 passed, both times.
+    """
+
+    _FENCE = "`" * 3
+    ALIVE = "### §1 — Alpha\n\nbody\n\n### §2 — Beta\n\nbody\n\n### §3 — Gamma\n\nbody\n\n"
+    BETA = "### §2 — Beta\n\nbody\n"
+
+    def _parse(self, body: str) -> list:
+        # The wrapping is assembled into a LOCAL and parsed from there, rather
+        # than written as `parsed_decisions(self._section(body))`. That nested
+        # shape is what `test_ci_strip_before_match` reads as `strip-after-extract`
+        # — a stripper wrapped around a local extractor — and it flagged all six
+        # of these. Here the inner call is a fixture constructor and not an
+        # extractor, so it is a false positive of that meta-guard; removing the
+        # SHAPE is still the right answer, because growing that guard's
+        # exception list to admit a test helper would weaken it for the real
+        # sites it exists to catch.
+        text = "## Decision\n\n" + body + "\n## Consequences\n\nx\n"
+        return sorted(parsed_decisions(text))
+
+    def test_the_intact_fixture_parses_all_three(self):
+        # Non-vacuity: without this, every assertion below could pass because the
+        # fixture never parsed at all.
+        self.assertEqual(self._parse(self.ALIVE), [1, 2, 3])
+
+    def test_an_html_commented_decision_is_gone(self):
+        body = self.ALIVE.replace(self.BETA, "<!--\n### §2 — Beta\n\nretired\n-->\n")
+        self.assertEqual(self._parse(body), [1, 3])
+
+    def test_a_fenced_decision_is_gone(self):
+        body = self.ALIVE.replace(
+            self.BETA, f"{self._FENCE}markdown\n### §2 — Beta\n{self._FENCE}\n"
+        )
+        self.assertEqual(self._parse(body), [1, 3])
+
+    def test_a_tilde_fence_is_stripped_too(self):
+        # Same grammar, other fence character. Enumerating only backticks would
+        # leave the identical evasion one keystroke away (ADR-001 §5).
+        body = self.ALIVE.replace(self.BETA, "~~~\n### §2 — Beta\n~~~\n")
+        self.assertEqual(self._parse(body), [1, 3])
+
+    def test_a_list_form_item_is_covered_by_the_same_strip(self):
+        # The other decision form. The strip runs before the matchers, so both
+        # get it — asserted rather than assumed, since a per-form strip is
+        # exactly where one would have been forgotten.
+        body = "1. **Alpha.** b\n<!--\n2. **Beta.** b\n-->\n3. **Gamma.** b\n"
+        self.assertEqual(self._parse(body), [1, 3])
+
+    def test_a_real_code_example_does_not_delete_the_decision_owning_it(self):
+        # The false-positive boundary: an ADR decision whose BODY contains a
+        # fenced example must keep its own heading. Only the fence CONTENT is
+        # blanked, not the surrounding document.
+        body = self.ALIVE.replace(
+            self.BETA,
+            f"### §2 — Beta\n\n{self._FENCE}bash\nrm -rf /tmp/x\n{self._FENCE}\n",
+        )
+        self.assertEqual(self._parse(body), [1, 2, 3])
 
 
 class TestFormAmbiguityIsRefused(unittest.TestCase):

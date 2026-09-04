@@ -362,6 +362,58 @@ def strip_html_comments(text: str) -> str:
     return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
 
 
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
+def strip_code_fences(text: str) -> str:
+    """`text` with the CONTENT of Markdown fenced code blocks blanked out.
+
+    The Markdown sibling of `strip_html_comments`, and the other half of the same
+    evasion class: a heading or list item inside a fence renders as sample code,
+    not as document structure, but a line-by-line scan reads it as the real
+    thing. `test_ci_adr_decision_numbering` measured both directions of that —
+    a decision "retired" by wrapping it in a fence, or in an HTML comment, stayed
+    in the parsed list, so the deletion its own docstring promises to catch went
+    through green.
+
+    Line COUNT is preserved (each stripped line becomes empty) so a caller that
+    reports `file:line` keeps reporting the right line — the reason this blanks
+    rather than deletes.
+
+    Fence grammar per CommonMark, to the extent that matters here: three or more
+    backticks or tildes, indented at most three spaces, closed by a run of the
+    SAME character at least as long. An info string is allowed on the opener and
+    not on the closer.
+
+    An UNCLOSED fence blanks to end of file, which is the opposite of
+    `strip_html_comments`'s choice and deliberate: an unterminated fence really
+    does swallow the rest of a rendered document, so treating it as open is what
+    a reader sees. Over-strip here is a false POSITIVE for a presence check and a
+    LOUD failure for a parse — never a silent pass."""
+    out = []
+    fence = None
+    for line in text.split("\n"):
+        m = _FENCE_RE.match(line)
+        if fence is None:
+            if m:
+                fence = m.group(1)
+                out.append("")
+                continue
+            out.append(line)
+        else:
+            # A closer is the same character, at least as long, and carries no
+            # info string; anything else is content.
+            if (
+                m
+                and m.group(1)[0] == fence[0]
+                and len(m.group(1)) >= len(fence)
+                and not m.group(2).strip()
+            ):
+                fence = None
+            out.append("")
+    return "\n".join(out)
+
+
 _JOB_KEY_RE = re.compile(r"""^  (?:"([A-Za-z0-9_-]+)"|'([A-Za-z0-9_-]+)'|([A-Za-z0-9_-]+)):\s*$""")
 
 

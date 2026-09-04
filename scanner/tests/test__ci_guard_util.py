@@ -62,6 +62,7 @@ from _ci_guard_util import (  # noqa: E402
     on_key_inline,
     required_aggregators,
     step_blocks,
+    strip_code_fences,
     strip_comment_lines,
     strip_html_comments,
     strip_inline_comment,
@@ -363,6 +364,83 @@ class TestStripHtmlComments(unittest.TestCase):
 
     def test_text_without_comments_is_unchanged(self):
         self.assertEqual(strip_html_comments("plain text"), "plain text")
+
+
+class TestStripCodeFences(unittest.TestCase):
+    """The Markdown sibling of `strip_html_comments`, and the other half of the
+    same evasion class: structure inside a fence renders as sample code but a
+    line-by-line scan reads it as real. `test_ci_adr_decision_numbering` measured
+    a decision "retired" into a fence staying in its parsed list."""
+
+    F = "`" * 3
+    T = "~" * 3
+
+    def test_fenced_content_is_blanked(self):
+        self.assertEqual(
+            strip_code_fences(f"a\n{self.F}\nhidden\n{self.F}\nb"), "a\n\n\n\nb"
+        )
+
+    def test_line_count_is_preserved(self):
+        # The reason it blanks rather than deletes: a caller reporting
+        # `file:line` must keep reporting the right line.
+        text = f"a\n{self.F}py\nx\ny\n{self.F}\nb"
+        self.assertEqual(
+            len(strip_code_fences(text).split("\n")), len(text.split("\n"))
+        )
+
+    def test_an_info_string_is_allowed_on_the_opener(self):
+        self.assertNotIn("hidden", strip_code_fences(f"{self.F}markdown\nhidden\n{self.F}"))
+
+    def test_tilde_fences_are_stripped(self):
+        # Enumerating only backticks would leave the identical evasion one
+        # keystroke away (ADR-001 §5).
+        self.assertNotIn("hidden", strip_code_fences(f"{self.T}\nhidden\n{self.T}"))
+
+    def test_a_fence_character_does_not_close_the_other_kind(self):
+        # A `~~~` inside a backtick fence is content, so the block must stay open
+        # and keep swallowing. Otherwise a mixed fence reopens the document early.
+        got = strip_code_fences(f"{self.F}\n{self.T}\nhidden\n{self.F}\nafter")
+        self.assertNotIn("hidden", got)
+        self.assertIn("after", got)
+
+    def test_a_shorter_run_does_not_close_a_longer_fence(self):
+        # CommonMark: the closer must be at least as long as the opener.
+        got = strip_code_fences("`" * 4 + f"\n{self.F}\nhidden\n" + "`" * 4 + "\nafter")
+        self.assertNotIn("hidden", got)
+        self.assertIn("after", got)
+
+    def test_a_closer_may_not_carry_an_info_string(self):
+        # `` ```x `` after an open fence is content, not a close — otherwise a
+        # nested example's own opener would end the outer block.
+        got = strip_code_fences(f"{self.F}\n{self.F}x\nhidden\n{self.F}\nafter")
+        self.assertNotIn("hidden", got)
+        self.assertIn("after", got)
+
+    def test_up_to_three_spaces_of_indent_still_opens_a_fence(self):
+        for indent in ("", " ", "  ", "   "):
+            self.assertNotIn(
+                "hidden",
+                strip_code_fences(f"{indent}{self.F}\nhidden\n{indent}{self.F}"),
+                repr(indent),
+            )
+
+    def test_four_spaces_is_an_indented_code_block_not_a_fence(self):
+        # Four spaces is Markdown's OTHER code form and does not open a fence;
+        # treating it as one would blank the rest of the document.
+        self.assertIn("after", strip_code_fences(f"    {self.F}\nafter"))
+
+    def test_an_unclosed_fence_blanks_to_end_of_file(self):
+        # The OPPOSITE of `strip_html_comments`'s under-strip choice, and
+        # deliberate: an unterminated fence really does swallow the rest of a
+        # rendered document. Over-strip is a loud failure, never a silent pass.
+        self.assertEqual(strip_code_fences(f"a\n{self.F}\nb\nc"), "a\n\n\n")
+
+    def test_text_without_fences_is_unchanged(self):
+        self.assertEqual(strip_code_fences("plain\ntext"), "plain\ntext")
+
+    def test_inline_backticks_are_not_a_fence(self):
+        # A single-backtick code span must not open anything.
+        self.assertEqual(strip_code_fences("use `x` here"), "use `x` here")
 
 
 class TestYamlKeyPattern(unittest.TestCase):

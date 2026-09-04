@@ -187,14 +187,23 @@ armed.
 guard-authoring rule (*execute the gate, do not parse it*) that §6 applies to this
 surface. Cite them separately.
 
-**Follow-up, now done.** `test_ci_adr_decision_numbering.py` and
-`test_ci_adr_citation_spelling.py` were hardcoded to `ADR-001`. They did not break
-on this document and were not needed while it had no citations, but ADR-001
-reached 81 uncounted citations exactly by that route. Both now cover the whole
-`docs/devsecops/adr-[0-9]*.md` series: the ADR set is discovered from disk and an
-unpinned one fails, so this document's decisions are inside the citation scan from
-its first citation rather than after the first sweep. Generalised while it had
-**zero** citations — the only moment that costs no baseline churn.
+**Follow-up.** `test_ci_adr_decision_numbering.py` and
+`test_ci_adr_citation_spelling.py` are hardcoded to `ADR-001`. They do not break
+on this document and are not needed while it has no citations, but ADR-001 reached
+81 uncounted citations exactly by that route. Generalising both to `ADR-\d{3}` is
+tracked as its own change rather than bundled here.
+
+**Resolved 2026-09-04.** Both guards now cover the whole
+`docs/devsecops/adr-[0-9]*.md` series: the ADR set is discovered from disk, an
+unpinned or off-convention one fails, and a decision retired into an HTML comment
+or a code fence now reads as the deletion it is. This document's decisions are
+inside the citation scan from their first citation rather than after the first
+sweep — done while it had **zero** citations, the only moment that costs no
+baseline churn.
+
+The paragraph above is left as written rather than edited into the past tense.
+An ADR is a log; a follow-up that quietly becomes "now done" destroys the record
+that it was ever open, and the index's immutable-intent rule is what says so.
 
 ## References
 
