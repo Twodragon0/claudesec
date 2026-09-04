@@ -43,36 +43,59 @@ DESIRED_STRICT="true"
 DESIRED_CONTEXTS='["Lint","Security Scan Gate"]'
 
 # Required pull-request reviews ──────────────────────────────────────────────
-# require_code_owner_reviews=FALSE, and this is the deliberate value.
+# require_code_owner_reviews=TRUE as of 2026-09-04. This REVERSES #403, which set
+# it to false, and both decisions are recorded because the second only makes
+# sense against the first.
 #
-# With required_approving_review_count=0, the ONLY thing code-owner review
-# enforced was a manual approval on PRs not authored by the sole code owner —
-# i.e. Dependabot's. Measured across all 16 Dependabot PRs: every merged one
-# carries a `Twodragon0` APPROVED review, and #388 (the one without) sat
-# `BLOCKED` with 22/22 checks green, zero conflicts and `mergeable: MERGEABLE`
-# until it was closed and reapplied by hand as #400. Meanwhile the owner's own
-# PRs merge with no review at all (#398, #400 — `reviewDecision` is empty on
-# both, because the count is 0), so the setting bought no review that was not
-# already optional.
+# WHAT #403 DECIDED, AND WHY IT WAS REASONABLE. With
+# required_approving_review_count=0, the only thing code-owner review enforces is
+# a manual approval on PRs NOT authored by the sole code owner — i.e.
+# Dependabot's. Measured across all 16 Dependabot PRs: every merged one carried a
+# `Twodragon0` APPROVED review, and #388 (the one without) sat `BLOCKED` with
+# 22/22 checks green until it was closed and reapplied by hand as #400. #403 read
+# that as a cost with no benefit: "it gates nothing a human actually reads."
 #
-# What still gates a merge, unchanged: the two required contexts below (Lint,
-# Security Scan Gate), strict up-to-date-branch, enforce_admins, and the
-# `test_ci_*` config-regression guard suite.
+# WHAT CHANGED. #522 measured the auto-arm's path hard-excludes FAILING OPEN: an
+# empty `gh pr diff` result walked the exclusion loop and armed auto-merge on a
+# `Dockerfile` PR, while the workflow's own comment called that path fail-closed.
+# Those hard-excludes were the only thing keeping sensitive Dependabot changes on
+# human review, so "gates nothing" stopped being true — #388 was the control
+# WORKING, not overhead.
+#
+# WHY THIS IS SAFE FOR A SOLO MAINTAINER, MEASURED NOT ASSUMED. Raising
+# required_approving_review_count is NOT viable here (one collaborator with push,
+# enforce_admins=true, and GitHub forbids approving your own PR — every
+# owner-authored PR would become permanently unmergeable). Code-owner review is
+# different, and that difference was verified live on 2026-09-04 rather than
+# inferred: with require_code_owner_reviews flipped to true and the count still 0,
+# owner-authored PR #525 stayed `MERGEABLE` / `CLEAN` / `reviewDecision` empty,
+# re-read 65s apart to rule out cached mergeability, then reverted to a byte-equal
+# baseline. Owner PRs are unaffected; only non-owner-authored PRs gain the gate.
+#
+# STILL UNVERIFIED, stated rather than glossed: that a Dependabot PR now reports
+# REVIEW_REQUIRED. No Dependabot PR was open during the experiment, so the
+# evidence for that half remains #388's observed BLOCKED state. Confirm on the
+# next bump.
+#
+# THE COST, measured: the last 8 merged Dependabot PRs (#510, #477, #476, #354,
+# #353, #322, #321, #294) all carry an empty `reviewDecision`. Each would now need
+# an approval click before its armed auto-merge fires. Auto-merge becomes
+# "auto-merge after approval". Revisit trigger in THIS direction: if that queue is
+# routinely rubber-stamped or ignored, the gate is theatre again and should come
+# back off — say so with the numbers, as #403 did.
 #
 # What this does NOT open up: an outside contributor's PR comes from a fork and
 # nobody but a write-holder can merge it, and `dependabot-auto-merge.yml`'s fork
 # guard (`head.repo.full_name == github.repository`) keeps a fork PR from ever
-# being auto-armed. CODEOWNERS itself stays in place and still auto-requests the
-# owner as a reviewer — it just no longer BLOCKS.
+# being auto-armed.
 #
-# Revisit trigger: the moment a second person gets write access, this should go
-# back to "true" with a non-zero approving count. A lone maintainer approving
-# their own work is theatre; two people reviewing each other is not.
-#
-# required_approving_review_count=0: no numeric approval requirement.
-# dismiss_stale_reviews=false: avoids blocking auto-merge on trivial rebases.
-# require_last_push_approval=false: no approval to dismiss, so the rule is moot.
-DESIRED_CODE_OWNER_REVIEWS="false"
+# required_approving_review_count=0: no NUMERIC approval requirement — see above
+#   for why raising it would be a merge outage rather than a review.
+# dismiss_stale_reviews=false: LOAD-BEARING alongside strict=true. Strict forces a
+#   rebase whenever main moves, and dismissing the approval on every rebase would
+#   make an approved Dependabot PR unmergeable in a busy week.
+# require_last_push_approval=false: same reason.
+DESIRED_CODE_OWNER_REVIEWS="true"
 DESIRED_APPROVING_COUNT="0"
 DESIRED_DISMISS_STALE="false"
 DESIRED_LAST_PUSH_APPROVAL="false"
