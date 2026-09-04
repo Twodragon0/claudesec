@@ -31,6 +31,7 @@ discipline, release flow) as ADRs here.
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
 | [ADR-001](./adr-001-ci-guard-hardening-and-audit-cadence.md) | CI Guard Hardening Discipline & Periodic Adversarial Audit | Accepted | 2026-06-24 |
+| [ADR-002](./adr-002-merge-gate-posture.md) | Merge-Gate Posture for a Solo-Maintainer Repository | Accepted | 2026-09-04 |
 
 ## Operationalization
 
