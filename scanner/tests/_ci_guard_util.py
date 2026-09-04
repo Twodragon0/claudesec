@@ -344,7 +344,7 @@ def strip_inline_comment_sh(line: str) -> str:
     return line
 
 
-def strip_html_comments(text: str) -> str:
+def strip_html_comments(text: str, *, unclosed: str = "keep") -> str:
     """`text` with HTML/Markdown comments (`<!-- ... -->`, possibly multi-line)
     removed.
 
@@ -355,11 +355,32 @@ def strip_html_comments(text: str) -> str:
     from the published inventory while `test_ci_catalog_completeness` stays
     green (the comment-evasion class of ADR-001 §1, in Markdown).
 
-    An UNCLOSED `<!--` is left intact rather than eating the rest of the file:
-    the pattern requires a closing `-->`, so a stray opener degrades to
-    no-strip (under-strip, a false NEGATIVE for that one row) instead of
-    blanking the document (which would make every consumer fail at once)."""
-    return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    `unclosed` decides what a stray `<!--` with no `-->` means, and the two
+    answers are opposite because the two consumers fail in opposite directions:
+
+    - `"keep"` (default) leaves it intact. Right for a PRESENCE check over the
+      catalog: under-strip costs one false negative, while blanking the document
+      would make every consumer fail at once.
+    - `"to_eof"` drops it and everything after it. Right for a PARSE that treats
+      absence as deletion, and it is what CommonMark actually renders — an HTML
+      block opened by `<!--` runs to the line containing `-->` or to the END OF
+      DOCUMENT. Under `"keep"`, a decision "retired" behind an unclosed opener
+      stayed in `test_ci_adr_decision_numbering`'s parsed list while vanishing
+      from the rendered ADR along with everything below it — a silent pass one
+      character away from the closed form that guard does catch. Over-strip there
+      is a loud failure; under-strip is a green one.
+
+    Adjudicated against `markdown-it-py`'s CommonMark mode, not inferred."""
+    if unclosed not in ("keep", "to_eof"):
+        raise ValueError(f"unclosed must be 'keep' or 'to_eof', got {unclosed!r}")
+    out = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    if unclosed == "to_eof":
+        # Every CLOSED comment is gone by now, so any `<!--` still present is
+        # unterminated by construction — no second parse needed.
+        opener = out.find("<!--")
+        if opener != -1:
+            out = out[:opener]
+    return out
 
 
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")

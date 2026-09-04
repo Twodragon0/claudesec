@@ -365,6 +365,44 @@ class TestStripHtmlComments(unittest.TestCase):
     def test_text_without_comments_is_unchanged(self):
         self.assertEqual(strip_html_comments("plain text"), "plain text")
 
+    def test_to_eof_drops_an_unclosed_opener_and_everything_after(self):
+        # The opt-in policy for a PARSE consumer, where under-strip is a silent
+        # pass rather than one false negative. CommonMark runs an HTML block
+        # opened by `<!--` to the closing line or to end of document, so this is
+        # what a reader actually sees.
+        self.assertEqual(
+            strip_html_comments("live\n<!-- dangling\nhidden\n", unclosed="to_eof"),
+            "live\n",
+        )
+
+    def test_to_eof_still_removes_closed_comments_normally(self):
+        # The closed case must not change between policies, or the two consumers
+        # would disagree about ordinary comments as well.
+        text = "a <!-- x --> b"
+        self.assertEqual(
+            strip_html_comments(text, unclosed="to_eof"), strip_html_comments(text)
+        )
+
+    def test_to_eof_only_truncates_at_an_UNCLOSED_opener(self):
+        # A closed comment earlier in the file must not be mistaken for the
+        # unterminated one: the closed ones are removed first, so the `find`
+        # cannot land on them.
+        self.assertEqual(
+            strip_html_comments("a<!--x-->b\n<!-- open\nz", unclosed="to_eof"), "ab\n"
+        )
+
+    def test_the_default_is_still_keep(self):
+        # The existing catalog consumers must be untouched by the new parameter.
+        text = "live row\n<!-- dangling"
+        self.assertEqual(strip_html_comments(text), text)
+
+    def test_an_unknown_policy_raises(self):
+        # Fail loudly on a typo rather than silently falling back to `keep`,
+        # which would be the under-strip direction for a caller that asked for
+        # the other one.
+        with self.assertRaises(ValueError):
+            strip_html_comments("x", unclosed="eof")
+
 
 class TestStripCodeFences(unittest.TestCase):
     """The Markdown sibling of `strip_html_comments`, and the other half of the

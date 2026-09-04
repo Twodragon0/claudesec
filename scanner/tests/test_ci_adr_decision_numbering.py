@@ -253,9 +253,17 @@ def decision_section(text: str) -> str:
     docstring promises to catch, going through green. Measured on a real edit to
     ADR-002 that removed a decision both ways: 92 passed, both times.
 
+    `unclosed="to_eof"` is not a detail. The shared stripper's DEFAULT leaves an
+    unterminated `<!--` intact, which is right for a presence check and a silent
+    pass here: an unclosed opener hides everything below it in the rendered
+    document — measured on ADR-002, three decisions and the whole Consequences
+    section — while this parse still saw every one of them. One character away
+    from the closed form above, and the closed form was already fixed. Both
+    strippers now fail in the LOUD direction for this consumer.
+
     Routed through `_ci_guard_util`'s block primitives rather than re-implemented
     (ADR-001 §9), and comment-stripped before matching (ADR-001 §1)."""
-    clean = strip_code_fences(strip_html_comments(text))
+    clean = strip_code_fences(strip_html_comments(text, unclosed="to_eof"))
     m = re.search(r"^## Decision\s*$(.*?)^## ", clean, re.M | re.S)
     return m.group(1) if m else ""
 
@@ -650,6 +658,40 @@ class TestRetiringADecisionInPlaceIsCaught(unittest.TestCase):
         # exactly where one would have been forgotten.
         body = "1. **Alpha.** b\n<!--\n2. **Beta.** b\n-->\n3. **Gamma.** b\n"
         self.assertEqual(self._parse(body), [1, 3])
+
+    def test_an_UNCLOSED_comment_is_caught_too(self):
+        # One character away from the closed case above, and strictly worse: an
+        # unterminated `<!--` hides everything BELOW it in the rendered document,
+        # so §2 and §3 both vanish from the ADR a reader sees. The shared
+        # stripper's default would have left all three parsed — a silent pass.
+        body = self.ALIVE.replace(self.BETA, "<!-- RETIRED\n### §2 — Beta\n\nbody\n")
+        self.assertEqual(self._parse(body), [])
+
+    def test_an_unclosed_comment_ABOVE_the_list_empties_it(self):
+        # The same defect at the top of the section: everything is hidden, so the
+        # parse must be empty and the per-ADR vacuity canary must fire. Asserted
+        # separately because "one decision lost" and "all of them lost" reach
+        # different assertions.
+        self.assertEqual(self._parse("<!-- RETIRED\n" + self.ALIVE), [])
+
+    def test_a_comment_opened_inside_a_fence_does_not_leak(self):
+        # The strippers run in a fixed order (comments, then fences), so the
+        # order itself is worth attacking. A `<!--` that only exists as sample
+        # code inside a fence still triggers the comment strip first — which
+        # over-strips, and over-strip here is a loud failure, never a pass.
+        body = self.ALIVE.replace(
+            self.BETA, f"{self._FENCE}\n<!-- sample\n{self._FENCE}\n\n### §2 — Beta\n\nbody\n"
+        )
+        self.assertNotEqual(self._parse(body), [1, 2, 3])
+
+    def test_a_fence_marker_inside_a_comment_does_not_reopen_the_document(self):
+        # The mirror case: a fence opener living only inside a closed comment is
+        # removed with it, so it cannot leave an unbalanced fence behind that
+        # would blank the rest of the section.
+        body = self.ALIVE.replace(
+            self.BETA, f"<!--\n{self._FENCE}\nretired\n-->\n\n### §2 — Beta\n\nbody\n"
+        )
+        self.assertEqual(self._parse(body), [1, 2, 3])
 
     def test_a_real_code_example_does_not_delete_the_decision_owning_it(self):
         # The false-positive boundary: an ADR decision whose BODY contains a
