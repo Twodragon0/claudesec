@@ -64,6 +64,7 @@ from _ci_guard_util import (  # noqa: E402
     step_blocks,
     strip_code_fences,
     strip_comment_lines,
+    strip_html_blocks,
     strip_html_comments,
     strip_inline_comment,
     strip_inline_comment_sh,
@@ -402,6 +403,62 @@ class TestTruncateAtUnclosedHtmlComment(unittest.TestCase):
         # precisely so the presence-check callers keep their under-strip.
         text = "live row\n<!-- dangling"
         self.assertEqual(strip_html_comments(text), text)
+
+    def test_an_opener_inside_an_inline_code_span_does_not_truncate(self):
+        # `` `<!--` `` is ordinary documentation — this module's own docstrings
+        # write it. Truncating on it makes a correct document fail, which is how
+        # a guard gets weakened rather than repaired (#414).
+        text = "see `<!--` in prose\nafter"
+        self.assertEqual(truncate_at_unclosed_html_comment(text), text)
+
+    def test_a_real_opener_after_a_code_span_still_truncates(self):
+        # The boundary: masking the span must not mask the document.
+        self.assertEqual(
+            truncate_at_unclosed_html_comment("see `<!--` ok\n<!-- real\ngone"),
+            "see `<!--` ok\n",
+        )
+
+
+class TestStripHtmlBlocks(unittest.TestCase):
+    """CommonMark HTML block type 6: a known tag at line start runs to the next
+    BLANK line, so structure inside it is raw text a reader never sees."""
+
+    def test_a_div_block_hides_its_contents(self):
+        self.assertEqual(
+            strip_html_blocks("a\n<div>\n### heading\n</div>\n\nb"),
+            "a\n\n\n\n\nb",
+        )
+
+    def test_a_blank_line_ends_the_block(self):
+        # The ordinary spelling, where the markup and the Markdown are separated.
+        # This must NOT be blanked, or every legitimate raw-HTML wrapper in a doc
+        # would eat the content it wraps.
+        self.assertIn(
+            "### heading", strip_html_blocks("<div>\n\n### heading\n\n</div>")
+        )
+
+    def test_line_count_is_preserved(self):
+        text = "a\n<div>\n### h\n</div>\n\nb"
+        self.assertEqual(
+            len(strip_html_blocks(text).split("\n")), len(text.split("\n"))
+        )
+
+    def test_an_autolink_is_not_an_html_block(self):
+        # Why the tag list is the spec's and not `<\\w+>`: an autolink at line
+        # start would otherwise blank the paragraph after it.
+        text = "<https://example.com>\nstill here"
+        self.assertIn("still here", strip_html_blocks(text))
+
+    def test_an_unknown_tag_is_not_a_type_6_block(self):
+        text = "<mycomponent>\nstill here"
+        self.assertIn("still here", strip_html_blocks(text))
+
+    def test_a_closing_tag_also_opens_a_block(self):
+        # Per the spec, `</div>` is a valid type-6 opener too.
+        self.assertNotIn("hidden", strip_html_blocks("</div>\nhidden\n\nafter"))
+
+    def test_text_without_html_is_unchanged(self):
+        self.assertEqual(strip_html_blocks("plain\ntext"), "plain\ntext")
 
 
 class TestStripCodeFences(unittest.TestCase):

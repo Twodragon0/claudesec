@@ -101,6 +101,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     REPO_ROOT,
     strip_code_fences,
+    strip_html_blocks,
     strip_html_comments,
     truncate_at_unclosed_html_comment,
 )
@@ -276,7 +277,7 @@ def decision_section(text: str) -> str:
     Routed through `_ci_guard_util`'s block primitives rather than re-implemented
     (ADR-001 §9), and comment-stripped before matching (ADR-001 §1)."""
     clean = truncate_at_unclosed_html_comment(
-        strip_code_fences(strip_html_comments(text))
+        strip_html_blocks(strip_code_fences(strip_html_comments(text)))
     )
     m = re.search(r"^## Decision\s*$(.*?)(?=^## |\Z)", clean, re.M | re.S)
     return m.group(1) if m else ""
@@ -772,6 +773,21 @@ class TestTheParseAgreesWithCommonMark(unittest.TestCase):
             "fence marker inside a closed comment":
                 self.A + f"<!--\n{self._F}\nretired\n-->\n\n" + self.B,
             "genuine unclosed opener": self.A + "<!-- RETIRED\n" + self.B,
+            # Each of the four below was a measured SILENT PASS — the renderer
+            # hid the decision and the parse kept it — found by adversarial
+            # review after the comment and fence cases were already fixed. Three
+            # strippers, three directions, same evasion.
+            "html block, no blank line":
+                self.A + "<div>\n### §2 — Beta\n</div>\n\n",
+            "html block, other tag":
+                self.A + "<table>\n### §2 — Beta\n</table>\n\n",
+            "html block WITH a blank line (not a block)":
+                self.A + "<div>\n\n### §2 — Beta\n\n</div>\n\n",
+            "backtick in a backtick fence info string":
+                self.A + f"{self._F}a`b\nx\n{self._F}\n\n" + self.B,
+            # And this one was an OVER-strip that made a correct document fail.
+            "unclosed opener in an inline code span":
+                self.A + "see `<!--` in prose\n\n" + self.B,
         }
         for label, body in cases.items():
             src = "## Decision\n\n" + body + "\n## Consequences\n\nx\n"
@@ -781,6 +797,33 @@ class TestTheParseAgreesWithCommonMark(unittest.TestCase):
                     self._rendered_ids(src),
                     f"{label}: the parse and the renderer disagree about which "
                     "decisions a reader can see",
+                )
+
+    def test_the_named_over_strip_limits_are_still_over_strip(self):
+        # What the composition gets WRONG, kept executable so a future red is
+        # read as the known limit rather than as a real deletion. The direction
+        # is what makes it acceptable: the parse sees FEWER decisions than the
+        # renderer, so the failure is loud. A silent pass in this list would be a
+        # defect; a disagreement in this direction is a documented cost.
+        cases = {
+            # The comment opens inside a fence and closes outside it. Fences are
+            # stripped after closed comments, so the opener survives the comment
+            # pass and the fence pass blanks only the fenced part.
+            "opener in a fence, closer outside":
+                self.A + f"{self._F}\n<!-- x\n{self._F}\n-->\n\n" + self.B,
+        }
+        for label, body in cases.items():
+            src = "## Decision\n\n" + body + "\n## Consequences\n\nx\n"
+            parsed, rendered = sorted(parsed_decisions(src)), self._rendered_ids(src)
+            with self.subTest(case=label):
+                self.assertNotEqual(
+                    parsed, rendered, f"{label} now AGREES — good, move it above"
+                )
+                self.assertLess(
+                    set(parsed),
+                    set(rendered),
+                    f"{label}: the parse sees MORE than the renderer, which is a "
+                    "silent pass, not the documented over-strip",
                 )
 
     def test_the_renderer_probe_is_not_vacuous(self):
