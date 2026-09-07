@@ -358,13 +358,13 @@ makes a wrong number fail to typecheck under review.
 The guard's limit stands, and vintage sharpens it. Two things it does **not** do:
 
 - It does not make renumbering impossible. Renumber the ADR **and** reorder
-  `DECISIONS` in the same commit and all 10 tests pass while 81 citations silently
+  `DECISIONS_BY_ADR` in the same commit and the suite stays green while 81 citations silently
   re-point — measured by in-memory mutation, with the one-sided control (ADR
-  renumbered, `DECISIONS` untouched) correctly failing
+  renumbered, the pin untouched) correctly failing
   `test_numbers_map_to_the_same_decisions`, so the harness demonstrably reaches the
   assertion. What the guard delivers is that a renumber must be a **lockstep,
   reviewable diff** instead of an invisible one-line edit. An *append* without its
-  `DECISIONS` line does genuinely fail (`test_no_extra_or_missing_decisions` is a set
+  `DECISIONS_BY_ADR` line does genuinely fail (`test_no_extra_or_missing_decisions` is a set
   equality), so "appending costs one line here, by design" is exact.
 - It cannot detect a citation pointing at a real decision it does not mean. That is
   what reading the quoted text — and, when the text ties, the commit that wrote it —

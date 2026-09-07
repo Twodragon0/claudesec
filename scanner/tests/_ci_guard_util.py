@@ -358,8 +358,163 @@ def strip_html_comments(text: str) -> str:
     An UNCLOSED `<!--` is left intact rather than eating the rest of the file:
     the pattern requires a closing `-->`, so a stray opener degrades to
     no-strip (under-strip, a false NEGATIVE for that one row) instead of
-    blanking the document (which would make every consumer fail at once)."""
+    blanking the document (which would make every consumer fail at once).
+
+    A caller that PARSES, and so reads absence as deletion, needs the opposite
+    answer — see `truncate_at_unclosed_html_comment`, which is a separate step on
+    purpose because it must run AFTER fences are stripped."""
     return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+
+
+def truncate_at_unclosed_html_comment(text: str) -> str:
+    """`text` cut at the first `<!--` that has no `-->`, matching what CommonMark
+    renders: an HTML block opened by `<!--` runs to the line containing `-->` or
+    to the END OF DOCUMENT.
+
+    The counterpart to `strip_html_comments`'s deliberate under-strip, for the
+    callers that need the other direction. For a PRESENCE check an unterminated
+    opener costs one false negative; for a PARSE it is a silent pass — a decision
+    "retired" behind an unclosed opener stayed in
+    `test_ci_adr_decision_numbering`'s list while vanishing from the rendered ADR
+    along with everything below it.
+
+    ORDER MATTERS, and getting it wrong was measured rather than reasoned about.
+    Run this AFTER `strip_code_fences`, never before: a `<!--` shown as sample
+    code inside a fence is not an HTML block to CommonMark, and truncating on it
+    deleted decisions that render perfectly well (`markdown-it-py` 4.0.0
+    `commonmark` mode: `<h3>` ids `[1, 2]` against the parse's `[]`). Running
+    fences FIRST is not the fix either, taken alone — a fence marker living only
+    inside a closed comment would then blank real content — so the sequence is:
+    closed comments, then fences, then this.
+
+    An opener inside an INLINE CODE SPAN does not count. `` see `<!--` in prose ``
+    is ordinary documentation — this repo's own guard docstrings write it — and
+    truncating on it makes a correct document fail, which is the direction that
+    gets a guard weakened rather than repaired (#414). The span is masked
+    length-preservingly so the offset of a real opener is unaffected.
+
+    Assumes closed comments are already gone, which is what makes the search for
+    a remaining `<!--` sound: after `strip_html_comments` any opener still
+    present is unterminated by construction."""
+    masked = _CODE_SPAN_RE.sub(lambda m: " " * len(m.group(0)), text)
+    opener = masked.find("<!--")
+    return text if opener == -1 else text[:opener]
+
+
+def strip_html_blocks(text: str) -> str:
+    """`text` with CommonMark HTML blocks (type 6) blanked, line count preserved.
+
+    The third member of the family, after `strip_html_comments` and
+    `strip_code_fences`, and it closes the same evasion from a third direction: a
+    block opened by a known HTML tag runs to the NEXT BLANK LINE, so
+
+        <div>
+        ### §2 — Beta
+        </div>
+
+    renders the heading as raw HTML text a reader never sees as a heading, while
+    a line-by-line scan reads it as a real one. Measured against `markdown-it-py`
+    4.0.0: `<h3>` ids `[1]` from the renderer, `[1, 2]` from the parse — a silent
+    pass, the same class as a decision retired into a comment or a fence.
+
+    A BLANK LINE after the opening tag ends the block, so the ordinary
+    `<div>\\n\\n### ...` spelling is untouched; only the no-blank-line form is a
+    block. Run this AFTER `strip_code_fences`, so a `<div>` shown as sample code
+    is not treated as markup."""
+    out = []
+    in_block = False
+    for line in text.split("\n"):
+        if in_block:
+            if not line.strip():
+                in_block = False
+                out.append(line)
+            else:
+                out.append("")
+            continue
+        if _HTML_BLOCK_RE.match(line):
+            in_block = True
+            out.append("")
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+# CommonMark HTML block type 6: the spec's own tag list. An ENUMERATION, and the
+# right kind — it transcribes a published grammar rather than guessing at the
+# forms of an evasion (ADR-001 §5 is about the latter). Matching any `<word>`
+# instead would treat an autolink like `<https://example.com>` at line start as
+# an HTML block and blank the paragraph after it.
+_HTML_BLOCK_TAGS = (
+    "address|article|aside|base|basefont|blockquote|body|caption|center|col|"
+    "colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|"
+    "form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|html|iframe|legend|li|"
+    "link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|"
+    "section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul"
+)
+_HTML_BLOCK_RE = re.compile(
+    rf"^ {{0,3}}</?(?:{_HTML_BLOCK_TAGS})(?:[ \t/>]|$)", re.IGNORECASE
+)
+
+# An inline code span: a run of N backticks closed by another run of exactly N.
+_CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
+
+
+def strip_code_fences(text: str) -> str:
+    """`text` with the CONTENT of Markdown fenced code blocks blanked out.
+
+    The Markdown sibling of `strip_html_comments`, and the other half of the same
+    evasion class: a heading or list item inside a fence renders as sample code,
+    not as document structure, but a line-by-line scan reads it as the real
+    thing. `test_ci_adr_decision_numbering` measured both directions of that —
+    a decision "retired" by wrapping it in a fence, or in an HTML comment, stayed
+    in the parsed list, so the deletion its own docstring promises to catch went
+    through green.
+
+    Line COUNT is preserved (each stripped line becomes empty) so a caller that
+    reports `file:line` keeps reporting the right line — the reason this blanks
+    rather than deletes.
+
+    Fence grammar per CommonMark, to the extent that matters here: three or more
+    backticks or tildes, indented at most three spaces, closed by a run of the
+    SAME character at least as long. An info string is allowed on the opener and
+    not on the closer.
+
+    An UNCLOSED fence blanks to end of file, which is the opposite of
+    `strip_html_comments`'s choice and deliberate: an unterminated fence really
+    does swallow the rest of a rendered document, so treating it as open is what
+    a reader sees. Over-strip here is a false POSITIVE for a presence check and a
+    LOUD failure for a parse — never a silent pass."""
+    out = []
+    fence = None
+    for line in text.split("\n"):
+        m = _FENCE_RE.match(line)
+        if fence is None:
+            # A BACKTICK fence's info string may not contain a backtick — the
+            # spec forbids it so that ``` `code` ``` in a paragraph is not read as
+            # a fence. Accepting it made ```` ```a`b ```` open a block here while
+            # CommonMark treated it as a paragraph and let the NEXT ``` open an
+            # unclosed fence that swallowed the rest of the document: a decision
+            # invisible to a reader and still parsed. Tilde fences have no such
+            # restriction.
+            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                fence = m.group(1)
+                out.append("")
+                continue
+            out.append(line)
+        else:
+            # A closer is the same character, at least as long, and carries no
+            # info string; anything else is content.
+            if (
+                m
+                and m.group(1)[0] == fence[0]
+                and len(m.group(1)) >= len(fence)
+                and not m.group(2).strip()
+            ):
+                fence = None
+            out.append("")
+    return "\n".join(out)
 
 
 _JOB_KEY_RE = re.compile(r"""^  (?:"([A-Za-z0-9_-]+)"|'([A-Za-z0-9_-]+)'|([A-Za-z0-9_-]+)):\s*$""")
