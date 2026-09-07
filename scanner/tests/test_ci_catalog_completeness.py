@@ -29,7 +29,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_html_comments  # noqa: E402
+from _ci_guard_util import rendered_markdown  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,14 +39,23 @@ CATALOG = REPO_ROOT / CATALOG_REL
 
 
 def missing_rows(catalog_text: str, guard_names) -> list:
-    """Guard file names with no row in `catalog_text`, HTML-comment-stripped.
+    """Guard file names with no row in `catalog_text` as a reader SEES it.
 
-    Stripping `<!-- ... -->` first is load-bearing: Markdown has no `#` comment,
-    so an HTML comment is the escape hatch. A row parked in one renders as
-    nothing — the published inventory silently loses the guard — while a raw
+    Reducing to rendered Markdown first is load-bearing: Markdown has no `#`
+    comment, so an HTML comment is the escape hatch. A row parked in one renders
+    as nothing — the published inventory silently loses the guard — while a raw
     substring scan still finds the path and reports green. That is the Markdown
-    form of the comment-evasion class the rest of the suite defends against."""
-    active = strip_html_comments(catalog_text)
+    form of the comment-evasion class the rest of the suite defends against.
+
+    A closed `<!-- -->` was the only form this stripped until the vectors were
+    MEASURED against `missing_rows` itself rather than assumed: a row inside a
+    code fence, inside an HTML block, and after an UNTERMINATED `<!--` each kept
+    this green while `markdown-it-py` 4.0.0 rendered, respectively, sample code,
+    a raw `<div>` passthrough, and — for the unclosed opener — nothing at all,
+    the rest of the catalog swallowed into a comment. Three ways to drop a guard
+    from the published inventory with the completeness check still passing.
+    `rendered_markdown` closes all four in the adjudicated order."""
+    active = rendered_markdown(catalog_text)
     return [name for name in guard_names if f"scanner/tests/{name}" not in active]
 
 

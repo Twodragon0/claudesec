@@ -47,6 +47,9 @@ No network, no subprocess. Passes under pytest (the CI runner) and
 measured coverage gate.
 """
 
+MARKDOWN_SCAN_EXEMPT = (
+    "scans workflow YAML; the `.md` literal is a `--body-file` argument inside a `run:` shell string"
+)
 import re
 import sys
 import unittest

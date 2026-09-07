@@ -66,8 +66,12 @@ severity count reveals.
 
 import importlib.util
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import rendered_markdown  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -119,10 +123,24 @@ def _normalize(title):
     return _PARENTHETICAL.sub("", title).replace(" ", "").strip()
 
 
-def guide_titles():
-    text = GUIDE.read_text(encoding="utf-8") if GUIDE.is_file() else ""
+def guide_titles(text=None):
+    """`{control id: normalised title}` from the guide's rows as RENDERED.
+
+    Reduced to rendered Markdown first. This read raw text, so a control row
+    parked in a closed `<!-- -->`, a code fence, an HTML block, or after an
+    unterminated `<!--` still aligned against the scanner while the published
+    ISMS-P guide showed the reader nothing — the alignment this guard exists to
+    prove would hold against a row that is not in the document.
+
+    `text` is injectable ONLY so the self-tests can drive this function itself
+    rather than a re-implementation of it. A surrogate detector in a self-test
+    proves the surrogate works; the vectors below have to hit the real one, which
+    is the lesson the `trigger_block()` sweep ended on. Default `None` keeps
+    every production caller unchanged."""
+    if text is None:
+        text = GUIDE.read_text(encoding="utf-8") if GUIDE.is_file() else ""
     out = {}
-    for cid, title in _GUIDE_ROW.findall(text):
+    for cid, title in _GUIDE_ROW.findall(rendered_markdown(text)):
         out.setdefault(cid, _normalize(title))
     return out
 

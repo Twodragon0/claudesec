@@ -52,7 +52,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import REPO_ROOT  # noqa: E402
+from _ci_guard_util import REPO_ROOT, rendered_markdown  # noqa: E402
 
 TESTS_DIR = Path(__file__).resolve().parent
 CATALOG_REL = "docs/devsecops/ci-config-regression-guards.md"
@@ -97,10 +97,27 @@ def table_section(catalog_text: str) -> str:
     """The block-collector enumeration section, up to the next `##` heading.
 
     Matched on the TITLE rather than a fixed heading level, so promoting or
-    demoting the section does not silently empty this guard."""
+    demoting the section does not silently empty this guard.
+
+    Reduced to rendered Markdown first. This guard scanned RAW text until the
+    vectors were measured against `table_files`: a row inside a code fence, an
+    HTML block, a closed `<!-- -->`, or after an unterminated `<!--` all counted
+    as listed, so a collector could be dropped from the published enumeration
+    with the completeness check green — the same silent pass
+    `test_ci_adr_decision_numbering` closed for decisions.
+
+    The reduction also repairs a second defect in the search itself, found while
+    measuring the first: the terminator `(?=^#+\\s|\\Z)` treats any `#` line as
+    the next heading, so an ordinary `# shell comment` inside a fenced example
+    ENDED the section early and every row below it went unread (measured: a row
+    after such a fence is invisible to the old parser, visible to this one).
+    That direction fails LOUD — unread rows read as an unlisted collector — so it
+    is a false alarm rather than a silent pass, and the opposite of the bug
+    above. Blanking fence content first means the terminator only ever sees real
+    headings."""
     m = re.search(
         rf"^#+\s*{re.escape(SECTION_TITLE)}.*?$(.*?)(?=^#+\s|\Z)",
-        catalog_text,
+        rendered_markdown(catalog_text),
         re.M | re.S,
     )
     return m.group(1) if m else ""

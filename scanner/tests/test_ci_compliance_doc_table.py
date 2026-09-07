@@ -53,8 +53,12 @@ which detection tokens are live degrades every decision made from it.
 
 import importlib.util
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ci_guard_util import rendered_markdown  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -87,9 +91,21 @@ def parse_doc_rows(text):
 
     An em dash in the keyword cell means "no keywords" and yields `[]`, so a row
     that drops its list is a detectable difference rather than a parse failure.
-    """
+
+    Reduced to rendered Markdown first. This parser read RAW text, so it was the
+    most exposed of the Markdown-scanning guards: not even a CLOSED `<!-- -->`
+    was stripped, and a whole SOC 2 row commented out of the published guide
+    still parsed as live. Measured on all four vectors — closed comment, code
+    fence, HTML block, unterminated `<!--` — each one green.
+
+    The direction is a silent pass in the direction that matters most for this
+    guard: it compares the published table against `COMPLIANCE_CONTROL_MAP`, so a
+    row that exists only in raw source lets the doc and the code agree on a
+    keyword list no reader of the guide can see. Framework display names are
+    load-bearing here (a native match is framework-level), which is why the
+    doc/code agreement is worth checking at all."""
     rows = {}
-    for match in _ROW.finditer(text):
+    for match in _ROW.finditer(rendered_markdown(text)):
         control = match.group(1)
         cell = match.group(4).strip()
         if cell in ("", "—", "-"):

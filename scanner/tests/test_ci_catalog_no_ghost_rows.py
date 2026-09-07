@@ -29,7 +29,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import strip_html_comments  # noqa: E402
+from _ci_guard_util import rendered_markdown  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -44,12 +44,19 @@ CITED_PATH_RE = re.compile(r"scanner/tests/test_ci_[A-Za-z0-9_]+\.py")
 def cited_paths(catalog_text: str) -> list:
     """Concrete guard paths cited in the catalog's ACTIVE text, sorted+deduped.
 
-    HTML comments are stripped first. A row parked in `<!-- ... -->` renders as
-    nothing, so it claims no coverage and must not be reported as a ghost — this
-    is the opposite direction from `test_ci_catalog_completeness.py`, where the
-    same strip makes the check STRICTER (a hidden row stops satisfying a
-    presence check). Same primitive, both directions correct."""
-    return sorted(set(CITED_PATH_RE.findall(strip_html_comments(catalog_text))))
+    Reduced to rendered Markdown first. A row parked in `<!-- ... -->`, in a code
+    fence, in an HTML block, or after an unterminated `<!--` renders as nothing a
+    reader can act on, so it claims no coverage and must not be reported as a
+    ghost — this is the opposite direction from `test_ci_catalog_completeness.py`,
+    where the same reduction makes the check STRICTER (a hidden row stops
+    satisfying a presence check). Same primitive, both directions correct.
+
+    Only the closed-comment form was handled until the other three were measured;
+    here they cost a FALSE ALARM rather than a silent pass, which is the milder
+    direction and exactly why it could sit unnoticed. It is still worth closing:
+    a guard that flags a row no reader can see is the kind that gets ignored, and
+    an ignored check buys nothing (the `gh pr merge` file-list lesson)."""
+    return sorted(set(CITED_PATH_RE.findall(rendered_markdown(catalog_text))))
 
 
 def ghost_rows(catalog_text: str, repo_root: Path) -> list:

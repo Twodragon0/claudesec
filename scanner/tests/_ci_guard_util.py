@@ -517,6 +517,38 @@ def strip_code_fences(text: str) -> str:
     return "\n".join(out)
 
 
+def rendered_markdown(text: str) -> str:
+    """`text` reduced to what a CommonMark reader actually SEES as document
+    structure: closed comments, fenced code, HTML blocks, and everything after an
+    unterminated `<!--` are gone.
+
+    The composition of the four primitives above, in the ONE order that matched
+    `markdown-it-py` 4.0.0 on every case measured for
+    `test_ci_adr_decision_numbering` — closed comments, fences, HTML blocks, then
+    the unclosed opener. The order is not a style choice and re-deriving it by
+    reasoning has already produced two wrong answers (truncating before fences
+    deletes decisions that render fine; stripping fences before closed comments
+    lets a fence marker living inside a comment blank real content), so it lives
+    here once instead of being spelled out at each call site.
+
+    Exists because that sequence was INLINE in one guard while five others
+    scanned Markdown with less, or none. Five copies of a four-call chain is the
+    shape that lets a fix land in one of them and read as done — the failure
+    measured in the OCSF-loader series, where the first patch fixed one of two
+    independent readers and the guard imported only the fixed one.
+
+    Use for any guard whose subject is a published Markdown document — a
+    catalog row, a table row, a heading. The direction of the resulting error
+    differs by caller and both directions are wanted: for a PRESENCE check
+    (`X must be listed`) a hidden row now reads as absent, which is the silent
+    pass this closes; for a CITATION check (`X is listed but does not exist`) a
+    hidden row stops being reported, which removes a false alarm about a row no
+    reader can see."""
+    return truncate_at_unclosed_html_comment(
+        strip_html_blocks(strip_code_fences(strip_html_comments(text)))
+    )
+
+
 _JOB_KEY_RE = re.compile(r"""^  (?:"([A-Za-z0-9_-]+)"|'([A-Za-z0-9_-]+)'|([A-Za-z0-9_-]+)):\s*$""")
 
 

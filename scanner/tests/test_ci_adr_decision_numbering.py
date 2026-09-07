@@ -98,13 +98,7 @@ from glob import glob
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import (  # noqa: E402
-    REPO_ROOT,
-    strip_code_fences,
-    strip_html_blocks,
-    strip_html_comments,
-    truncate_at_unclosed_html_comment,
-)
+from _ci_guard_util import REPO_ROOT, rendered_markdown  # noqa: E402
 
 # The ADR series. `adr-index.md` is deliberately NOT matched: an index cites ADRs,
 # it does not define decisions.
@@ -276,9 +270,7 @@ def decision_section(text: str) -> str:
 
     Routed through `_ci_guard_util`'s block primitives rather than re-implemented
     (ADR-001 §9), and comment-stripped before matching (ADR-001 §1)."""
-    clean = truncate_at_unclosed_html_comment(
-        strip_html_blocks(strip_code_fences(strip_html_comments(text)))
-    )
+    clean = rendered_markdown(text)
     m = re.search(r"^## Decision\s*$(.*?)(?=^## |\Z)", clean, re.M | re.S)
     return m.group(1) if m else ""
 

@@ -52,6 +52,9 @@ OWASP CICD-SEC-1 (Insufficient Flow Control), CICD-SEC-4 (Poisoned Pipeline
 Execution); NIST SSDF PO.3, PW.4.
 """
 
+MARKDOWN_SCAN_EXEMPT = (
+    "scans workflow YAML; `README.md` appears only as a changed-file FIXTURE name in an eligibility case"
+)
 import os
 import re
 import subprocess
