@@ -185,31 +185,28 @@ class TestRenderedMarkdownMatchesTheRenderer(unittest.TestCase):
 # than silently reducing this file to the census alone.
 # --------------------------------------------------------------------------
 def _detectors():
-    from test_ci_catalog_completeness import missing_rows
-    from test_ci_catalog_no_ghost_rows import cited_paths
-    from test_ci_collector_table_completeness import table_files
+    # `test_ci_catalog_completeness`, `test_ci_catalog_no_ghost_rows` and
+    # `test_ci_collector_table_completeness` are deliberately ABSENT: they now
+    # compare against `ci-guard-inventory.toml` and read no Markdown at all, so
+    # there is nothing here to probe. Their prose reading collapsed into
+    # `test_ci_catalog_doc_sync`, which is what these two entries drive.
+    from test_ci_catalog_doc_sync import documented_collectors, documented_guards
     from test_ci_compliance_doc_table import parse_doc_rows
     from test_ci_kisa_control_alignment import guide_titles
 
     guard_row = "| `scanner/tests/test_ci_x.py` | verdict |"
     return (
         (
-            "test_ci_catalog_completeness.missing_rows",
+            "test_ci_catalog_doc_sync.documented_guards",
             guard_row,
             "# Catalog\n\n{}\n",
-            lambda doc: not missing_rows(doc, ["test_ci_x.py"]),
+            lambda doc: bool(documented_guards(doc)),
         ),
         (
-            "test_ci_catalog_no_ghost_rows.cited_paths",
-            guard_row,
-            "# Catalog\n\n{}\n",
-            lambda doc: bool(cited_paths(doc)),
-        ),
-        (
-            "test_ci_collector_table_completeness.table_files",
+            "test_ci_catalog_doc_sync.documented_collectors",
             "| `test_ci_x.py` | verdict |",
             "# Catalog\n\n## Block-collector enumeration\n\n{}\n",
-            lambda doc: bool(table_files(doc)),
+            lambda doc: bool(documented_collectors(doc)),
         ),
         (
             "test_ci_compliance_doc_table.parse_doc_rows",
@@ -426,7 +423,16 @@ def tracked_guards() -> list:
     through every test in the census — measured while cleaning up a probe file,
     and an opaque traceback where a verdict belongs. CI always has a consistent
     tree, so this only ever discards transient local state: a guard that is gone
-    from disk has nothing left to check."""
+    from disk has nothing left to check.
+
+    THE TRADEOFF, so it is not rediscovered as a bug: a brand-new guard file that
+    has not been `git add`ed is invisible here, so the census reports a clean
+    tree locally while the new guard is unchecked. Measured while adding
+    `test_ci_catalog_doc_sync.py`, which the census could not see until it was
+    staged. CI only ever runs on committed trees, so the gap is local-only and
+    the alternative — globbing the filesystem — reintroduces the worse
+    asymmetry this function exists to avoid (a gitignored scratch copy red
+    locally and absent in CI). Stage before trusting a local green."""
     out = subprocess.run(
         ["git", "ls-files", f"{TESTS_REL}/test_ci_*.py"],
         cwd=REPO_ROOT,
@@ -528,12 +534,44 @@ class TestEveryMarkdownScanningGuardIsCovered(unittest.TestCase):
         self.assertTrue(self.modules, "no tracked test_ci_*.py found — census broke")
 
     def test_the_census_finds_the_known_scanners(self):
-        # Anchors the AST heuristic to a case known to be in-class. If
-        # `scans_markdown` stops recognising the catalog guards, the sweep below
-        # would report a clean tree while checking almost nothing.
+        # Anchors the AST heuristic to cases known to be in-class. If
+        # `scans_markdown` stops recognising them, the sweep below would report a
+        # clean tree while checking almost nothing.
+        #
+        # The anchors were `test_ci_catalog_completeness` and
+        # `test_ci_compliance_doc_table` until the catalog guards moved to
+        # `ci-guard-inventory.toml` and stopped reading Markdown. That made this
+        # test fail — correctly, and it is the anchor's job to notice. Anchoring
+        # on a guard that later leaves the class is not a flaw in the anchor; the
+        # alternative is an anchor nothing can invalidate.
         found = {n for n, t in self.modules.items() if scans_markdown(t)}
-        self.assertIn("test_ci_catalog_completeness.py", found)
+        self.assertIn("test_ci_catalog_doc_sync.py", found)
         self.assertIn("test_ci_compliance_doc_table.py", found)
+
+    def test_the_converted_guards_have_left_the_class(self):
+        """The three catalog guards must read NO Markdown.
+
+        The positive half of the refactor, asserted rather than assumed. Each of
+        these compares against the TOML inventory now, which is what puts the
+        measured 14-shape residual permanently out of their path. If one of them
+        starts reading the published document again — the tempting shortcut when
+        a message wants a row's prose — this fails and says why."""
+        found = {n for n, t in self.modules.items() if scans_markdown(t)}
+        for name in (
+            "test_ci_catalog_completeness.py",
+            "test_ci_catalog_no_ghost_rows.py",
+            "test_ci_collector_table_completeness.py",
+        ):
+            with self.subTest(module=name):
+                self.assertIn(name, self.modules, f"{name} is not tracked")
+                self.assertNotIn(
+                    name,
+                    found,
+                    f"{name} reads Markdown again. Its invariant is supposed to "
+                    "compare against ci-guard-inventory.toml, so the Markdown "
+                    "reduction's residual cannot reach it — route prose reading "
+                    "through test_ci_catalog_doc_sync.py instead.",
+                )
 
     def test_every_scanner_reduces_or_declares_why_not(self):
         offenders = []

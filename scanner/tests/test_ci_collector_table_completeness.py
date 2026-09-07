@@ -52,11 +52,10 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import REPO_ROOT, rendered_markdown  # noqa: E402
+from _ci_guard_util import GUARD_INVENTORY, guard_inventory  # noqa: E402
 
 TESTS_DIR = Path(__file__).resolve().parent
-CATALOG_REL = "docs/devsecops/ci-config-regression-guards.md"
-CATALOG = REPO_ROOT / CATALOG_REL
+INVENTORY_REL = "docs/devsecops/ci-guard-inventory.toml"
 SECTION_TITLE = "Block-collector enumeration"
 
 # `len(x) - len(x.lstrip())` and the tab-expanded `len(e) - len(e.lstrip())` form.
@@ -93,78 +92,48 @@ def collector_files(paths=None) -> set:
     return out
 
 
-def table_section(catalog_text: str) -> str:
-    """The block-collector enumeration section, up to the next `##` heading.
+def listed_collectors(inventory_modules) -> set:
+    """Modules the inventory records as carrying a block collector.
 
-    Matched on the TITLE rather than a fixed heading level, so promoting or
-    demoting the section does not silently empty this guard.
+    Replaces `table_section()` + `table_files()`, which located a section by its
+    TITLE in the published Markdown and then regex-matched module identifiers out
+    of its rows. Both steps were defect sources measured in #529: the section
+    terminator `^#+\\s` matched an ordinary `# shell comment` inside a fenced
+    example and ended the section early, so every row below went unread; and the
+    row scan inherited the whole Markdown scan-evasion residual.
 
-    Reduced to rendered Markdown first. This guard scanned RAW text until the
-    vectors were measured against `table_files`: a row inside a code fence, an
-    HTML block, a closed `<!-- -->`, or after an unterminated `<!--` all counted
-    as listed, so a collector could be dropped from the published enumeration
-    with the completeness check green — the same silent pass
-    `test_ci_adr_decision_numbering` closed for decisions.
-
-    The reduction also repairs a second defect in the search itself, found while
-    measuring the first: the terminator `(?=^#+\\s|\\Z)` treats any `#` line as
-    the next heading, so an ordinary `# shell comment` inside a fenced example
-    ENDED the section early and every row below it went unread (measured: a row
-    after such a fence is invisible to the old parser, visible to this one).
-    That direction fails LOUD — unread rows read as an unlisted collector — so it
-    is a false alarm rather than a silent pass, and the opposite of the bug
-    above. Blanking fence content first means the terminator only ever sees real
-    headings."""
-    m = re.search(
-        rf"^#+\s*{re.escape(SECTION_TITLE)}.*?$(.*?)(?=^#+\s|\Z)",
-        rendered_markdown(catalog_text),
-        re.M | re.S,
-    )
-    return m.group(1) if m else ""
-
-
-def table_files(catalog_text: str) -> set:
-    """File names named in the enumeration table's rows.
-
-    Reads the whole row, not only its first cell: a verdict routinely names the
-    file whose collector it compares against (`test_ci_drift_watch_not_silent`
-    appears as the pattern the others now match), and a row is a row wherever the
-    name sits."""
-    out = set()
-    for line in table_section(catalog_text).splitlines():
-        if not line.lstrip().startswith("|"):
-            continue
-        # Match the MODULE identifier and normalise, so all three spellings the
-        # table actually uses resolve to one key: `test_ci_x.py`,
-        # `test_ci_x.collector_fn`, and the bare `test_ci_x`. Anchoring on `.py`
-        # alone missed the last two, which is how the first version of this guard
-        # reported a documented collector as unlisted.
-        out |= {
-            f"{m}.py"
-            for m in re.findall(r"\b(test_ci_[A-Za-z0-9_]+|_ci_guard_util)\b", line)
-        }
-    return out
+    The prose table still exists and is still checked — by
+    `test_ci_catalog_doc_sync.py`, against this same list. What changed is that a
+    defect in reading the prose can no longer make a documented collector look
+    enumerated, or an enumerated one look missing."""
+    return set(inventory_modules)
 
 
 class TestCollectorTableCompleteness(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.catalog = CATALOG.read_text(encoding="utf-8") if CATALOG.is_file() else ""
         cls.detected = collector_files()
-        cls.listed = table_files(cls.catalog)
+        cls.listed = listed_collectors(
+            guard_inventory()["block_collectors"]["modules"]
+        )
 
-    def test_catalog_exists(self):
-        self.assertTrue(CATALOG.is_file(), f"{CATALOG_REL} not found — path broke")
-
-    def test_section_is_found(self):
-        # Vacuity canary #1: no section means an empty `listed` set, which would
-        # report every collector as missing (loud) — but a section that parses to
-        # nothing while the file still contains the title would be silent.
+    def test_inventory_exists(self):
         self.assertTrue(
-            table_section(self.catalog).strip(),
-            f"the {SECTION_TITLE!r} section is missing or empty in {CATALOG_REL}. "
-            "If it was intentionally removed, delete this guard in the same commit "
-            "rather than leaving the enumeration unchecked.",
+            GUARD_INVENTORY.is_file(), f"{INVENTORY_REL} not found — path broke"
+        )
+
+    def test_the_enumeration_is_not_empty(self):
+        # Vacuity canary #1. An empty list reports every collector as missing,
+        # which is loud — but a list that parsed to nothing while the file still
+        # existed would look like a deliberately empty enumeration. A floor near
+        # the real count, not mere non-emptiness.
+        self.assertGreaterEqual(
+            len(self.listed),
+            10,
+            f"`[block_collectors].modules` in {INVENTORY_REL} holds only "
+            f"{len(self.listed)} entries. If the enumeration was intentionally "
+            "removed, delete this guard in the same commit rather than leaving "
+            "it unchecked.",
         )
 
     def test_detection_finds_the_known_collectors(self):
@@ -193,8 +162,9 @@ class TestCollectorTableCompleteness(unittest.TestCase):
         self.assertEqual(
             missing,
             [],
-            "block collector(s) with no verdict row in the catalog's "
-            f"{SECTION_TITLE!r} table:\n  " + "\n  ".join(missing) + "\n"
+            "block collector(s) missing from the inventory's "
+            f"`[block_collectors].modules` list ({INVENTORY_REL}):\n  "
+            + "\n  ".join(missing) + "\n"
             "Add a row saying what the collector reads (mapping or scalar) and why "
             "it is safe. #419 found the same defect in five collectors at once "
             "because nobody had the list; a collector that is not on the list is "
@@ -253,29 +223,36 @@ class TestDetectorBehaviour(unittest.TestCase):
                 "would make the guard noise",
             )
 
-    def test_a_row_is_read_from_anywhere_in_the_line(self):
-        md = (
-            "## Block-collector enumeration (2026-08-11)\n\n"
-            "| Collector | Reads | Verdict |\n|---|---|---|\n"
-            "| `_ci_guard_util.job_block` | mapping | FIXED |\n"
-            "| something | mapping | matches `test_ci_drift_watch_not_silent` |\n"
-            "\n## Next section\n"
-        )
+    # THREE MARKDOWN PARSER SELF-TESTS LIVED HERE and are deliberately gone,
+    # not misplaced: `test_a_row_is_read_from_anywhere_in_the_line`,
+    # `test_section_ends_at_the_next_heading` and
+    # `test_a_renamed_section_yields_nothing`. They pinned `table_section()` and
+    # `table_files()`, which no longer exist — this guard reads a TOML list. The
+    # equivalent prose properties (a row is found wherever it sits; a renamed
+    # section is caught) now belong to `test_ci_catalog_doc_sync.py`, which is
+    # the only reader of the published table.
+    #
+    # Recorded rather than silently dropped because "the tests went away with the
+    # code" is exactly how a refactor loses coverage without anyone deciding to.
+
+    def test_the_inventory_list_is_sorted_and_unique(self):
+        modules = guard_inventory()["block_collectors"]["modules"]
         self.assertEqual(
-            table_files(md),
-            {"_ci_guard_util.py", "test_ci_drift_watch_not_silent.py"},
+            modules,
+            sorted(set(modules)),
+            f"`[block_collectors].modules` in {INVENTORY_REL} must be sorted and "
+            "free of duplicates — a duplicate hides a typo",
         )
 
-    def test_section_ends_at_the_next_heading(self):
-        md = (
-            "## Block-collector enumeration\n\n| `test_ci_a.py` | x | y |\n"
-            "\n## Other\n\n| `test_ci_b.py` | x | y |\n"
+    def test_listed_collectors_is_a_plain_set_conversion(self):
+        # Small, but it pins the contract the failure messages assume: the
+        # inventory list is the truth, with no normalisation applied on the way
+        # in. The old reader normalised three spellings of a module name; if
+        # that logic were reintroduced here, an entry could satisfy the check
+        # under a name the inventory does not actually contain.
+        self.assertEqual(
+            listed_collectors(["b.py", "a.py", "a.py"]), {"a.py", "b.py"}
         )
-        self.assertEqual(table_files(md), {"test_ci_a.py"})
-
-    def test_a_renamed_section_yields_nothing(self):
-        # The shape the canary above exists for.
-        self.assertEqual(table_section("## Something else\n\n| `test_ci_a.py` |\n"), "")
 
 
 if __name__ == "__main__":

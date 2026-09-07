@@ -59,6 +59,41 @@ No PyYAML, no network, no subprocess. Importing compliance-map.py is fine — it
 is already in the measured `scanner/lib` coverage set. Runs under pytest and
 `python3 -m unittest`.
 
+WHY THIS GUARD STILL READS PROSE, AND WILL KEEP DOING SO
+    Decided 2026-09-07, after the catalog guards moved their inventory out of
+    Markdown into `ci-guard-inventory.toml`. That inversion does NOT transfer
+    here, and the reason is structural rather than a preference:
+
+      catalog guards   the published doc WAS the source of truth; nothing else
+                       held the list, so moving it created a source and removed
+                       prose from the invariant's path.
+      this guard       `COMPLIANCE_CONTROL_MAP` in `scanner/lib/compliance-map.py`
+                       is already the source. The doc is a DERIVED presentation,
+                       and comparing the two is this guard's whole subject.
+
+    A data file would sit between a source and a presentation that already
+    agree-or-disagree, and something would still have to read the Markdown to
+    find out which. Nor can the table be generated: it mixes a derived column
+    with human-authored ones, so emitting the whole thing would delete the
+    authored ones.
+
+    BLAST RADIUS of the reduction's residual here is DOCUMENTATION ONLY, and
+    that was verified rather than assumed: no runtime code reads this document.
+    `grep -rn "compliance-mapping\\.md\\|isms-p\\.md" scanner/ scripts/ hooks/`
+    excluding tests returns a comment in `compliance-map.py` and
+    `scripts/generate_security_seminar_template_ppt.py`, which lists the path as
+    a citation STRING inside generated slide text and does not parse it. No
+    control is ever scored from prose. If that ever changes, this paragraph is
+    the assumption to re-check.
+
+    Measured the same day: both guarded documents contain ZERO
+    residual-enabling constructs (no unpaired backticks after code-span masking,
+    no comments, no HTML blocks). A narrow lint forbidding those shapes was
+    considered and declined — an allow-list of forbidden prose forms is the
+    "enumerating forms" trap one level up, and it would constrain two
+    auditor-facing compliance documents to protect against a documentation-only
+    risk that has never occurred.
+
 OWASP CICD-SEC-7 (Insecure System Configuration): a compliance report that
 scores the right evidence against the wrong requirement is wrong in a way no
 severity count reveals.

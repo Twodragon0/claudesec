@@ -1,142 +1,178 @@
 """
-Regression guard: every `scanner/tests/test_ci_*.py` path CITED in the catalog
-`docs/devsecops/ci-config-regression-guards.md` must EXIST on disk.
+Regression guard: every guard NAMED in the inventory
+`docs/devsecops/ci-guard-inventory.toml` must EXIST on disk.
 
 This is the reverse of `test_ci_catalog_completeness.py`. That guard catches a
-guard file added without a catalog row (under-documentation); this one catches
-the opposite — a "ghost" catalog row that names a guard which was renamed or
-deleted without updating the catalog. A ghost row makes the inventory OVERstate
-coverage: a reader trusts that protection exists when the file behind it is gone.
+guard file added without an inventory entry (under-documentation); this one
+catches the opposite — a "ghost" entry naming a guard which was renamed or
+deleted without updating the inventory. A ghost entry makes the inventory
+OVERstate coverage: a reader trusts that protection exists when the file behind
+it is gone.
 
-Together the two guards make the catalog and the on-disk guard suite a verified
+Together the two guards make the inventory and the on-disk guard suite a verified
 1:1 mapping. Same risk class as the rest of the suite — OWASP CICD-SEC-1
 (Insufficient Flow Control) / NIST SSDF (SP 800-218) PO.3, PW.4.
 
-Semantics are EXISTENCE: each concrete `scanner/tests/test_ci_<name>.py` path in
-the catalog must resolve to a real file. The glob `scanner/tests/test_ci_*.py`
-(used in prose) is intentionally skipped — `*` is not a filename character, so
-the path regex never matches it.
+Semantics are EXISTENCE: each guard named in the INVENTORY,
+`docs/devsecops/ci-guard-inventory.toml`, must resolve to a real file.
 
-stdlib-only (regex + Path.is_file, no PyYAML — absent from requirements-ci.txt).
-No network, no subprocess. Passes under pytest (the CI runner) and
+**The inventory is a TOML file and not the published Markdown, as of this
+change.** Reading the prose made this guard's verdict depend on the Markdown
+reduction, whose residual was measured at 14 silent-pass shapes and cannot be
+closed by a stdlib regex (the divergence is markdown -> HTML -> browser, two
+layers). ADR-001 §5 says to invert rather than patch an enumeration a third
+time, so the comparison is now a set of names against `Path.is_file` with **no
+Markdown in the path at all**. The prose glob problem disappears with it: an
+inventory holds names, never globs, so there is nothing to skip.
+
+stdlib-only (`tomllib` + `Path.is_file`; no PyYAML, absent from
+requirements-ci.txt). No network, no subprocess. Passes under pytest (the CI runner) and
 `python3 -m unittest`. Does not import scanner/lib, so it never moves the
 measured coverage gate.
 """
 
-import re
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import rendered_markdown  # noqa: E402
+from _ci_guard_util import GUARD_INVENTORY, guard_inventory  # noqa: E402
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CATALOG_REL = "docs/devsecops/ci-config-regression-guards.md"
-CATALOG = REPO_ROOT / CATALOG_REL
-
-# Concrete guard paths only; `*` is not matched, so the prose glob
-# `scanner/tests/test_ci_*.py` is skipped by construction.
-CITED_PATH_RE = re.compile(r"scanner/tests/test_ci_[A-Za-z0-9_]+\.py")
+INVENTORY_REL = "docs/devsecops/ci-guard-inventory.toml"
 
 
-def cited_paths(catalog_text: str) -> list:
-    """Concrete guard paths cited in the catalog's ACTIVE text, sorted+deduped.
+def listed_paths(inventory_guards) -> list:
+    """Repo-relative guard paths named in the inventory, sorted.
 
-    Reduced to rendered Markdown first. A row parked in `<!-- ... -->`, in a code
-    fence, in an HTML block, or after an unterminated `<!--` renders as nothing a
-    reader can act on, so it claims no coverage and must not be reported as a
-    ghost — this is the opposite direction from `test_ci_catalog_completeness.py`,
-    where the same reduction makes the check STRICTER (a hidden row stops
-    satisfying a presence check). Same primitive, both directions correct.
-
-    Only the closed-comment form was handled until the other three were measured;
-    here they cost a FALSE ALARM rather than a silent pass, which is the milder
-    direction and exactly why it could sit unnoticed. It is still worth closing:
-    a guard that flags a row no reader can see is the kind that gets ignored, and
-    an ignored check buys nothing (the `gh pr merge` file-list lesson)."""
-    return sorted(set(CITED_PATH_RE.findall(rendered_markdown(catalog_text))))
+    The inventory stores bare file NAMES; the `scanner/tests/` prefix is applied
+    here so the rest of this guard, and its failure message, still speak in
+    repo-relative paths a reader can paste into an editor."""
+    return sorted(f"scanner/tests/{name}" for name in inventory_guards)
 
 
-def ghost_rows(catalog_text: str, repo_root: Path) -> list:
-    """Cited guard paths with no file on disk."""
-    return [rel for rel in cited_paths(catalog_text) if not (repo_root / rel).is_file()]
+def ghost_rows(inventory_guards, repo_root: Path) -> list:
+    """Inventory entries with no file on disk."""
+    return [
+        rel for rel in listed_paths(inventory_guards) if not (repo_root / rel).is_file()
+    ]
 
 
 class TestCiCatalogNoGhostRows(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        text = CATALOG.read_text(encoding="utf-8") if CATALOG.is_file() else ""
-        cls.cited = cited_paths(text)
+        cls.inventory = guard_inventory()["catalog"]["guards"]
+        cls.listed = listed_paths(cls.inventory)
 
-    def test_catalog_exists(self):
+    def test_inventory_exists(self):
         self.assertTrue(
-            CATALOG.is_file(),
-            f"CI guard catalog not found at {CATALOG} — path assumption broke",
+            GUARD_INVENTORY.is_file(),
+            f"guard inventory not found at {GUARD_INVENTORY} — path assumption broke",
         )
 
-    def test_paths_cited(self):
-        # Canary: the catalog must cite at least one concrete guard path. If the
-        # regex stops matching, fail loudly rather than vacuously passing.
-        self.assertTrue(
-            self.cited,
-            f"no scanner/tests/test_ci_*.py paths found in {CATALOG_REL} — "
-            "regex/format drift",
+    def test_paths_listed(self):
+        # Canary: an empty inventory makes "no ghosts" trivially true. A floor
+        # near the real count rather than mere non-emptiness, because a
+        # one-entry inventory would also pass a non-empty check.
+        self.assertGreater(
+            len(self.listed),
+            50,
+            f"inventory holds only {len(self.listed)} entries — parse or path "
+            f"failure in {INVENTORY_REL}, not a small repo",
         )
 
-    def test_every_cited_path_exists(self):
-        ghosts = [rel for rel in self.cited if not (REPO_ROOT / rel).is_file()]
+    def test_every_listed_collector_exists(self):
+        """The other list in the same file, which had no existence check.
+
+        A review measured `"test_ci_zzz_never_existed.py"` in
+        `[block_collectors].modules` plus a matching doc row passing everything:
+        `test_ci_collector_table_completeness` only asserts detected-minus-listed
+        (extras are legitimate — see its `test_extra_rows_are_allowed`), so a
+        ghost collector was nobody's business. Not a regression, since the old
+        prose table had no existence check either, but a free asymmetry to close
+        inside the one file that already does existence checking."""
+        modules = guard_inventory()["block_collectors"]["modules"]
+        ghosts = [
+            m
+            for m in modules
+            if not (REPO_ROOT / "scanner" / "tests" / m).is_file()
+        ]
         self.assertEqual(
             ghosts,
             [],
-            f"Catalog ({CATALOG_REL}) cites guard file(s) that no longer exist "
-            "on disk:\n  "
+            f"`[block_collectors].modules` in {INVENTORY_REL} names module(s) "
+            "with no file under scanner/tests:\n  " + ", ".join(ghosts),
+        )
+
+    def test_every_listed_path_exists(self):
+        ghosts = [rel for rel in self.listed if not (REPO_ROOT / rel).is_file()]
+        self.assertEqual(
+            ghosts,
+            [],
+            f"Inventory ({INVENTORY_REL}) names guard file(s) that no longer "
+            "exist on disk:\n  "
             + ", ".join(ghosts)
-            + "\nA renamed/deleted guard left a ghost row — the inventory now "
-            "overstates coverage. Update or remove the Catalog row.",
+            + "\nA renamed/deleted guard left a ghost entry — the inventory now "
+            "overstates coverage. Update or remove it, and its catalog row.",
         )
 
 
 
 class TestGhostRowDetector(unittest.TestCase):
-    """Mutation self-tests — this guard shipped without any (Class 2 backlog)."""
+    """Mutation self-tests for the detector.
 
-    _REAL = "scanner/tests/test_ci_catalog_no_ghost_rows.py"   # this file
-    _GHOST = "scanner/tests/test_ci_definitely_not_a_real_guard.py"
+    Rewritten when the comparison moved from prose to TOML. The old cases fed
+    `ghost_rows` catalog text — a commented-out ghost that must NOT be reported,
+    a commented ghost that must not mask a live one, a prose glob that is not a
+    path, duplicate citations collapsing. None of those can happen to a parsed
+    list of names, and all of them were about the Markdown reduction rather than
+    about ghost detection. They MOVED to `test_ci_catalog_doc_sync.py`, which is
+    where prose is still read; they were not dropped."""
 
-    def test_real_path_is_not_a_ghost(self):
-        self.assertEqual(ghost_rows(f"| `{self._REAL}` | x | y | #1 |", REPO_ROOT), [])
+    _REAL = "test_ci_catalog_no_ghost_rows.py"   # this file
+    _GHOST = "test_ci_definitely_not_a_real_guard.py"
 
-    def test_deleted_guard_row_is_detected(self):
+    def test_real_entry_is_not_a_ghost(self):
+        self.assertEqual(ghost_rows([self._REAL], REPO_ROOT), [])
+
+    def test_deleted_guard_entry_is_detected(self):
         self.assertEqual(
-            ghost_rows(f"| `{self._GHOST}` | x | y | #1 |", REPO_ROOT),
-            [self._GHOST],
-            "A catalog row naming a nonexistent guard file was NOT detected — "
-            "the inventory would overstate coverage.",
+            ghost_rows([self._GHOST], REPO_ROOT),
+            [f"scanner/tests/{self._GHOST}"],
+            "an inventory entry naming a nonexistent guard file was NOT "
+            "detected — the inventory would overstate coverage",
         )
 
-    def test_prose_glob_is_not_treated_as_a_path(self):
-        self.assertEqual(cited_paths("see `scanner/tests/test_ci_*.py` for all"), [])
+    def test_empty_inventory_has_no_ghosts(self):
+        # Vacuously true by construction, which is exactly why the class above
+        # pins a count floor on the REAL inventory rather than relying on this.
+        self.assertEqual(ghost_rows([], REPO_ROOT), [])
 
-    def test_commented_out_ghost_is_not_reported(self):
-        # A row inside an HTML comment renders as nothing, so it claims no
-        # coverage — reporting it as a ghost would be a false alarm.
+    def test_a_ghost_is_reported_alongside_real_entries(self):
+        # The live one must not mask the ghost, the property the old
+        # commented-ghost case was really about.
         self.assertEqual(
-            ghost_rows(f"<!-- | `{self._GHOST}` | x | y | #1 | -->", REPO_ROOT),
-            [],
+            ghost_rows([self._REAL, self._GHOST], REPO_ROOT),
+            [f"scanner/tests/{self._GHOST}"],
         )
 
-    def test_commented_ghost_does_not_mask_a_live_one(self):
-        text = (
-            f"<!-- | `{self._GHOST}` | old | | -->\n"
-            f"| `{self._GHOST}` | live row | y | #2 |\n"
+    def test_paths_are_repo_relative_and_sorted(self):
+        self.assertEqual(
+            listed_paths(["test_ci_zeta.py", "test_ci_alpha.py"]),
+            ["scanner/tests/test_ci_alpha.py", "scanner/tests/test_ci_zeta.py"],
         )
-        self.assertEqual(ghost_rows(text, REPO_ROOT), [self._GHOST])
 
-    def test_duplicate_citations_collapse(self):
-        text = f"`{self._REAL}` and again `{self._REAL}`"
-        self.assertEqual(cited_paths(text), [self._REAL])
+    def test_existence_is_checked_under_scanner_tests_not_the_repo_root(self):
+        # The prefix is load-bearing. `README.md` exists at the repo root and
+        # NOT under scanner/tests, so if the prefix were ever dropped this entry
+        # would resolve and a ghost would look real — a verdict that depends on
+        # which directory the name happens to match.
+        self.assertEqual(
+            ghost_rows(["README.md"], REPO_ROOT),
+            ["scanner/tests/README.md"],
+            "existence was checked somewhere other than scanner/tests",
+        )
 
 
 if __name__ == "__main__":

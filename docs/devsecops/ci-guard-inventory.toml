@@ -1,0 +1,136 @@
+# CI config regression guard INVENTORY — the machine-readable half of
+# `docs/devsecops/ci-config-regression-guards.md`.
+#
+# WHY THIS FILE EXISTS
+#   Three guards used to read that published Markdown document as a database.
+#   That put the whole Markdown scan-evasion class between a guard and the
+#   invariant it asserts: a row hidden in a closed comment, a code fence, an
+#   HTML block, or after an unterminated comment opener renders as nothing a
+#   reader can act on while a raw substring scan still finds it. Two PRs (#528,
+#   #529) patched the reduction; the second still left a measured 14 silent-pass
+#   shapes, because the divergence is a TWO-LAYER problem (markdown -> HTML ->
+#   browser) that a stdlib regex cannot model.
+#
+#   ADR-001 §5 says to invert rather than patch an enumeration a third time. So
+#   the inventory moved here, and the strong invariant — every guard on disk is
+#   inventoried — now has NO Markdown anywhere in its path.
+#
+# WHAT IS AND IS NOT HERE
+#   Only the fields a machine compares. Every verdict, rationale and incident
+#   note stays in the Markdown, where it is readable and reviewable; moving
+#   3000-character prose verdicts into TOML would wreck authoring and buy
+#   nothing.
+#
+# THE DOC IS STILL CHECKED, MORE WEAKLY, AND ON PURPOSE
+#   `test_ci_catalog_doc_sync.py` is the ONLY remaining reader of the prose and
+#   asserts set equality against this file. It still goes through
+#   `rendered_markdown`, so it still carries that residual — but its failure
+#   mode is now documentation drift, not a guard certifying an inventory that
+#   does not exist. To degrade the published catalog you must now ALSO edit this
+#   file, and doing that fails the on-disk checks in
+#   `test_ci_catalog_completeness.py` outright.
+#
+# EDITING
+#   Add a guard here in the same commit that adds the guard, and add its row to
+#   the Markdown. Both are checked. Keep the lists sorted; a guard pins that.
+#
+# Parsed with `tomllib` (stdlib >= 3.11; the `ci-guards` job pins 3.11 and
+# installs nothing).
+
+[catalog]
+# Every `scanner/tests/test_ci_*.py`. Compared against the glob on disk.
+guards = [
+  "test_ci_adr_citation_spelling.py",
+  "test_ci_adr_decision_numbering.py",
+  "test_ci_branch_protection_codified.py",
+  "test_ci_catalog_completeness.py",
+  "test_ci_catalog_doc_sync.py",
+  "test_ci_catalog_no_ghost_rows.py",
+  "test_ci_changes_job_merge_base.py",
+  "test_ci_codeowners_invariants.py",
+  "test_ci_codeql_single_model.py",
+  "test_ci_collector_table_completeness.py",
+  "test_ci_compliance_doc_table.py",
+  "test_ci_compliance_keyword_guard.py",
+  "test_ci_compose_dashboard_hardening.py",
+  "test_ci_coverage_thresholds.py",
+  "test_ci_cross_os_non_required.py",
+  "test_ci_dashboard_control_smoke.py",
+  "test_ci_dast_freshness_watch.py",
+  "test_ci_dast_tracker_body_refresh.py",
+  "test_ci_dead_schedule_arm.py",
+  "test_ci_decode_boundary_handlers.py",
+  "test_ci_dependabot_auto_merge_fail_closed.py",
+  "test_ci_dependabot_automerge.py",
+  "test_ci_dependabot_config.py",
+  "test_ci_diagram_gen_canonical_sync.py",
+  "test_ci_docker_image_size_gate.py",
+  "test_ci_docker_kcov_parity.py",
+  "test_ci_dockerfile_base_pinned.py",
+  "test_ci_drift_watch_not_silent.py",
+  "test_ci_gate_topology.py",
+  "test_ci_gitleaks_ruleset.py",
+  "test_ci_guard_assertion_scoping.py",
+  "test_ci_guard_self_verify.py",
+  "test_ci_injection_surface.py",
+  "test_ci_junit_reporter_live.py",
+  "test_ci_kisa_control_alignment.py",
+  "test_ci_lighthouse_perf_gate.py",
+  "test_ci_lychee_config.py",
+  "test_ci_lychee_redirect_sweep.py",
+  "test_ci_markdown_scan_evasion.py",
+  "test_ci_needs_output_refs.py",
+  "test_ci_net005_fail_escalation.py",
+  "test_ci_nginx_security_headers.py",
+  "test_ci_no_code_injection_regression.py",
+  "test_ci_no_ere_pipe_regression.py",
+  "test_ci_no_raw_output_interpolation.py",
+  "test_ci_no_secrets_in_if.py",
+  "test_ci_npm_files.py",
+  "test_ci_npm_oidc_floor.py",
+  "test_ci_npm_publish.py",
+  "test_ci_pii_check_executes.py",
+  "test_ci_plugin_skills_cli_parity.py",
+  "test_ci_pr_trigger_scope.py",
+  "test_ci_provenance_verify.py",
+  "test_ci_provider_labels_sync.py",
+  "test_ci_prowler_provider_guard_ordering.py",
+  "test_ci_prowler_version_pinned.py",
+  "test_ci_reachability.py",
+  "test_ci_required_graph_not_disabled.py",
+  "test_ci_required_jobs_exist.py",
+  "test_ci_requirements_pinned.py",
+  "test_ci_scanned_provider_invariant.py",
+  "test_ci_scanner_lib_reachability.py",
+  "test_ci_security_gate.py",
+  "test_ci_security_gate_behaviour.py",
+  "test_ci_strip_before_match.py",
+  "test_ci_template_adopter_prereqs.py",
+  "test_ci_template_keys_arity.py",
+  "test_ci_template_pin_policy.py",
+  "test_ci_trivy_version_pinned.py",
+  "test_ci_watcher_states_consumed.py",
+]
+
+[block_collectors]
+# Modules with an indentation-based block collector, each of which must carry a
+# verdict row in the catalog's "Block-collector enumeration" section.
+modules = [
+  "_ci_guard_util.py",
+  "test_ci_collector_table_completeness.py",
+  "test_ci_dashboard_control_smoke.py",
+  "test_ci_dast_freshness_watch.py",
+  "test_ci_dast_tracker_body_refresh.py",
+  "test_ci_dependabot_auto_merge_fail_closed.py",
+  "test_ci_drift_watch_not_silent.py",
+  "test_ci_guard_self_verify.py",
+  "test_ci_injection_surface.py",
+  "test_ci_lychee_redirect_sweep.py",
+  "test_ci_no_secrets_in_if.py",
+  "test_ci_npm_publish.py",
+  "test_ci_pii_check_executes.py",
+  "test_ci_pr_trigger_scope.py",
+  "test_ci_reachability.py",
+  "test_ci_required_graph_not_disabled.py",
+  "test_ci_security_gate_behaviour.py",
+]

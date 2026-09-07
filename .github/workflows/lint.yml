@@ -154,7 +154,20 @@ jobs:
             #
             # Over-inclusion here is fail-safe: it costs ~20s and cannot hide a
             # regression. Pinned by scanner/tests/test_ci_guard_self_verify.py.
-            echo "ci_config=$(match '^(\.github/|templates/|scanner/tests/(test_ci_|_ci_guard_util\.py)|scripts/setup\.sh$|requirements.*\.txt|lychee\.toml$|ruff\.toml$|Dockerfile|nginx/|package\.json$|\.npmignore$|lighthouserc\.json$|bin/|\.claude/skills/|\.claude-plugin/)')"
+            echo "ci_config=$(match '^(\.github/|templates/|scanner/tests/(test_ci_|_ci_guard_util\.py)|scripts/setup\.sh$|requirements.*\.txt|lychee\.toml$|ruff\.toml$|Dockerfile|nginx/|package\.json$|\.npmignore$|lighthouserc\.json$|bin/|\.claude/skills/|\.claude-plugin/|docs/devsecops/ci-guard-inventory\.toml$|docs/devsecops/ci-config-regression-guards\.md$)')"
+            # The last two added when the guard INVENTORY moved out of prose into
+            # `docs/devsecops/ci-guard-inventory.toml`. Both were in NO bucket,
+            # measured: a PR editing only the inventory fired neither `ci-guards`
+            # nor `scanner-unit-tests`, so deleting a guard's entry — which is
+            # now deleting it from the coverage inventory itself — would have
+            # been checked by nothing. The catalog `.md` is here for the same
+            # reason one step out: `test_ci_catalog_doc_sync.py` compares the
+            # published table against that inventory, and a doc-only edit that
+            # hides a row could not fire the guard written to catch it. Same
+            # shape as the `nginx/` and #460 template-pin incidents below and
+            # above: the gate hides drift, because a job that never runs reads
+            # exactly like one that found nothing. Widening `ci_config` only —
+            # NOT `scanner`, which would fire kcov.
             # `nginx/` added 2026-08-27. It was in NO bucket, so a PR editing
             # only nginx/default.conf ran neither `Docker Dashboard Smoke Test`
             # (gated on docker/scanner) nor `scanner-unit-tests` — the one file
