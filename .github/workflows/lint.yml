@@ -401,6 +401,82 @@ jobs:
           # discovered nothing and still reported OK.
           printf '%s\n' "$out" | grep -qE '^Ran [1-9][0-9]* tests? in '
 
+  # ---------------------------------------------------------------------------
+  # The renderer-adjudicated guard classes, which SKIP everywhere else.
+  #
+  # Three classes compare a Markdown reduction against `markdown-it-py` rather
+  # than against itself, and they are the only checks able to catch the
+  # reduction's RESIDUAL — every other comparison is computed from the reduction
+  # and so agrees with itself. They need the package, so:
+  #
+  #   ci-guards           runs on `ci_config` (which DOES match the catalog),
+  #                       but installs nothing, so all three report `skipped`.
+  #   scanner-unit-tests  installs requirements-ci.txt, but is gated on
+  #                       `scanner`, which the catalog does NOT match.
+  #
+  # So a PR editing only `docs/devsecops/ci-config-regression-guards.md` — the
+  # exact shape that would introduce a residual — got the job but not the check.
+  # Measured: a stray unmatched backtick plus a comment opener above `## Catalog`
+  # left a reader seeing 0 of 70 guard rows with 68 guard tests green.
+  #
+  # Why a THIRD job rather than installing into `ci-guards`: that job's
+  # admissibility on a broad bucket rests on needing no `pip install`, a property
+  # documented in three places and asserted by none — so breaking it would turn
+  # nothing red and silently falsify all three. `markdown-it-py` costs 1s and
+  # pulls one dependency (`mdurl`), so the separate job is ~20s, the same order
+  # as `ci-guards`. NOT the `scanner` bucket, which would fire kcov (minutes).
+  # ---------------------------------------------------------------------------
+  renderer-canary:
+    name: Markdown renderer canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: changes
+    if: needs.changes.outputs.ci_config == 'true' || github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install the CommonMark reference
+        # Pinned to the version every renderer-agreement docstring adjudicates
+        # against. A range would let a release change the oracle between runs.
+        run: python3 -m pip install --disable-pip-version-check markdown-it-py==4.0.0
+      - name: Run the renderer-adjudicated guard classes
+        run: |
+          set -euo pipefail
+          # FAIL, do not skip, when the oracle is missing. The classes below
+          # skip on ImportError — correct for the package-free job, and the exact
+          # fail-open this job exists to close, so it must not be reproduced here.
+          # One line on purpose: an indented heredoc keeps its leading
+          # whitespace and Python rejects it (`IndentationError: unexpected
+          # indent`, measured), and de-indenting the body to column 0 would
+          # break out of this block scalar.
+          installed=$(python3 -c 'import markdown_it; print(markdown_it.__version__)')
+          if [ "$installed" != "4.0.0" ]; then
+            echo "::error::markdown-it-py is $installed, not the adjudicated 4.0.0 — re-measure before repinning"
+            exit 1
+          fi
+          cd scanner/tests
+          out=$(python3 -m unittest -v \
+            test_ci_catalog_doc_sync.TestTheDocAgreesWithTheRenderer \
+            test_ci_adr_decision_numbering.TestTheParseAgreesWithCommonMark \
+            test_ci_markdown_scan_evasion.TestTheResidualIsBounded 2>&1) || {
+            printf '%s\n' "$out"
+            exit 1
+          }
+          printf '%s\n' "$out"
+          # `unittest` exits 0 on "Ran 0 tests", so a renamed or deleted class
+          # would be a silent vacuous pass — the same hazard `ci-guards` pins.
+          printf '%s\n' "$out" | grep -qE '^Ran [1-9][0-9]* tests? in '
+          # And a class that SKIPPED still counts in "Ran N", so the skip has to
+          # be excluded explicitly or this job re-opens the hole it closes.
+          if printf '%s\n' "$out" | grep -q 'skipped'; then
+            echo "::error::a renderer-adjudicated class skipped in the job that exists to run it"
+            exit 1
+          fi
+
+
   scanner-unit-tests:
     runs-on: ubuntu-latest
     needs: changes
@@ -1357,6 +1433,7 @@ jobs:
       - shell-lint
       - python-lint
       - ci-guards
+      - renderer-canary
       - scanner-unit-tests
       - scanner-shell-coverage
       - dashboard-regression-check

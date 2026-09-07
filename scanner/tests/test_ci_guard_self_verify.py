@@ -1,8 +1,8 @@
 """The CI-config guards must RUN on the files they guard.
 
 A guard that cannot execute on the PR that violates its invariant is decoration.
-Every `test_ci_*.py` in this directory runs in exactly two jobs, and until #462
-one of them did not exist:
+Every `test_ci_*.py` in this directory runs in three jobs. Two of them did not
+exist once: `ci-guards` was added in #462, `renderer-canary` in the PR below.
 
 - `scanner-unit-tests` — under pytest, with the 99% coverage gate. Gated on the
   `scanner` diff bucket, which also gates `scanner-shell-coverage` (kcov,
@@ -14,6 +14,16 @@ one of them did not exist:
   nothing else, on the broad `ci_config` bucket. Measured at 874 tests / 3.6s in
   a venv with ZERO third-party packages, so it needs a checkout and a Python and
   no `pip install`, and admitting a path costs ~20s instead of minutes.
+- `renderer-canary` — the three classes that adjudicate a Markdown reduction
+  against `markdown-it-py` rather than against themselves. They are the only
+  checks able to catch that reduction's RESIDUAL, and they SKIP without the
+  package: `ci-guards` installs nothing, and `scanner-unit-tests` has it but is
+  gated on `scanner`, which the catalog does not match. So a catalog-only PR —
+  the exact shape that would introduce a residual — got a job but not the check.
+  A THIRD job rather than an install in `ci-guards`, because that job's
+  admissibility on a broad bucket rests on needing no `pip install`, a property
+  documented in three places and asserted by none: breaking it would turn
+  nothing red and silently falsify all three.
 
 THE INCIDENT
 ------------
@@ -57,6 +67,13 @@ WHAT THIS PINS
    so a third installed template inherits the coverage.
 4. `ci-guards` exists, is gated on `ci_config`, is wired into `lint-gate.needs`,
    and its step really invokes `unittest discover` over `test_ci_*.py`.
+5. `renderer-canary` exists, is gated on `ci_config` (NOT `scanner`, which would
+   fire kcov), installs the pinned oracle, names all three adjudicated classes,
+   is wired into `lint-gate.needs`, and carries BOTH vacuity checks its verdict
+   depends on — a non-zero test count and a skip check. The second is not
+   redundant: `unittest` counts a skipped class in `Ran N tests` and exits 0, so
+   the count alone would let a skip read as a pass, which is the fail-open this
+   job exists to close.
 
 DIRECTION is coverage, in one direction only: widening `ci_config` is always safe
 here (it can only run more validation, for seconds) and narrowing it trips this
@@ -109,6 +126,16 @@ SETUP_SH = REPO_ROOT / "scripts" / "setup.sh"
 GUARD_JOB = "ci-guards"
 CHANGES_JOB = "changes"
 GATE_JOB = "lint-gate"
+CANARY_JOB = "renderer-canary"
+
+# The renderer-adjudicated classes. Each compares a Markdown reduction against
+# `markdown-it-py` instead of against itself, and each SKIPS without it — so
+# `renderer-canary` is the only job where they execute on a catalog-only PR.
+CANARY_CLASSES = (
+    "test_ci_catalog_doc_sync.TestTheDocAgreesWithTheRenderer",
+    "test_ci_adr_decision_numbering.TestTheParseAgreesWithCommonMark",
+    "test_ci_markdown_scan_evasion.TestTheResidualIsBounded",
+)
 BUCKET_OUTPUT = "ci_config"
 
 # The bucket's own `match '<regex>'` call, anchored on the output key so a
@@ -239,6 +266,78 @@ def guard_job_problems(lint_text: str) -> list:
     return problems
 
 
+def canary_job_problems(lint_text: str) -> list:
+    """The same four checks, for the renderer-canary job.
+
+    A separate function rather than a parameter on the one above, because the
+    two jobs prove different things and their failure messages should say so.
+    What they share is the shape of the ways a CI job goes quiet: undeclared
+    output, missing gate, an invocation that does not invoke, and absence from
+    the aggregator.
+
+    This exists because the job it pins was added to close a fail-open, and an
+    unpinned fix for a fail-open is one token from being reverted with the suite
+    green — measured on the `ci_config` bucket widening in #530, where deleting
+    both new alternatives left all 2909 tests passing."""
+    problems = []
+    block = job_block(lint_text, CANARY_JOB)
+    if block is None:
+        return [
+            f"job `{CANARY_JOB}` not found in lint.yml. It is the ONLY place the "
+            "renderer-adjudicated guard classes actually execute on a "
+            "catalog-only PR — everywhere else they skip."
+        ]
+
+    gate = re.search(r"^\s{4}if:\s*(.+)$", block, re.M)
+    if gate is None:
+        problems.append(f"job `{CANARY_JOB}` has no job-level `if:` gate")
+    elif BUCKET_OUTPUT not in gate.group(1):
+        problems.append(
+            f"job `{CANARY_JOB}` is gated on `if: {gate.group(1).strip()}`, which "
+            f"does not read `{BUCKET_OUTPUT}`. Gated on the `scanner` bucket it "
+            "would fire kcov; gated on nothing it would run on every PR."
+        )
+
+    if not re.search(r"markdown-it-py==4\.0\.0", block):
+        problems.append(
+            f"job `{CANARY_JOB}` does not install `markdown-it-py==4.0.0`. "
+            "Without the oracle every class it runs SKIPS, and the job reports "
+            "success having adjudicated nothing — the exact fail-open it exists "
+            "to close."
+        )
+
+    if not re.search(r"grep\s+-q\s+'skipped'", block):
+        problems.append(
+            f"job `{CANARY_JOB}` lost its skip check. `unittest` counts a skipped "
+            "class in `Ran N tests` and exits 0, so without this a skip reads as "
+            "a pass."
+        )
+
+    if not re.search(r"\^Ran \[1-9\]", block):
+        problems.append(
+            f"job `{CANARY_JOB}` lost its non-zero test-count check. `unittest` "
+            "exits 0 on 'Ran 0 tests', so a renamed class would pass vacuously."
+        )
+
+    for cls in CANARY_CLASSES:
+        if cls not in block:
+            problems.append(
+                f"job `{CANARY_JOB}` no longer runs `{cls}`. It skips in every "
+                "other job, so dropping it here leaves it running nowhere."
+            )
+
+    gate_block = job_block(lint_text, GATE_JOB)
+    if gate_block is None:
+        problems.append(f"aggregator job `{GATE_JOB}` not found")
+    elif CANARY_JOB not in job_needs(gate_block):
+        problems.append(
+            f"`{GATE_JOB}` does not list `{CANARY_JOB}` in `needs:`. Only `Lint` "
+            "is a required context, so a canary outside that graph can go red "
+            "while the merge stays green."
+        )
+    return problems
+
+
 def uncovered_paths(pattern: str) -> list:
     """Repo-relative paths a guard reads that the `ci_config` bucket misses.
 
@@ -296,6 +395,9 @@ class TestGuardJobIsWiredAndGated(unittest.TestCase):
 
     def test_guard_job_is_declared_gated_and_required(self):
         self.assertEqual(guard_job_problems(self.raw), [])
+
+    def test_canary_job_is_declared_gated_and_required(self):
+        self.assertEqual(canary_job_problems(self.raw), [])
 
     def test_every_workflow_and_installed_template_is_covered(self):
         self.assertEqual(uncovered_paths(bucket_pattern(self.raw)), [])
@@ -429,6 +531,79 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
                 "",
             ),
             "ci_config not declared in changes.outputs",
+        )
+
+    def test_removing_the_canary_from_the_aggregator_is_caught(self):
+        """Outside `lint-gate.needs` the canary can go red while `Lint` stays
+        green — and `Lint` is the only required context."""
+        assert_disables(
+            canary_job_problems,
+            self.lint,
+            apply_mutation(self.lint, "      - renderer-canary\n", ""),
+            "renderer-canary dropped from lint-gate.needs",
+        )
+
+    def test_dropping_the_oracle_install_is_caught(self):
+        """Without `markdown-it-py` every class the job runs SKIPS, and the job
+        reports success having adjudicated nothing. That is the fail-open the
+        job was created to close, so it must not be reachable by deleting one
+        line."""
+        assert_disables(
+            canary_job_problems,
+            self.lint,
+            apply_mutation(self.lint, "markdown-it-py==4.0.0", "some-other-pkg==1.0"),
+            "renderer-canary no longer installs the oracle",
+        )
+
+    def test_dropping_the_skip_check_is_caught(self):
+        """`unittest` counts a skipped class in `Ran N tests` and exits 0, so
+        the count check alone does not catch a skip."""
+        assert_disables(
+            canary_job_problems,
+            self.lint,
+            apply_mutation(self.lint, "grep -q 'skipped'", "grep -q '__removed__'"),
+            "renderer-canary lost its skip check",
+        )
+
+    def test_dropping_a_canary_class_is_caught(self):
+        """Each class skips in every other job, so removing it here leaves it
+        running nowhere at all."""
+        assert_disables(
+            canary_job_problems,
+            self.lint,
+            apply_mutation(
+                self.lint,
+                "test_ci_markdown_scan_evasion.TestTheResidualIsBounded",
+                "test_ci_markdown_scan_evasion.__removed__",
+            ),
+            "a renderer-adjudicated class dropped from the canary job",
+        )
+
+    def test_rewiring_the_canary_to_the_scanner_bucket_is_caught(self):
+        """The `scanner` bucket also gates kcov (minutes). Gating the canary
+        there would work, and would silently reintroduce the cost this whole
+        split exists to avoid — so the gate is asserted, not just its presence."""
+        mutant = apply_mutation(
+            self.lint,
+            "    if: needs.changes.outputs.ci_config == 'true' || "
+            "github.event_name == 'schedule'\n    steps:\n"
+            "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+            "  # v7.0.1\n      - name: Set up Python\n"
+            "        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97\n"
+            "        with:\n          python-version: '3.11'\n"
+            "      - name: Install the CommonMark reference",
+            "    if: needs.changes.outputs.scanner == 'true'\n    steps:\n"
+            "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+            "  # v7.0.1\n      - name: Set up Python\n"
+            "        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97\n"
+            "        with:\n          python-version: '3.11'\n"
+            "      - name: Install the CommonMark reference",
+        )
+        assert_disables(
+            canary_job_problems,
+            self.lint,
+            mutant,
+            "renderer-canary gated on the kcov-firing bucket",
         )
 
     def test_removing_the_job_from_the_aggregator_is_caught(self):
