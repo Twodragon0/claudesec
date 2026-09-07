@@ -527,6 +527,13 @@ def _numbers(head: str, chain: str) -> str:
     return "/".join([head] + re.findall(r"\d+", chain or ""))
 
 
+MARKDOWN_SCAN_EXEMPT = (
+    "deliberately raw: this mirrors `_CITE_RE`, the consumer it protects, and is "
+    "a FORBIDDEN-token scan (over-reports at worst, never a silent bypass). See "
+    "`spelling_findings`."
+)
+
+
 def spelling_findings(text: str, relpath: str) -> list:
     """Sorted baseline keys for every forbidden ADR-001 citation spelling in
     `text`, attributed to `relpath`.

@@ -45,6 +45,9 @@ measured coverage gate). Passes under pytest (the CI runner) and
 OWASP CICD-SEC-1 (Insufficient Flow Control) / NIST SSDF (SP 800-218) PW.4.
 """
 
+MARKDOWN_SCAN_EXEMPT = (
+    "scans workflow YAML; the `.md` literals are dashboard source PATHS in a list, never Markdown this parses"
+)
 import re
 import sys
 import unittest

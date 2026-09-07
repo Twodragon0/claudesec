@@ -65,6 +65,9 @@ No network, no subprocess, does not import scanner/lib. Passes under pytest and
 `python3 -m unittest`. Action SHA-pinning is covered by test_ci_gate_topology.py.
 """
 
+MARKDOWN_SCAN_EXEMPT = (
+    "scans workflow YAML; the `.md` literals are `--body-file` arguments inside `run:` shell strings"
+)
 import re
 import sys
 import unittest

@@ -362,8 +362,33 @@ def strip_html_comments(text: str) -> str:
 
     A caller that PARSES, and so reads absence as deletion, needs the opposite
     answer — see `truncate_at_unclosed_html_comment`, which is a separate step on
-    purpose because it must run AFTER fences are stripped."""
-    return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    purpose because it must run AFTER fences are stripped.
+
+    An opener inside an INLINE CODE SPAN does not count, for the same reason it
+    does not in `truncate_at_unclosed_html_comment` — and this half was MISSING
+    until an adversarial review measured it. Prose that spells the opener in
+    backticks is ordinary documentation this repo writes about its own guards,
+    and `docs/devsecops/ci-config-regression-guards.md:579` does exactly that.
+    One `-->` added anywhere below it — which is what "add a note to the design
+    notes" looks like — paired the span with that closer and deleted **52,504
+    characters, 641 lines** of the published catalog:
+    `test_ci_collector_table_completeness`'s enumeration went from 17 rows to 0.
+    Both directions were live: a real ghost row hidden from
+    `test_ci_catalog_no_ghost_rows`, and a spurious hard failure of the required
+    `Lint` check on a legitimate docs edit.
+
+    The span is masked length-preservingly, then the sub is computed over the
+    masked copy and its surviving offsets are applied to the ORIGINAL, so a
+    genuine comment is still removed with its real text and a backticked opener
+    is left alone."""
+    masked = _CODE_SPAN_RE.sub(lambda m: " " * len(m.group(0)), text)
+    out = []
+    last = 0
+    for m in re.finditer(r"<!--.*?-->", masked, flags=re.DOTALL):
+        out.append(text[last : m.start()])
+        last = m.end()
+    out.append(text[last:])
+    return "".join(out)
 
 
 def truncate_at_unclosed_html_comment(text: str) -> str:
@@ -515,6 +540,61 @@ def strip_code_fences(text: str) -> str:
                 fence = None
             out.append("")
     return "\n".join(out)
+
+
+def rendered_markdown(text: str) -> str:
+    """`text` reduced by FOUR ENUMERATED Markdown evasions: closed comments,
+    fenced code, HTML blocks, and everything after an unterminated `<!--`.
+
+    SCOPE, stated first because an earlier draft of this docstring overclaimed
+    and a second review rejected it for that. This does NOT compute "what a
+    CommonMark reader sees". It removes four named constructs with regex and
+    line-state primitives, and a stdlib regex cannot model CommonMark: code
+    spans are inline constructs confined to one block, and `_CODE_SPAN_RE` is a
+    lazy DOTALL pattern that crosses blank lines, headings and HTML blocks.
+    MEASURED residual, by differential fuzz against `markdown-it-py` 4.0.0 over
+    16,831 random 3-7 line documents: **14 shapes** where this keeps a row that a
+    browser does not show. Down from 45 before the order fix below. The residual
+    is real, it is not zero, and the number belongs here rather than in a commit
+    message so the next reader does not trust this further than it earns.
+
+    Closing the class properly means deriving the reduction from the renderer's
+    token stream. That is deliberately NOT done here: `_ci_guard_util` is
+    imported by every `test_ci_*.py`, and the `ci-guards` job runs them under
+    `unittest` in an environment with **zero packages installed** on purpose
+    (`lint.yml`: "so the job needs nothing installed at all"). A new dependency
+    here breaks that job's whole reason to exist. The renderer stays where it
+    belongs — in the cross-check, not in the primitive.
+
+    ORDER: closed comments, fences, the unclosed opener, HTML blocks. Not a
+    style choice, and re-deriving it by reasoning has now produced THREE wrong
+    answers. Truncating before fences deletes decisions that render fine.
+    Stripping fences before closed comments lets a fence marker inside a comment
+    blank real content. And the version shipped one commit ago ran HTML blocks
+    BEFORE the truncation, so `strip_html_blocks` blanked a `<!--` opener sitting
+    inside an HTML block and left the truncation nothing to find — a two-line
+    silent pass, no backticks needed, that defeated all five converted guards on
+    the real 236 KB catalog while `markdownlint` exited 0. Found by differential
+    fuzz, not by argument; it would not have been reachable by reading.
+
+    Exists because that sequence was INLINE in one guard while five others
+    scanned Markdown with less, or none. Five copies of a four-call chain is the
+    shape that lets a fix land in one of them and read as done — the failure
+    measured in the OCSF-loader series, where the first patch fixed one of two
+    independent readers and the guard imported only the fixed one.
+
+    Use for any guard whose subject is a published Markdown document — a
+    catalog row, a table row, a heading. The direction of the resulting error
+    differs by caller and both directions are wanted: for a PRESENCE check
+    (`X must be listed`) a hidden row now reads as absent, which is the silent
+    pass this closes; for a CITATION check (`X is listed but does not exist`) a
+    hidden row stops being reported, which removes a false alarm about a row no
+    reader can see."""
+    return strip_html_blocks(
+        truncate_at_unclosed_html_comment(
+            strip_code_fences(strip_html_comments(text))
+        )
+    )
 
 
 _JOB_KEY_RE = re.compile(r"""^  (?:"([A-Za-z0-9_-]+)"|'([A-Za-z0-9_-]+)'|([A-Za-z0-9_-]+)):\s*$""")

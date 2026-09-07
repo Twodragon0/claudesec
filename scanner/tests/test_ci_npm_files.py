@@ -28,6 +28,9 @@ no PyYAML (absent from requirements-ci.txt). No network, no subprocess, does not
 import scanner/lib. Passes under pytest and `python3 -m unittest`.
 """
 
+MARKDOWN_SCAN_EXEMPT = (
+    "scans package.json; `CHANGELOG.md` is an entry in the `files[]` ARRAY, not a document this reads"
+)
 import fnmatch
 import json
 import unittest
