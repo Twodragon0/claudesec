@@ -543,18 +543,39 @@ def strip_code_fences(text: str) -> str:
 
 
 def rendered_markdown(text: str) -> str:
-    """`text` reduced to what a CommonMark reader actually SEES as document
-    structure: closed comments, fenced code, HTML blocks, and everything after an
-    unterminated `<!--` are gone.
+    """`text` reduced by FOUR ENUMERATED Markdown evasions: closed comments,
+    fenced code, HTML blocks, and everything after an unterminated `<!--`.
 
-    The composition of the four primitives above, in the ONE order that matched
-    `markdown-it-py` 4.0.0 on every case measured for
-    `test_ci_adr_decision_numbering` — closed comments, fences, HTML blocks, then
-    the unclosed opener. The order is not a style choice and re-deriving it by
-    reasoning has already produced two wrong answers (truncating before fences
-    deletes decisions that render fine; stripping fences before closed comments
-    lets a fence marker living inside a comment blank real content), so it lives
-    here once instead of being spelled out at each call site.
+    SCOPE, stated first because an earlier draft of this docstring overclaimed
+    and a second review rejected it for that. This does NOT compute "what a
+    CommonMark reader sees". It removes four named constructs with regex and
+    line-state primitives, and a stdlib regex cannot model CommonMark: code
+    spans are inline constructs confined to one block, and `_CODE_SPAN_RE` is a
+    lazy DOTALL pattern that crosses blank lines, headings and HTML blocks.
+    MEASURED residual, by differential fuzz against `markdown-it-py` 4.0.0 over
+    16,831 random 3-7 line documents: **14 shapes** where this keeps a row that a
+    browser does not show. Down from 45 before the order fix below. The residual
+    is real, it is not zero, and the number belongs here rather than in a commit
+    message so the next reader does not trust this further than it earns.
+
+    Closing the class properly means deriving the reduction from the renderer's
+    token stream. That is deliberately NOT done here: `_ci_guard_util` is
+    imported by every `test_ci_*.py`, and the `ci-guards` job runs them under
+    `unittest` in an environment with **zero packages installed** on purpose
+    (`lint.yml`: "so the job needs nothing installed at all"). A new dependency
+    here breaks that job's whole reason to exist. The renderer stays where it
+    belongs — in the cross-check, not in the primitive.
+
+    ORDER: closed comments, fences, the unclosed opener, HTML blocks. Not a
+    style choice, and re-deriving it by reasoning has now produced THREE wrong
+    answers. Truncating before fences deletes decisions that render fine.
+    Stripping fences before closed comments lets a fence marker inside a comment
+    blank real content. And the version shipped one commit ago ran HTML blocks
+    BEFORE the truncation, so `strip_html_blocks` blanked a `<!--` opener sitting
+    inside an HTML block and left the truncation nothing to find — a two-line
+    silent pass, no backticks needed, that defeated all five converted guards on
+    the real 236 KB catalog while `markdownlint` exited 0. Found by differential
+    fuzz, not by argument; it would not have been reachable by reading.
 
     Exists because that sequence was INLINE in one guard while five others
     scanned Markdown with less, or none. Five copies of a four-call chain is the
@@ -569,8 +590,10 @@ def rendered_markdown(text: str) -> str:
     pass this closes; for a CITATION check (`X is listed but does not exist`) a
     hidden row stops being reported, which removes a false alarm about a row no
     reader can see."""
-    return truncate_at_unclosed_html_comment(
-        strip_html_blocks(strip_code_fences(strip_html_comments(text)))
+    return strip_html_blocks(
+        truncate_at_unclosed_html_comment(
+            strip_code_fences(strip_html_comments(text))
+        )
     )
 
 

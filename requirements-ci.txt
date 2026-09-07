@@ -19,6 +19,15 @@
 #   scanner/tests/test_ci_requirements_pinned.py fails if any requirement here
 #   loses its `==` pin.
 defusedxml==0.7.1
+# The CommonMark reference the Markdown-reduction guards adjudicate against
+# (`_ci_guard_util.rendered_markdown` and its four primitives). It was NOT listed
+# here until a review measured the cost: `TestTheParseAgreesWithCommonMark` skips
+# on ImportError, so in CI it reported `testsRun=0, OK (skipped=1)` — the only
+# check able to catch a primitive/renderer divergence never ran, and failed OPEN.
+# Two silent passes shipped behind that skip. Only `scanner-unit-tests` installs
+# this file; `ci-guards` stays package-free and keeps skipping the class, which is
+# why the guards themselves must not import markdown-it.
+markdown-it-py==4.0.0
 pytest==9.1.1
 pytest-cov==7.1.0
 requests==2.34.2
