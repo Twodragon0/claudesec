@@ -780,6 +780,15 @@ class TestTheParseAgreesWithCommonMark(unittest.TestCase):
             # And this one was an OVER-strip that made a correct document fail.
             "unclosed opener in an inline code span":
                 self.A + "see `<!--` in prose\n\n" + self.B,
+            # The LAST named over-strip, and the only case this class ever had
+            # to list as a known cost. It agreed the moment `strip_html_comments`
+            # started masking inline code spans the way its sibling always had:
+            # the opener no longer survives the comment pass, so the fence pass
+            # is not left with an unbalanced marker that blanks the rest. The
+            # limits test that used to hold it had no subject left and was
+            # removed rather than kept green over an empty list.
+            "opener in a fence, closer outside":
+                self.A + f"{self._F}\n<!-- x\n{self._F}\n-->\n\n" + self.B,
         }
         for label, body in cases.items():
             src = "## Decision\n\n" + body + "\n## Consequences\n\nx\n"
@@ -791,32 +800,14 @@ class TestTheParseAgreesWithCommonMark(unittest.TestCase):
                     "decisions a reader can see",
                 )
 
-    def test_the_named_over_strip_limits_are_still_over_strip(self):
-        # What the composition gets WRONG, kept executable so a future red is
-        # read as the known limit rather than as a real deletion. The direction
-        # is what makes it acceptable: the parse sees FEWER decisions than the
-        # renderer, so the failure is loud. A silent pass in this list would be a
-        # defect; a disagreement in this direction is a documented cost.
-        cases = {
-            # The comment opens inside a fence and closes outside it. Fences are
-            # stripped after closed comments, so the opener survives the comment
-            # pass and the fence pass blanks only the fenced part.
-            "opener in a fence, closer outside":
-                self.A + f"{self._F}\n<!-- x\n{self._F}\n-->\n\n" + self.B,
-        }
-        for label, body in cases.items():
-            src = "## Decision\n\n" + body + "\n## Consequences\n\nx\n"
-            parsed, rendered = sorted(parsed_decisions(src)), self._rendered_ids(src)
-            with self.subTest(case=label):
-                self.assertNotEqual(
-                    parsed, rendered, f"{label} now AGREES — good, move it above"
-                )
-                self.assertLess(
-                    set(parsed),
-                    set(rendered),
-                    f"{label}: the parse sees MORE than the renderer, which is a "
-                    "silent pass, not the documented over-strip",
-                )
+    # `test_the_named_over_strip_limits_are_still_over_strip` lived here and held
+    # exactly one case: a comment opening inside a fence and closing outside it,
+    # where the parse saw FEWER decisions than the renderer. It was written to go
+    # RED if the limit were ever repaired, saying "now AGREES — good, move it
+    # above", and that is exactly what it did once `strip_html_comments` began
+    # masking inline code spans. The case moved into the agreement list; the test
+    # was deleted rather than left iterating an empty dict, which would have been
+    # a vacuous green of the kind this suite exists to refuse.
 
     def test_the_renderer_probe_is_not_vacuous(self):
         # Without this, a `_rendered_ids` that always returned [] would make the

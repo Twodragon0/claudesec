@@ -362,8 +362,33 @@ def strip_html_comments(text: str) -> str:
 
     A caller that PARSES, and so reads absence as deletion, needs the opposite
     answer — see `truncate_at_unclosed_html_comment`, which is a separate step on
-    purpose because it must run AFTER fences are stripped."""
-    return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    purpose because it must run AFTER fences are stripped.
+
+    An opener inside an INLINE CODE SPAN does not count, for the same reason it
+    does not in `truncate_at_unclosed_html_comment` — and this half was MISSING
+    until an adversarial review measured it. Prose that spells the opener in
+    backticks is ordinary documentation this repo writes about its own guards,
+    and `docs/devsecops/ci-config-regression-guards.md:579` does exactly that.
+    One `-->` added anywhere below it — which is what "add a note to the design
+    notes" looks like — paired the span with that closer and deleted **52,504
+    characters, 641 lines** of the published catalog:
+    `test_ci_collector_table_completeness`'s enumeration went from 17 rows to 0.
+    Both directions were live: a real ghost row hidden from
+    `test_ci_catalog_no_ghost_rows`, and a spurious hard failure of the required
+    `Lint` check on a legitimate docs edit.
+
+    The span is masked length-preservingly, then the sub is computed over the
+    masked copy and its surviving offsets are applied to the ORIGINAL, so a
+    genuine comment is still removed with its real text and a backticked opener
+    is left alone."""
+    masked = _CODE_SPAN_RE.sub(lambda m: " " * len(m.group(0)), text)
+    out = []
+    last = 0
+    for m in re.finditer(r"<!--.*?-->", masked, flags=re.DOTALL):
+        out.append(text[last : m.start()])
+        last = m.end()
+    out.append(text[last:])
+    return "".join(out)
 
 
 def truncate_at_unclosed_html_comment(text: str) -> str:

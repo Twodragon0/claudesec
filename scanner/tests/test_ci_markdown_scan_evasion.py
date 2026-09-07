@@ -111,13 +111,39 @@ class TestRenderedMarkdownMatchesTheRenderer(unittest.TestCase):
         # `<!--` shown as sample code inside a fence is not an HTML block, so
         # truncating before fences are blanked deletes content that renders
         # perfectly well. Measured against markdown-it-py 4.0.0 in #528.
-        doc = "# D\n\n```\n<!-- this is sample code\n```\n\n| CC1 | live |\n"
+        #
+        # The fence must be TILDE. Written with backticks, this test pinned
+        # NOTHING: `_CODE_SPAN_RE` is lazy and DOTALL, so it matched the opening
+        # and closing ``` runs as one giant inline code span, which made
+        # `truncate_at_unclosed_html_comment` a no-op on the probe REGARDLESS of
+        # where it sat in the chain. An adversarial review substituted all 24
+        # permutations of the four primitives and every one passed. With a tilde
+        # fence the same sweep REJECTS 12, including all three orderings that
+        # truncate before fences — CTFB, CTBF, CBTF — each of which deletes the
+        # row below. The 12 that still pass were then diffed against the shipped
+        # order over the three real docs plus five adversarial ones and differ
+        # only in TRAILING WHITESPACE, so they are equivalent for every consumer
+        # on the corpus measured. That is a measurement over documents, not a
+        # proof of general equivalence.
+        doc = "# D\n\n~~~\n<!-- this is sample code\n~~~\n\n| CC1 | live |\n"
         self.assertIn(
             "| CC1 | live |",
             rendered_markdown(doc),
             "a `<!--` inside a fence truncated the document — fences must be "
             "blanked before the unclosed-opener search runs",
         )
+
+    def test_a_backticked_opener_is_not_a_comment(self):
+        # Prose that spells the opener in backticks is ordinary documentation,
+        # and this catalog writes it. Without code-span masking in
+        # `strip_html_comments`, that span paired with the next `-->` anywhere
+        # below and deleted 641 lines of the real catalog — armed on the
+        # published file, one added closer away. Found by review, not by this
+        # suite, which is why it is pinned here.
+        doc = "See `<!--` in prose.\n\n| CC1 | live |\n\n<!-- a real one -->\n"
+        out = rendered_markdown(doc)
+        self.assertIn("| CC1 | live |", out, "a backticked opener ate live content")
+        self.assertNotIn("a real one", out, "a genuine comment stopped being removed")
 
 
 # --------------------------------------------------------------------------
@@ -189,6 +215,30 @@ class TestLiveDetectorsRejectEveryVector(unittest.TestCase):
                         "is listed",
                     )
 
+    def test_no_detector_sees_a_row_under_a_hidden_ANCHOR(self):
+        """The vector above the row, not around it.
+
+        Every template puts the payload AFTER whatever heading its detector
+        anchors on, so wrapping the payload never exercises the anchor. A
+        detector that reduces AFTER its own search instead of before — moving
+        one call across two lines, keeping the import, the call and the whole
+        docstring — passed all twenty payload cases while genuinely defeated:
+        an unterminated opener placed above the heading, or the heading itself
+        parked in a fence, made it report a row the renderer does not show.
+
+        Prepending the opener is the general form: it hides everything below,
+        anchor included, so any detector that still returns a row is reading
+        text no reader receives."""
+        for label, payload, tmpl, sees in _detectors():
+            doc = "# Doc\n\n<!-- retiring the whole section\n" + tmpl.format(payload)
+            with self.subTest(detector=label, position="above-anchor"):
+                self.assertFalse(
+                    sees(doc),
+                    f"{label} sees a row under an anchor that an unterminated "
+                    "comment opener has already swallowed — the reduction is "
+                    "running after the search, not before it",
+                )
+
 
 # --------------------------------------------------------------------------
 # Census.
@@ -231,13 +281,43 @@ def scans_markdown(tree: ast.AST) -> bool:
         and n.value.endswith(".md")
         for n in ast.walk(tree)
     )
-    reads = any(
-        isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr in ("read_text", "glob", "rglob")
-        for n in ast.walk(tree)
-    )
+    reads = any(_is_read_call(n) for n in ast.walk(tree))
     return has_md and reads
+
+
+# `read_text` alone missed a guard that reads the real catalog with
+# `with open(CATALOG) as fh: fh.read()` and carries no reduction at all —
+# measured passing the whole census. A bare `open(` counts too, for the same
+# reason.
+_READ_ATTRS = ("read_text", "read_bytes", "read", "readlines", "glob", "rglob")
+
+
+def _is_read_call(node) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr in _READ_ATTRS
+    return isinstance(node.func, ast.Name) and node.func.id == "open"
+
+
+def applies_reduction(tree: ast.AST) -> bool:
+    """True when the module CALLS `rendered_markdown`, by AST.
+
+    A substring over the source was the first version and it was defeated the
+    same day: the token in a `#` comment, or in a docstring, satisfied it while
+    the guard scanned raw. `exemption()` below is AST-based precisely to stop
+    that, and the pipeline half had no such protection — the presence-vs-
+    attribution shape this repo has now hit in three separate sweeps. Proving a
+    token EXISTS is never proof it belongs to the code that runs."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and func.id == PIPELINE_NAME:
+            return True
+        if isinstance(func, ast.Attribute) and func.attr == PIPELINE_NAME:
+            return True
+    return False
 
 
 def exemption(tree: ast.AST):
@@ -254,7 +334,10 @@ def exemption(tree: ast.AST):
             continue
         try:
             value = ast.literal_eval(node.value)
-        except ValueError:
+        except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+            # A computed exemption (an f-string, a join, a name) is not a
+            # declared one. Catching only ValueError let the rest escape as an
+            # opaque traceback where a verdict belongs.
             return None
         return value if isinstance(value, str) and value.strip() else None
     return None
@@ -285,8 +368,7 @@ class TestEveryMarkdownScanningGuardIsCovered(unittest.TestCase):
         for name, tree in sorted(self.modules.items()):
             if not scans_markdown(tree):
                 continue
-            src = (REPO_ROOT / TESTS_REL / name).read_text(encoding="utf-8")
-            if PIPELINE_NAME in src or exemption(tree):
+            if applies_reduction(tree) or exemption(tree):
                 continue
             offenders.append(name)
         self.assertEqual(
@@ -300,8 +382,12 @@ class TestEveryMarkdownScanningGuardIsCovered(unittest.TestCase):
         )
 
     def test_exemptions_carry_a_reason(self):
-        # An empty or placeholder reason is how an exemption becomes permanent
-        # without anyone deciding that it should be.
+        # A LENGTH FLOOR, and nothing more: 35 junk characters satisfy it, as a
+        # review measured. No automated check can read prose, so this catches
+        # only the empty and one-word forms and the real protection is review —
+        # said plainly here rather than left implying a rigour it does not have.
+        # The exemption hole that mattered was the substring pipeline check, now
+        # `applies_reduction`.
         for name, tree in sorted(self.modules.items()):
             for node in tree.body:
                 if isinstance(node, ast.Assign) and any(
