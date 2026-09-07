@@ -76,6 +76,9 @@ NOT COVERED, deliberately: that `ci-guards` can FAIL. It is in
 vacuous pass. Duplicating that rule here would be two owners for one invariant.
 """
 
+MARKDOWN_SCAN_EXEMPT = (
+    "does not parse Markdown: the `.md` literals are the catalog PATH, named in two bucket-mutation assertions and derived for `uncovered_paths()`, which matches it against a `grep -E` pattern. No document is read"
+)
 import re
 import sys
 import unittest
@@ -248,7 +251,30 @@ def uncovered_paths(pattern: str) -> list:
     if SETUP_SH.is_file():
         for name in installed_workflow_templates(SETUP_SH.read_text(encoding="utf-8")):
             targets.append(f"templates/{name}")
+    targets.extend(guard_data_files())
     return sorted(p for p in targets if not bucket.match(p))
+
+
+def guard_data_files() -> list:
+    """Repo-relative DATA files a guard reads, derived from the guards.
+
+    Workflows and templates were the whole of `uncovered_paths`' target set
+    until the guard inventory moved out of prose into
+    `docs/devsecops/ci-guard-inventory.toml`. That file and the catalog it
+    mirrors were then added to the `ci_config` bucket — and a review measured
+    the fix PINNED BY NOTHING: deleting both alternatives from the pattern left
+    the full 2909-test suite green, so re-opening the hole the change exists to
+    close was a one-token edit. Every other reachability property here is
+    pinned; that one was the exception.
+
+    IMPORTED from the guards rather than hand-written, because a literal path
+    list in a guard is the failure one level up — `_SOURCE_FILES` had drifted to
+    missing twelve files before #501 replaced it with a derivation. If a guard
+    renames its data file, this follows automatically."""
+    from _ci_guard_util import GUARD_INVENTORY
+    from test_ci_catalog_doc_sync import CATALOG_REL
+
+    return [str(GUARD_INVENTORY.relative_to(REPO_ROOT)), CATALOG_REL]
 
 
 class TestGuardJobIsWiredAndGated(unittest.TestCase):
@@ -319,6 +345,55 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
             ".github/workflows/dast-full-scan.yml", uncovered,
             "fixture must remove ONLY the templates alternative, or the RED does "
             "not isolate the invariant under test",
+        )
+
+    def test_the_guard_data_files_are_derived_not_empty(self):
+        # Canary on the derivation itself: if the import broke or a constant was
+        # renamed, `guard_data_files()` would return nothing and the two
+        # mutations below would pass for free.
+        data = guard_data_files()
+        self.assertEqual(len(data), 2, f"expected two data files, got {data}")
+        for rel in data:
+            with self.subTest(path=rel):
+                self.assertTrue(
+                    (REPO_ROOT / rel).is_file(),
+                    f"{rel} is derived from a guard but does not exist on disk",
+                )
+
+    def test_dropping_the_inventory_from_the_bucket_is_caught(self):
+        """The guard INVENTORY is the machine authority for guard coverage.
+
+        Out of the bucket, a PR editing only it fires neither `ci-guards` nor
+        `scanner-unit-tests`, so deleting a guard's entry — deleting it from the
+        coverage inventory — would be checked by nothing. Measured: before this
+        test existed, removing both alternatives left 2909 tests green."""
+        mutant = apply_mutation(
+            self.lint,
+            "|docs/devsecops/ci-guard-inventory\\.toml$",
+            "|__inventory_removed__$",
+        )
+        uncovered = uncovered_paths(bucket_pattern(mutant))
+        self.assertIn("docs/devsecops/ci-guard-inventory.toml", uncovered)
+        self.assertNotIn(
+            "docs/devsecops/ci-config-regression-guards.md", uncovered,
+            "fixture must remove ONLY the inventory alternative, or the RED does "
+            "not isolate the invariant under test",
+        )
+
+    def test_dropping_the_catalog_doc_from_the_bucket_is_caught(self):
+        """The published catalog is compared against the inventory by
+        `test_ci_catalog_doc_sync`. Out of the bucket, a doc-only edit that
+        hides a row cannot fire the guard written to catch it."""
+        mutant = apply_mutation(
+            self.lint,
+            "|docs/devsecops/ci-config-regression-guards\\.md$",
+            "|__catalog_removed__$",
+        )
+        uncovered = uncovered_paths(bucket_pattern(mutant))
+        self.assertIn("docs/devsecops/ci-config-regression-guards.md", uncovered)
+        self.assertNotIn(
+            "docs/devsecops/ci-guard-inventory.toml", uncovered,
+            "fixture must remove ONLY the catalog alternative",
         )
 
     def test_dropping_dot_github_from_the_bucket_is_caught(self):

@@ -82,6 +82,29 @@ class TestCiCatalogNoGhostRows(unittest.TestCase):
             f"failure in {INVENTORY_REL}, not a small repo",
         )
 
+    def test_every_listed_collector_exists(self):
+        """The other list in the same file, which had no existence check.
+
+        A review measured `"test_ci_zzz_never_existed.py"` in
+        `[block_collectors].modules` plus a matching doc row passing everything:
+        `test_ci_collector_table_completeness` only asserts detected-minus-listed
+        (extras are legitimate — see its `test_extra_rows_are_allowed`), so a
+        ghost collector was nobody's business. Not a regression, since the old
+        prose table had no existence check either, but a free asymmetry to close
+        inside the one file that already does existence checking."""
+        modules = guard_inventory()["block_collectors"]["modules"]
+        ghosts = [
+            m
+            for m in modules
+            if not (REPO_ROOT / "scanner" / "tests" / m).is_file()
+        ]
+        self.assertEqual(
+            ghosts,
+            [],
+            f"`[block_collectors].modules` in {INVENTORY_REL} names module(s) "
+            "with no file under scanner/tests:\n  " + ", ".join(ghosts),
+        )
+
     def test_every_listed_path_exists(self):
         ghosts = [rel for rel in self.listed if not (REPO_ROOT / rel).is_file()]
         self.assertEqual(

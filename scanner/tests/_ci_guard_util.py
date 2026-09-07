@@ -75,7 +75,26 @@ def guard_inventory() -> dict:
             "compare against it cannot pass vacuously, so this is fatal"
         )
     with GUARD_INVENTORY.open("rb") as fh:
-        return tomllib.load(fh)
+        try:
+            data = tomllib.load(fh)
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+            # Fails closed either way, but an unhandled decode error surfaced as
+            # 18 opaque tracebacks across the consuming guards. A verdict
+            # belongs where a traceback was — the same complaint this file's
+            # `tracked_guards` docstring makes about `FileNotFoundError`.
+            raise RuntimeError(
+                f"guard inventory at {GUARD_INVENTORY} is not readable TOML: "
+                f"{exc}. It is the authority for which guards exist, so this is "
+                "fatal rather than an empty inventory"
+            ) from exc
+    for table, key in (("catalog", "guards"), ("block_collectors", "modules")):
+        if key not in data.get(table, {}):
+            raise RuntimeError(
+                f"guard inventory at {GUARD_INVENTORY} is missing "
+                f"`[{table}].{key}`. A KeyError here reached the consuming "
+                "guards as 13 errors with no statement of what was wrong"
+            )
+    return data
 
 
 def yaml_key_pattern(key: str) -> str:
@@ -579,9 +598,21 @@ def rendered_markdown(text: str) -> str:
     lazy DOTALL pattern that crosses blank lines, headings and HTML blocks.
     MEASURED residual, by differential fuzz against `markdown-it-py` 4.0.0 over
     16,831 random 3-7 line documents: **14 shapes** where this keeps a row that a
-    browser does not show. Down from 45 before the order fix below. The residual
-    is real, it is not zero, and the number belongs here rather than in a commit
-    message so the next reader does not trust this further than it earns.
+    browser does not show. Down from 45 before the order fix below. Both numbers
+    are REPRODUCIBLE from a committed test —
+    `test_ci_markdown_scan_evasion.TestTheResidualIsBounded` runs that fuzz and
+    pins 14 as a ceiling — so they are evidence rather than anecdote. The
+    residual is real, it is not zero, and the number belongs here rather than in
+    a commit message so the next reader does not trust this further than it
+    earns.
+
+    Two other figures were cited in review discussion and are NOT reproducible
+    from this repo: that a single-pass block-state reducer scored 42, and that
+    reordering to `C,F,T,B,T` / `T,C,F,T,B,T` gives 12 / 7 with over-strip
+    rising from 8224 to 8407. Those came from throwaway prototypes that were
+    never committed. They are recorded here as one-off measurements, not as
+    citable evidence — if the single-pass approach is ever revisited, re-measure
+    rather than trusting them.
 
     Closing the class properly means deriving the reduction from the renderer's
     token stream. That is deliberately NOT done here: `_ci_guard_util` is
