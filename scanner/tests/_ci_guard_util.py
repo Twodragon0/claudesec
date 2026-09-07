@@ -43,6 +43,7 @@ root):
 import json
 import re
 import subprocess
+import tomllib
 from glob import glob
 from pathlib import Path
 
@@ -51,6 +52,30 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 ACTION_DIR = REPO_ROOT / ".github" / "actions"
 PROTECTION_SCRIPT = REPO_ROOT / "scripts" / "sync-repo-protection.sh"
+GUARD_INVENTORY = REPO_ROOT / "docs" / "devsecops" / "ci-guard-inventory.toml"
+
+
+def guard_inventory() -> dict:
+    """The machine-readable guard inventory, parsed.
+
+    `tomllib` is stdlib from 3.11 and the `ci-guards` job pins 3.11 and installs
+    nothing, so this keeps that job package-free — the constraint that ruled out
+    deriving the reduction from a renderer.
+
+    Reads BINARY (`rb`), which `tomllib.load` requires and which also sidesteps
+    the locale-dependent-default-encoding class: TOML is UTF-8 by spec, and the
+    parser enforces it rather than inheriting whatever the runner's locale says.
+
+    Missing file is a hard error, not an empty dict. Every consumer compares a
+    set against this, so an empty inventory would make "no guard is missing"
+    trivially true — the vacuous pass this whole file exists to refuse."""
+    if not GUARD_INVENTORY.is_file():
+        raise RuntimeError(
+            f"guard inventory not found at {GUARD_INVENTORY} — the guards that "
+            "compare against it cannot pass vacuously, so this is fatal"
+        )
+    with GUARD_INVENTORY.open("rb") as fh:
+        return tomllib.load(fh)
 
 
 def yaml_key_pattern(key: str) -> str:
