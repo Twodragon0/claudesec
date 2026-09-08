@@ -201,11 +201,22 @@ first line of the run body — one token, cheaper than any of the three — park
 step with `canary_job_problems()` returning `[]`, zero test output and exit 0;
 `if false; then ... fi`, an uncalled function wrapper and `set -n` all measure the
 same. Proving a shell script reaches its end requires running it, so this is a
-limit of static text analysis rather than a defect in the check, and it applies to
-every `run:` step in the repo — this job is only the one with a paragraph about
-it. The `<<` refusal is likewise a substring test, not a heredoc parser: it also
-fires on `echo "shift: 1 << 2"` and `: $(( 1 << 2 ))`, which fail closed and do
-not belong in this step.
+limit of static text analysis rather than a defect in the check, and it is
+PRE-EXISTING AND REPO-WIDE rather than something this job introduced — measured:
+the same `exit 0` injected into the `ci-guards` job's run block gives
+`guard_job_problems() == []`, and that sibling predates this row. Every guard that
+proves a job runs by scanning executed text falls the same way. `renderer-canary`
+IS inside `test_ci_required_graph_not_disabled`'s graph (one of its 23 nodes), and
+an early `exit 0` is outside that guard's stated scope rather than a gap in it:
+that guard exists as the complement of EXECUTION, forbidding runner-consumed keys
+because something else was meant to cover the shell body. For this job nothing
+does. Closing it means executing the step body in a guard and requiring three
+`^Ran [1-9]` lines — the #404 move, which closed ten shapes at once where three
+parser fixes had closed one each — and that is not free here, because the body
+needs the oracle and the only job holding it is the one being proved. Left open
+deliberately, with the shape written down. The `<<` refusal is likewise a
+substring test, not a heredoc parser: it also fires on `echo "shift: 1 << 2"` and
+`: $(( 1 << 2 ))`, which fail closed and do not belong in this step.
 
 RESIDUAL STILL NOT ZERO. This closes the reachability gap, not the evasion class:
 `MAX_SILENT_PASS_SHAPES` remains a ceiling of 14, and `rendered_markdown` still
