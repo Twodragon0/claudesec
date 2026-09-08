@@ -181,6 +181,16 @@ class TestGhostRowDetector(unittest.TestCase):
         # a file anyone would plausibly create. `scanner/tests/SECURITY.md` is
         # such a name; the census residual is documented where it lives, in
         # `guard_data_files()`.
+        #
+        # THE RENAME IS PROBABILITY MITIGATION, NOT CLOSURE, and measurement says
+        # so plainly: `SECURITY.md` inherits the landmine in full, and committing
+        # one now costs FOUR reds where `README.md` cost three — the original
+        # three plus `test_the_census_demands_no_markdown_under_scanner_tests`,
+        # which was added to name the cause. The trade is deliberate: a louder,
+        # self-explaining failure on a path nobody will take, instead of a quiet
+        # one on a path someone might. Closing it properly means teaching the
+        # census to tell a path a guard READS from one it merely NAMES, which is
+        # attribution, and this repo has not found a static way to do that.
         self.assertEqual(
             ghost_rows(["SECURITY.md"], REPO_ROOT),
             ["scanner/tests/SECURITY.md"],

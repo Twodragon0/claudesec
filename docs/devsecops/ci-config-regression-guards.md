@@ -194,7 +194,18 @@ and a heredoc body. The last is the only one `executed_shell` cannot read — it
 own docstring names heredoc bodies as the single limitation that can hide an
 unrun test — so this job simply refuses to contain a heredoc, which is honest
 because it has none by design. The count says five in older revisions of this row;
-it was wrong before this PR and is derived by AST in review now.
+it was wrong before this PR and is derived by AST in review now. **That list of
+three is not an enumeration of the class, and an earlier revision of this row read
+as though it were.** `executed_shell` models no control flow, so `exit 0` as the
+first line of the run body — one token, cheaper than any of the three — parks the
+step with `canary_job_problems()` returning `[]`, zero test output and exit 0;
+`if false; then ... fi`, an uncalled function wrapper and `set -n` all measure the
+same. Proving a shell script reaches its end requires running it, so this is a
+limit of static text analysis rather than a defect in the check, and it applies to
+every `run:` step in the repo — this job is only the one with a paragraph about
+it. The `<<` refusal is likewise a substring test, not a heredoc parser: it also
+fires on `echo "shift: 1 << 2"` and `: $(( 1 << 2 ))`, which fail closed and do
+not belong in this step.
 
 RESIDUAL STILL NOT ZERO. This closes the reachability gap, not the evasion class:
 `MAX_SILENT_PASS_SHAPES` remains a ceiling of 14, and `rendered_markdown` still

@@ -407,6 +407,15 @@ def canary_job_problems(lint_text: str) -> list:
     # this step has no heredoc by design (the install step's comment already
     # explains why an indented one would not even parse). Forbidding what the
     # extractor cannot read is the fail-closed half of the same fix.
+    #
+    # SCOPE, stated because the check is a SUBSTRING test and not a heredoc
+    # parser: it also fires on `echo "shift: 1 << 2"` and `: $(( 1 << 2 ))`
+    # (measured). Both are false alarms, both fail CLOSED, and neither shape
+    # belongs in this step — acceptable, but it is a token check, not a grammar.
+    # It does NOT close the parking class; `exit 0` as the first line parks the
+    # step with no `<<` anywhere and this function still returns `[]`. See
+    # `test_parking_the_canary_step_in_a_heredoc_is_not_execution` for the
+    # measured residual.
     if "<<" in executed:
         problems.append(
             f"job `{CANARY_JOB}` contains a heredoc. `executed_shell` cannot see "
@@ -463,7 +472,7 @@ def uncovered_paths(pattern: str) -> list:
     return sorted(p for p in targets if not bucket.match(p))
 
 
-def guard_data_files() -> list:
+def guard_data_files(tracked=None) -> list:
     """Repo-relative DATA files a guard reads, DERIVED by AST from the guards.
 
     Workflows and templates were the whole of `uncovered_paths`' target set until
@@ -562,10 +571,17 @@ def guard_data_files() -> list:
     #
     # `git ls-files` rather than `Path.glob` for the reason the sibling census
     # uses it: a gitignored scratch file is red locally and absent in CI.
-    tracked = set(
-        _sp.run(["git", "ls-files"], cwd=REPO_ROOT,
-                capture_output=True, text=True, check=True).stdout.split()
-    )
+    #
+    # INJECTABLE, because the intersection is a no-op on a clean tree — census
+    # size 109 with it and 109 without — so reverting it left `Ran 43 tests ...
+    # OK`. A guard whose fix can be reverted green is not a fix, which is the
+    # whole subject of this file; the parameter exists so a test can hand in a
+    # tracked set with one entry withheld and prove the branch is load-bearing.
+    if tracked is None:
+        tracked = set(
+            _sp.run(["git", "ls-files"], cwd=REPO_ROOT,
+                    capture_output=True, text=True, check=True).stdout.split()
+        )
     expanded = set()
     for entry in found:
         if any(ch in entry for ch in "*?["):
@@ -694,15 +710,53 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
                     f"{rel} is derived from a guard but does not exist on disk",
                 )
 
-    def test_every_census_entry_is_tracked_by_git(self):
-        """A census entry that git does not know about is a guard that disagrees
-        with itself by machine: red locally, absent in CI.
+    def test_the_plain_literal_branch_intersects_the_tracked_set(self):
+        """The intersection is load-bearing, proven by WITHHOLDING one entry.
 
-        The glob branch was intersected with `git ls-files` from the start; the
-        plain-literal branch was not, so a literal naming an untracked file — a
-        local scratch doc, a fixture path created but never committed — was
-        demanded of the `ci_config` bucket on one machine only. Same shape as the
-        gitignored-operator-script asymmetry in the OCSF reader sweep."""
+        This exists because the honest version of the sibling test below could
+        not do it. On a clean tree the intersection is a NO-OP — census size 109
+        with it and 109 without — so reverting `elif entry in tracked:` to `else:`
+        left the suite at `Ran 43 tests ... OK`. A fix that reverts green is not
+        a fix, and this file exists to say so about other people's code.
+
+        `ci-guard-inventory.toml` is reached by the PLAIN-LITERAL branch (no glob
+        metacharacter), so withholding it from the tracked set must drop it. With
+        the branch reverted to `else:` it survives and this fails."""
+        entry = "docs/devsecops/ci-guard-inventory.toml"
+        import subprocess as _sp
+
+        real = set(
+            _sp.run(
+                ["git", "ls-files"], cwd=REPO_ROOT,
+                capture_output=True, text=True, check=True,
+            ).stdout.split()
+        )
+        self.assertIn(entry, real, "fixture premise broke: the file is untracked")
+        self.assertIn(
+            entry, guard_data_files(tracked=real),
+            "control: the entry must be in the census when tracked",
+        )
+        self.assertNotIn(
+            entry, guard_data_files(tracked=real - {entry}),
+            "a plain literal survived the census while untracked — the "
+            "`git ls-files` intersection on that branch is not doing anything, "
+            "and an untracked file would be demanded of the `ci_config` bucket "
+            "on one machine only",
+        )
+
+    def test_every_census_entry_is_tracked_by_git(self):
+        """VACUOUS ON THE SHIPPED TREE, and kept anyway — as a property, not a pin.
+
+        `guard_data_files()` filters to tracked, so `untracked` is empty by
+        construction and this cannot fail here. It also cannot detect the removal
+        of the line it was added for; that is
+        `test_the_plain_literal_branch_intersects_the_tracked_set` above, which
+        withholds an entry instead of hoping the tree provides one.
+
+        What it does buy: if a future branch reaches files some other way, this
+        states the invariant in one line at the point of use. Recorded as vacuous
+        rather than left to read as a guard — a check that cannot fail, filed
+        among checks that can, is how a suite's green stops meaning anything."""
         import subprocess as _sp
 
         tracked = set(
@@ -728,9 +782,14 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
         the census promoted the fixture into a path the bucket must match.
 
         No guard reads a `.md` under `scanner/tests/`, so anything appearing
-        there is a fixture that became real. Failing here says so directly,
-        instead of surfacing as an unrelated bucket-coverage failure that reads
-        like the bucket regressed."""
+        there is a fixture that became real. Failing here NAMES that, which the
+        bucket-coverage failures do not.
+
+        It does not REPLACE them: a first draft of this docstring said this fires
+        "instead of" an unrelated bucket-coverage failure, and that was measured
+        false — with the fixture path tracked, this pin and both bucket-coverage
+        tests fail together, four reds rather than three. The value is the
+        message, not a reduced blast radius."""
         promoted = [
             rel for rel in guard_data_files()
             if rel.startswith("scanner/tests/") and rel.endswith(".md")
@@ -981,17 +1040,33 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
         )
 
     def test_parking_the_canary_step_in_a_heredoc_is_not_execution(self):
-        """The third parking shape, and the one `executed_shell` cannot read.
+        """One parking shape. NOT the last, and this docstring used to imply it.
 
         Comment-parking and env-parking were both closed by routing through
         `executed_shell`. This one it CANNOT close: its own docstring names
         heredoc bodies as the single limitation that can hide an unrun test, and
         it is right — every command sits inside a real `run: |`, so the extractor
-        credits all of them while the shell runs `cat` and exits 0.
+        credits all of them while the shell runs `cat` and exits 0. Measured
+        before the fix: `canary_job_problems() == []`.
 
-        Measured before the fix: `canary_job_problems() == []` with 1227 guards
-        green and the step adjudicating nothing. Closed by refusing a heredoc in
-        this step at all, which is honest because the step has none by design."""
+        THE RESIDUAL, MEASURED, because an earlier draft called this "the third
+        parking shape" as though the enumeration were complete. `executed_shell`
+        models no CONTROL FLOW, so every one of these parks the step with zero
+        problems reported and zero test output, and none contains `<<`:
+
+            first line of the run body   canary_job_problems()   `Ran [1-9]` lines
+            `exit 0`                     []                      0
+            `if false; then` ... `fi`    []                      0
+            `park() {` ... `}` uncalled  []                      0
+            `set -n`                     []                      0
+            (unmutated control)          []                      3
+
+        `exit 0` is one token and cheaper than the heredoc this test closes. That
+        is a property of static text analysis, not a bug in the check: proving a
+        shell script reaches its end requires running it. It is stated here
+        because a defence that reads complete and is not is the failure this file
+        exists to catch, and it applies to every `run:` step in the repo — this
+        job is not special, it is merely the one with a docstring about it."""
         start = self.lint.index(
             "      - name: Run the renderer-adjudicated guard classes"
         )
