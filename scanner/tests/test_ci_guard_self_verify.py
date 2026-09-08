@@ -456,6 +456,138 @@ def canary_job_problems(lint_text: str) -> list:
     return problems
 
 
+RAN_MARKER = 'echo "ran=true" >> "$GITHUB_OUTPUT"'
+PROOF_JOBS = ("ci-guards", CANARY_JOB)
+
+
+def job_ran_proof_problems(lint_text: str) -> list:
+    """The two guard jobs prove they reached the END of their work body.
+
+    WHY THIS EXISTS AND WHY IT IS NOT MORE SHAPES
+    ---------------------------------------------
+    Text analysis cannot prove a shell body ran. Measured on `main`:
+
+        control                     canary: []   guard: []
+        exit 0 in renderer-canary : 0 problems
+        exit 0 in ci-guards       : 0 problems
+
+    `if false; then ... fi`, an uncalled function wrapper and `set -n` measure
+    the same. A fourth review closed the heredoc shape and an independent check
+    then showed `exit 0` is cheaper — one token — so patching shape five would be
+    the third patch to an enumeration, which ADR-001 §5 names as the signal to
+    invert instead.
+
+    The inversion: the last line of each body writes `ran=true` to
+    `$GITHUB_OUTPUT`, and `lint-gate` requires it whenever the job reports
+    success. That line is reachable ONLY by executing everything above it, so the
+    property is carried by the shell's own semantics. All four shapes fall to it
+    at once, and so does shape five.
+
+    WHAT THIS FUNCTION ADDS ON TOP
+    ------------------------------
+    The marker alone is a one-line edit away from useless: hoist it above the
+    work, or put `exit 0` below it, and the job parks with the output set. So
+    POSITION is asserted, not presence — it must be the last executed line.
+
+    WHAT IS NOT CLOSED, stated because a defence that reads complete and is not
+    is the failure this file exists to catch: the regress does not terminate
+    inside the workflow. `lint-gate`'s own comparison lives in a `run:` body and
+    is parkable the same way. This raises the cost of parking a guard job from
+    one token to several coordinated edits across two jobs; it is defence in
+    depth, NOT closure. What terminates it is outside this file — branch
+    protection requiring the `Lint` context, and GitHub evaluating `needs:`.
+
+    Scoped to the two guard-running jobs, not all 23 nodes of the required
+    graph (`required_graph(workflow_texts())`, measured). Those two exist to
+    prove other things run, and they are the two where the hole was measured.
+    Twenty-three markers whose per-job value is unproven is a bigger diff than
+    its evidence."""
+    problems = []
+    for job in PROOF_JOBS:
+        block = job_block(lint_text, job)
+        if block is None:
+            problems.append(f"job `{job}` not found in lint.yml")
+            continue
+
+        col = key_column(block)
+        declares = False
+        if col is not None:
+            pat = re.compile(rf"^ {{{col}}}{yaml_key_pattern('outputs')}\s*:")
+            declares = any(
+                pat.match(strip_inline_comment(raw)) for raw in block.splitlines()
+            )
+        if not declares:
+            problems.append(
+                f"job `{job}` declares no `outputs:`. Without it the marker its "
+                "body writes is invisible to `lint-gate`, and the job is back to "
+                "being provable only by reading its text."
+            )
+        else:
+            ref = re.search(
+                r"ran:\s*\$\{\{\s*steps\.([\w-]+)\.outputs\.ran\s*\}\}", block
+            )
+            if ref is None:
+                problems.append(
+                    f"job `{job}` has `outputs:` but does not surface `ran` from a "
+                    "step. An output that reads from nothing is the empty string, "
+                    "which is the undeclared-output vacuity class this repo "
+                    "already paid for once."
+                )
+            elif not re.search(
+                rf"^\s*id:\s*{re.escape(ref.group(1))}\s*$", block, re.M
+            ):
+                # The runtime direction of this is already fail-closed — a typo'd
+                # step id yields an empty output, `lint-gate` sees success with no
+                # proof, and the build goes red. But red-at-runtime for a typo is
+                # a wasted CI cycle and an alarm that looks like a real parking
+                # event, so it is caught here instead, where the diff is.
+                problems.append(
+                    f"job `{job}` surfaces `ran` from step id "
+                    f"`{ref.group(1)}`, which no step in the job declares. The "
+                    "output resolves to the empty string, so the proof can never "
+                    "be satisfied."
+                )
+
+        # POSITION, not presence. `executed_shell` so a marker parked in a
+        # comment or an `env:` scalar counts for nothing — the same routing the
+        # sibling pins use, for the same two measured reasons.
+        lines = [ln.strip() for ln in executed_shell(block).splitlines() if ln.strip()]
+        if RAN_MARKER not in " \n".join(lines):
+            problems.append(
+                f"job `{job}` never writes the `ran` marker in an executed step. "
+                "The proof is the marker; without it the job's `outputs.ran` is "
+                "permanently empty and `lint-gate` fails closed — loudly, but it "
+                "means the mechanism is gone."
+            )
+        elif lines[-1] != RAN_MARKER:
+            problems.append(
+                f"job `{job}` writes the `ran` marker but NOT as its last "
+                f"executed line (last is `{lines[-1]}`). Anything below the "
+                "marker can be skipped while the proof still fires, which is "
+                "exactly the hole the marker was added to close."
+            )
+
+    gate_block = job_block(lint_text, GATE_JOB)
+    if gate_block is None:
+        problems.append(f"aggregator job `{GATE_JOB}` not found")
+        return problems
+    for job in PROOF_JOBS:
+        if not re.search(rf'["\']{re.escape(job)}["\']', gate_block):
+            problems.append(
+                f"`{GATE_JOB}` does not name `{job}` among the jobs whose `ran` "
+                "proof it requires. The marker is then written and read by "
+                "nobody — decoration, and the most expensive kind, because it "
+                "looks like a defence."
+            )
+    if not re.search(r'\.get\(\s*"ran"\s*,?[^)]*\)\s*!=\s*"true"', gate_block):
+        problems.append(
+            f"`{GATE_JOB}` no longer COMPARES the `ran` output against `true`. "
+            "Listing the jobs without checking their marker passes on an empty "
+            "string, which is what a parked body produces."
+        )
+    return problems
+
+
 def uncovered_paths(pattern: str) -> list:
     """Repo-relative paths a guard reads that the `ci_config` bucket misses.
 
@@ -1136,6 +1268,191 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
             "renderer-canary reverted to `unittest -v` (descriptions on)",
         )
 
+    # ------------------------------------------------------------------
+    # THE FALL-THROUGH PROOF. These pin `job_ran_proof_problems`, which
+    # replaces an enumeration of parking shapes with one that closes them by
+    # construction. The four shapes below are the measured ones; the point of
+    # the marker is that a fifth would fall to it too, so they are asserted
+    # against the SHELL (does the marker execute?) rather than against the
+    # static guard, which cannot see control flow and never will.
+    # ------------------------------------------------------------------
+
+    def test_every_measured_parking_shape_stops_a_trailing_marker(self):
+        """The inversion, tested as the shell property it actually is.
+
+        Deliberately NOT run against the real body. A first version neutered the
+        real body line-by-line so it could be wrapped, and the heuristic kept the
+        `}` that closes `ci-guards`' `|| { ... }` block — which closed the
+        wrapping function early, so the marker ran and the test reported the
+        inversion broken. The fixture lied; the mechanism was fine. Running the
+        real body verbatim is not an option either: unparked it invokes the whole
+        guard suite, and `renderer-canary`'s body exits 1 without the oracle and
+        never reaches its last line, so the non-vacuity half could not pass.
+
+        What the real body contributes is the POSITION of the marker, and that is
+        pinned statically by `job_ran_proof_problems` plus the two relocation
+        mutations below. What is left to prove is the bash fact those two rest
+        on: a construct that prevents fall-through prevents the LAST line. Four
+        measured shapes, one assertion — which is the point of inverting rather
+        than patching shape five."""
+        import os
+        import subprocess
+        import tempfile
+
+        bodies = {
+            "exit 0": "exit 0\nwork\n" + RAN_MARKER,
+            "if false": "if false; then\nwork\n" + RAN_MARKER + "\nfi",
+            "uncalled function": "park() {\nwork\n" + RAN_MARKER + "\n}",
+            "set -n": "set -n\nwork\n" + RAN_MARKER,
+        }
+        for name, script in bodies.items():
+            with self.subTest(shape=name):
+                with tempfile.TemporaryDirectory() as d:
+                    out = Path(d, "gh_output")
+                    out.write_text("")
+                    subprocess.run(
+                        ["bash", "-c", "work() { :; }\n" + script],
+                        env={"GITHUB_OUTPUT": str(out), "PATH": os.environ["PATH"]},
+                        capture_output=True,
+                    )
+                    self.assertNotIn(
+                        "ran=true", out.read_text(),
+                        f"`{name}` parked the body and the trailing marker STILL "
+                        "wrote its proof — the inversion does not hold",
+                    )
+
+    def test_an_unparked_body_does_write_the_marker(self):
+        """Non-vacuity for the four subtests above: same harness, no parking.
+
+        Without it, a harness that could never write the marker would make every
+        shape pass for free — the mistake this file has now recorded twice."""
+        import os
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d, "gh_output")
+            out.write_text("")
+            subprocess.run(
+                ["bash", "-c", "work() { :; }\nwork\n" + RAN_MARKER],
+                env={"GITHUB_OUTPUT": str(out), "PATH": os.environ["PATH"]},
+                capture_output=True,
+            )
+            self.assertIn(
+                "ran=true", out.read_text(),
+                "the harness cannot write the marker even unparked — the parking "
+                "subtests prove nothing",
+            )
+
+    def test_hoisting_the_marker_above_the_work_is_caught(self):
+        """The evasion the marker alone does not stop.
+
+        Move the marker to the top and the body can be parked below it with the
+        proof already written. `job_ran_proof_problems` asserts POSITION for
+        exactly this, which is why it checks the last executed line rather than
+        containment."""
+        for job in PROOF_JOBS:
+            with self.subTest(job=job):
+                block = job_block(self.lint, job)
+                marker_line = next(
+                    ln for ln in block.splitlines() if ln.strip() == RAN_MARKER
+                )
+                anchor = "          set -euo pipefail\n"
+                self.assertIn(anchor, block, f"{job}: anchor moved")
+                hoisted = block.replace(marker_line + "\n", "").replace(
+                    anchor, anchor + marker_line + "\n", 1
+                )
+                assert_disables(
+                    job_ran_proof_problems,
+                    self.lint,
+                    self.lint.replace(block, hoisted, 1),
+                    f"{job}: marker hoisted above the work",
+                )
+
+    def test_a_command_after_the_marker_is_caught(self):
+        """Same class from the other side: `exit 0` BELOW the marker.
+
+        The proof fires, then the step exits — so the marker must be last, not
+        merely present-and-early. Any trailing command reopens the gap, so the
+        check rejects all of them rather than trying to classify which are
+        harmless."""
+        for job in PROOF_JOBS:
+            with self.subTest(job=job):
+                block = job_block(self.lint, job)
+                marker_line = next(
+                    ln for ln in block.splitlines() if ln.strip() == RAN_MARKER
+                )
+                trailing = block.replace(
+                    marker_line + "\n", marker_line + "\n          echo done\n", 1
+                )
+                assert_disables(
+                    job_ran_proof_problems,
+                    self.lint,
+                    self.lint.replace(block, trailing, 1),
+                    f"{job}: command added after the marker",
+                )
+
+    def test_dropping_the_output_declaration_is_caught(self):
+        for job in PROOF_JOBS:
+            with self.subTest(job=job):
+                block = job_block(self.lint, job)
+                stripped = re.sub(
+                    r"\n    outputs:\n      ran: [^\n]*\n", "\n", block, count=1
+                )
+                self.assertNotEqual(stripped, block, f"{job}: fixture matched nothing")
+                assert_disables(
+                    job_ran_proof_problems,
+                    self.lint,
+                    self.lint.replace(block, stripped, 1),
+                    f"{job}: outputs: dropped",
+                )
+
+    def test_a_typoed_step_id_in_the_output_is_caught(self):
+        """Caught at review time, not at runtime.
+
+        The runtime direction is already fail-closed: a typo'd step id makes the
+        output an empty string, `lint-gate` sees success with no proof, and the
+        build goes red. But a red build for a typo burns a CI cycle and looks
+        exactly like a real parking event — the alarm would be indistinguishable
+        from the thing it is meant to report."""
+        for job in PROOF_JOBS:
+            with self.subTest(job=job):
+                block = job_block(self.lint, job)
+                m = re.search(r"ran: \$\{\{ steps\.([\w-]+)\.outputs\.ran \}\}", block)
+                self.assertIsNotNone(m, f"{job}: fixture premise broke")
+                typoed = block.replace(
+                    f"steps.{m.group(1)}.outputs.ran",
+                    f"steps.{m.group(1)}x.outputs.ran", 1,
+                )
+                assert_disables(
+                    job_ran_proof_problems,
+                    self.lint,
+                    self.lint.replace(block, typoed, 1),
+                    f"{job}: output reads a step id that does not exist",
+                )
+
+    def test_the_aggregator_dropping_the_comparison_is_caught(self):
+        """A gate that LISTS the jobs but stops comparing passes on an empty
+        string — which is precisely what a parked body produces."""
+        gate = job_block(self.lint, GATE_JOB)
+        line = next(
+            ln for ln in gate.splitlines() if '.get("ran") != "true"' in ln
+        )
+        assert_disables(
+            job_ran_proof_problems,
+            self.lint,
+            self.lint.replace(gate, gate.replace(line, "              and False"), 1),
+            "aggregator no longer compares `ran`",
+        )
+
+    def test_the_aggregator_dropping_a_proof_job_is_caught(self):
+        assert_disables(
+            job_ran_proof_problems,
+            self.lint,
+            self.lint.replace('"ci-guards", "renderer-canary"', '"ci-guards"', 1),
+            "aggregator no longer requires the canary's proof",
+        )
+
     def test_dropping_the_per_method_assertion_is_caught(self):
         """A per-class COUNT floor passes with the adjudicating test parked.
 
@@ -1247,3 +1564,120 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheAggregatorEnforcesTheProof(unittest.TestCase):
+    """EXECUTE `lint-gate`'s body. Nothing in this repo did, before this class.
+
+    Every other check on the aggregator inspects its TEXT — `if: always()`, the
+    `needs:` list, the pass-set string — and #404 already measured what that
+    misses: a gate can satisfy all three and still not gate. The fall-through
+    proof only means something if the aggregator actually rejects an unset `ran`,
+    and only text said it did.
+
+    The critical direction is the FALSE ALARM one. Both proof jobs legitimately
+    skip when the `ci_config` bucket does not match, which is most PRs, and a
+    skipped job has no outputs. An unconditional demand would fail every
+    unrelated PR — the shape that gets a check deleted rather than fixed.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.py = cls._extract(LINT_YML.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _extract(lint_text: str) -> str:
+        """The aggregator's Python, taken out of the YAML block scalar + heredoc.
+
+        Two layers, both load-bearing: `job_block` returns raw file text, so the
+        YAML indentation is still on it and Python would reject the body; and the
+        script itself lives in a quoted heredoc inside the shell body."""
+        import textwrap
+
+        block = job_block(lint_text, GATE_JOB)
+        if block is None:
+            raise AssertionError(f"job `{GATE_JOB}` not found")
+        marker = "run: |\n"
+        body = textwrap.dedent(block[block.index(marker) + len(marker):])
+        m = re.search(r"^python3 - <<'PY'\n(.*?)^PY", body, re.S | re.M)
+        if m is None:
+            raise AssertionError(
+                f"`{GATE_JOB}` no longer runs a `python3 - <<'PY'` heredoc — this "
+                "class extracts it by that shape and must be updated with it, not "
+                "left to skip"
+            )
+        return m.group(1)
+
+    def _run(self, needs):
+        import json
+        import subprocess
+
+        r = subprocess.run(
+            [sys.executable, "-c", self.py],
+            env={"NEEDS_JSON": json.dumps(needs), "PATH": "/usr/bin:/bin"},
+            capture_output=True, text=True,
+        )
+        return r.returncode, (r.stdout + r.stderr)
+
+    PROVEN = {"result": "success", "outputs": {"ran": "true"}}
+    SKIPPED = {"result": "skipped", "outputs": {}}
+    PARKED = {"result": "success", "outputs": {}}
+
+    def test_the_script_was_extracted(self):
+        # Vacuity canary: an empty script exits 0 and every direction below
+        # would "pass".
+        self.assertGreater(len(self.py.splitlines()), 20, self.py)
+        self.assertIn("proof_required", self.py)
+
+    def test_both_proven_passes(self):
+        code, out = self._run(
+            {"ci-guards": self.PROVEN, "renderer-canary": self.PROVEN}
+        )
+        self.assertEqual(code, 0, out)
+        self.assertIn("Lint gate passed", out)
+
+    def test_both_skipped_passes(self):
+        """THE false-alarm direction. A skipped job has no `ran`, and that is
+        correct, not a parked body."""
+        code, out = self._run(
+            {"ci-guards": self.SKIPPED, "renderer-canary": self.SKIPPED}
+        )
+        self.assertEqual(code, 0, out)
+
+    def test_one_skipped_one_proven_passes(self):
+        code, out = self._run(
+            {"ci-guards": self.SKIPPED, "renderer-canary": self.PROVEN}
+        )
+        self.assertEqual(code, 0, out)
+
+    def test_a_parked_guard_job_fails(self):
+        for job in ("ci-guards", "renderer-canary"):
+            with self.subTest(job=job):
+                needs = {
+                    "ci-guards": self.PROVEN, "renderer-canary": self.PROVEN
+                }
+                needs[job] = self.PARKED
+                code, out = self._run(needs)
+                self.assertEqual(code, 1, out)
+                self.assertIn("without reaching the end", out)
+                self.assertIn(job, out)
+
+    def test_a_renamed_proof_job_fails_closed(self):
+        """A missing NAME must be an error, not a pass.
+
+        `needs.get(name, {})` would wave a renamed job through — the same vacuity
+        as an undeclared `needs.*.outputs.*` resolving to the empty string, which
+        this repo has already paid for once."""
+        code, out = self._run({"renderer-canary": self.PROVEN})
+        self.assertEqual(code, 1, out)
+        self.assertIn("cannot be proven", out)
+
+    def test_an_ordinary_failure_elsewhere_still_fails(self):
+        # No-regression direction: the proof check must not shadow the original
+        # result aggregation.
+        code, out = self._run({
+            "ci-guards": self.PROVEN, "renderer-canary": self.PROVEN,
+            "gitleaks": {"result": "failure", "outputs": {}},
+        })
+        self.assertEqual(code, 1, out)
+        self.assertIn("gitleaks", out)

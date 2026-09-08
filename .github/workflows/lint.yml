@@ -384,6 +384,14 @@ jobs:
     timeout-minutes: 5
     needs: changes
     if: needs.changes.outputs.ci_config == 'true' || github.event_name == 'schedule'
+    # FALL-THROUGH PROOF. `ran` is set by the LAST line of the work body below,
+    # so it is reachable only by executing everything before it. A guard reading
+    # workflow TEXT cannot prove a shell body reached its end — measured, `exit
+    # 0` after `set -euo pipefail` here left `guard_job_problems() == []` — and
+    # this closes that by construction rather than by enumerating ways to spell
+    # "do not run". `lint-gate` requires it whenever this job reports success.
+    outputs:
+      ran: ${{ steps.guards.outputs.ran }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Set up Python
@@ -391,6 +399,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Run CI config regression guards
+        id: guards
         run: |
           set -euo pipefail
           # NO `working-directory:` — it is RUNNER-consumed, so nothing that
@@ -414,6 +423,11 @@ jobs:
           # Closes the OTHER direction from a real failure — a run that
           # discovered nothing and still reported OK.
           printf '%s\n' "$out" | grep -qE '^Ran [1-9][0-9]* tests? in '
+          # MUST BE THE LAST LINE. See `outputs.ran` above; anything below it
+          # would be skippable while the proof still fires, which is why
+          # `job_ran_proof_problems()` asserts this line's position and not
+          # merely its presence.
+          echo "ran=true" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # The renderer-adjudicated guard classes, which SKIP everywhere else.
@@ -446,6 +460,11 @@ jobs:
     timeout-minutes: 5
     needs: changes
     if: needs.changes.outputs.ci_config == 'true' || github.event_name == 'schedule'
+    # FALL-THROUGH PROOF — see the identical block on `ci-guards`. Measured here
+    # too: `exit 0` after `set -euo pipefail` left `canary_job_problems() == []`
+    # with zero test output and the step exiting 0.
+    outputs:
+      ran: ${{ steps.canary.outputs.ran }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Set up Python
@@ -457,6 +476,7 @@ jobs:
         # against. A range would let a release change the oracle between runs.
         run: python3 -m pip install --disable-pip-version-check markdown-it-py==4.0.0
       - name: Run the renderer-adjudicated guard classes
+        id: canary
         run: |
           set -euo pipefail
           # FAIL, do not skip, when the oracle is missing. The classes below
@@ -528,6 +548,11 @@ jobs:
               exit 1
             fi
           done
+          # MUST BE THE LAST LINE — see `outputs.ran` on this job. Placed AFTER
+          # `done`, so a loop that never iterates still reaches it: the loop
+          # body's own per-class floors are what catch that, and stacking two
+          # unrelated failure modes onto one line would make the message lie.
+          echo "ran=true" >> "$GITHUB_OUTPUT"
 
   scanner-unit-tests:
     runs-on: ubuntu-latest
@@ -1515,6 +1540,43 @@ jobs:
           }
           if bad:
               print(f"Lint gate failed: {bad}")
+              sys.exit(1)
+
+          # FALL-THROUGH PROOF. These two jobs exist to prove that OTHER things
+          # run, so a hole in them is worse than the same hole elsewhere — and
+          # the hole was measured: `exit 0` as the first line of either work body
+          # parks it with the guard that pins the job returning no problems, zero
+          # test output, and the step exiting 0. Text analysis cannot prove a
+          # shell body reached its end, so each body's LAST line sets `ran` and
+          # this requires it.
+          #
+          # Conditional on `success`, never unconditional: both jobs legitimately
+          # skip when the `ci_config` bucket does not match, and a skipped job has
+          # no outputs. Demanding the marker there would fail every unrelated PR,
+          # which is the false-alarm direction that gets a check deleted.
+          #
+          # A missing NAME is an error rather than a pass. `needs.get(name, {})`
+          # would silently wave through a renamed job, which is the vacuity class
+          # this repo already paid for with undeclared `needs.*.outputs.*` refs
+          # resolving to the empty string.
+          proof_required = ("ci-guards", "renderer-canary")
+          missing = [n for n in proof_required if n not in needs]
+          if missing:
+              print(f"Lint gate failed: not in needs, cannot be proven: {missing}")
+              sys.exit(1)
+          unproven = {
+              name: needs[name].get("outputs", {}).get("ran", "")
+              for name in proof_required
+              if needs[name]["result"] == "success"
+              and needs[name].get("outputs", {}).get("ran") != "true"
+          }
+          if unproven:
+              print(
+                  "Lint gate failed: job(s) reported success without reaching the "
+                  f"end of their work body: {unproven}. The `ran` output is set by "
+                  "the last line of the run body, so an empty value means the body "
+                  "exited, was skipped, or never executed."
+              )
               sys.exit(1)
           print("Lint gate passed.")
           PY

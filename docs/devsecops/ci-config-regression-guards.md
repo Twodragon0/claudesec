@@ -215,7 +215,7 @@ first line of the run body — one token, cheaper than any of the three — park
 step with `canary_job_problems()` returning `[]`, zero test output and exit 0;
 `if false; then ... fi`, an uncalled function wrapper and `set -n` all measure the
 same. Proving a shell script reaches its end requires running it, so this is a
-limit of static text analysis rather than a defect in the check, and it is
+limit of static text analysis rather than a defect in the check, and it was
 PRE-EXISTING AND REPO-WIDE rather than something this job introduced — measured:
 the same `exit 0` injected into the `ci-guards` job's run block gives
 `guard_job_problems() == []`, and that sibling predates this row. Every guard that
@@ -223,12 +223,38 @@ proves a job runs by scanning executed text falls the same way. `renderer-canary
 IS inside `test_ci_required_graph_not_disabled`'s graph (one of its 23 nodes), and
 an early `exit 0` is outside that guard's stated scope rather than a gap in it:
 that guard exists as the complement of EXECUTION, forbidding runner-consumed keys
-because something else was meant to cover the shell body. For this job nothing
-does. Closing it means executing the step body in a guard and requiring three
-`^Ran [1-9]` lines — the #404 move, which closed ten shapes at once where three
-parser fixes had closed one each — and that is not free here, because the body
-needs the oracle and the only job holding it is the one being proved. Left open
-deliberately, with the shape written down. The `<<` refusal is likewise a
+because something else was meant to cover the shell body.
+
+**CLOSED for these two jobs by a FALL-THROUGH PROOF, not by patching shape
+five.** Patching would have been the third fix to an enumeration, which
+ADR-001 §5 names as the signal to invert. The last line of each work body writes
+`ran=true` to `$GITHUB_OUTPUT`, and `lint-gate` requires it whenever the job
+reports `success`; that line is reachable only by executing everything above it,
+so all four measured shapes — and a fifth nobody has thought of — fail together
+by the shell's own semantics rather than by enumeration. `job_ran_proof_problems`
+asserts POSITION, not presence, because the marker alone is one edit from
+useless: hoisting it above the work, or putting any command after it, parks the
+job with the proof already written. Both are pinned, as is a typo'd `steps.<id>`
+reference (fail-closed at runtime — an empty output can never satisfy the proof —
+but caught statically so a typo does not raise an alarm indistinguishable from a
+real parking event). `lint-gate`'s own body is now EXECUTED by a test class
+across seven directions, which nothing in this repo did before: both proven,
+both skipped, one of each, either job parked, a renamed proof job, and an
+ordinary failure elsewhere. The both-skipped direction is the load-bearing one —
+these jobs legitimately skip whenever `ci_config` does not match, which is most
+PRs, and an unconditional demand would fail every unrelated one.
+
+**What is still open, stated because a defence that reads complete and is not is
+the failure this document exists to catch:** the regress does not terminate
+inside the workflow. `lint-gate`'s comparison lives in a `run:` body and is
+parkable the same way. This raises the cost of parking a guard job from one token
+to several coordinated edits across two jobs — **defence in depth, not
+closure**. What terminates it is outside this file: branch protection requiring
+the `Lint` context, and GitHub evaluating `needs:` itself. Scoped deliberately to
+the two guard-running jobs rather than all 23 nodes: those two exist to prove
+other things run, and they are the two where the hole was measured. Twenty-three
+markers whose per-job value is unmeasured would be a bigger diff than its
+evidence. The `<<` refusal is likewise a
 substring test, not a heredoc parser: it also fires on `echo "shift: 1 << 2"` and
 `: $(( 1 << 2 ))`, which fail closed and do not belong in this step.
 
