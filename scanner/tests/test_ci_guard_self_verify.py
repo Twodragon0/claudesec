@@ -94,7 +94,7 @@ vacuous pass. Duplicating that rule here would be two owners for one invariant.
 """
 
 MARKDOWN_SCAN_EXEMPT = (
-    "does not parse Markdown: the `.md` literals are the catalog PATH, named in two bucket-mutation assertions and derived for `uncovered_paths()`, which matches it against a `grep -E` pattern. No document is read"
+    "does not parse Markdown: every `.md`/`.toml` path here is a PATH, never a document. `guard_data_files()` collects them by AST out of the OTHER guards and `uncovered_paths()` matches each against the bucket's `grep -E` pattern; nothing in this file opens one. The rationale used to say 'the catalog PATH' singular, from when the set was two hand-written entries — it is a derived census of 109 now, which changes the size but not the reason for the exemption"
 )
 import re
 import sys
@@ -397,6 +397,36 @@ def canary_job_problems(lint_text: str) -> list:
                 "count cannot tell that the adjudicating test was parked."
             )
 
+    # NO HEREDOC IN THIS STEP. `executed_shell` does not model heredoc bodies —
+    # its own docstring says so and calls it the one limitation that CAN hide an
+    # unrun test — so a `run: |` that opens `cat <<'EOF'` and quotes the whole
+    # loop inside it reads to every check above as execution: measured,
+    # `canary_job_problems() == []` with the step exiting 0 having adjudicated
+    # nothing. Closing that in the shared extractor needs a heredoc state machine
+    # across every guard that imports it; closing it HERE needs one line, because
+    # this step has no heredoc by design (the install step's comment already
+    # explains why an indented one would not even parse). Forbidding what the
+    # extractor cannot read is the fail-closed half of the same fix.
+    if "<<" in executed:
+        problems.append(
+            f"job `{CANARY_JOB}` contains a heredoc. `executed_shell` cannot see "
+            "into heredoc bodies, so the loop could sit inside one, run nothing, "
+            "and satisfy every check in this function. If a heredoc is genuinely "
+            "needed, teach `executed_shell` to strip them FIRST."
+        )
+
+    # The runner must disable unittest's descriptions. See the step's own comment:
+    # with them on, adding a docstring to an adjudicating method moves `... ok`
+    # onto a second line and the by-name check below stops matching, turning
+    # ordinary documentation into a red build.
+    if "descriptions=False" not in executed:
+        problems.append(
+            f"job `{CANARY_JOB}` no longer runs with `descriptions=False`. Under "
+            "`unittest -v` a docstring on an adjudicating method splits its "
+            "result onto a second line and the per-method check fails on a "
+            "passing suite — a false alarm, which is how a gate stops being read."
+        )
+
     # The methods must be checked BY NAME in the step, not merely listed.
     if "did not run ${method}" not in executed:
         problems.append(
@@ -457,8 +487,25 @@ def guard_data_files() -> list:
     `test_ci_*.py` names, plus the same for module-level `Path` constants built
     from parts (`REPO_ROOT / "docs" / "guides" / "x.md"`), which a literal-only
     scan misses — measured, it missed `compliance-mapping.md` and `isms-p.md`
-    exactly that way. Filtered to paths that EXIST, so a synthetic fixture path
-    inside a test is not demanded of the bucket."""
+    exactly that way.
+
+    FILTERED TO TRACKED FILES THAT EXIST — and that filter is NOT a fixture
+    guard, which an earlier version of this docstring claimed it was. The census
+    cannot tell a path a guard READS from a path a guard merely NAMES; that is
+    the presence-vs-attribution class again, one level up from where this file
+    already fights it. `test_ci_catalog_no_ghost_rows` names
+    `scanner/tests/README.md` as a deliberately-NONEXISTENT negative fixture, and
+    the only reason it stays out of the census is that the file does not exist.
+    Measured: `touch scanner/tests/README.md` promoted it, and three tests across
+    two guards went red on a repo whose only sin was acquiring a README.
+
+    So: the existence filter is a coincidence, the tracked filter is deliberate
+    (a gitignored scratch file must not be red locally and absent in CI —
+    the asymmetry `project_locale_default_encoding_class` already cost this
+    repo), and the residual is real: a path a guard names as a fixture, which
+    someone later creates AND commits, is demanded of the bucket. The negative
+    fixture above was moved off `README.md` to a name nobody will create, which
+    shrinks that residual without pretending it is closed."""
     import ast
     import pathlib
     import subprocess as _sp
@@ -533,7 +580,12 @@ def guard_data_files() -> list:
                 rel = str(pathlib.PurePath(hit).relative_to(REPO_ROOT))
                 if rel in tracked:
                     expanded.add(rel)
-        else:
+        elif entry in tracked:
+            # Intersected with `git ls-files` on THIS branch too, not just the
+            # glob branch above. Without it a plain literal naming an untracked
+            # file — a local scratch doc, or a fixture path someone created but
+            # never committed — is demanded of the bucket locally and absent in
+            # CI, which is a guard that disagrees with itself by machine.
             expanded.add(entry)
     return sorted(f for f in expanded if (REPO_ROOT / f).is_file())
 
@@ -641,6 +693,55 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
                     (REPO_ROOT / rel).is_file(),
                     f"{rel} is derived from a guard but does not exist on disk",
                 )
+
+    def test_every_census_entry_is_tracked_by_git(self):
+        """A census entry that git does not know about is a guard that disagrees
+        with itself by machine: red locally, absent in CI.
+
+        The glob branch was intersected with `git ls-files` from the start; the
+        plain-literal branch was not, so a literal naming an untracked file — a
+        local scratch doc, a fixture path created but never committed — was
+        demanded of the `ci_config` bucket on one machine only. Same shape as the
+        gitignored-operator-script asymmetry in the OCSF reader sweep."""
+        import subprocess as _sp
+
+        tracked = set(
+            _sp.run(
+                ["git", "ls-files"], cwd=REPO_ROOT,
+                capture_output=True, text=True, check=True,
+            ).stdout.split()
+        )
+        untracked = [rel for rel in guard_data_files() if rel not in tracked]
+        self.assertEqual(
+            untracked, [],
+            "census entries not tracked by git — the bucket would be demanded to "
+            f"cover files CI never sees: {untracked}",
+        )
+
+    def test_the_census_demands_no_markdown_under_scanner_tests(self):
+        """The fixture-promotion hazard, pinned rather than assumed away.
+
+        `guard_data_files()` cannot tell a path a guard READS from one it merely
+        NAMES. `test_ci_catalog_no_ghost_rows` names `scanner/tests/<x>.md` as a
+        deliberately-NONEXISTENT negative fixture, and measured, creating that
+        file took three tests across two guards red — two of them here, because
+        the census promoted the fixture into a path the bucket must match.
+
+        No guard reads a `.md` under `scanner/tests/`, so anything appearing
+        there is a fixture that became real. Failing here says so directly,
+        instead of surfacing as an unrelated bucket-coverage failure that reads
+        like the bucket regressed."""
+        promoted = [
+            rel for rel in guard_data_files()
+            if rel.startswith("scanner/tests/") and rel.endswith(".md")
+        ]
+        self.assertEqual(
+            promoted, [],
+            "a Markdown path under scanner/tests entered the census. If it is a "
+            "real document, no guard reads it and the bucket should not be asked "
+            "to cover it; if it is a test fixture that got created, rename the "
+            f"fixture to a name nobody will create: {promoted}",
+        )
 
     def test_dropping_docs_from_the_bucket_is_caught(self):
         """`docs/` carries the guard-read DATA surface.
@@ -877,6 +978,87 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
             self.lint,
             self.lint[:start] + parked + self.lint[end:],
             "renderer-canary step parked in an env: scalar",
+        )
+
+    def test_parking_the_canary_step_in_a_heredoc_is_not_execution(self):
+        """The third parking shape, and the one `executed_shell` cannot read.
+
+        Comment-parking and env-parking were both closed by routing through
+        `executed_shell`. This one it CANNOT close: its own docstring names
+        heredoc bodies as the single limitation that can hide an unrun test, and
+        it is right — every command sits inside a real `run: |`, so the extractor
+        credits all of them while the shell runs `cat` and exits 0.
+
+        Measured before the fix: `canary_job_problems() == []` with 1227 guards
+        green and the step adjudicating nothing. Closed by refusing a heredoc in
+        this step at all, which is honest because the step has none by design."""
+        start = self.lint.index(
+            "      - name: Run the renderer-adjudicated guard classes"
+        )
+        end = self.lint.index("\n  scanner-unit-tests:")
+        body = self.lint[start:end]
+        quoted = "\n".join(
+            "          " + line.strip()
+            for line in body.splitlines()[1:]
+            if line.strip()
+        )
+        parked = (
+            "      - name: Run the renderer-adjudicated guard classes\n"
+            "        run: |\n"
+            "          set -euo pipefail\n"
+            "          cat <<'PARKED_EOF'\n"
+            + quoted
+            + "\n          PARKED_EOF\n"
+            '          echo "renderer canary parked"\n'
+        )
+        assert_disables(
+            canary_job_problems,
+            self.lint,
+            self.lint[:start] + parked + self.lint[end:],
+            "renderer-canary step parked in a heredoc body",
+        )
+
+    def test_restoring_unittest_descriptions_is_caught(self):
+        """The fail-CLOSED half: a false alarm is also a defect.
+
+        `python3 -m unittest -v` cannot be told `descriptions=False`, and with
+        descriptions on, a method that HAS a docstring prints `name (…)` and puts
+        `... ok` on the NEXT line — so the by-name check stops matching and the
+        job goes red because someone documented a test. Measured on
+        `test_the_canary_fires_on_the_measured_residual_payload`, which already
+        carries one; the three adjudicating methods do not, which is the only
+        reason this is latent rather than live.
+
+        Pinned because reverting to the shorter `-m unittest -v` spelling looks
+        like a simplification and reintroduces it."""
+        start = self.lint.index(
+            "      - name: Run the renderer-adjudicated guard classes"
+        )
+        end = self.lint.index("\n  scanner-unit-tests:")
+        body = self.lint[start:end]
+        # Anchored on the RUNNER line, not on the token: the step's own comment
+        # explains `descriptions=False` and therefore contains it, and matching
+        # the token alone found two lines and would have mutated a comment —
+        # scoring the fixture rather than the check. The same over-broad-anchor
+        # slip the gate mutation already paid for once in this file.
+        runner = [
+            line for line in body.splitlines()
+            if "descriptions=False" in line and line.lstrip().startswith("out=$(")
+        ]
+        self.assertEqual(
+            len(runner),
+            1,
+            "expected exactly one runner line to mutate; the step changed shape",
+        )
+        reverted = body.replace(
+            runner[0],
+            '            out=$(python3 -m unittest -v "$cls" 2>&1) || {',
+        )
+        assert_disables(
+            canary_job_problems,
+            self.lint,
+            self.lint[:start] + reverted + self.lint[end:],
+            "renderer-canary reverted to `unittest -v` (descriptions on)",
         )
 
     def test_dropping_the_per_method_assertion_is_caught(self):

@@ -493,7 +493,15 @@ jobs:
             "test_ci_markdown_scan_evasion.TestTheResidualIsBounded:test_silent_passes_stay_within_the_measured_ceiling"; do
             cls="${spec%%:*}"
             method="${spec##*:}"
-            out=$(python3 -m unittest -v "$cls" 2>&1) || {
+            # `descriptions=False`, which `python3 -m unittest -v` cannot be
+            # told to do. With descriptions ON, a method that HAS a docstring
+            # prints its summary line as `name (…)` and the `... ok` lands on a
+            # SECOND line — so the by-name check below stops matching and the
+            # job goes red because someone documented a test. Measured on
+            # `test_the_canary_fires_on_the_measured_residual_payload`, which
+            # already has one. Fail-closed, but a gate that cries wolf at
+            # ordinary authoring is a gate that gets deleted.
+            out=$(python3 -c 'import sys, unittest; sys.exit(0 if unittest.TextTestRunner(verbosity=2, descriptions=False, stream=sys.stdout).run(unittest.defaultTestLoader.loadTestsFromName(sys.argv[1])).wasSuccessful() else 1)' "$cls" 2>&1) || {
               printf '%s\n' "$out"
               exit 1
             }

@@ -185,9 +185,16 @@ transitive dependency) and runs the three adjudicated classes in a few hundred m
 Verified by executing the real step body in all five directions: the measured
 residual payload exits 1, a missing package exits 1, a wrong version exits 1, a
 class that skips exits 1, and the clean tree exits 0. The job is pinned by
-`test_ci_guard_self_verify.canary_job_problems` with five mutation tests, because
-an unpinned fix for a fail-open is one token from being reverted with the suite
-green — measured on the `ci_config` widening in #530.
+`test_ci_guard_self_verify.canary_job_problems` with twelve mutation tests, each
+reverting one token of the job, because an unpinned fix for a fail-open is one
+token from being reverted with the suite green — measured on the `ci_config`
+widening in #530. Three of the twelve are step-PARKING shapes, added one review
+round apart as each previous fix was defeated: a comment, an `env:` block scalar,
+and a heredoc body. The last is the only one `executed_shell` cannot read — its
+own docstring names heredoc bodies as the single limitation that can hide an
+unrun test — so this job simply refuses to contain a heredoc, which is honest
+because it has none by design. The count says five in older revisions of this row;
+it was wrong before this PR and is derived by AST in review now.
 
 RESIDUAL STILL NOT ZERO. This closes the reachability gap, not the evasion class:
 `MAX_SILENT_PASS_SHAPES` remains a ceiling of 14, and `rendered_markdown` still
