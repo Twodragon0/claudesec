@@ -336,7 +336,10 @@ class TestTheResidualIsBounded(unittest.TestCase):
     SKIPPED when `markdown-it-py` is absent so `ci-guards` stays package-free.
     That skip is why two silent passes shipped, so `scanner-unit-tests` now
     installs the pin and `test_the_renderer_is_available_under_pytest` below
-    fails rather than skips when it is missing under pytest."""
+    fails rather than skips when it is missing under pytest. `scanner-unit-tests`
+    is no longer the only place this class runs: the `renderer-canary` job runs
+    it on the `ci_config` bucket, which reaches the docs a `scanner`-gated job
+    does not — the reachability half of the same problem."""
 
     @classmethod
     def setUpClass(cls):

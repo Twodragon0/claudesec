@@ -154,20 +154,34 @@ jobs:
             #
             # Over-inclusion here is fail-safe: it costs ~20s and cannot hide a
             # regression. Pinned by scanner/tests/test_ci_guard_self_verify.py.
-            echo "ci_config=$(match '^(\.github/|templates/|scanner/tests/(test_ci_|_ci_guard_util\.py)|scripts/setup\.sh$|requirements.*\.txt|lychee\.toml$|ruff\.toml$|Dockerfile|nginx/|package\.json$|\.npmignore$|lighthouserc\.json$|bin/|\.claude/skills/|\.claude-plugin/|docs/devsecops/ci-guard-inventory\.toml$|docs/devsecops/ci-config-regression-guards\.md$)')"
-            # The last two added when the guard INVENTORY moved out of prose into
-            # `docs/devsecops/ci-guard-inventory.toml`. Both were in NO bucket,
-            # measured: a PR editing only the inventory fired neither `ci-guards`
-            # nor `scanner-unit-tests`, so deleting a guard's entry — which is
-            # now deleting it from the coverage inventory itself — would have
-            # been checked by nothing. The catalog `.md` is here for the same
-            # reason one step out: `test_ci_catalog_doc_sync.py` compares the
-            # published table against that inventory, and a doc-only edit that
-            # hides a row could not fire the guard written to catch it. Same
-            # shape as the `nginx/` and #460 template-pin incidents below and
-            # above: the gate hides drift, because a job that never runs reads
-            # exactly like one that found nothing. Widening `ci_config` only —
-            # NOT `scanner`, which would fire kcov.
+            echo "ci_config=$(match '^(\.github/|templates/|scanner/tests/(test_ci_|_ci_guard_util\.py)|scripts/setup\.sh$|requirements.*\.txt|lychee\.toml$|ruff\.toml$|Dockerfile|nginx/|package\.json$|\.npmignore$|lighthouserc\.json$|bin/|\.claude/skills/|\.claude-plugin/|docs/|\.claude/|[^/]*\.md$|\.gitleaks\.toml$)')"
+            # `docs/`, `.claude/`, root `*.md` and `.gitleaks.toml` are the
+            # guard-read DATA surface, derived rather than guessed:
+            # `test_ci_guard_self_verify.guard_data_files()` walks every tracked
+            # guard by AST and collects the `.md`/`.toml` paths they read, both
+            # as whole literals and as `REPO_ROOT / "docs" / ... / "x.md"` part
+            # chains (a literal-only scan missed `compliance-mapping.md` and
+            # `isms-p.md` exactly that way).
+            #
+            # The surface is this broad because it IS: `_CITED_GLOBS` in
+            # `test_ci_adr_citation_spelling` scans `docs/**/*.md`,
+            # `.claude/**/*.md` and `*.md`, so a dangling `§10` in ANY markdown
+            # file fails `test_every_citation_resolves`. This is not
+            # over-inclusion, it is the honest extent.
+            #
+            # Two rounds of measurement got here. #530 added the inventory and
+            # the catalog after finding both in NO bucket — a PR editing only the
+            # inventory fired neither `ci-guards` nor `scanner-unit-tests`, so
+            # deleting a guard's entry was checked by nothing. A review then
+            # measured that the same hole remained for the ADR series: an
+            # ADR-only edit that a guard genuinely catches fired all three jobs
+            # ZERO times, in the very commit whose subject was closing that hole.
+            # Same shape as the `nginx/` and #460 template-pin incidents.
+            #
+            # Widening `ci_config` only — NOT `scanner`, which fires kcov. The
+            # cost is ~20s of `ci-guards` plus ~20s of `renderer-canary` on a
+            # docs PR, and the bucket's own doctrine above is that over-inclusion
+            # here is fail-safe because it cannot hide a regression.
             # `nginx/` added 2026-08-27. It was in NO bucket, so a PR editing
             # only nginx/default.conf ran neither `Docker Dashboard Smoke Test`
             # (gated on docker/scanner) nor `scanner-unit-tests` — the one file
@@ -448,6 +462,7 @@ jobs:
           # FAIL, do not skip, when the oracle is missing. The classes below
           # skip on ImportError — correct for the package-free job, and the exact
           # fail-open this job exists to close, so it must not be reproduced here.
+          #
           # One line on purpose: an indented heredoc keeps its leading
           # whitespace and Python rejects it (`IndentationError: unexpected
           # indent`, measured), and de-indenting the body to column 0 would
@@ -458,24 +473,38 @@ jobs:
             exit 1
           fi
           cd scanner/tests
-          out=$(python3 -m unittest -v \
+          # PER CLASS, not once over the combined output. A single aggregate
+          # `Ran [1-9]` was the first version and a review defeated it: renaming
+          # the test methods of ONE class — an ordinary refactor, not a
+          # weakening — left that class contributing zero tests while the other
+          # two carried the count, so the job printed "Ran 5 tests / OK" and
+          # exited 0 with the measured residual payload live in the catalog and
+          # a reader seeing 0 of 70 guard rows. Renamed and DELETED classes were
+          # caught; EMPTIED was not, and emptied is what a refactor produces.
+          for cls in \
             test_ci_catalog_doc_sync.TestTheDocAgreesWithTheRenderer \
             test_ci_adr_decision_numbering.TestTheParseAgreesWithCommonMark \
-            test_ci_markdown_scan_evasion.TestTheResidualIsBounded 2>&1) || {
+            test_ci_markdown_scan_evasion.TestTheResidualIsBounded; do
+            out=$(python3 -m unittest -v "$cls" 2>&1) || {
+              printf '%s\n' "$out"
+              exit 1
+            }
             printf '%s\n' "$out"
-            exit 1
-          }
-          printf '%s\n' "$out"
-          # `unittest` exits 0 on "Ran 0 tests", so a renamed or deleted class
-          # would be a silent vacuous pass — the same hazard `ci-guards` pins.
-          printf '%s\n' "$out" | grep -qE '^Ran [1-9][0-9]* tests? in '
-          # And a class that SKIPPED still counts in "Ran N", so the skip has to
-          # be excluded explicitly or this job re-opens the hole it closes.
-          if printf '%s\n' "$out" | grep -q 'skipped'; then
-            echo "::error::a renderer-adjudicated class skipped in the job that exists to run it"
-            exit 1
-          fi
-
+            # `unittest` exits 0 on "Ran 0 tests", so an emptied or renamed class
+            # would otherwise pass vacuously.
+            printf '%s\n' "$out" | grep -qE '^Ran [1-9][0-9]* tests? in ' || {
+              echo "::error::$cls ran ZERO tests — it adjudicates nothing"
+              exit 1
+            }
+            # And a SKIPPED class still counts in "Ran N", so the count check
+            # above cannot see a skip. Anchored on unittest's own two spellings
+            # rather than the bare word: `-v` echoes each method's docstring, and
+            # these classes' docstrings discuss skipping constantly.
+            if printf '%s\n' "$out" | grep -qE '\.\.\. skipped |\(skipped='; then
+              echo "::error::$cls SKIPPED in the job that exists to run it"
+              exit 1
+            fi
+          done
 
   scanner-unit-tests:
     runs-on: ubuntu-latest

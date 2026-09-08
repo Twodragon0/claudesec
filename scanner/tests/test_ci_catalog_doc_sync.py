@@ -70,15 +70,17 @@ WHAT MOVED HERE, COUNTED HONESTLY
 Set EQUALITY in both directions, so the doc may neither omit an inventory entry
 nor present one the inventory does not have.
 
-KNOWN GAP, recorded rather than left unstated
-    `TestTheDocAgreesWithTheRenderer` needs `markdown-it-py` and therefore skips
-    in the package-free `ci-guards` job, running only under
-    `scanner-unit-tests`. A catalog-`.md`-only PR sets `scanner=false`, so the
-    residual canary does NOT fire on the very PR shape that would introduce a
-    residual. Closing that means adding the catalog to the `scanner` bucket,
-    which fires kcov (minutes); the cheap alternative is a third job. Left open
-    deliberately, with the tradeoff stated, because a gap named in the file is
-    findable and a gap nobody wrote down is not.
+WHERE THE RENDERER CLASS ACTUALLY RUNS
+    `TestTheDocAgreesWithTheRenderer` needs `markdown-it-py`, so it skips in the
+    package-free `ci-guards` job. It used to run only under
+    `scanner-unit-tests`, whose `scanner` bucket a catalog-only PR does not
+    match — so the residual canary did NOT fire on the very PR shape that would
+    introduce a residual. That gap is CLOSED: the `renderer-canary` job runs this
+    class (and the two other renderer-adjudicated classes) on the `ci_config`
+    bucket, which now covers `docs/`, with a per-class non-zero-test floor and a
+    skip check, and is wired into `lint-gate.needs`. Do not re-open it by moving
+    this class or renaming it without updating
+    `test_ci_guard_self_verify.CANARY_CLASSES`, which pins the list.
 
 stdlib-only for everything except that one class (`tomllib` + the shared
 reduction; no PyYAML). No network, no subprocess.
@@ -267,10 +269,11 @@ class TestTheDocAgreesWithTheRenderer(unittest.TestCase):
     renderer instead of against the same reduction.
 
     SKIPPED without `markdown-it-py`, so the package-free `ci-guards` job stays
-    package-free. That means this specific check runs only under
-    `scanner-unit-tests`, and a catalog-`.md`-only PR does not fire it —
-    recorded as a KNOWN GAP in the catalog's backlog rather than left unstated,
-    because closing it means widening the `scanner` bucket, which fires kcov."""
+    package-free. The `renderer-canary` job is where this class actually runs in
+    CI: it installs the pinned oracle and is gated on `ci_config`, so it fires on
+    a catalog-only PR without touching the `scanner` bucket that would fire kcov.
+    The earlier note here said the check ran only under `scanner-unit-tests` and
+    called that a KNOWN GAP; that was true when written and is not now."""
 
     @classmethod
     def setUpClass(cls):
