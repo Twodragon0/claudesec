@@ -115,6 +115,7 @@ from _ci_guard_util import (  # noqa: E402
     workflow_and_action_files,
     yaml_key_pattern,
 )
+from test_ci_reachability import executed_shell  # noqa: E402
 from test_ci_template_pin_policy import (  # noqa: E402
     installed_workflow_templates,
 )
@@ -131,10 +132,23 @@ CANARY_JOB = "renderer-canary"
 # The renderer-adjudicated classes. Each compares a Markdown reduction against
 # `markdown-it-py` instead of against itself, and each SKIPS without it — so
 # `renderer-canary` is the only job where they execute on a catalog-only PR.
+# `(class, adjudicating method)`. The METHOD is load-bearing: a review parked the
+# one test in `TestTheDocAgreesWithTheRenderer` that reads the real catalog and
+# left the class at two synthetic-fixture tests, so a per-class COUNT floor saw
+# nothing while the residual went live. A count cannot say which test adjudicates.
 CANARY_CLASSES = (
-    "test_ci_catalog_doc_sync.TestTheDocAgreesWithTheRenderer",
-    "test_ci_adr_decision_numbering.TestTheParseAgreesWithCommonMark",
-    "test_ci_markdown_scan_evasion.TestTheResidualIsBounded",
+    (
+        "test_ci_catalog_doc_sync.TestTheDocAgreesWithTheRenderer",
+        "test_the_reduction_and_the_renderer_agree_on_the_real_catalog",
+    ),
+    (
+        "test_ci_adr_decision_numbering.TestTheParseAgreesWithCommonMark",
+        "test_the_parse_matches_the_renderer_on_every_stripper_case",
+    ),
+    (
+        "test_ci_markdown_scan_evasion.TestTheResidualIsBounded",
+        "test_silent_passes_stay_within_the_measured_ceiling",
+    ),
 )
 BUCKET_OUTPUT = "ci_config"
 
@@ -322,15 +336,19 @@ def canary_job_problems(lint_text: str) -> list:
             "another bucket it would run only when it is not needed."
         )
 
-    # Executed step bodies only: `run:` values, comment-stripped. A command in a
-    # `#` line is documentation, not execution.
-    bodies = []
-    for blk in step_blocks(block):
-        m = re.search(r"^\s+run:\s*\|?\s*$|^\s+run:\s*(?P<inline>.+)$", blk, re.M)
-        if m is None:
-            continue
-        bodies.append(strip_comment_lines(blk))
-    executed = "\n".join(bodies)
+    # Executed shell only. IMPORTED from `test_ci_reachability` rather than
+    # re-derived: that module's `executed_shell` already handles both `run:`
+    # spellings, strips YAML and shell comments, and — the part that matters
+    # here — CONSUMES AND DISCARDS a block scalar belonging to any other key.
+    #
+    # The first version appended `strip_comment_lines(blk)` for the whole step
+    # block whenever the step merely HAD a `run:`. That closed comment-parking
+    # and left env-parking wide open: a review moved every command into
+    # `env: PARKED_RESTORE_ME: |` and reduced `run:` to `echo`, and this function
+    # returned no problems with 1232 guards green. `executed_shell`'s docstring
+    # documents that exact vector, found one guard over — writing a third
+    # extractor instead of importing the one that already knew was the mistake.
+    executed = executed_shell(block)
 
     if not re.search(r"markdown-it-py==4\.0\.0", executed):
         problems.append(
@@ -357,7 +375,7 @@ def canary_job_problems(lint_text: str) -> list:
     # output was the first version, and emptying one class — renaming its test
     # methods, which is what an ordinary refactor produces — left the other two
     # carrying the count while the residual went live.
-    if "for cls in" not in executed:
+    if "for spec in" not in executed:
         problems.append(
             f"job `{CANARY_JOB}` no longer loops per class. An aggregate "
             "`Ran [1-9]` over all three lets ONE adjudicator contribute zero "
@@ -365,12 +383,27 @@ def canary_job_problems(lint_text: str) -> list:
             "residual payload live and the job exiting 0."
         )
 
-    for cls in CANARY_CLASSES:
+    for cls, method in CANARY_CLASSES:
         if cls not in executed:
             problems.append(
                 f"job `{CANARY_JOB}` no longer RUNS `{cls}`. It skips in every "
                 "other job, so dropping it here leaves it running nowhere."
             )
+        if method not in executed:
+            problems.append(
+                f"job `{CANARY_JOB}` no longer names `{method}`, the one test in "
+                f"`{cls}` that adjudicates real repository content against the "
+                "renderer. Without the name the job floors on a COUNT, and a "
+                "count cannot tell that the adjudicating test was parked."
+            )
+
+    # The methods must be checked BY NAME in the step, not merely listed.
+    if "did not run ${method}" not in executed:
+        problems.append(
+            f"job `{CANARY_JOB}` lost its per-method assertion. A per-class count "
+            "floor passes with the adjudicating test parked — measured, with the "
+            "residual live and a reader seeing 0 of 70 rows."
+        )
 
     gate_block = job_block(lint_text, GATE_JOB)
     if gate_block is None:
@@ -427,7 +460,9 @@ def guard_data_files() -> list:
     exactly that way. Filtered to paths that EXIST, so a synthetic fixture path
     inside a test is not demanded of the bucket."""
     import ast
+    import pathlib
     import subprocess as _sp
+    from glob import glob as _glob
 
     out = _sp.run(
         ["git", "ls-files", "scanner/tests/test_ci_*.py", "scanner/tests/_ci_guard_util.py"],
@@ -446,7 +481,12 @@ def guard_data_files() -> list:
                 isinstance(node, ast.Constant)
                 and isinstance(node.value, str)
                 and node.value.endswith((".md", ".toml"))
-                and "/" in node.value
+                # A slash OR a glob metacharacter. Requiring a slash dropped
+                # `_CITED_GLOBS`' root `*.md`, which is how the root-markdown
+                # bucket alternative ended up pinned by nothing — the census that
+                # justifies a bucket entry could not see the read that justifies
+                # it.
+                and ("/" in node.value or any(c in node.value for c in "*?["))
                 and not node.value.startswith(("http", "/tmp"))
             ):
                 found.add(node.value)
@@ -465,7 +505,37 @@ def guard_data_files() -> list:
                 if candidate.endswith((".md", ".toml")):
                     found.add(candidate)
 
-    return sorted(f for f in found if (REPO_ROOT / f).is_file())
+    # GLOB EXPANSION, over `git ls-files`. A literal-and-parts census is blind to
+    # every guard that reaches its documents by pattern, and a review measured
+    # what that cost: `ADR_GLOB = "docs/devsecops/adr-[0-9]*.md"` and
+    # `_CITED_GLOBS`' root `*.md` meant `adr-002-merge-gate-posture.md` was in no
+    # census entry and no root markdown was either — so ONE of the four bucket
+    # alternatives this pins (`[^/]*\.md$`) could be deleted with the whole suite
+    # green, which is the exact thing this function exists to prevent.
+    #
+    # `git ls-files` rather than `Path.glob` for the reason the sibling census
+    # uses it: a gitignored scratch file is red locally and absent in CI.
+    tracked = set(
+        _sp.run(["git", "ls-files"], cwd=REPO_ROOT,
+                capture_output=True, text=True, check=True).stdout.split()
+    )
+    expanded = set()
+    for entry in found:
+        if any(ch in entry for ch in "*?["):
+            # `glob(..., recursive=True)`, matching how the guards themselves
+            # expand these patterns (`test_ci_adr_decision_numbering:233`). NOT
+            # `fnmatch`, whose `*` crosses `/`: with it, root `*.md` swallowed
+            # `scanner/AGENTS.md` and `hooks/README.md` and the census demanded
+            # bucket entries for files no guard reads. Over-reporting here is not
+            # free — it turns `test_every_workflow_and_installed_template_is_
+            # covered` into a false alarm, which is how a guard gets weakened.
+            for hit in _glob(str(REPO_ROOT / entry), recursive=True):
+                rel = str(pathlib.PurePath(hit).relative_to(REPO_ROOT))
+                if rel in tracked:
+                    expanded.add(rel)
+        else:
+            expanded.add(entry)
+    return sorted(f for f in expanded if (REPO_ROOT / f).is_file())
 
 
 class TestGuardJobIsWiredAndGated(unittest.TestCase):
@@ -560,6 +630,11 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
         self.assertIn("docs/devsecops/ci-guard-inventory.toml", data)  # literal
         self.assertIn("docs/guides/compliance-mapping.md", data)  # REPO_ROOT / parts
         self.assertIn("docs/devsecops/adr-001-ci-guard-hardening-and-audit-cadence.md", data)
+        # The GLOB form's own anchor. `adr-002` is reachable only through
+        # `ADR_GLOB`, and its absence is what left one bucket alternative
+        # unpinned while the suite stayed green.
+        self.assertIn("docs/devsecops/adr-002-merge-gate-posture.md", data)
+        self.assertIn("MEMORY.md", data)  # root `*.md` from `_CITED_GLOBS`
         for rel in data:
             with self.subTest(path=rel):
                 self.assertTrue(
@@ -772,6 +847,68 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
             "renderer-canary step parked in a comment",
         )
 
+    def test_parking_the_canary_step_in_an_env_scalar_is_not_execution(self):
+        """Comment-parking was closed; BLOCK-parking was not.
+
+        A review moved every command into `env: PARKED_RESTORE_ME: |` and reduced
+        `run:` to `echo`, and the pin returned no problems with 1232 guards
+        green. `test_ci_reachability.executed_shell` already consumes and
+        discards a block scalar belonging to any other key — writing a third
+        extractor instead of importing the one that already knew was the
+        mistake."""
+        start = self.lint.index(
+            "      - name: Run the renderer-adjudicated guard classes"
+        )
+        end = self.lint.index("\n  scanner-unit-tests:")
+        body = self.lint[start:end]
+        commands = "\n".join(
+            "            " + line.strip()
+            for line in body.splitlines()[1:]
+            if line.strip()
+        )
+        parked = (
+            "      - name: Run the renderer-adjudicated guard classes\n"
+            "        env:\n          PARKED_RESTORE_ME: |\n"
+            + commands
+            + '\n        run: echo "renderer canary parked"\n'
+        )
+        assert_disables(
+            canary_job_problems,
+            self.lint,
+            self.lint[:start] + parked + self.lint[end:],
+            "renderer-canary step parked in an env: scalar",
+        )
+
+    def test_dropping_the_per_method_assertion_is_caught(self):
+        """A per-class COUNT floor passes with the adjudicating test parked.
+
+        Measured: parking the one method in `TestTheDocAgreesWithTheRenderer`
+        that reads the real catalog left the class at two synthetic-fixture
+        tests, `Ran 3 tests / OK`, exit 0 — with the residual payload live and a
+        reader seeing 0 of 70 guard rows."""
+        assert_disables(
+            canary_job_problems,
+            self.lint,
+            apply_mutation(
+                self.lint, 'did not run ${method}', 'did not run __removed__'
+            ),
+            "renderer-canary lost its per-method assertion",
+        )
+
+    def test_dropping_an_adjudicating_method_name_is_caught(self):
+        """The class can stay in the loop while the method it must run does
+        not — which is the shape a rename produces."""
+        assert_disables(
+            canary_job_problems,
+            self.lint,
+            apply_mutation(
+                self.lint,
+                "test_the_reduction_and_the_renderer_agree_on_the_real_catalog",
+                "__renamed_away__",
+            ),
+            "an adjudicating method name dropped from the canary loop",
+        )
+
     def test_flattening_the_per_class_loop_is_caught(self):
         """An aggregate `Ran [1-9]` over the combined output lets ONE class
         contribute zero tests while the other two carry the count.
@@ -783,7 +920,7 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
         assert_disables(
             canary_job_problems,
             self.lint,
-            apply_mutation(self.lint, "for cls in \\", "for _unused in \\"),
+            apply_mutation(self.lint, "for spec in \\", "for _unused in \\"),
             "renderer-canary no longer loops per class",
         )
 

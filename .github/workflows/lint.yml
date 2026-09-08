@@ -481,10 +481,18 @@ jobs:
           # exited 0 with the measured residual payload live in the catalog and
           # a reader seeing 0 of 70 guard rows. Renamed and DELETED classes were
           # caught; EMPTIED was not, and emptied is what a refactor produces.
-          for cls in \
-            test_ci_catalog_doc_sync.TestTheDocAgreesWithTheRenderer \
-            test_ci_adr_decision_numbering.TestTheParseAgreesWithCommonMark \
-            test_ci_markdown_scan_evasion.TestTheResidualIsBounded; do
+          # NAMED methods, not just classes. A per-class count floor was the
+          # second version and a review defeated that too: parking the ONE method
+          # in `TestTheDocAgreesWithTheRenderer` that reads the real catalog left
+          # the class at two synthetic-fixture tests, no skip, `Ran 3 tests / OK`
+          # and exit 0 — with the residual payload live and a reader seeing 0 of
+          # 70 rows. A count cannot tell which test does the adjudicating.
+          for spec in \
+            "test_ci_catalog_doc_sync.TestTheDocAgreesWithTheRenderer:test_the_reduction_and_the_renderer_agree_on_the_real_catalog" \
+            "test_ci_adr_decision_numbering.TestTheParseAgreesWithCommonMark:test_the_parse_matches_the_renderer_on_every_stripper_case" \
+            "test_ci_markdown_scan_evasion.TestTheResidualIsBounded:test_silent_passes_stay_within_the_measured_ceiling"; do
+            cls="${spec%%:*}"
+            method="${spec##*:}"
             out=$(python3 -m unittest -v "$cls" 2>&1) || {
               printf '%s\n' "$out"
               exit 1
@@ -502,6 +510,13 @@ jobs:
             # these classes' docstrings discuss skipping constantly.
             if printf '%s\n' "$out" | grep -qE '\.\.\. skipped |\(skipped='; then
               echo "::error::$cls SKIPPED in the job that exists to run it"
+              exit 1
+            fi
+            # The adjudicating method must have RUN and PASSED by name. This is
+            # the check a count cannot make: it is the one method in each class
+            # that compares against the renderer over real repository content.
+            if ! printf '%s\n' "$out" | grep -qE "^${method} \(.*\) \.\.\. ok$"; then
+              echo "::error::$cls did not run ${method} — the adjudicating test is gone, renamed, or parked"
               exit 1
             fi
           done
