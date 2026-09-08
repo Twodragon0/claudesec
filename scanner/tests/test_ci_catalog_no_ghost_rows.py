@@ -164,13 +164,36 @@ class TestGhostRowDetector(unittest.TestCase):
         )
 
     def test_existence_is_checked_under_scanner_tests_not_the_repo_root(self):
-        # The prefix is load-bearing. `README.md` exists at the repo root and
+        # The prefix is load-bearing. `SECURITY.md` exists at the repo root and
         # NOT under scanner/tests, so if the prefix were ever dropped this entry
         # would resolve and a ghost would look real — a verdict that depends on
         # which directory the name happens to match.
+        #
+        # `README.md` was the original choice and it was a landmine: this file
+        # names `scanner/tests/<that>.md` as a path literal, and
+        # `test_ci_guard_self_verify.guard_data_files()` collects `.md` path
+        # literals out of the guards by AST. Measured — creating
+        # `scanner/tests/README.md`, which is a perfectly ordinary thing to do,
+        # took THREE tests across TWO guards red: this one (the fixture stopped
+        # being a ghost) and two bucket-coverage assertions (the census promoted
+        # the fixture into a path the `ci_config` bucket must match). A negative
+        # fixture whose whole premise is "this file does not exist" must not name
+        # a file anyone would plausibly create. `scanner/tests/SECURITY.md` is
+        # such a name; the census residual is documented where it lives, in
+        # `guard_data_files()`.
+        #
+        # THE RENAME IS PROBABILITY MITIGATION, NOT CLOSURE, and measurement says
+        # so plainly: `SECURITY.md` inherits the landmine in full, and committing
+        # one now costs FOUR reds where `README.md` cost three — the original
+        # three plus `test_the_census_demands_no_markdown_under_scanner_tests`,
+        # which was added to name the cause. The trade is deliberate: a louder,
+        # self-explaining failure on a path nobody will take, instead of a quiet
+        # one on a path someone might. Closing it properly means teaching the
+        # census to tell a path a guard READS from one it merely NAMES, which is
+        # attribution, and this repo has not found a static way to do that.
         self.assertEqual(
-            ghost_rows(["README.md"], REPO_ROOT),
-            ["scanner/tests/README.md"],
+            ghost_rows(["SECURITY.md"], REPO_ROOT),
+            ["scanner/tests/SECURITY.md"],
             "existence was checked somewhere other than scanner/tests",
         )
 
