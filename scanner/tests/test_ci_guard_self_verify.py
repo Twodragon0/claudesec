@@ -98,7 +98,6 @@ MARKDOWN_SCAN_EXEMPT = (
 )
 import re
 import sys
-import textwrap
 import unittest
 from pathlib import Path
 
