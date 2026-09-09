@@ -384,12 +384,14 @@ jobs:
     timeout-minutes: 5
     needs: changes
     if: needs.changes.outputs.ci_config == 'true' || github.event_name == 'schedule'
-    # FALL-THROUGH PROOF. `ran` is set by the LAST line of the work body below,
-    # so it is reachable only by executing everything before it. A guard reading
-    # workflow TEXT cannot prove a shell body reached its end — measured, `exit
+    # EXECUTION PROOF. `ran` is the test count PARSED OUT OF the suite's own
+    # output, so it cannot be produced without the suite having run. A guard
+    # reading workflow TEXT cannot prove a shell body executed — measured, `exit
     # 0` after `set -euo pipefail` here left `guard_job_problems() == []` — and
-    # this closes that by construction rather than by enumerating ways to spell
-    # "do not run". `lint-gate` requires it whenever this job reports success.
+    # neither can a constant written on the last line, which only proves the last
+    # line was reached (also measured; see the derivation comment in the body).
+    # `lint-gate` requires a positive integer here whenever this job reports
+    # success.
     outputs:
       ran: ${{ steps.guards.outputs.ran }}
     steps:
@@ -423,11 +425,31 @@ jobs:
           # Closes the OTHER direction from a real failure — a run that
           # discovered nothing and still reported OK.
           printf '%s\n' "$out" | grep -qE '^Ran [1-9][0-9]* tests? in '
-          # MUST BE THE LAST LINE. See `outputs.ran` above; anything below it
-          # would be skippable while the proof still fires, which is why
-          # `job_ran_proof_problems()` asserts this line's position and not
-          # merely its presence.
-          echo "ran=true" >> "$GITHUB_OUTPUT"
+          # PROOF, DERIVED FROM THE WORK'S OUTPUT — not merely placed after it.
+          #
+          # The first version of this block wrote a constant `ran=true` as the
+          # last line and called that a fall-through proof. It is not. Reaching
+          # the LAST line is not the same as having run the work: close a parking
+          # construct ABOVE the marker and the shell falls straight through it.
+          # Measured — wrapping this body in `if [ "${X:-}" = 1 ]; then ... fi`
+          # with `fi` on the line above the marker gave `job_ran_proof_problems()
+          # == []`, `guard_job_problems() == []`, the whole 1255-test suite `OK`,
+          # and the step exiting 0 having written `ran=true` with ZERO tests run.
+          # Two inserted lines, in one job. `case ... esac` measures the same, so
+          # it is a class and not a spelling of `if`.
+          #
+          # The property a marker actually needs is DOMINATION — every path that
+          # reaches it must have executed the work — and text analysis cannot see
+          # domination. A DATA DEPENDENCY can: `$ran` is computed from `$out`, so
+          # parking the work leaves `$out` unbound and `set -u` kills this line
+          # instead of falling through it.
+          ran=$(printf '%s\n' "$out" | sed -nE 's/^Ran ([1-9][0-9]*) tests? in .*/\1/p')
+          [ -n "$ran" ]
+          # Still LAST, now as the second line of defence rather than the whole
+          # argument: a command below it could still exit before the runner reads
+          # the file back. `job_ran_proof_problems()` asserts both the derivation
+          # and this position.
+          echo "ran=$ran" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # The renderer-adjudicated guard classes, which SKIP everywhere else.
@@ -460,9 +482,11 @@ jobs:
     timeout-minutes: 5
     needs: changes
     if: needs.changes.outputs.ci_config == 'true' || github.event_name == 'schedule'
-    # FALL-THROUGH PROOF — see the identical block on `ci-guards`. Measured here
-    # too: `exit 0` after `set -euo pipefail` left `canary_job_problems() == []`
-    # with zero test output and the step exiting 0.
+    # EXECUTION PROOF — see the block on `ci-guards`. `ran` is the number of
+    # adjudicators that ran, skipped nothing, and passed BY NAME, counted inside
+    # the loop body. Measured here too: `exit 0` after `set -euo pipefail` left
+    # `canary_job_problems() == []` with zero test output and the step exiting 0,
+    # and so did closing a parking construct above a constant last line.
     outputs:
       ran: ${{ steps.canary.outputs.ran }}
     steps:
@@ -507,6 +531,13 @@ jobs:
           # the class at two synthetic-fixture tests, no skip, `Ran 3 tests / OK`
           # and exit 0 — with the residual payload live and a reader seeing 0 of
           # 70 rows. A count cannot tell which test does the adjudicating.
+          #
+          # `adjudicated` is the job's PROOF, and it is incremented inside the
+          # loop body rather than asserted after it. See the derivation comment on
+          # `ci-guards`: a constant written below `done` proves only that `done`
+          # was reached, and a parking construct that closes above it falls
+          # through — measured there, and the same two-line edit works here.
+          adjudicated=0
           for spec in \
             "test_ci_catalog_doc_sync.TestTheDocAgreesWithTheRenderer:test_the_reduction_and_the_renderer_agree_on_the_real_catalog" \
             "test_ci_adr_decision_numbering.TestTheParseAgreesWithCommonMark:test_the_parse_matches_the_renderer_on_every_stripper_case" \
@@ -547,12 +578,18 @@ jobs:
               echo "::error::$cls did not run ${method} — the adjudicating test is gone, renamed, or parked"
               exit 1
             fi
+            # Reached only by a class that ran, did not skip, and whose named
+            # adjudicating method passed. This is what makes `$adjudicated` a
+            # proof rather than a constant.
+            adjudicated=$((adjudicated + 1))
           done
-          # MUST BE THE LAST LINE — see `outputs.ran` on this job. Placed AFTER
-          # `done`, so a loop that never iterates still reaches it: the loop
-          # body's own per-class floors are what catch that, and stacking two
-          # unrelated failure modes onto one line would make the message lie.
-          echo "ran=true" >> "$GITHUB_OUTPUT"
+          # One increment per adjudicator, so a loop that never iterates — or a
+          # body parked around it — cannot satisfy this. Compared against the
+          # literal count of specs above, which `canary_job_problems()` pins
+          # against `CANARY_CLASSES`; a spec added without raising the floor is a
+          # guard failure, not a silent widening.
+          [ "$adjudicated" -eq 3 ]
+          echo "ran=$adjudicated" >> "$GITHUB_OUTPUT"
 
   scanner-unit-tests:
     runs-on: ubuntu-latest
@@ -1530,6 +1567,7 @@ jobs:
           python3 - <<'PY'
           import json
           import os
+          import re
           import sys
 
           needs = json.loads(os.environ["NEEDS_JSON"])
@@ -1542,13 +1580,19 @@ jobs:
               print(f"Lint gate failed: {bad}")
               sys.exit(1)
 
-          # FALL-THROUGH PROOF. These two jobs exist to prove that OTHER things
-          # run, so a hole in them is worse than the same hole elsewhere — and
-          # the hole was measured: `exit 0` as the first line of either work body
-          # parks it with the guard that pins the job returning no problems, zero
-          # test output, and the step exiting 0. Text analysis cannot prove a
-          # shell body reached its end, so each body's LAST line sets `ran` and
-          # this requires it.
+          # EXECUTION PROOF. These two jobs exist to prove that OTHER things run,
+          # so a hole in them is worse than the same hole elsewhere — and the hole
+          # was measured: `exit 0` as the first line of either work body parks it
+          # with the guard that pins the job returning no problems, zero test
+          # output, and the step exiting 0. Text analysis cannot prove a shell
+          # body executed, so each body PARSES A COUNT out of its own work and
+          # this requires that count to be a positive integer.
+          #
+          # A COUNT, not a boolean, because a boolean can be a constant and a
+          # constant proves only its own line. Measured on the first version: a
+          # trailing `ran=true` with the work wrapped in a never-taken `if` whose
+          # `fi` sits one line above it left every guard returning `[]`, the whole
+          # suite green, and the step exiting 0 having run nothing.
           #
           # Conditional on `success`, never unconditional: both jobs legitimately
           # skip when the `ci_config` bucket does not match, and a skipped job has
@@ -1568,14 +1612,16 @@ jobs:
               name: needs[name].get("outputs", {}).get("ran", "")
               for name in proof_required
               if needs[name]["result"] == "success"
-              and needs[name].get("outputs", {}).get("ran") != "true"
+              and not re.fullmatch(
+                  r"[1-9][0-9]*", needs[name].get("outputs", {}).get("ran", "")
+              )
           }
           if unproven:
               print(
-                  "Lint gate failed: job(s) reported success without reaching the "
-                  f"end of their work body: {unproven}. The `ran` output is set by "
-                  "the last line of the run body, so an empty value means the body "
-                  "exited, was skipped, or never executed."
+                  "Lint gate failed: job(s) reported success without executing "
+                  f"their work: {unproven}. The `ran` output is a count parsed out "
+                  "of the job's own test output, so a missing or zero value means "
+                  "the body exited, was parked, or ran nothing."
               )
               sys.exit(1)
           print("Lint gate passed.")

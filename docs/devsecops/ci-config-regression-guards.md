@@ -225,38 +225,87 @@ an early `exit 0` is outside that guard's stated scope rather than a gap in it:
 that guard exists as the complement of EXECUTION, forbidding runner-consumed keys
 because something else was meant to cover the shell body.
 
-**CLOSED for these two jobs by a FALL-THROUGH PROOF, not by patching shape
-five.** Patching would have been the third fix to an enumeration, which
-ADR-001 §5 names as the signal to invert. The last line of each work body writes
-`ran=true` to `$GITHUB_OUTPUT`, and `lint-gate` requires it whenever the job
-reports `success`; that line is reachable only by executing everything above it,
-so all four measured shapes — and a fifth nobody has thought of — fail together
-by the shell's own semantics rather than by enumeration. `job_ran_proof_problems`
-asserts POSITION, not presence, because the marker alone is one edit from
-useless: hoisting it above the work, or putting any command after it, parks the
-job with the proof already written. Both are pinned, as is a typo'd `steps.<id>`
-reference (fail-closed at runtime — an empty output can never satisfy the proof —
-but caught statically so a typo does not raise an alarm indistinguishable from a
-real parking event). `lint-gate`'s own body is now EXECUTED by a test class
-across seven directions, which nothing in this repo did before: both proven,
-both skipped, one of each, either job parked, a renamed proof job, and an
-ordinary failure elsewhere. The both-skipped direction is the load-bearing one —
-these jobs legitimately skip whenever `ci_config` does not match, which is most
-PRs, and an unconditional demand would fail every unrelated one.
+**CLOSED for these two jobs by an EXECUTION PROOF, not by patching shape five.**
+Patching would have been the third fix to an enumeration, which ADR-001 §5 names
+as the signal to invert.
+
+**The first attempt at that inversion was wrong, and it is recorded here because
+the way it was wrong is the reusable part.** It made the last line of each work
+body publish a constant `ran=true` and argued that the line "is reachable only by
+executing everything above it". It is not. Reaching the last line is not the same
+as having run the work — close a parking construct *above* the publish line and
+the shell falls straight through it. An adversarial pass measured the defeat end
+to end on `ci-guards`:
+
+```bash
+if [ "${CLAUDESEC_FULL_GUARDS:-}" = "1" ]; then   # inserted
+# ...the entire work body, untouched...
+fi                                                # inserted, one line above
+echo "ran=true" >> "$GITHUB_OUTPUT"               # unchanged
+```
+
+`job_ran_proof_problems() == []`, `guard_job_problems() == []`, the full
+1255-test suite `OK`, and the step exiting 0 with `ran=true` written and **zero
+tests run** — for two inserted lines in one job, against a claim that the cost
+was "several coordinated edits across two jobs". `case ... esac` measures the
+same, so it is a class and not a spelling of `if`. Worst of all, the fixture had
+listed `if false; then ... fi` among the shapes it closed, but only because it
+put the marker *inside* the `if`; the attacker moves `fi` up one line. **A
+fixture that picks the weak variant of a shape reports the shape as closed.**
+
+The property a marker actually needs is DOMINATION — every path reaching it must
+have executed the work — and no amount of text analysis establishes domination.
+A **data dependency** does. Each job now publishes a count computed from its own
+work: `ci-guards` parses `ran` out of `$out`, the suite's captured stdout, and
+`renderer-canary` increments `adjudicated` once per class that ran, did not skip,
+and passed its named adjudicating method. Under `set -euo pipefail`, parking the
+work leaves the source variable unbound and the publish line **dies** instead of
+falling through. Measured after the fix, same mutations:
+
+| body | exit | published |
+| --- | --- | --- |
+| `ci-guards` parked (`if`-wrap above publish) | 1 — `ran: unbound variable` | nothing |
+| `renderer-canary` parked (same) | 1 — `adjudicated: unbound variable` | nothing |
+| `ci-guards` unparked (real suite) | 0 | `ran=1261` |
+
+A constant cannot do this; only a value the work produces can. `lint-gate`
+requires a **positive integer**, so `0` (a loop that never iterated) and `true`
+(the previous, defeated design) are both rejected — reverting to the old shape is
+now a red build rather than a silent one-line edit.
+
+`job_ran_proof_problems` asserts that the derivation exists, precedes the publish
+line, and — for the canary — sits inside the loop body; that a floor rejects the
+empty/zero value; and that the published value is the variable rather than a
+literal. Position is still checked, as defence in depth rather than as the
+argument. A typo'd `steps.<id>` reference is caught statically too (fail-closed
+at runtime, but a red build for a typo is indistinguishable from a real parking
+event).
+
+`lint-gate`'s own body is EXECUTED by a test class, which nothing in this repo
+did before: both proven, both skipped, one of each, either job parked / zero /
+non-numeric, a renamed proof job, an ordinary failure elsewhere, and that the
+script reads the same env var the step writes. The both-skipped direction is the
+load-bearing one — these jobs legitimately skip whenever `ci_config` does not
+match, which is most PRs, and an unconditional demand would fail every unrelated
+one. The env-var direction is a **polarity** fix: the class originally hardcoded
+`NEEDS_JSON` in its harness, so renaming only the `env:` key (fatal in CI) passed
+all seven tests while renaming both sides consistently (harmless) failed all
+seven.
 
 **What is still open, stated because a defence that reads complete and is not is
 the failure this document exists to catch:** the regress does not terminate
 inside the workflow. `lint-gate`'s comparison lives in a `run:` body and is
-parkable the same way. This raises the cost of parking a guard job from one token
-to several coordinated edits across two jobs — **defence in depth, not
-closure**. What terminates it is outside this file: branch protection requiring
-the `Lint` context, and GitHub evaluating `needs:` itself. Scoped deliberately to
-the two guard-running jobs rather than all 23 nodes: those two exist to prove
-other things run, and they are the two where the hole was measured. Twenty-three
-markers whose per-job value is unmeasured would be a bigger diff than its
-evidence. The `<<` refusal is likewise a
-substring test, not a heredoc parser: it also fires on `echo "shift: 1 << 2"` and
-`: $(( 1 << 2 ))`, which fail closed and do not belong in this step.
+parkable the same way — **defence in depth, not closure**. What terminates it is
+outside this file: branch protection requiring the `Lint` context, and GitHub
+evaluating `needs:` itself. And the static guard still cannot see control flow:
+it returns `[]` on the parking mutations above, by design. What rejects those is
+the shell at runtime, pinned by tests that execute the real parked bodies.
+Scoped deliberately to the two guard-running jobs rather than all 23 nodes: those
+two exist to prove other things run, and they are the two where the hole was
+measured. Twenty-three proofs of unmeasured per-job value would be a bigger diff
+than its evidence. The `<<` refusal is likewise a substring test, not a heredoc
+parser: it also fires on `echo "shift: 1 << 2"` and `: $(( 1 << 2 ))`, which fail
+closed and do not belong in this step.
 
 RESIDUAL STILL NOT ZERO. This closes the reachability gap, not the evasion class:
 `MAX_SILENT_PASS_SHAPES` remains a ceiling of 14, and `rendered_markdown` still
