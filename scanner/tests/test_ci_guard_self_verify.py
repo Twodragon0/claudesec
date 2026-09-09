@@ -512,6 +512,14 @@ PROOF_SPECS = {
         "derivation": re.compile(r'^ran=\$\(.*"\$out".*\)$'),
         "derivation_desc": 'a `ran=$(... "$out" ...)` parse of the suite output',
         "floor": '[ -n "$ran" ]',
+        # `$out` is what the proof is computed FROM, so seeding it forges the
+        # proof. Exactly one assignment, and `guard_job_problems` separately
+        # requires that one to be the `unittest discover` invocation.
+        "source": "out",
+        "source_assignments": 1,
+        # Two independent readings of the same run: a non-zero test count, and
+        # the suite reporting OK. `Ran N` prints on failure too.
+        "verdict": re.compile(r"^printf .*\| grep -qE '\^OK\( \|\$\)'$"),
     },
     CANARY_JOB: {
         "var": "adjudicated",
@@ -521,6 +529,11 @@ PROOF_SPECS = {
         # The increment must sit INSIDE the loop body. Hoisted above `for` it is a
         # constant again, and below `done` it counts nothing.
         "inside_loop": True,
+        # The counter is its own source: `adjudicated=0` to initialise and the
+        # increment. A third assignment is a seeded value.
+        "source": "adjudicated",
+        "source_assignments": 2,
+        "verdict": re.compile(r"^if ! printf .*\| grep -qE '\^OK\( \|\$\)'; then$"),
     },
 }
 PROOF_JOBS = tuple(PROOF_SPECS)
@@ -698,6 +711,40 @@ def job_ran_proof_problems(lint_text: str) -> list:
                     "Outside, it is incremented a fixed number of times "
                     "regardless of how many adjudicators actually ran."
                 )
+
+        # FORGERY. The data dependency stops a parked body only while the source
+        # variable is UNBOUND. Seed it above the parked span and the derivation
+        # runs on a lie: measured, `out="Ran 1 tests in 0.0s"` inserted above an
+        # `if`-wrapped body published `ran=1` at exit 0 with every check returning
+        # [], and `adjudicated=3` hoisted above the canary's loop published
+        # `ran=3` the same way. That is a THIRD line for the attacker rather than
+        # closure, and it is not domination — but a seeded value is an EXTRA
+        # assignment, and counting assignments is something text CAN do.
+        # Rewriting the one legitimate assignment instead removes the
+        # `unittest discover` invocation, which `guard_job_problems` already
+        # rejects.
+        assigns = [
+            ln for ln in lines
+            if re.match(rf"^{re.escape(spec['source'])}=", ln)
+        ]
+        if len(assigns) != spec["source_assignments"]:
+            problems.append(
+                f"job `{job}` assigns `{spec['source']}` {len(assigns)} time(s), "
+                f"expected {spec['source_assignments']}: {assigns}. An extra "
+                "assignment is how a parked body forges a plausible proof — the "
+                "derivation then reads a seeded value instead of the work."
+            )
+
+        if spec["verdict"] and not any(
+            spec["verdict"].match(ln) for ln in lines
+        ):
+            problems.append(
+                f"job `{job}` no longer requires its run to report `OK`. "
+                "`unittest` prints `Ran N` on failure too, so with the exit-status "
+                "branch weakened to `|| true` a genuinely FAILING suite publishes "
+                "a genuine count and the job reports success — measured, with "
+                "every other check in this function returning []."
+            )
 
         if spec["floor"] not in lines:
             problems.append(
@@ -1572,6 +1619,115 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
             "the harness cannot publish a derived proof even unparked — the "
             "parking subtests prove nothing",
         )
+
+    #: The `out=$(...)` capture in `ci-guards`, matched whole so a mutation
+    #: replaces the invocation AND its failure branch together.
+    _CI_GUARDS_CAPTURE = (
+        "out=$(python3 -m unittest discover -s . -p 'test_ci_*.py' 2>&1) || {\n"
+        "  printf '%s\\n' \"$out\"\n"
+        "  exit 1\n"
+        "}"
+    )
+
+    def _ci_guards_with_capture(self, replacement):
+        body = self._job_body("ci-guards")
+        lines = body.splitlines()
+        start = next(i for i, ln in enumerate(lines) if ln.startswith("out=$("))
+        end = next(i for i in range(start, len(lines)) if lines[i] == "}")
+        return "\n".join(lines[:start] + [replacement] + lines[end + 1:])
+
+    def test_a_swallowed_suite_failure_does_not_publish(self):
+        r"""A FAILING suite must not publish a count. Measured, not argued.
+
+        `unittest` prints `Ran N` on failure exactly as it does on success, so
+        weakening the capture's `|| { ...; exit 1; }` branch to `|| true` lets a
+        red suite publish a genuine count and the job report success — worse than
+        the parking class this design was built for, because parking runs nothing
+        while this SWALLOWS real failures. Measured before the `^OK` check
+        existed: `job_ran_proof_problems() == []` and `guard_job_problems() == []`
+        with the suite red and the job green.
+
+        The static guard still cannot see it (the OK check is textually present
+        either way), so this direction is pinned by EXECUTION. Four rows, because
+        the first version of this probe used `\\n` inside a non-raw Python string,
+        printf emitted a literal backslash-n, the whole synthetic output collapsed
+        onto one line, and every row went red for that reason instead of the one
+        under test — the non-vacuity row is what caught it."""
+        fail = r"""printf 'F\nRan 1253 tests in 16.8s\n\nFAILED (failures=1)\n'; exit 1"""
+        ok = r"""printf 'Ran 1253 tests in 16.8s\n\nOK\n'"""
+        cases = {
+            # The attack.
+            "failing + swallowed": (f"out=$({fail}) || true", False),
+            # Same failure, branch intact — red for the ordinary reason.
+            "failing + branch intact": (
+                f'out=$({fail}) || {{\n  printf \'%s\\n\' "$out"\n  exit 1\n}}',
+                False,
+            ),
+            # NON-VACUITY: the fixture path must be able to reach the publish
+            # line at all, or the two rows above prove nothing.
+            "passing": (f"out=$({ok})", True),
+            # ATTRIBUTION: `|| true` alone must NOT be what makes it red, or the
+            # first row is red for the wrong reason.
+            "passing + swallowed": (f"out=$({ok}) || true", True),
+        }
+        for name, (capture, should_publish) in cases.items():
+            with self.subTest(case=name):
+                code, written = self._run_body(
+                    self._ci_guards_with_capture(capture)
+                )
+                if should_publish:
+                    self.assertEqual(code, 0, f"{name}: expected success")
+                    self.assertEqual(written.strip(), "ran=1253", name)
+                else:
+                    self.assertNotEqual(code, 0, f"{name}: a red suite exited 0")
+                    self.assertEqual(
+                        written, "",
+                        f"{name}: a red suite published {written!r}",
+                    )
+
+    def test_seeding_the_source_variable_is_caught(self):
+        """FORGERY: the data dependency holds only while the source is unbound.
+
+        Seed it above a parked span and the derivation runs on a lie — measured,
+        `out="Ran 1 tests in 0.0s"` published `ran=1` at exit 0, and
+        `adjudicated=3` hoisted above the canary's loop published `ran=3`, both
+        with every check returning []. A seeded value is an EXTRA assignment, and
+        counting assignments is something text CAN do."""
+        for job, spec in PROOF_SPECS.items():
+            with self.subTest(job=job):
+                block = job_block(self.lint, job)
+                anchor = "          set -euo pipefail\n"
+                self.assertIn(anchor, block, f"{job}: anchor moved")
+                seeded = block.replace(
+                    anchor,
+                    anchor + f'          {spec["source"]}="forged"\n',
+                    1,
+                )
+                assert_disables(
+                    job_ran_proof_problems,
+                    self.lint,
+                    self.lint.replace(block, seeded, 1),
+                    f"{job}: source variable seeded with a forged value",
+                )
+
+    def test_dropping_the_ok_verdict_check_is_caught(self):
+        """Without it, `Ran N` alone is the whole verdict — and it prints on
+        failure too."""
+        for job, spec in PROOF_SPECS.items():
+            with self.subTest(job=job):
+                block = job_block(self.lint, job)
+                line = next(
+                    ln for ln in block.splitlines()
+                    if spec["verdict"].match(ln.strip())
+                )
+                assert_disables(
+                    job_ran_proof_problems,
+                    self.lint,
+                    self.lint.replace(
+                        block, block.replace(line + "\n", "", 1), 1
+                    ),
+                    f"{job}: `^OK` verdict check dropped",
+                )
 
     def test_the_same_control_parks_when_the_work_is_removed(self):
         """The control's own non-vacuity: it must fail when the work is gone.

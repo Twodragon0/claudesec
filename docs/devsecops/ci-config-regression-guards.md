@@ -281,6 +281,45 @@ argument. A typo'd `steps.<id>` reference is caught statically too (fail-closed
 at runtime, but a red build for a typo is indistinguishable from a real parking
 event).
 
+**Two further shapes, both found by a SECOND adversarial pass on the fix itself,
+and neither one closed by the data dependency alone.**
+
+*Forgery.* The dependency stops a parked body only while the source variable is
+**unbound**. Seed it above the parked span and the derivation runs on a lie —
+measured, `out="Ran 1 tests in 0.0s"` inserted above an `if`-wrapped body
+published `ran=1` at exit 0, and `adjudicated=3` hoisted above the canary's loop
+published `ran=3`, both with every check returning `[]`. That is a *third* line
+for the attacker, not closure. What catches it is that a seeded value is an
+**extra assignment**, and counting assignments is something text can do: the
+guard pins `out` at exactly one assignment and `adjudicated` at exactly two
+(`=0` and the increment). Rewriting the one legitimate assignment instead
+removes the `unittest discover` invocation, which `guard_job_problems` already
+rejects.
+
+*Swallowed failures.* `unittest` prints `Ran N` on failure exactly as on success,
+so weakening the capture's `|| { ...; exit 1; }` branch to `|| true` let a
+genuinely **red** suite publish a genuine count with the job green — measured at
+`job_ran_proof_problems() == []` and `guard_job_problems() == []`. This is worse
+than the parking class the design was built for: parking runs nothing, this hides
+real failures. Closed the same way the parking class was — by data dependency,
+not by pinning the branch shape. Both jobs now require their run to report `OK`,
+which is a second independent reading of the same output:
+
+| capture in `ci-guards` | exit | published |
+| --- | --- | --- |
+| failing suite + `\|\| true` | 1 | nothing |
+| failing suite, branch intact | 1 | nothing |
+| passing suite | 0 | `ran=1253` |
+| passing suite + `\|\| true` | 0 | `ran=1253` |
+
+The last two rows are not decoration. The third is non-vacuity — without it the
+first two prove nothing — and the fourth is attribution: it shows the `|| true`
+mutation alone is not what turns the build red, the *failure* is. The first
+version of that probe was wrong in exactly this way: `\n` inside a non-raw Python
+string reached `printf` as a literal backslash-n, the synthetic output collapsed
+onto one line, and every row went red for a reason unrelated to the test. The
+non-vacuity row is what caught it.
+
 `lint-gate`'s own body is EXECUTED by a test class, which nothing in this repo
 did before: both proven, both skipped, one of each, either job parked / zero /
 non-numeric, a renamed proof job, an ordinary failure elsewhere, and that the

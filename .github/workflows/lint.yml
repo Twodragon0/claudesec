@@ -425,6 +425,18 @@ jobs:
           # Closes the OTHER direction from a real failure — a run that
           # discovered nothing and still reported OK.
           printf '%s\n' "$out" | grep -qE '^Ran [1-9][0-9]* tests? in '
+          # THE SUITE MUST HAVE PASSED, asserted from the OUTPUT and not only
+          # from the exit status above. `unittest` prints `OK` or `OK (skipped=N)`
+          # on success and `FAILED (...)` on failure, and it prints `Ran N` EITHER
+          # WAY. So weakening the `|| { ... exit 1; }` branch above to `|| true`
+          # lets a genuinely FAILING suite publish a genuine count: measured,
+          # `job_ran_proof_problems() == []` and `guard_job_problems() == []` with
+          # the suite red and the job green. That is worse than the parking class
+          # this block was written for — parking runs nothing, this SWALLOWS
+          # failures — and the exit-status branch was the only thing stopping it.
+          # Two independent readings of the same run, so neither alone is the
+          # gate.
+          printf '%s\n' "$out" | grep -qE '^OK( |$)'
           # PROOF, DERIVED FROM THE WORK'S OUTPUT — not merely placed after it.
           #
           # The first version of this block wrote a constant `ran=true` as the
@@ -576,6 +588,15 @@ jobs:
             # that compares against the renderer over real repository content.
             if ! printf '%s\n' "$out" | grep -qE "^${method} \(.*\) \.\.\. ok$"; then
               echo "::error::$cls did not run ${method} — the adjudicating test is gone, renamed, or parked"
+              exit 1
+            fi
+            # And the CLASS must have passed, not just the adjudicating method.
+            # Same reason as the sibling check in `ci-guards`: weakening the
+            # `|| { ... exit 1; }` above to `|| true` lets a red class through,
+            # and every other check here is satisfied by a run in which the
+            # named method passed while some other method in the class failed.
+            if ! printf '%s\n' "$out" | grep -qE '^OK( |$)'; then
+              echo "::error::$cls did not report OK — a failure in it was swallowed"
               exit 1
             fi
             # Reached only by a class that ran, did not skip, and whose named
