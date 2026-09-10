@@ -413,13 +413,50 @@ two exist to prove other things run, and they are the two where the hole was
 measured. Twenty-three proofs of unmeasured per-job value would be a bigger diff
 than its evidence. The `<<` refusal is likewise a substring test, not a heredoc
 parser: it also fires on `echo "shift: 1 << 2"` and `: $(( 1 << 2 ))`, which fail
-closed and do not belong in this step. And the AST pin on the runners is not
-closure either: a body that reaches the real `TextTestRunner.run()` with a
-deliberately emptied suite still binds `result`, and what rejects that today is
-the runner's own `testsRun < len(files)` floor, which the pin does not assert. A
-runner that fabricates a `result` object is possible too — and would be an
-unmistakable diff rather than four innocuous-looking lines, which is the whole
-distinction the pin is buying.
+closed and do not belong in this step.
+
+**A sixth pass measured what the AST pin does not cover, and corrected a claim
+this document made.** Three more defeats, each green at `OK (Ran 1261 tests)`:
+
+| attack | edit | effect |
+| --- | --- | --- |
+| `PATTERN = "test_ci_[pfmdg]*.py"` | **1 line** | `ran=406` — a genuine count over 406 of 1253 tests |
+| fabricate `result` behind a location condition | 13 lines | `ran=1264`, exit 0, **zero tests run** |
+| `adjudicated += 1; continue`, same condition | 4 lines | `ran=3`, exit 0, **zero adjudicators run** |
+
+The first is the sharp one, and it is the *pass-3* defeat — `cd /tmp/decoy`,
+`-k '*bucket*'`, where the scope is the lie and the count is genuine —
+reappearing one level down after being closed by moving scope *into* the runner.
+Moving it there removed the shell surface; it did not pin the value. Two reasons
+nothing saw it, both general shapes rather than oversights: the
+`result.testsRun < len(files)` floor derives `files` from the **same** `PATTERN`,
+so narrowing the pattern narrows both sides and the comparison stays true — a
+floor computed from the thing it bounds cannot bound it; and every
+temp-directory fixture name (`test_ci_pass`, `test_ci_fail`, `test_ci_m0`,
+`test_ci_decoy`) survives a pattern keeping `[pfmd]`, so the behaviour test
+cannot see a narrowing it happens to survive.
+
+`guard_runner_scope_problems` closes it by comparing the discovered set against
+`git ls-files` — data, not text, the idiom already used for `ADJUDICATORS` vs
+`CANARY_CLASSES`, and against git rather than the filesystem because an
+untracked local file is not what CI builds from. The canary runner needs no
+equivalent: its scope *is* `ADJUDICATORS`, already pinned. Redirecting
+`GUARD_DIR` measured the same way (`ran=1` with one decoy test) and is closed by
+the same check.
+
+The other two are one class, and they are **not closed**. This document
+previously said a fabricated `result` "would be an unmistakable diff rather than
+four innocuous-looking lines". That is withdrawn: the measured diff is thirteen
+lines and reads no more alarming than the short-circuit above it. **The runners'
+source is TRUSTED**; what the AST pins buy is that the publication site cannot
+become a constant, and what protects the binding is review. Pinning the binding
+as well would mean enumerating its shapes — one assignment, from this call, at
+this position — and ADR-001 §5 names the third patch to an enumeration as the
+signal to stop rather than add a fourth. Both runners are exposed symmetrically:
+the canary's behaviour test drives a shim copy in a temp directory too, so a
+location-conditional branch is invisible to it by the same construction. An
+unconditional version of the canary attack *was* caught by
+`test_the_canary_runner_rejects_every_non_pass`; the conditional one was not.
 
 RESIDUAL STILL NOT ZERO. This closes the reachability gap, not the evasion class:
 `MAX_SILENT_PASS_SHAPES` remains a ceiling of 14, and `rendered_markdown` still

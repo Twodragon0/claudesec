@@ -510,6 +510,89 @@ GUARD_RUNNER = "scanner/tests/_ci_guard_runner.py"
 CANARY_RUNNER = "scanner/tests/_ci_canary_runner.py"
 
 
+def _import_guard_runner():
+    """The guard runner as a MODULE, so its SCOPE is compared as data.
+
+    Safe to import: the module body only binds constants, and `main` runs under
+    `if __name__ == "__main__"`, so importing it discovers and runs nothing."""
+    import importlib
+
+    return importlib.import_module("_ci_guard_runner")
+
+
+def guard_runner_scope_problems() -> list:
+    """The guard runner discovers EXACTLY the tracked guard files, no fewer.
+
+    THE DEFEAT THIS CLOSES, measured at `OK (Ran 1261 tests)`:
+
+        PATTERN = "test_ci_[pfmdg]*.py"      # one line, was "test_ci_*.py"
+
+    The runner published `ran=406` — a GENUINE count over 406 of 1253 tests, with
+    847 discarded. Redirecting `GUARD_DIR` to a sibling directory holding one
+    trivial test measured the same way, at `ran=1`.
+
+    Two reasons nothing saw it, both worth stating because each is a general
+    shape rather than an oversight:
+
+    1. **The floor is self-consistent.** `result.testsRun < len(files)` derives
+       `files` from the SAME `PATTERN`, so narrowing the pattern narrows both
+       sides and the comparison stays true. A floor computed from the thing it is
+       meant to bound cannot bound it. (It is not useless — it does reject
+       "discovered almost nothing", and `test_the_guard_runner_publishes_only_
+       when_the_suite_passed` pins that direction — but at 70 guard files it
+       permits discarding 94% of 1253 tests.)
+    2. **Every temp-directory fixture name matches a narrowed pattern.** The
+       behaviour test's modules are `test_ci_pass`, `test_ci_fail`, `test_ci_m0`
+       and `test_ci_decoy`; a pattern keeping `[pfmd]` keeps all of them green
+       while cutting the real repo in half. The fixture cannot see a narrowing it
+       happens to survive.
+
+    This is the pass-3 defeat — `cd /tmp/decoy`, `-k '*bucket*'`, where "the
+    scope is the lie, not the number" — reappearing one level down after it was
+    closed by moving scope INTO the runner. Moving it there did remove the shell
+    surface; it did not pin the value.
+
+    Compared as DATA against `git ls-files`, which is the idiom this file already
+    uses for `ADJUDICATORS` vs `CANARY_CLASSES`, and against git rather than the
+    filesystem for the reason `tracked_files()` documents: an untracked local
+    file is not what CI builds from. The canary runner needs no equivalent —
+    its scope IS `ADJUDICATORS`, already pinned.
+    """
+    problems = []
+    runner = _import_guard_runner()
+
+    expected_dir = REPO_ROOT / "scanner" / "tests"
+    if Path(runner.GUARD_DIR).resolve() != expected_dir.resolve():
+        problems.append(
+            f"`{GUARD_RUNNER}` scans `{runner.GUARD_DIR}`, not "
+            f"`{expected_dir}`. The job's whole claim is that it ran THE guards."
+        )
+        return problems
+
+    tracked = {
+        Path(rel).name for rel in tracked_files()
+        if rel.startswith("scanner/tests/")
+        and re.fullmatch(r"test_ci_.*\.py", Path(rel).name)
+    }
+    discovered = {p.name for p in Path(runner.GUARD_DIR).glob(runner.PATTERN)}
+    missed = sorted(tracked - discovered)
+    extra = sorted(discovered - tracked)
+    if missed:
+        problems.append(
+            f"`{GUARD_RUNNER}`'s `PATTERN = {runner.PATTERN!r}` does not "
+            f"discover {len(missed)} tracked guard file(s): {missed[:6]}"
+            f"{' ...' if len(missed) > 6 else ''}. The count it publishes would "
+            "be genuine and the scope would be the lie."
+        )
+    if extra:
+        problems.append(
+            f"`{GUARD_RUNNER}` discovers {len(extra)} file(s) git does not "
+            f"track: {extra}. An untracked file is not what CI builds from, so "
+            "it can only pad the count."
+        )
+    return problems
+
+
 def _import_canary_runner():
     """The canary runner as a MODULE, so its table is compared as data.
 
@@ -574,14 +657,37 @@ def runner_publication_problems(source: str, path: str, data_expr: str) -> list:
 
     (1) and (2) are the load-bearing pair; (3) is a cheap extra.
 
-    NOT CLOSED, stated because a defence that reads complete and is not is the
-    failure this file exists to catch: a body that reaches the real
-    `TextTestRunner.run()` with a DELIBERATELY EMPTIED suite still binds
-    `result`. The runner's own `testsRun < len(files)` floor rejects that today,
-    and this function does not pin that floor. Nor does it model a runner that
-    fabricates a `result` object — which is possible, and would be an
-    unmistakable diff rather than four innocuous-looking lines. As with the
-    workflow half, the regress terminates outside this file: at review.
+    NOT CLOSED, and a sixth pass measured the residual rather than leaving it
+    asserted. **This function does not pin how the published datum is BOUND**,
+    only that it is published from a name the run normally binds. Measured, each
+    at `OK (Ran 1261 tests)` with this function returning `[]`:
+
+        guard runner   a nested class with `testsRun = 1264` and
+                       `wasSuccessful()` returning True, selected by a
+                       location condition       -> ran=1264, exit 0, 0 tests
+        canary runner  `adjudicated += 1; continue` at the top of the loop,
+                       same condition           -> ran=3, exit 0, 0 adjudicators
+
+    An earlier version of this docstring called the first of those "an
+    unmistakable diff rather than four innocuous-looking lines". That claim was
+    wrong and is withdrawn: the measured diff is thirteen lines and reads no more
+    alarming than the four-line short-circuit above it. **The runner's source is
+    TRUSTED.** What the pins above buy is that the publication site itself cannot
+    become a constant, and what protects the binding is review — not this file.
+
+    Pinning the binding too would mean enumerating its shapes (one assignment,
+    from this call, at this position), and ADR-001 §5 names the third patch to an
+    enumeration as the signal to stop adding a fourth. `guard_runner_scope_
+    problems` is the part of pass 6 that WAS closable without enumerating: a set
+    compared against `git ls-files`.
+
+    Also not pinned here: a body reaching the real `TextTestRunner.run()` with a
+    deliberately emptied suite still binds `result`. The runner's own
+    `testsRun < len(files)` floor rejects that, and
+    `test_the_guard_runner_publishes_only_when_the_suite_passed` pins the floor
+    behaviourally — but that floor derives `files` from the runner's own
+    `PATTERN`, so see `guard_runner_scope_problems` for why it cannot bound a
+    narrowing.
     """
     problems = []
     try:
@@ -2108,6 +2214,44 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
                 self.assertTrue(
                     any("return 0" in p for p in problems), problems
                 )
+
+    def test_the_guard_runner_discovers_every_tracked_guard_file(self):
+        """Scope as data. One line cut the run to 406 of 1253 tests, green.
+
+        Mutated on the RUNNER's constants, driven through the same function the
+        control uses, so the fixture cannot pass for a reason the live check
+        would not."""
+        self.assertEqual(
+            guard_runner_scope_problems(), [],
+            "the runner does not discover the tracked guard set",
+        )
+
+        runner = _import_guard_runner()
+        original_pattern, original_dir = runner.PATTERN, runner.GUARD_DIR
+        try:
+            with self.subTest(direction="a narrowed pattern"):
+                # Every temp-directory fixture name (`test_ci_pass`,
+                # `test_ci_fail`, `test_ci_m0`, `test_ci_decoy`) survives this,
+                # which is exactly why the behaviour test could not see it.
+                runner.PATTERN = "test_ci_[pfmdg]*.py"
+                problems = guard_runner_scope_problems()
+                self.assertTrue(
+                    any("does not discover" in p for p in problems), problems
+                )
+            runner.PATTERN = original_pattern
+
+            with self.subTest(direction="a redirected scan root"):
+                runner.GUARD_DIR = Path(original_dir) / "fixtures_ci"
+                problems = guard_runner_scope_problems()
+                self.assertTrue(
+                    any("scans" in p for p in problems), problems
+                )
+        finally:
+            runner.PATTERN, runner.GUARD_DIR = original_pattern, original_dir
+        self.assertEqual(
+            guard_runner_scope_problems(), [],
+            "the fixture leaked — the runner module was left mutated",
+        )
 
     def test_the_canary_table_drifting_from_the_guard_is_caught(self):
         """`CANARY_CLASSES` and the runner's `ADJUDICATORS` are one spec in two
