@@ -1267,6 +1267,7 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
         import tempfile
 
         runner_src = (REPO_ROOT / CANARY_RUNNER).read_text()
+        ORACLE = _import_canary_runner().ORACLE_VERSION
         MODULES = {
             "mod_ok.py": (
                 "import unittest\n"
@@ -1287,6 +1288,19 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
         }
 
         def drive(adjudicators, block_oracle=False, argv=()):
+            # A STUB ORACLE, not the installed package. `ci-guards` installs
+            # NOTHING by design — that is what lets it run on a broad path
+            # bucket without a pip step — so a test that needs the real
+            # markdown-it-py passes locally and fails there. It did: this test
+            # was green on a machine with the package and red in CI with
+            # `markdown-it-py is not importable`.
+            #
+            # Skipping on ImportError would have been the wrong fix twice over:
+            # it is the fail-open this whole job exists to close, and it would
+            # have made the test vacuous exactly where it runs. A stub makes the
+            # oracle branch satisfiable without depending on what is installed,
+            # and the `block_oracle` row below still exercises the failure
+            # direction with a module that raises.
             with tempfile.TemporaryDirectory() as d:
                 marker = "ADJUDICATORS = ("
                 head = runner_src[:runner_src.index(marker)]
@@ -1299,21 +1313,19 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
                 )
                 for name, body in MODULES.items():
                     Path(d, name).write_text(body)
-                path = [d]
-                if block_oracle:
-                    blk = Path(d, "blocked")
-                    blk.mkdir()
-                    Path(blk, "markdown_it.py").write_text(
-                        'raise ImportError("withheld")\n'
-                    )
-                    path.insert(0, str(blk))
+                # WRITTEN INTO `d` ITSELF, not a directory earlier on
+                # PYTHONPATH. Python puts a script's own directory at
+                # `sys.path[0]`, ahead of PYTHONPATH — measured: a blocking
+                # module on PYTHONPATH lost to the stub sitting next to the
+                # shim, and the "missing oracle" row came back green.
+                Path(d, "markdown_it.py").write_text(
+                    'raise ImportError("withheld")\n' if block_oracle
+                    else f'__version__ = "{ORACLE}"\n'
+                )
                 r = subprocess.run(
                     [sys.executable, str(shim), *argv],
                     capture_output=True, text=True, cwd="/",
-                    env={
-                        "PATH": os.environ["PATH"],
-                        "PYTHONPATH": os.pathsep.join(path),
-                    },
+                    env={"PATH": os.environ["PATH"], "PYTHONPATH": d},
                 )
                 return r.returncode, r.stdout.strip(), r.stderr
 
