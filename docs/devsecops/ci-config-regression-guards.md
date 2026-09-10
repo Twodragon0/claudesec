@@ -255,81 +255,99 @@ fixture that picks the weak variant of a shape reports the shape as closed.**
 
 The property a marker actually needs is DOMINATION — every path reaching it must
 have executed the work — and no amount of text analysis establishes domination.
-A **data dependency** does. Each job now publishes a count computed from its own
-work: `ci-guards` parses `ran` out of `$out`, the suite's captured stdout, and
-`renderer-canary` increments `adjudicated` once per class that ran, did not skip,
-and passed its named adjudicating method. Under `set -euo pipefail`, parking the
-work leaves the source variable unbound and the publish line **dies** instead of
-falling through. Measured after the fix, same mutations:
+A **data dependency** gets closer: compute the published value *from* the work, so
+parking the work leaves its source unbound and the publish line dies. That closed
+the parking class, and a second pass then closed two more shapes on top of it
+(a seeded source variable; a `|| true` that let a red suite publish a real count).
 
-| body | exit | published |
-| --- | --- | --- |
-| `ci-guards` parked (`if`-wrap above publish) | 1 — `ran: unbound variable` | nothing |
-| `renderer-canary` parked (same) | 1 — `adjudicated: unbound variable` | nothing |
-| `ci-guards` unparked (real suite) | 0 | `ran=1261` |
+**A third pass defeated all of it, and found what the three versions had in
+common.** Each derived its proof from a blob whose SCOPE and VERDICT were both
+decided inside that same blob. Measured on the real body, each with every static
+guard returning `[]`:
 
-A constant cannot do this; only a value the work produces can. `lint-gate`
-requires a **positive integer**, so `0` (a loop that never iterated) and `true`
-(the previous, defeated design) are both rejected — reverting to the old shape is
-now a red build rather than a silent one-line edit.
+| edit | result |
+| --- | --- |
+| `cd /tmp/decoy` before an unchanged `discover` | exit 0, published `ran=1`, **zero real guards ran** |
+| `-k '*bucket*'` appended to `discover` | exit 0, published `ran=18` of 1264 |
+| red suite whose output has a column-0 `OK` line (with a trailing space), failure branch neutered | exit 0, published `ran=2`, suite `FAILED` |
 
-`job_ran_proof_problems` asserts that the derivation exists, precedes the publish
-line, and — for the canary — sits inside the loop body; that a floor rejects the
-empty/zero value; and that the published value is the variable rather than a
-literal. Position is still checked, as defence in depth rather than as the
-argument. A typo'd `steps.<id>` reference is caught statically too (fail-closed
-at runtime, but a red build for a typo is indistinguishable from a real parking
-event).
+**None of those forges a number.** The counts are genuine — the `cd` target,
+everything after `-p`, and the presence of an `OK` line were simply never pinned,
+and `2>&1` lets a failing run put `OK` into its own output. So the `^OK` check
+added by the second pass was never a second *independent* reading; it re-read a
+blob the failing run controls. The old `_DISCOVER_RE` was a substring test that
+stopped matching at `-p`, which is why an appended argument was invisible.
 
-**Two further shapes, both found by a SECOND adversarial pass on the fix itself,
-and neither one closed by the data dependency alone.**
+**Fixed by moving the three unpinnable things out of shell text** into two
+tracked runners, `scanner/tests/_ci_guard_runner.py` and
+`scanner/tests/_ci_canary_runner.py`. Each derives its scan root from its own
+`__file__` (so the working directory cannot redirect it), refuses arguments
+outright (so there is no filter to append), and prints a count only when
+`TestResult.wasSuccessful()` (so the verdict is structural rather than grepped).
+The canary runner additionally treats a SKIP as a failure and a missing or
+wrong-version oracle as a hard error rather than a skip — the fail-open it exists
+to close. Both steps are now a single line, and `job_ran_proof_problems` matches
+that line **anchored whole**, rejecting a `cd` in front, an argument behind, a
+pipe, or a `|| echo N`. Re-measured after the change:
 
-*Forgery.* The dependency stops a parked body only while the source variable is
-**unbound**. Seed it above the parked span and the derivation runs on a lie —
-measured, `out="Ran 1 tests in 0.0s"` inserted above an `if`-wrapped body
-published `ran=1` at exit 0, and `adjudicated=3` hoisted above the canary's loop
-published `ran=3`, both with every check returning `[]`. That is a *third* line
-for the attacker, not closure. What catches it is that a seeded value is an
-**extra assignment**, and counting assignments is something text can do: the
-guard pins `out` at exactly one assignment and `adjudicated` at exactly two
-(`=0` and the increment). Rewriting the one legitimate assignment instead
-removes the `unittest discover` invocation, which `guard_job_problems` already
-rejects.
+| attack | caught by |
+| --- | --- |
+| `cd` before the invocation | static guard (and exit 2 at runtime) |
+| `-k` appended | static guard (and exit 2 at runtime) |
+| `\|\| echo N` swallowing a failure | static guard |
+| body parked around the publish line | runtime — `ran: unbound variable`, nothing published |
 
-*Swallowed failures.* `unittest` prints `Ran N` on failure exactly as on success,
-so weakening the capture's `|| { ...; exit 1; }` branch to `|| true` let a
-genuinely **red** suite publish a genuine count with the job green — measured at
-`job_ran_proof_problems() == []` and `guard_job_problems() == []`. This is worse
-than the parking class the design was built for: parking runs nothing, this hides
-real failures. Closed the same way the parking class was — by data dependency,
-not by pinning the branch shape. Both jobs now require their run to report `OK`,
-which is a second independent reading of the same output:
+The adjudicator table lives once, in the canary runner, and
+`CANARY_CLASSES` is pinned equal to it so the two copies cannot drift.
+`descriptions=False` has no successor and that is deliberate: nothing parses
+prose any more, so the false-alarm it prevented (a docstring on an adjudicating
+method moving `... ok` onto a second line and turning documentation into a red
+build) cannot happen.
 
-| capture in `ci-guards` | exit | published |
-| --- | --- | --- |
-| failing suite + `\|\| true` | 1 | nothing |
-| failing suite, branch intact | 1 | nothing |
-| passing suite | 0 | `ran=1253` |
-| passing suite + `\|\| true` | 0 | `ran=1253` |
+**A fourth pass then defeated the driver design too**, on the one thing still
+carried in shell: the published value passed through `$ran`, and the guard pinned
+that by counting `^ran=` assignments. Bash binds a variable many other ways.
+Measured — work parked, one line seeded above it — every one of these published
+`ran=9999` at exit 0 with the guard silent, while a plain `ran=9999` was caught:
 
-The last two rows are not decoration. The third is non-vacuity — without it the
-first two prove nothing — and the fourth is attribution: it shows the `|| true`
-mutation alone is not what turns the build red, the *failure* is. The first
-version of that probe was wrong in exactly this way: `\n` inside a non-raw Python
-string reached `printf` as a literal backslash-n, the synthetic output collapsed
-onto one line, and every row went red for a reason unrelated to the test. The
-non-vacuity row is what caught it.
+```text
+read -r ran <<<   printf -v ran   declare ran=   export ran=
+mapfile -t ran    let ran=        (( ran = ))    for ran in
+IFS= read -r ran < <(...)         step-level `env: ran:`  (zero shell lines)
+```
 
-`lint-gate`'s own body is EXECUTED by a test class, which nothing in this repo
-did before: both proven, both skipped, one of each, either job parked / zero /
-non-numeric, a renamed proof job, an ordinary failure elsewhere, and that the
-script reads the same env var the step writes. The both-skipped direction is the
-load-bearing one — these jobs legitimately skip whenever `ci_config` does not
-match, which is most PRs, and an unconditional demand would fail every unrelated
-one. The env-var direction is a **polarity** fix: the class originally hardcoded
-`NEEDS_JSON` in its harness, so renaming only the `env:` key (fatal in CI) passed
-all seven tests while renaming both sides consistently (harmless) failed all
-seven.
+The pin worked for exactly the spelling it enumerated — the same failure mode,
+now four times over. **So the variable was removed rather than the list
+extended.** Each runner prints its own `ran=<count>` and the step appends it:
+
+```bash
+python3 scanner/tests/_ci_guard_runner.py >> "$GITHUB_OUTPUT"
+```
+
+Nothing is left to bind. The step's executed shell is now checked EXHAUSTIVELY —
+`set -euo pipefail` plus that one anchored line, nothing else — so a `cd`, an
+appended argument, a pipe, a `|| true`, a different redirect target, a second
+`$GITHUB_OUTPUT` writer, or the `if`/`fi` a parking construct needs are all
+rejected as extra lines. Parking additionally appends nothing at runtime, so
+`lint-gate` fails closed independently of the static check.
+
+**Mutation scoring found four of its own tests worthless or dangerous before
+this shipped.** `if argv:` in the guard runner, `if result.skipped:` in the
+canary runner, and the
+canary's oracle check each scored **0 red** — nothing was holding them. The skip
+test was the instructive one: it produced a skip by withholding the oracle, which
+trips the oracle check *first* and returns before the skip logic is reached, so it
+passed for a reason unrelated to what it named. Each branch now has a synthetic
+target module that isolates it.
+
+The fourth was worse than worthless. The argument-refusal test drove the **real**
+runner, so removing `if argv:` made it fall through to discovering
+`scanner/tests` — which contains that test, which spawns the runner again.
+Unbounded recursion: the mutation row hung for 18 hours before it was killed, and
+in CI it would have burned the job timeout instead of failing. It now drives a
+copy in a temp directory, and the same mutation scores 1 red in seconds. **A test
+that drives the thing it lives inside needs an explicit bound**, and mutation
+scoring is what surfaced it — the passing suite never did.
 
 **What is still open, stated because a defence that reads complete and is not is
 the failure this document exists to catch:** the regress does not terminate

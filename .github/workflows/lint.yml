@@ -154,7 +154,7 @@ jobs:
             #
             # Over-inclusion here is fail-safe: it costs ~20s and cannot hide a
             # regression. Pinned by scanner/tests/test_ci_guard_self_verify.py.
-            echo "ci_config=$(match '^(\.github/|templates/|scanner/tests/(test_ci_|_ci_guard_util\.py)|scripts/setup\.sh$|requirements.*\.txt|lychee\.toml$|ruff\.toml$|Dockerfile|nginx/|package\.json$|\.npmignore$|lighthouserc\.json$|bin/|\.claude/skills/|\.claude-plugin/|docs/|\.claude/|[^/]*\.md$|\.gitleaks\.toml$)')"
+            echo "ci_config=$(match '^(\.github/|templates/|scanner/tests/(test_ci_|_ci_)|scripts/setup\.sh$|requirements.*\.txt|lychee\.toml$|ruff\.toml$|Dockerfile|nginx/|package\.json$|\.npmignore$|lighthouserc\.json$|bin/|\.claude/skills/|\.claude-plugin/|docs/|\.claude/|[^/]*\.md$|\.gitleaks\.toml$)')"
             # `docs/`, `.claude/`, root `*.md` and `.gitleaks.toml` are the
             # guard-read DATA surface, derived rather than guessed:
             # `test_ci_guard_self_verify.guard_data_files()` walks every tracked
@@ -408,60 +408,50 @@ jobs:
           # executes this body can observe it, and `unittest discover` exits 0 on
           # "Ran 0 tests". A wrong or dropped value would therefore be a SILENT
           # VACUOUS PASS. `test_ci_required_graph_not_disabled` caught exactly
-          # that on the first draft of this step; the `cd` lives in the body
-          # instead, where the two checks below fail closed on it.
-          cd scanner/tests
-          shopt -s nullglob
-          files=(test_ci_*.py)
-          echo "guard files on disk: ${#files[@]}"
-          [ "${#files[@]}" -gt 0 ]
-          # Captured rather than piped to a log file: no stray artifact, and no
-          # dependence on `pipefail` semantics for the verdict.
-          out=$(python3 -m unittest discover -s . -p 'test_ci_*.py' 2>&1) || {
-            printf '%s\n' "$out"
-            exit 1
-          }
-          printf '%s\n' "$out"
-          # Closes the OTHER direction from a real failure — a run that
-          # discovered nothing and still reported OK.
-          printf '%s\n' "$out" | grep -qE '^Ran [1-9][0-9]* tests? in '
-          # THE SUITE MUST HAVE PASSED, asserted from the OUTPUT and not only
-          # from the exit status above. `unittest` prints `OK` or `OK (skipped=N)`
-          # on success and `FAILED (...)` on failure, and it prints `Ran N` EITHER
-          # WAY. So weakening the `|| { ... exit 1; }` branch above to `|| true`
-          # lets a genuinely FAILING suite publish a genuine count: measured,
-          # `job_ran_proof_problems() == []` and `guard_job_problems() == []` with
-          # the suite red and the job green. That is worse than the parking class
-          # this block was written for — parking runs nothing, this SWALLOWS
-          # failures — and the exit-status branch was the only thing stopping it.
-          # Two independent readings of the same run, so neither alone is the
-          # gate.
-          printf '%s\n' "$out" | grep -qE '^OK( |$)'
-          # PROOF, DERIVED FROM THE WORK'S OUTPUT — not merely placed after it.
+          # that on the first draft of this step.
           #
-          # The first version of this block wrote a constant `ran=true` as the
-          # last line and called that a fall-through proof. It is not. Reaching
-          # the LAST line is not the same as having run the work: close a parking
-          # construct ABOVE the marker and the shell falls straight through it.
-          # Measured — wrapping this body in `if [ "${X:-}" = 1 ]; then ... fi`
-          # with `fi` on the line above the marker gave `job_ran_proof_problems()
-          # == []`, `guard_job_problems() == []`, the whole 1255-test suite `OK`,
-          # and the step exiting 0 having written `ran=true` with ZERO tests run.
-          # Two inserted lines, in one job. `case ... esac` measures the same, so
-          # it is a class and not a spelling of `if`.
+          # NO `cd` AND NO `discover` FLAGS EITHER, which is the whole reason
+          # this step is now one line. Three adversarial passes defeated
+          # successive versions of an inline invocation, and the last one found
+          # what they had in common: the proof was derived from a blob whose
+          # SCOPE and VERDICT were both decided inside that same blob. Measured
+          # on the real body, each with every static guard returning `[]`:
           #
-          # The property a marker actually needs is DOMINATION — every path that
-          # reaches it must have executed the work — and text analysis cannot see
-          # domination. A DATA DEPENDENCY can: `$ran` is computed from `$out`, so
-          # parking the work leaves `$out` unbound and `set -u` kills this line
-          # instead of falling through it.
-          ran=$(printf '%s\n' "$out" | sed -nE 's/^Ran ([1-9][0-9]*) tests? in .*/\1/p')
-          [ -n "$ran" ]
-          # Still LAST, now as the second line of defence rather than the whole
-          # argument: a command below it could still exit before the runner reads
-          # the file back. `job_ran_proof_problems()` asserts both the derivation
-          # and this position.
-          echo "ran=$ran" >> "$GITHUB_OUTPUT"
+          #   cd /tmp/decoy (one trivial test file)  exit 0, ran=1,  0 real guards
+          #   `-k '*bucket*'` appended to discover    exit 0, ran=18, 18 of 1264
+          #   red suite w/ a column-0 `OK ` line and
+          #     the `|| { exit 1; }` branch neutered  exit 0, ran=2,  suite FAILED
+          #
+          # None of those forges a number. The counts are REAL — the `cd` target,
+          # everything after `-p`, and the presence of an `OK` line were simply
+          # never pinned, and `2>&1` lets a failing run put `OK` in its own
+          # output, which is why the `^OK` check that replaced the third one was
+          # never a second INDEPENDENT reading.
+          #
+          # The runner derives its scan root from its own `__file__`, refuses
+          # arguments, and prints a count only when `wasSuccessful()`. Scope,
+          # filter and verdict are all out of shell text now.
+          #
+          # THE RUNNER APPENDS ITS OWN `ran=<count>` LINE. There is no
+          # shell variable in between, and that is the point: while the
+          # value passed through a variable, the proof could be forged by
+          # BINDING that variable without an `=` assignment, which the
+          # guard counted. Measured — with the work parked and one line
+          # seeded above it, all ten of these published `ran=9999` at
+          # exit 0 with the guard reporting nothing:
+          #   read -r ran <<<   printf -v ran   declare   export
+          #   mapfile   let   (( ran = ))   for ran in   IFS= read
+          #   and a step-level `env: ran:`, which is zero shell lines
+          # A plain `ran=9999` WAS caught, so the pin worked only for the
+          # one spelling it enumerated — the enumeration failure mode this
+          # file has now hit four times. Removing the variable removes the
+          # whole class instead of adding a tenth pattern.
+          #
+          # Parking this line appends nothing, so `lint-gate` fails closed;
+          # a non-zero runner trips `set -e` AND prints nothing.
+          python3 scanner/tests/_ci_guard_runner.py >> "$GITHUB_OUTPUT"
+          # Still LAST, as the second line of defence rather than the argument:
+          # a command below it could exit before the runner reads the file back.
 
   # ---------------------------------------------------------------------------
   # The renderer-adjudicated guard classes, which SKIP everywhere else.
@@ -515,102 +505,40 @@ jobs:
         id: canary
         run: |
           set -euo pipefail
-          # FAIL, do not skip, when the oracle is missing. The classes below
-          # skip on ImportError — correct for the package-free job, and the exact
-          # fail-open this job exists to close, so it must not be reproduced here.
+          # ONE LINE, for the reasons written out on `ci-guards`. This step used
+          # to be a shell loop that ran each class with `python3 -c`, parsed
+          # `unittest -v` prose for `^<method> \(.*\) \.\.\. ok$`, greped for a
+          # skip, and greped `^OK( |$)` as a verdict. Text a run produces is text
+          # a FAILING run can shape: measured, a red class whose output carried a
+          # column-0 `OK ` line satisfied that verdict check once the
+          # `|| { exit 1; }` branch was weakened, and the step published a genuine
+          # count with the suite red.
           #
-          # One line on purpose: an indented heredoc keeps its leading
-          # whitespace and Python rejects it (`IndentationError: unexpected
-          # indent`, measured), and de-indenting the body to column 0 would
-          # break out of this block scalar.
-          installed=$(python3 -c 'import markdown_it; print(markdown_it.__version__)')
-          if [ "$installed" != "4.0.0" ]; then
-            echo "::error::markdown-it-py is $installed, not the adjudicated 4.0.0 — re-measure before repinning"
-            exit 1
-          fi
-          cd scanner/tests
-          # PER CLASS, not once over the combined output. A single aggregate
-          # `Ran [1-9]` was the first version and a review defeated it: renaming
-          # the test methods of ONE class — an ordinary refactor, not a
-          # weakening — left that class contributing zero tests while the other
-          # two carried the count, so the job printed "Ran 5 tests / OK" and
-          # exited 0 with the measured residual payload live in the catalog and
-          # a reader seeing 0 of 70 guard rows. Renamed and DELETED classes were
-          # caught; EMPTIED was not, and emptied is what a refactor produces.
-          # NAMED methods, not just classes. A per-class count floor was the
-          # second version and a review defeated that too: parking the ONE method
-          # in `TestTheDocAgreesWithTheRenderer` that reads the real catalog left
-          # the class at two synthetic-fixture tests, no skip, `Ran 3 tests / OK`
-          # and exit 0 — with the residual payload live and a reader seeing 0 of
-          # 70 rows. A count cannot tell which test does the adjudicating.
+          # The runner decides scope from its own `ADJUDICATORS` table, refuses
+          # arguments, treats a missing or wrong-version oracle as a hard failure
+          # rather than a skip, and counts an adjudicator only when `TestResult`
+          # says it ran exactly once, was not skipped, and passed. Nothing parses
+          # prose, which is also why `descriptions=False` is no longer needed.
+          # `test_ci_guard_self_verify` pins `CANARY_CLASSES` equal to that table
+          # so the two cannot drift.
+          # THE RUNNER APPENDS ITS OWN `ran=<count>` LINE. There is no
+          # shell variable in between, and that is the point: while the
+          # value passed through a variable, the proof could be forged by
+          # BINDING that variable without an `=` assignment, which the
+          # guard counted. Measured — with the work parked and one line
+          # seeded above it, all ten of these published `ran=9999` at
+          # exit 0 with the guard reporting nothing:
+          #   read -r ran <<<   printf -v ran   declare   export
+          #   mapfile   let   (( ran = ))   for ran in   IFS= read
+          #   and a step-level `env: ran:`, which is zero shell lines
+          # A plain `ran=9999` WAS caught, so the pin worked only for the
+          # one spelling it enumerated — the enumeration failure mode this
+          # file has now hit four times. Removing the variable removes the
+          # whole class instead of adding a tenth pattern.
           #
-          # `adjudicated` is the job's PROOF, and it is incremented inside the
-          # loop body rather than asserted after it. See the derivation comment on
-          # `ci-guards`: a constant written below `done` proves only that `done`
-          # was reached, and a parking construct that closes above it falls
-          # through — measured there, and the same two-line edit works here.
-          adjudicated=0
-          for spec in \
-            "test_ci_catalog_doc_sync.TestTheDocAgreesWithTheRenderer:test_the_reduction_and_the_renderer_agree_on_the_real_catalog" \
-            "test_ci_adr_decision_numbering.TestTheParseAgreesWithCommonMark:test_the_parse_matches_the_renderer_on_every_stripper_case" \
-            "test_ci_markdown_scan_evasion.TestTheResidualIsBounded:test_silent_passes_stay_within_the_measured_ceiling"; do
-            cls="${spec%%:*}"
-            method="${spec##*:}"
-            # `descriptions=False`, which `python3 -m unittest -v` cannot be
-            # told to do. With descriptions ON, a method that HAS a docstring
-            # prints its summary line as `name (…)` and the `... ok` lands on a
-            # SECOND line — so the by-name check below stops matching and the
-            # job goes red because someone documented a test. Measured on
-            # `test_the_canary_fires_on_the_measured_residual_payload`, which
-            # already has one. Fail-closed, but a gate that cries wolf at
-            # ordinary authoring is a gate that gets deleted.
-            out=$(python3 -c 'import sys, unittest; sys.exit(0 if unittest.TextTestRunner(verbosity=2, descriptions=False, stream=sys.stdout).run(unittest.defaultTestLoader.loadTestsFromName(sys.argv[1])).wasSuccessful() else 1)' "$cls" 2>&1) || {
-              printf '%s\n' "$out"
-              exit 1
-            }
-            printf '%s\n' "$out"
-            # `unittest` exits 0 on "Ran 0 tests", so an emptied or renamed class
-            # would otherwise pass vacuously.
-            printf '%s\n' "$out" | grep -qE '^Ran [1-9][0-9]* tests? in ' || {
-              echo "::error::$cls ran ZERO tests — it adjudicates nothing"
-              exit 1
-            }
-            # And a SKIPPED class still counts in "Ran N", so the count check
-            # above cannot see a skip. Anchored on unittest's own two spellings
-            # rather than the bare word: `-v` echoes each method's docstring, and
-            # these classes' docstrings discuss skipping constantly.
-            if printf '%s\n' "$out" | grep -qE '\.\.\. skipped |\(skipped='; then
-              echo "::error::$cls SKIPPED in the job that exists to run it"
-              exit 1
-            fi
-            # The adjudicating method must have RUN and PASSED by name. This is
-            # the check a count cannot make: it is the one method in each class
-            # that compares against the renderer over real repository content.
-            if ! printf '%s\n' "$out" | grep -qE "^${method} \(.*\) \.\.\. ok$"; then
-              echo "::error::$cls did not run ${method} — the adjudicating test is gone, renamed, or parked"
-              exit 1
-            fi
-            # And the CLASS must have passed, not just the adjudicating method.
-            # Same reason as the sibling check in `ci-guards`: weakening the
-            # `|| { ... exit 1; }` above to `|| true` lets a red class through,
-            # and every other check here is satisfied by a run in which the
-            # named method passed while some other method in the class failed.
-            if ! printf '%s\n' "$out" | grep -qE '^OK( |$)'; then
-              echo "::error::$cls did not report OK — a failure in it was swallowed"
-              exit 1
-            fi
-            # Reached only by a class that ran, did not skip, and whose named
-            # adjudicating method passed. This is what makes `$adjudicated` a
-            # proof rather than a constant.
-            adjudicated=$((adjudicated + 1))
-          done
-          # One increment per adjudicator, so a loop that never iterates — or a
-          # body parked around it — cannot satisfy this. Compared against the
-          # literal count of specs above, which `canary_job_problems()` pins
-          # against `CANARY_CLASSES`; a spec added without raising the floor is a
-          # guard failure, not a silent widening.
-          [ "$adjudicated" -eq 3 ]
-          echo "ran=$adjudicated" >> "$GITHUB_OUTPUT"
+          # Parking this line appends nothing, so `lint-gate` fails closed;
+          # a non-zero runner trips `set -e` AND prints nothing.
+          python3 scanner/tests/_ci_canary_runner.py >> "$GITHUB_OUTPUT"
 
   scanner-unit-tests:
     runs-on: ubuntu-latest

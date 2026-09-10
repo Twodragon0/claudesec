@@ -112,6 +112,7 @@ from _ci_guard_util import (  # noqa: E402
     step_blocks,
     strip_comment_lines,
     strip_inline_comment,
+    tracked_files,
     workflow_and_action_files,
     yaml_key_pattern,
 )
@@ -267,15 +268,26 @@ def guard_job_problems(lint_text: str) -> list:
             "or ANDed with a condition that never holds on a pull request."
         )
 
-    runs = [
-        blk for blk in step_blocks(block)
-        if _DISCOVER_RE.search(blk)
-    ]
-    if not runs:
+    # THE RUNNER, matched WHOLE. This was `_DISCOVER_RE` — a substring test for
+    # `unittest discover ... -p 'test_ci_*.py'` that ignored the `-s` value and
+    # everything after `-p`. Measured, that let two edits pass with every guard
+    # returning `[]`: `cd /tmp/decoy` before it ran a one-test decoy suite
+    # (`ran=1`, zero real guards), and an appended `-k '*bucket*'` cut the run to
+    # 18 of 1264. Both published a GENUINE count — the scope, not the number, was
+    # the lie. The invocation now takes no arguments and the runner refuses any,
+    # so the check is an anchored whole-line match.
+    if not any(
+        re.search(
+            rf'^\s*python3 {re.escape(GUARD_RUNNER)} >> "\$GITHUB_OUTPUT"\s*$',
+            blk, re.M,
+        )
+        for blk in step_blocks(block)
+    ):
         problems.append(
-            f"no step in `{GUARD_JOB}` invokes `unittest discover ... -p "
-            "'test_ci_*.py'`. The job would report success while running nothing "
-            "that guards anything."
+            f"no step in `{GUARD_JOB}` invokes exactly "
+            f'`python3 {GUARD_RUNNER} >> "$GITHUB_OUTPUT"`. Anything else — a '
+            "`cd` in front, an argument behind, a pipe — changes WHICH guards "
+            "run while leaving the count it publishes genuine."
         )
 
     gate_block = job_block(lint_text, GATE_JOB)
@@ -368,91 +380,76 @@ def canary_job_problems(lint_text: str) -> list:
             "fail-open it exists to close."
         )
 
-    if not re.search(r"grep\s+-qE\s+'\\\.\\\.\\\. skipped ", executed):
+    # THE RUNNER, matched WHOLE — same reason as the sibling on `ci-guards`.
+    if not re.search(
+        rf'^\s*python3 {re.escape(CANARY_RUNNER)} >> "\$GITHUB_OUTPUT"\s*$',
+        executed, re.M,
+    ):
         problems.append(
-            f"job `{CANARY_JOB}` lost its skip check. `unittest` counts a skipped "
-            "class in `Ran N tests` and exits 0, so without this a skip reads as "
-            "a pass."
+            f"job `{CANARY_JOB}` does not invoke exactly "
+            f'`python3 {CANARY_RUNNER} >> "$GITHUB_OUTPUT"`.'
         )
-
-    if not re.search(r"\^Ran \[1-9\]", executed):
-        problems.append(
-            f"job `{CANARY_JOB}` lost its non-zero test-count check. `unittest` "
-            "exits 0 on 'Ran 0 tests', so an emptied class would pass vacuously."
-        )
-
-    # The floors must be PER CLASS. A single aggregate check over the combined
-    # output was the first version, and emptying one class — renaming its test
-    # methods, which is what an ordinary refactor produces — left the other two
-    # carrying the count while the residual went live.
-    if "for spec in" not in executed:
-        problems.append(
-            f"job `{CANARY_JOB}` no longer loops per class. An aggregate "
-            "`Ran [1-9]` over all three lets ONE adjudicator contribute zero "
-            "tests while the others carry the count — measured, with the "
-            "residual payload live and the job exiting 0."
-        )
-
-    for cls, method in CANARY_CLASSES:
-        if cls not in executed:
-            problems.append(
-                f"job `{CANARY_JOB}` no longer RUNS `{cls}`. It skips in every "
-                "other job, so dropping it here leaves it running nowhere."
-            )
-        if method not in executed:
-            problems.append(
-                f"job `{CANARY_JOB}` no longer names `{method}`, the one test in "
-                f"`{cls}` that adjudicates real repository content against the "
-                "renderer. Without the name the job floors on a COUNT, and a "
-                "count cannot tell that the adjudicating test was parked."
-            )
 
     # NO HEREDOC IN THIS STEP. `executed_shell` does not model heredoc bodies —
-    # its own docstring says so and calls it the one limitation that CAN hide an
-    # unrun test — so a `run: |` that opens `cat <<'EOF'` and quotes the whole
-    # loop inside it reads to every check above as execution: measured,
-    # `canary_job_problems() == []` with the step exiting 0 having adjudicated
-    # nothing. Closing that in the shared extractor needs a heredoc state machine
-    # across every guard that imports it; closing it HERE needs one line, because
-    # this step has no heredoc by design (the install step's comment already
-    # explains why an indented one would not even parse). Forbidding what the
-    # extractor cannot read is the fail-closed half of the same fix.
-    #
-    # SCOPE, stated because the check is a SUBSTRING test and not a heredoc
+    # its own docstring calls that the one limitation that CAN hide an unrun test
+    # — so a `run: |` opening `cat <<'EOF'` would read as execution to every
+    # check above. Forbidding what the extractor cannot read is the fail-closed
+    # half. SCOPE, stated because it is a SUBSTRING test and not a heredoc
     # parser: it also fires on `echo "shift: 1 << 2"` and `: $(( 1 << 2 ))`
-    # (measured). Both are false alarms, both fail CLOSED, and neither shape
-    # belongs in this step — acceptable, but it is a token check, not a grammar.
-    # It does NOT close the parking class; `exit 0` as the first line parks the
-    # step with no `<<` anywhere and this function still returns `[]`. See
-    # `test_parking_the_canary_step_in_a_heredoc_is_not_execution` for the
-    # measured residual.
+    # (measured). Both are false alarms, both fail CLOSED, and neither belongs
+    # in a step that is now one invocation.
     if "<<" in executed:
         problems.append(
             f"job `{CANARY_JOB}` contains a heredoc. `executed_shell` cannot see "
-            "into heredoc bodies, so the loop could sit inside one, run nothing, "
-            "and satisfy every check in this function. If a heredoc is genuinely "
-            "needed, teach `executed_shell` to strip them FIRST."
+            "into heredoc bodies, so the invocation could sit inside one and run "
+            "nothing while satisfying every check in this function."
         )
 
-    # The runner must disable unittest's descriptions. See the step's own comment:
-    # with them on, adding a docstring to an adjudicating method moves `... ok`
-    # onto a second line and the by-name check below stops matching, turning
-    # ordinary documentation into a red build.
-    if "descriptions=False" not in executed:
+    # ---------------------------------------------------------------------
+    # THE INVARIANTS THAT USED TO BE SHELL, ASSERTED WHERE THEY NOW LIVE.
+    #
+    # This block previously scanned the step's executed text for `for spec in`,
+    # each class and method name, `descriptions=False`, a skip grep, a
+    # `^Ran [1-9]` grep and a `did not run ${method}` message. Every one of those
+    # was an assertion about a shell loop that parsed `unittest -v` PROSE, and
+    # prose a run produces is prose a FAILING run can shape: measured, a red
+    # class whose output carried a column-0 `OK ` line satisfied the verdict grep
+    # once the `|| { exit 1; }` branch was weakened, and the step published a
+    # genuine count with the suite red.
+    #
+    # The invariants did not go away — they moved into `_ci_canary_runner.py`,
+    # where they are `TestResult` bookkeeping rather than regexes, and they are
+    # asserted here against the IMPORTED module. `descriptions=False` has no
+    # successor on purpose: nothing parses prose any more, so the reason it
+    # existed (a docstring on an adjudicating method splitting `... ok` onto a
+    # second line and turning documentation into a red build) is gone.
+    # ---------------------------------------------------------------------
+    if CANARY_RUNNER not in tracked_files():
         problems.append(
-            f"job `{CANARY_JOB}` no longer runs with `descriptions=False`. Under "
-            "`unittest -v` a docstring on an adjudicating method splits its "
-            "result onto a second line and the per-method check fails on a "
-            "passing suite — a false alarm, which is how a gate stops being read."
+            f"`{CANARY_RUNNER}` is not a tracked file. It holds the adjudicator "
+            "table, the oracle pin and the pass/skip verdict for this job."
         )
-
-    # The methods must be checked BY NAME in the step, not merely listed.
-    if "did not run ${method}" not in executed:
-        problems.append(
-            f"job `{CANARY_JOB}` lost its per-method assertion. A per-class count "
-            "floor passes with the adjudicating test parked — measured, with the "
-            "residual live and a reader seeing 0 of 70 rows."
-        )
+    else:
+        runner = _import_canary_runner()
+        if tuple(runner.ADJUDICATORS) != tuple(CANARY_CLASSES):
+            problems.append(
+                f"`{CANARY_RUNNER}`'s ADJUDICATORS has drifted from "
+                "`CANARY_CLASSES`:\n"
+                f"  runner: {tuple(runner.ADJUDICATORS)}\n"
+                f"  guard : {tuple(CANARY_CLASSES)}\n"
+                "A second copy of a constant is how this repo has lost a check "
+                "before; one of the two is now wrong and nothing else would say "
+                "which."
+            )
+        pinned = re.search(r"markdown-it-py==([\d.]+)", executed)
+        if pinned and runner.ORACLE_VERSION != pinned.group(1):
+            problems.append(
+                f"`{CANARY_RUNNER}` adjudicates against oracle "
+                f"{runner.ORACLE_VERSION} but the job installs "
+                f"{pinned.group(1)}. The runner hard-fails on the mismatch, so "
+                "this is a red build rather than a silent one — but it is a red "
+                "build for a reason no one would guess from the message."
+            )
 
     gate_block = job_block(lint_text, GATE_JOB)
     if gate_block is None:
@@ -505,35 +502,42 @@ def block_scalar_body(block: str, key: str = "run") -> str:
 # value. The floors are derived from `CANARY_CLASSES` rather than written out, so
 # adding an adjudicator without raising the floor is a guard failure instead of a
 # silent widening.
+#: Runner scripts, relative to the repo root. Each owns the SCOPE, the FILTER
+#: refusal and the VERDICT for one job — the three things that were unpinnable
+#: while they lived in shell text.
+GUARD_RUNNER = "scanner/tests/_ci_guard_runner.py"
+CANARY_RUNNER = "scanner/tests/_ci_canary_runner.py"
+
+
+def _import_canary_runner():
+    """The canary runner as a MODULE, so its table is compared as data.
+
+    Imported rather than grepped: a regex over the file would re-create the
+    parse-the-text problem one level up, and this repo has already measured what
+    that costs — a hand-written source list in a guard had drifted to missing 12
+    files while reading green."""
+    import importlib
+
+    return importlib.import_module("_ci_canary_runner")
+
 PROOF_SPECS = {
     "ci-guards": {
-        "var": "ran",
-        # `$ran` parsed out of `$out`, which holds the suite's own stdout.
-        "derivation": re.compile(r'^ran=\$\(.*"\$out".*\)$'),
-        "derivation_desc": 'a `ran=$(... "$out" ...)` parse of the suite output',
-        "floor": '[ -n "$ran" ]',
-        # `$out` is what the proof is computed FROM, so seeding it forges the
-        # proof. Exactly one assignment, and `guard_job_problems` separately
-        # requires that one to be the `unittest discover` invocation.
-        "source": "out",
-        "source_assignments": 1,
-        # Two independent readings of the same run: a non-zero test count, and
-        # the suite reporting OK. `Ran N` prints on failure too.
-        "verdict": re.compile(r"^printf .*\| grep -qE '\^OK\( \|\$\)'$"),
+        "runner": GUARD_RUNNER,
+        # ANCHORED WHOLE, and the ONLY thing the body does besides `set -euo
+        # pipefail`. Not a substring test: `_DISCOVER_RE` used to match
+        # `unittest discover ... -p 'test_ci_*.py'` and ignore the rest of the
+        # line, which accepted an appended `-k '*bucket*'` (1264 tests -> 18)
+        # and a `cd /tmp/decoy` in front (0 real guards), both publishing a
+        # GENUINE count.
+        "invocation": re.compile(
+            rf'^python3 {re.escape(GUARD_RUNNER)} >> "\$GITHUB_OUTPUT"$'
+        ),
     },
     CANARY_JOB: {
-        "var": "adjudicated",
-        "derivation": re.compile(r"^adjudicated=\$\(\(\s*adjudicated \+ 1\s*\)\)$"),
-        "derivation_desc": "an `adjudicated=$((adjudicated + 1))` increment",
-        "floor": f'[ "$adjudicated" -eq {len(CANARY_CLASSES)} ]',
-        # The increment must sit INSIDE the loop body. Hoisted above `for` it is a
-        # constant again, and below `done` it counts nothing.
-        "inside_loop": True,
-        # The counter is its own source: `adjudicated=0` to initialise and the
-        # increment. A third assignment is a seeded value.
-        "source": "adjudicated",
-        "source_assignments": 2,
-        "verdict": re.compile(r"^if ! printf .*\| grep -qE '\^OK\( \|\$\)'; then$"),
+        "runner": CANARY_RUNNER,
+        "invocation": re.compile(
+            rf'^python3 {re.escape(CANARY_RUNNER)} >> "\$GITHUB_OUTPUT"$'
+        ),
     },
 }
 PROOF_JOBS = tuple(PROOF_SPECS)
@@ -618,7 +622,6 @@ def job_ran_proof_problems(lint_text: str) -> list:
     its evidence."""
     problems = []
     for job, spec in PROOF_SPECS.items():
-        marker = _marker(spec["var"])
         block = job_block(lint_text, job)
         if block is None:
             problems.append(f"job `{job}` not found in lint.yml")
@@ -633,9 +636,8 @@ def job_ran_proof_problems(lint_text: str) -> list:
             )
         if not declares:
             problems.append(
-                f"job `{job}` declares no `outputs:`. Without it the marker its "
-                "body writes is invisible to `lint-gate`, and the job is back to "
-                "being provable only by reading its text."
+                f"job `{job}` declares no `outputs:`. Without it the line its "
+                "runner appends is invisible to `lint-gate`."
             )
         else:
             ref = re.search(
@@ -643,129 +645,93 @@ def job_ran_proof_problems(lint_text: str) -> list:
             )
             if ref is None:
                 problems.append(
-                    f"job `{job}` has `outputs:` but does not surface `ran` from a "
-                    "step. An output that reads from nothing is the empty string, "
-                    "which is the undeclared-output vacuity class this repo "
-                    "already paid for once."
+                    f"job `{job}` has `outputs:` but does not surface `ran` from "
+                    "a step. An output that reads from nothing is the empty "
+                    "string, which is the undeclared-output vacuity class this "
+                    "repo already paid for once."
                 )
             elif not re.search(
                 rf"^\s*id:\s*{re.escape(ref.group(1))}\s*$", block, re.M
             ):
-                # The runtime direction of this is already fail-closed — a typo'd
-                # step id yields an empty output, `lint-gate` sees success with no
-                # proof, and the build goes red. But red-at-runtime for a typo is
-                # a wasted CI cycle and an alarm that looks like a real parking
-                # event, so it is caught here instead, where the diff is.
                 problems.append(
-                    f"job `{job}` surfaces `ran` from step id "
-                    f"`{ref.group(1)}`, which no step in the job declares. The "
-                    "output resolves to the empty string, so the proof can never "
-                    "be satisfied."
+                    f"job `{job}` surfaces `ran` from step id `{ref.group(1)}`, "
+                    "which no step in the job declares. The output resolves to "
+                    "the empty string, so the proof can never be satisfied."
                 )
 
-        # `executed_shell` so a marker parked in a comment or an `env:` scalar
-        # counts for nothing — the same routing the sibling pins use, for the
-        # same two measured reasons.
-        lines = [ln.strip() for ln in executed_shell(block).splitlines() if ln.strip()]
-        if marker not in lines:
+        # THE PROOF STEP ONLY, not the whole job. `renderer-canary` has a
+        # legitimate `pip install` step before it, and an exhaustive check over
+        # the job's combined shell would flag that as an extra command. Selected
+        # by the invocation itself so the selection cannot drift from what is
+        # being checked.
+        proof_steps = [
+            blk for blk in step_blocks(block)
+            if any(spec["invocation"].match(ln.strip())
+                   for ln in executed_shell(blk).splitlines())
+        ]
+        if len(proof_steps) != 1:
             problems.append(
-                f"job `{job}` never writes `{marker}` in an executed step. The "
-                "proof is that line; without it the job's `outputs.ran` is "
-                "permanently empty and `lint-gate` fails closed — loudly, but it "
-                "means the mechanism is gone."
+                f"job `{job}` has {len(proof_steps)} steps running an anchored "
+                f"`python3 {spec['runner']} >> \"$GITHUB_OUTPUT\"`, expected 1. "
+                "A `cd` in front, an argument behind, a pipe or a `|| true` all "
+                "change WHICH work runs — or whether its verdict counts — while "
+                "leaving the published count genuine."
             )
             continue
-        at_marker = lines.index(marker)
-
-        # THE DERIVATION. This is the check that survives a parking construct
-        # closing above the marker: the published value has to be COMPUTED from
-        # the work, so parking the work leaves its source unbound and `set -u`
-        # kills the derivation instead of falling through it.
-        derived = [i for i, ln in enumerate(lines) if spec["derivation"].match(ln)]
-        if not derived:
-            problems.append(
-                f"job `{job}` publishes `ran` without {spec['derivation_desc']}. "
-                "A constant proves only its own line — measured, wrapping the "
-                "work in a never-taken `if` whose `fi` sits one line above the "
-                "marker left every guard returning [], the whole suite green, "
-                "and the step exiting 0 having run nothing."
-            )
-        elif min(derived) > at_marker:
-            problems.append(
-                f"job `{job}` computes its proof AFTER publishing it, so the "
-                "published value cannot depend on the work."
-            )
-        elif spec.get("inside_loop"):
-            # Hoisted above `for` the increment is a constant again; below `done`
-            # it counts nothing. Both leave the marker looking derived.
-            loop = [i for i, ln in enumerate(lines) if ln.startswith("for ")]
-            done = [i for i, ln in enumerate(lines) if ln == "done"]
-            if not loop or not done:
-                problems.append(
-                    f"job `{job}` no longer has the `for ... done` loop its "
-                    "proof counts iterations of."
-                )
-            elif not any(loop[0] < i < done[0] for i in derived):
-                problems.append(
-                    f"job `{job}` increments its proof OUTSIDE the loop body. "
-                    "Outside, it is incremented a fixed number of times "
-                    "regardless of how many adjudicators actually ran."
-                )
-
-        # FORGERY. The data dependency stops a parked body only while the source
-        # variable is UNBOUND. Seed it above the parked span and the derivation
-        # runs on a lie: measured, `out="Ran 1 tests in 0.0s"` inserted above an
-        # `if`-wrapped body published `ran=1` at exit 0 with every check returning
-        # [], and `adjudicated=3` hoisted above the canary's loop published
-        # `ran=3` the same way. That is a THIRD line for the attacker rather than
-        # closure, and it is not domination — but a seeded value is an EXTRA
-        # assignment, and counting assignments is something text CAN do.
-        # Rewriting the one legitimate assignment instead removes the
-        # `unittest discover` invocation, which `guard_job_problems` already
-        # rejects.
-        assigns = [
-            ln for ln in lines
-            if re.match(rf"^{re.escape(spec['source'])}=", ln)
+        lines = [
+            ln.strip() for ln in executed_shell(proof_steps[0]).splitlines()
+            if ln.strip()
         ]
-        if len(assigns) != spec["source_assignments"]:
+
+        # THE WHOLE STEP, not just "contains". Everything the step executes is
+        # `set -euo pipefail` and the invocation, so anything else is by
+        # definition something new to explain.
+        allowed = {"set -euo pipefail"}
+        extra = [
+            ln for ln in lines
+            if ln not in allowed and not spec["invocation"].match(ln)
+        ]
+        if extra:
             problems.append(
-                f"job `{job}` assigns `{spec['source']}` {len(assigns)} time(s), "
-                f"expected {spec['source_assignments']}: {assigns}. An extra "
-                "assignment is how a parked body forges a plausible proof — the "
-                "derivation then reads a seeded value instead of the work."
+                f"job `{job}` executes lines beyond the runner invocation: "
+                f"{extra}. The proof is that the step does nothing else; a "
+                "second command can seed state, redirect the output file, or "
+                "append a forged `ran=` of its own."
             )
 
-        if spec["verdict"] and not any(
-            spec["verdict"].match(ln) for ln in lines
-        ):
+        # EXACTLY ONE WRITER to `$GITHUB_OUTPUT`. Covered by `extra` above, but
+        # asserted separately because this is the specific forgery the previous
+        # design could not stop: while a shell variable carried the value, ten
+        # different ways of BINDING it without an `=` assignment published
+        # `ran=9999` at exit 0 with the guard silent (`read`, `printf -v`,
+        # `declare`, `export`, `mapfile`, `let`, `(( ))`, `for`, process
+        # substitution, and a step-level `env:` contributing no shell lines at
+        # all). A plain `ran=9999` WAS caught — the pin worked only for the one
+        # spelling it enumerated. Removing the variable removed the class.
+        writers = [ln for ln in lines if "$GITHUB_OUTPUT" in ln]
+        if len(writers) != 1:
             problems.append(
-                f"job `{job}` no longer requires its run to report `OK`. "
-                "`unittest` prints `Ran N` on failure too, so with the exit-status "
-                "branch weakened to `|| true` a genuinely FAILING suite publishes "
-                "a genuine count and the job reports success — measured, with "
-                "every other check in this function returning []."
+                f"job `{job}` has {len(writers)} lines writing to "
+                f"`$GITHUB_OUTPUT`, expected exactly 1: {writers}."
             )
-
-        if spec["floor"] not in lines:
+        elif lines[-1] != writers[0]:
             problems.append(
-                f"job `{job}` lost its floor `{spec['floor']}`. Without it a "
-                "derivation that produced nothing still publishes — the empty "
-                "string for `ci-guards`, and for the canary a count that a "
-                "never-iterating loop leaves at 0."
-            )
-        elif lines.index(spec["floor"]) > at_marker:
-            problems.append(
-                f"job `{job}` applies its floor after publishing, which is after "
-                "the value has already been read."
-            )
-
-        # POSITION, still asserted — but as the second line of defence now, not
-        # as the argument. A command below the marker can exit before the runner
-        # reads the file back.
-        if lines[-1] != marker:
-            problems.append(
-                f"job `{job}` writes its proof but NOT as its last executed line "
+                f"job `{job}` writes its proof but NOT as the last executed line "
                 f"(last is `{lines[-1]}`). Anything below it can exit first."
+            )
+
+        if any(re.match(r"^cd\s", ln) for ln in lines):
+            problems.append(
+                f"job `{job}` contains a `cd`. The runner is named by a path "
+                "relative to the repo root, so a `cd` can only change which "
+                "file — or no file — gets executed."
+            )
+
+        if spec["runner"] not in tracked_files():
+            problems.append(
+                f"job `{job}` invokes `{spec['runner']}`, which is not a tracked "
+                "file. That script IS the job's proof — which tests ran, and "
+                "whether they passed."
             )
 
     gate_block = job_block(lint_text, GATE_JOB)
@@ -804,6 +770,23 @@ def uncovered_paths(pattern: str) -> list:
         for name in installed_workflow_templates(SETUP_SH.read_text(encoding="utf-8")):
             targets.append(f"templates/{name}")
     targets.extend(guard_data_files())
+    # THE SCRIPTS THE JOBS EXECUTE, not just the files guards READ. That
+    # distinction is why this function missed them: the target set was
+    # workflows, templates and AST-derived data files, and a runner is none of
+    # those — it is the thing the job runs.
+    #
+    # Measured when the runners were introduced: both were OUTSIDE the bucket,
+    # so a PR editing only `_ci_guard_runner.py` — the script that decides which
+    # guards run and whether they passed — would not have fired `ci-guards` or
+    # `renderer-canary` at all. The path gate would have hidden a change to the
+    # proof itself, which is this repo's already-recorded "the gate hides drift"
+    # class landing on the gate's own evidence.
+    #
+    # Sourced from `PROOF_SPECS` rather than hand-written: those values are
+    # pinned to the workflow by `job_ran_proof_problems`, which matches the
+    # invocation line anchored WHOLE, so the constant cannot drift from what the
+    # jobs actually execute without turning something red.
+    targets.extend(spec["runner"] for spec in PROOF_SPECS.values())
     return sorted(p for p in targets if not bucket.match(p))
 
 
@@ -980,6 +963,30 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
         """Item 6 of the guard conventions: the harness must be able to report
         GREEN on the real file, or every RED below proves nothing."""
         self.assertEqual(uncovered_paths(bucket_pattern(self.lint)), [])
+
+    def test_a_bucket_that_stops_covering_the_runners_is_caught(self):
+        """The proof scripts must be INSIDE the gate that runs them.
+
+        Measured when they were introduced: both runners fell outside the
+        `ci_config` bucket, so a PR editing only `_ci_guard_runner.py` — the
+        script that decides which guards run and whether they passed — would not
+        have fired `ci-guards` or `renderer-canary`. The path gate would have
+        hidden a change to the evidence itself.
+
+        Mutated by NARROWING the alternation back to the exact previous
+        spelling, so the RED can come from nothing else."""
+        narrowed = apply_mutation(
+            self.lint,
+            r"scanner/tests/(test_ci_|_ci_)",
+            r"scanner/tests/(test_ci_|_ci_guard_util\.py)",
+        )
+        missed = uncovered_paths(bucket_pattern(narrowed))
+        for spec in PROOF_SPECS.values():
+            self.assertIn(
+                spec["runner"], missed,
+                f"narrowing the bucket left `{spec['runner']}` reported as "
+                "covered — the check cannot see the runners at all",
+            )
 
     def test_derived_target_set_is_populated(self):
         """The denominator must not be empty. `templates/codeql.yml` and
@@ -1238,37 +1245,128 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
             "renderer-canary no longer installs the oracle",
         )
 
-    def test_dropping_the_skip_check_is_caught(self):
-        """`unittest` counts a skipped class in `Ran N tests` and exits 0, so
-        the count check alone does not catch a skip."""
-        assert_disables(
-            canary_job_problems,
-            self.lint,
-            apply_mutation(
-                # RAW string: the workflow carries a shell-quoted ERE, so the
-                # backslashes are literal in the file. Writing them as escapes in
-                # a normal Python string produced a stale fixture twice, which
-                # `assert_disables` correctly refused to score.
-                self.lint,
-                r"grep -qE '\.\.\. skipped |\(skipped='",
-                "grep -qE '__removed__'",
-            ),
-            "renderer-canary lost its skip check",
-        )
+    def test_the_canary_runner_rejects_every_non_pass(self):
+        """The four shell-loop checks, replaced by EXECUTING their successor.
 
-    def test_dropping_a_canary_class_is_caught(self):
-        """Each class skips in every other job, so removing it here leaves it
-        running nowhere at all."""
-        assert_disables(
-            canary_job_problems,
-            self.lint,
-            apply_mutation(
-                self.lint,
-                "test_ci_markdown_scan_evasion.TestTheResidualIsBounded",
-                "test_ci_markdown_scan_evasion.__removed__",
+        This supersedes four assertions that scanned the step's text for a skip
+        grep, a `^Ran [1-9]` grep, `for spec in`, and a `did not run ${method}`
+        message. All four described a loop that parsed `unittest -v` PROSE, and
+        prose a run produces is prose a FAILING run can shape — measured, a red
+        class carrying a column-0 `OK ` line satisfied the verdict grep once the
+        failure branch was weakened.
+
+        SYNTHETIC TARGET MODULES, one per direction, because the first version
+        of this test was wrong in a way mutation scoring caught: it produced a
+        skip by withholding the oracle, which trips the runner's oracle check
+        FIRST and returns before the skip logic is ever reached. `if
+        result.skipped:` scored 0 red — the assertion passed for a reason
+        unrelated to what it named. Each branch now has a target that isolates
+        it."""
+        import os
+        import subprocess
+        import tempfile
+
+        runner_src = (REPO_ROOT / CANARY_RUNNER).read_text()
+        MODULES = {
+            "mod_ok.py": (
+                "import unittest\n"
+                "class C(unittest.TestCase):\n"
+                "    def test_it(self): pass\n"
             ),
-            "a renderer-adjudicated class dropped from the canary job",
-        )
+            "mod_skip.py": (
+                "import unittest\n"
+                "class C(unittest.TestCase):\n"
+                "    @unittest.skip('withheld dependency')\n"
+                "    def test_it(self): pass\n"
+            ),
+            "mod_fail.py": (
+                "import unittest\n"
+                "class C(unittest.TestCase):\n"
+                "    def test_it(self): self.fail('OK  a\\nOK')\n"
+            ),
+        }
+
+        def drive(adjudicators, block_oracle=False, argv=()):
+            with tempfile.TemporaryDirectory() as d:
+                marker = "ADJUDICATORS = ("
+                head = runner_src[:runner_src.index(marker)]
+                tail = runner_src[
+                    runner_src.index("\n)\n", runner_src.index(marker)) + 3:
+                ]
+                shim = Path(d, "_ci_canary_runner.py")
+                shim.write_text(
+                    head + f"ADJUDICATORS = {adjudicators!r}" + tail
+                )
+                for name, body in MODULES.items():
+                    Path(d, name).write_text(body)
+                path = [d]
+                if block_oracle:
+                    blk = Path(d, "blocked")
+                    blk.mkdir()
+                    Path(blk, "markdown_it.py").write_text(
+                        'raise ImportError("withheld")\n'
+                    )
+                    path.insert(0, str(blk))
+                r = subprocess.run(
+                    [sys.executable, str(shim), *argv],
+                    capture_output=True, text=True, cwd="/",
+                    env={
+                        "PATH": os.environ["PATH"],
+                        "PYTHONPATH": os.pathsep.join(path),
+                    },
+                )
+                return r.returncode, r.stdout.strip(), r.stderr
+
+        OK = (("mod_ok.C", "test_it"),)
+
+        # NON-VACUITY FIRST, or every negative row below passes for free.
+        code, out, err = drive(OK)
+        self.assertEqual(code, 0, err[-1200:])
+        self.assertEqual(out, "ran=1", err[-1200:])
+
+        with self.subTest(direction="a SKIPPED adjudicator is not a pass"):
+            # `unittest` counts a skip in `Ran N` and exits 0, which is why a
+            # count-based check could never see one.
+            code, out, err = drive((("mod_skip.C", "test_it"),))
+            self.assertNotEqual(code, 0)
+            self.assertEqual(out, "")
+            self.assertIn("SKIPPED in the job that exists to run it", err)
+
+        with self.subTest(direction="a FAILING adjudicator is not a pass"):
+            code, out, err = drive((("mod_fail.C", "test_it"),))
+            self.assertNotEqual(code, 0)
+            self.assertEqual(out, "")
+            self.assertIn("did not run and pass", err)
+            # Attribution: the `OK ` line the old grep-based verdict would have
+            # read really is in this output.
+            self.assertIn("OK  a", err)
+
+        with self.subTest(direction="a renamed method is not a pass"):
+            # NOTE THE MECHANISM: `loadTestsFromName` does NOT raise for a
+            # missing method — it returns a suite holding a synthetic
+            # `_FailedTest` that runs and errors. So the load-time branch never
+            # fires and `wasSuccessful()` is what rejects it. An earlier version
+            # of this assertion expected the load-time message and failed; the
+            # runner was right and the expectation was wrong.
+            code, out, err = drive((("mod_ok.C", "test_gone"),))
+            self.assertNotEqual(code, 0)
+            self.assertEqual(out, "")
+            self.assertIn("did not run and pass", err)
+
+        with self.subTest(direction="a missing oracle is a hard failure"):
+            # Asserted on the ORACLE branch's own message, not on a substring
+            # the skip branch could also produce — the two used to mask each
+            # other and both scored 0 red.
+            code, out, err = drive(OK, block_oracle=True)
+            self.assertEqual(code, 2)
+            self.assertEqual(out, "")
+            self.assertIn("markdown-it-py is not importable", err)
+
+        with self.subTest(direction="no arguments accepted"):
+            code, out, err = drive(OK, argv=("-k", "*bucket*"))
+            self.assertEqual(code, 2)
+            self.assertEqual(out, "")
+            self.assertIn("takes no arguments", err)
 
     def test_rewiring_the_canary_gate_is_caught(self):
         """The gate is asserted, not merely present.
@@ -1428,68 +1526,9 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
             "renderer-canary step parked in a heredoc body",
         )
 
-    def test_restoring_unittest_descriptions_is_caught(self):
-        """The fail-CLOSED half: a false alarm is also a defect.
-
-        `python3 -m unittest -v` cannot be told `descriptions=False`, and with
-        descriptions on, a method that HAS a docstring prints `name (…)` and puts
-        `... ok` on the NEXT line — so the by-name check stops matching and the
-        job goes red because someone documented a test. Measured on
-        `test_the_canary_fires_on_the_measured_residual_payload`, which already
-        carries one; the three adjudicating methods do not, which is the only
-        reason this is latent rather than live.
-
-        Pinned because reverting to the shorter `-m unittest -v` spelling looks
-        like a simplification and reintroduces it."""
-        start = self.lint.index(
-            "      - name: Run the renderer-adjudicated guard classes"
-        )
-        end = self.lint.index("\n  scanner-unit-tests:")
-        body = self.lint[start:end]
-        # Anchored on the RUNNER line, not on the token: the step's own comment
-        # explains `descriptions=False` and therefore contains it, and matching
-        # the token alone found two lines and would have mutated a comment —
-        # scoring the fixture rather than the check. The same over-broad-anchor
-        # slip the gate mutation already paid for once in this file.
-        runner = [
-            line for line in body.splitlines()
-            if "descriptions=False" in line and line.lstrip().startswith("out=$(")
-        ]
-        self.assertEqual(
-            len(runner),
-            1,
-            "expected exactly one runner line to mutate; the step changed shape",
-        )
-        reverted = body.replace(
-            runner[0],
-            '            out=$(python3 -m unittest -v "$cls" 2>&1) || {',
-        )
-        assert_disables(
-            canary_job_problems,
-            self.lint,
-            self.lint[:start] + reverted + self.lint[end:],
-            "renderer-canary reverted to `unittest -v` (descriptions on)",
-        )
-
-    # ------------------------------------------------------------------
-    # THE EXECUTION PROOF. The static half of this is `job_ran_proof_problems`,
-    # pinned by the mutations further down. The half below is the one that
-    # actually carries the design, and it is NOT static: text cannot see control
-    # flow, so parking the work with a construct that closes above the publish
-    # line leaves every static check returning []. What stops it is that the
-    # published value is COMPUTED from the work, so parking the work leaves its
-    # source unbound and `set -u` kills the derivation.
-    #
-    # These run the REAL job bodies, parked. That is affordable precisely
-    # because a parked body does no work: it dies on the unbound variable in
-    # milliseconds. The unparked direction is the one that cannot be run here
-    # (`ci-guards` would invoke the whole suite, and `renderer-canary` needs the
-    # pinned oracle), so its non-vacuity is carried by the synthetic control.
-    # ------------------------------------------------------------------
-
     #: Constructs that swallow a span of shell without executing it. Not an
-    #: enumeration this design depends on — the data dependency does not care
-    #: which one is used — but each was measured to DEFEAT the previous
+    #: enumeration the design depends on — the data dependency does not care
+    #: which one is used — but each was measured to DEFEAT the earlier
     #: constant-marker design, so each is pinned as a regression.
     PARKING_WRAPS = {
         "if": ('if [ "${__PARK:-}" = "1" ]; then', "fi"),
@@ -1502,72 +1541,57 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
         self.assertIsNotNone(block, f"job `{job}` not found")
         return block_scalar_body(block)
 
-    def test_parking_the_work_kills_the_publish_line_in_both_real_bodies(self):
-        """The property the whole design rests on, measured on the real bodies.
+    def test_parking_the_step_is_caught_and_publishes_nothing(self):
+        """Parking, against the shape that has no shell variable left.
 
-        The previous design published a constant `ran=true` as the last line and
-        argued that reaching the last line proved the body ran. It does not. An
-        adversarial pass inserted two lines into `ci-guards` — a never-taken `if`
-        opened after `set -euo pipefail` and its `fi` one line above the marker —
-        and measured `job_ran_proof_problems() == []`, `guard_job_problems() ==
-        []`, the full 1255-test suite `OK`, and the step exiting 0 with
-        `ran=true` written and ZERO tests run. The old fixture had listed `if
-        false; then ... fi` among the shapes it closed, but only because it put
-        the marker INSIDE the `if`; moving `fi` up one line falls through it.
+        Under the previous design the publish line read `$ran`, so parking the
+        work left it unbound and `set -u` killed the step. That mechanism is
+        gone with the variable — and it is not missed, because parking now fails
+        in two independent places instead:
 
-        The fix is a data dependency: `$ran` is parsed out of `$out`, and
-        `$adjudicated` is incremented inside the loop. Park the work by ANY
-        construct and the source variable is unbound at the publish line, so
-        `set -u` ends the step instead of letting it fall through.
+          static  the step's executed shell is EXHAUSTIVELY `set -euo pipefail`
+                  plus the anchored invocation, so the `if`/`fi` a parking
+                  construct must add are extra lines and get rejected outright;
+          runtime the invocation itself is inside the parked span, so nothing is
+                  appended, `outputs.ran` is empty, and `lint-gate` rejects it as
+                  not a positive integer.
 
-        Parked from just after `set -euo pipefail` to just before the publish
-        line — the most that can be swallowed while leaving the proof intact,
-        which is the strongest form of the attack."""
+        The runtime half is the one that survives someone editing this guard, so
+        both are asserted."""
         for job, spec in PROOF_SPECS.items():
             body = self._job_body(job)
             lines = body.splitlines()
             start = lines.index("set -euo pipefail") + 1
-            end = lines.index(_marker(spec["var"]))
+            invocation = next(
+                i for i, ln in enumerate(lines)
+                if spec["invocation"].match(ln.strip())
+            )
             for name, (open_, close_) in self.PARKING_WRAPS.items():
                 with self.subTest(job=job, shape=name):
-                    parked = "\n".join(
-                        lines[:start] + [open_] + lines[start:end] + [close_]
-                        + lines[end:]
+                    parked_lines = (
+                        lines[:start] + [open_] + lines[start:invocation + 1]
+                        + [close_]
                     )
-                    code, written = self._run_body(parked)
-                    self.assertNotEqual(
-                        code, 0,
-                        f"{job}/{name}: the parked body EXITED 0 — the work never "
-                        "ran and the step reported success",
+                    block = job_block(self.lint, job)
+                    mutated = self.lint.replace(
+                        block,
+                        block.replace(
+                            "\n".join(lines),
+                            "\n".join(parked_lines),
+                        ),
+                        1,
                     )
-                    self.assertNotIn(
-                        "ran=", written,
-                        f"{job}/{name}: the parked body still published a proof "
-                        f"({written!r}) — the data dependency does not hold",
+                    if mutated != self.lint:
+                        self.assertTrue(
+                            job_ran_proof_problems(mutated),
+                            f"{job}/{name}: a parked step was accepted",
+                        )
+                    code, written = self._run_body("\n".join(parked_lines))
+                    self.assertEqual(
+                        written, "",
+                        f"{job}/{name}: a parked step still published "
+                        f"{written!r}",
                     )
-
-    def test_the_publish_line_is_the_thing_that_dies(self):
-        """Attribution, not just failure.
-
-        A parked body could exit non-zero for an unrelated reason and every
-        subtest above would pass for the wrong reason. This pins the actual
-        cause: bash naming the derivation's source variable as unbound."""
-        for job, spec in PROOF_SPECS.items():
-            body = self._job_body(job)
-            lines = body.splitlines()
-            start = lines.index("set -euo pipefail") + 1
-            end = lines.index(_marker(spec["var"]))
-            open_, close_ = self.PARKING_WRAPS["if"]
-            parked = "\n".join(
-                lines[:start] + [open_] + lines[start:end] + [close_] + lines[end:]
-            )
-            with self.subTest(job=job):
-                _, _, stderr = self._run_body(parked, want_stderr=True)
-                self.assertIn(
-                    spec["var"], stderr,
-                    f"{job}: parked body failed without naming `{spec['var']}` as "
-                    f"unbound; stderr was {stderr!r}",
-                )
 
     def _run_body(self, script, want_stderr=False):
         import os
@@ -1636,97 +1660,239 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
         end = next(i for i in range(start, len(lines)) if lines[i] == "}")
         return "\n".join(lines[:start] + [replacement] + lines[end + 1:])
 
-    def test_a_swallowed_suite_failure_does_not_publish(self):
-        r"""A FAILING suite must not publish a count. Measured, not argued.
+    def test_the_guard_runner_publishes_only_when_the_suite_passed(self):
+        """The verdict is `wasSuccessful()`, not a grep. Driven, not read.
 
-        `unittest` prints `Ran N` on failure exactly as it does on success, so
-        weakening the capture's `|| { ...; exit 1; }` branch to `|| true` lets a
-        red suite publish a genuine count and the job report success — worse than
-        the parking class this design was built for, because parking runs nothing
-        while this SWALLOWS real failures. Measured before the `^OK` check
-        existed: `job_ran_proof_problems() == []` and `guard_job_problems() == []`
-        with the suite red and the job green.
+        Three shell versions of this check were defeated in a row. The last one
+        greped the run's own output for `^OK( |$)`, which a failing run can
+        satisfy: `2>&1` captures the whole failure report, and this repo's
+        guards routinely build multi-line messages whose lines start at column
+        0. Measured — a red suite with an `OK ` line in it, plus the failure
+        branch weakened to `|| true`, exited 0 and published `ran=2`.
 
-        The static guard still cannot see it (the OK check is textually present
-        either way), so this direction is pinned by EXECUTION. Four rows, because
-        the first version of this probe used `\\n` inside a non-raw Python string,
-        printf emitted a literal backslash-n, the whole synthetic output collapsed
-        onto one line, and every row went red for that reason instead of the one
-        under test — the non-vacuity row is what caught it."""
-        fail = r"""printf 'F\nRan 1253 tests in 16.8s\n\nFAILED (failures=1)\n'; exit 1"""
-        ok = r"""printf 'Ran 1253 tests in 16.8s\n\nOK\n'"""
-        cases = {
-            # The attack.
-            "failing + swallowed": (f"out=$({fail}) || true", False),
-            # Same failure, branch intact — red for the ordinary reason.
-            "failing + branch intact": (
-                f'out=$({fail}) || {{\n  printf \'%s\\n\' "$out"\n  exit 1\n}}',
-                False,
-            ),
-            # NON-VACUITY: the fixture path must be able to reach the publish
-            # line at all, or the two rows above prove nothing.
-            "passing": (f"out=$({ok})", True),
-            # ATTRIBUTION: `|| true` alone must NOT be what makes it red, or the
-            # first row is red for the wrong reason.
-            "passing + swallowed": (f"out=$({ok}) || true", True),
-        }
-        for name, (capture, should_publish) in cases.items():
-            with self.subTest(case=name):
-                code, written = self._run_body(
-                    self._ci_guards_with_capture(capture)
+        Driven in a temp directory rather than against `scanner/tests`, because
+        the runner scans ITS OWN parent: dropping the shim next to synthetic
+        fixtures gives exact control over pass/fail without touching the repo."""
+        import os
+        import subprocess
+        import tempfile
+
+        PASSING = (
+            "import unittest\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_a(self): pass\n"
+            "    def test_b(self): pass\n"
+        )
+        FAILING = (
+            "import unittest\n"
+            "class U(unittest.TestCase):\n"
+            # A failure message whose line starts at column 0 with `OK `, which
+            # is exactly what defeated the grep-based verdict.
+            "    def test_c(self): self.fail('OK  docs/a.md\\nOK')\n"
+        )
+
+        def drive(files, argv=()):
+            with tempfile.TemporaryDirectory() as d:
+                Path(d, "_ci_guard_runner.py").write_text(
+                    (REPO_ROOT / GUARD_RUNNER).read_text()
                 )
-                if should_publish:
-                    self.assertEqual(code, 0, f"{name}: expected success")
-                    self.assertEqual(written.strip(), "ran=1253", name)
-                else:
-                    self.assertNotEqual(code, 0, f"{name}: a red suite exited 0")
-                    self.assertEqual(
-                        written, "",
-                        f"{name}: a red suite published {written!r}",
+                for name, body in files.items():
+                    Path(d, name).write_text(body)
+                r = subprocess.run(
+                    [sys.executable, str(Path(d, "_ci_guard_runner.py")), *argv],
+                    capture_output=True, text=True, cwd="/",
+                    env={"PATH": os.environ["PATH"]},
+                )
+                return r.returncode, r.stdout.strip(), r.stderr
+
+        # NON-VACUITY: the harness must be able to publish at all.
+        code, out, err = drive({"test_ci_pass.py": PASSING})
+        self.assertEqual(code, 0, err[-800:])
+        self.assertEqual(out, "ran=2", err[-800:])
+
+        with self.subTest(direction="a failing test blocks the count"):
+            code, out, err = drive(
+                {"test_ci_pass.py": PASSING, "test_ci_fail.py": FAILING}
+            )
+            self.assertNotEqual(code, 0)
+            self.assertEqual(
+                out, "",
+                "a red suite published a count — the verdict is not structural",
+            )
+            self.assertIn("FAILED", err)
+            # Attribution: the `OK ` line really is present in the output that
+            # the old grep-based verdict would have read.
+            self.assertIn("OK  docs/a.md", err)
+
+        with self.subTest(direction="an empty tree is not a vacuous pass"):
+            code, out, err = drive({})
+            self.assertEqual(code, 2)
+            self.assertEqual(out, "")
+
+        with self.subTest(direction="no arguments accepted"):
+            # Pinned separately from the canary runner's identical refusal:
+            # mutation scoring showed `if argv:` in THIS runner at 0 red, i.e.
+            # nothing was holding it. An appended `-k '*bucket*'` is what cut a
+            # real run from 1264 tests to 18.
+            #
+            # DRIVEN AGAINST A COPY, never `REPO_ROOT / GUARD_RUNNER`. The first
+            # version ran the real runner, and mutation scoring found what that
+            # costs: with the refusal removed, the runner falls through to
+            # discovering `scanner/tests` — which contains THIS test, which
+            # spawns the runner again. Unbounded recursion. It hung for 18 hours
+            # before it was killed, and in CI it would burn the job timeout
+            # instead of failing. A copy scans only its own temp directory, so
+            # the same mutation now fails fast.
+            code, out, err = drive({"test_ci_pass.py": PASSING}, argv=("-k", "*x*"))
+            self.assertEqual(code, 2)
+            self.assertEqual(out, "")
+            self.assertIn("takes no arguments", err)
+
+        with self.subTest(direction="a narrowed run is rejected"):
+            # The floor tied to something the shell does not choose: more guard
+            # FILES than tests that ran means discovery was cut short.
+            with tempfile.TemporaryDirectory() as d:
+                Path(d, "_ci_guard_runner.py").write_text(
+                    (REPO_ROOT / GUARD_RUNNER).read_text()
+                )
+                for n in range(3):
+                    Path(d, f"test_ci_m{n}.py").write_text(
+                        "import unittest\n"
+                        f"class C{n}(unittest.TestCase):\n"
+                        # Only ONE module contributes a test; the other two are
+                        # importable but empty, so testsRun < len(files).
+                        + ("    def test_it(self): pass\n" if n == 0 else "    pass\n")
+                    )
+                r = subprocess.run(
+                    [sys.executable, str(Path(d, "_ci_guard_runner.py"))],
+                    capture_output=True, text=True, cwd="/",
+                    env={"PATH": os.environ["PATH"]},
+                )
+            self.assertNotEqual(r.returncode, 0, r.stderr[-600:])
+            self.assertEqual(r.stdout.strip(), "")
+            self.assertIn("was narrowed", r.stderr)
+
+        with self.subTest(direction="cwd cannot redirect the scan"):
+            # Driven from `/` above already; this pins that a decoy suite in the
+            # CWD is not what gets scanned.
+            with tempfile.TemporaryDirectory() as decoy:
+                Path(decoy, "test_ci_decoy.py").write_text(
+                    "import unittest\n"
+                    "class D(unittest.TestCase):\n"
+                    "    def test_only(self): pass\n"
+                )
+                with tempfile.TemporaryDirectory() as d:
+                    Path(d, "_ci_guard_runner.py").write_text(
+                        (REPO_ROOT / GUARD_RUNNER).read_text()
+                    )
+                    Path(d, "test_ci_pass.py").write_text(PASSING)
+                    r = subprocess.run(
+                        [sys.executable, str(Path(d, "_ci_guard_runner.py"))],
+                        capture_output=True, text=True, cwd=decoy,
+                        env={"PATH": os.environ["PATH"]},
+                    )
+            self.assertEqual(r.returncode, 0, r.stderr[-800:])
+            self.assertEqual(
+                r.stdout.strip(), "ran=2",
+                "the runner scanned the CWD instead of its own directory",
+            )
+
+    def test_the_canary_table_drifting_from_the_guard_is_caught(self):
+        """`CANARY_CLASSES` and the runner's `ADJUDICATORS` are one spec in two
+        files, so drift between them must be a failure rather than a silent
+        divergence — this repo has lost a check to a drifted second copy before.
+
+        Mutated on the GUARD side, so the runner (which CI executes) stays
+        correct and only the pin moves."""
+        original = tuple(CANARY_CLASSES)
+        narrowed = original[:-1]
+        import test_ci_guard_self_verify as self_mod
+
+        self_mod.CANARY_CLASSES = narrowed
+        try:
+            problems = canary_job_problems(self.lint)
+        finally:
+            self_mod.CANARY_CLASSES = original
+        self.assertTrue(
+            any("drifted" in p for p in problems),
+            f"a narrowed CANARY_CLASSES was accepted: {problems}",
+        )
+
+    def test_binding_the_published_value_any_other_way_is_caught(self):
+        """The enumeration failure mode, closed by removing what it enumerated.
+
+        While the value passed through a shell variable, the guard counted
+        `^ran=` assignments — and that pin worked for exactly the one spelling it
+        named. Measured on that design, with the work parked and ONE line seeded
+        above it, every one of these published `ran=9999` at exit 0 with the
+        guard reporting nothing, while a plain `ran=9999` WAS caught:
+
+            read -r ran <<<        printf -v ran        declare ran=
+            export ran=            mapfile -t ran       let ran=
+            (( ran = ))            for ran in           IFS= read -r ran < <()
+            step-level `env: ran:` (zero shell lines at all)
+
+        There is no variable now — the runner appends its own `ran=<count>` — so
+        each of these is just an extra line in a step whose executed shell is
+        checked exhaustively. Pinned anyway, because the value of this design is
+        precisely that the list above stopped mattering, and a future edit that
+        reintroduces an intermediate variable should turn this red."""
+        seeds = [
+            'read -r ran <<< "9999"',
+            "printf -v ran %s 9999",
+            "declare ran=9999",
+            "export ran=9999",
+            'mapfile -t ran <<< "9999"',
+            "let ran=9999",
+            "(( ran = 9999 ))",
+            "for ran in 9999; do :; done",
+            'echo "ran=9999" >> "$GITHUB_OUTPUT"',
+        ]
+        for job in PROOF_SPECS:
+            block = job_block(self.lint, job)
+            anchor = "          set -euo pipefail\n"
+            self.assertIn(anchor, block, f"{job}: anchor moved")
+            for seed in seeds:
+                with self.subTest(job=job, seed=seed[:28]):
+                    assert_disables(
+                        job_ran_proof_problems,
+                        self.lint,
+                        self.lint.replace(
+                            block,
+                            block.replace(anchor, anchor + f"          {seed}\n", 1),
+                            1,
+                        ),
+                        f"{job}: {seed[:28]}",
                     )
 
-    def test_seeding_the_source_variable_is_caught(self):
-        """FORGERY: the data dependency holds only while the source is unbound.
+    def test_a_step_level_env_cannot_supply_the_value(self):
+        """The one seeding shape that adds NO shell line at all.
 
-        Seed it above a parked span and the derivation runs on a lie — measured,
-        `out="Ran 1 tests in 0.0s"` published `ran=1` at exit 0, and
-        `adjudicated=3` hoisted above the canary's loop published `ran=3`, both
-        with every check returning []. A seeded value is an EXTRA assignment, and
-        counting assignments is something text CAN do."""
+        `executed_shell` discards every non-`run` key, so a step-level
+        `env: ran: '9999'` was invisible to the assignment count — and under the
+        old design it published `ran=9999` from a fully parked body. It is
+        harmless now for a structural reason rather than a detected one: nothing
+        in the step reads a variable, so there is nothing for it to supply.
+        Asserted as BEHAVIOUR, since there is no text for a static check to see."""
         for job, spec in PROOF_SPECS.items():
             with self.subTest(job=job):
-                block = job_block(self.lint, job)
-                anchor = "          set -euo pipefail\n"
-                self.assertIn(anchor, block, f"{job}: anchor moved")
-                seeded = block.replace(
-                    anchor,
-                    anchor + f'          {spec["source"]}="forged"\n',
-                    1,
+                # `executed_shell`, not the raw body: the first version of this
+                # matched `$ran` inside the step's own COMMENTS explaining why
+                # the variable was removed, and went red on prose.
+                lines = [
+                    ln for ln in
+                    executed_shell(job_block(self.lint, job)).splitlines()
+                    if ln.strip()
+                ]
+                self.assertFalse(
+                    [ln for ln in lines if "$ran" in ln or "${ran" in ln],
+                    f"{job}: the step reads a shell variable again, so a "
+                    "step-level `env:` could supply it — the shape this design "
+                    "removed",
                 )
-                assert_disables(
-                    job_ran_proof_problems,
-                    self.lint,
-                    self.lint.replace(block, seeded, 1),
-                    f"{job}: source variable seeded with a forged value",
-                )
-
-    def test_dropping_the_ok_verdict_check_is_caught(self):
-        """Without it, `Ran N` alone is the whole verdict — and it prints on
-        failure too."""
-        for job, spec in PROOF_SPECS.items():
-            with self.subTest(job=job):
-                block = job_block(self.lint, job)
-                line = next(
-                    ln for ln in block.splitlines()
-                    if spec["verdict"].match(ln.strip())
-                )
-                assert_disables(
-                    job_ran_proof_problems,
-                    self.lint,
-                    self.lint.replace(
-                        block, block.replace(line + "\n", "", 1), 1
-                    ),
-                    f"{job}: `^OK` verdict check dropped",
+                self.assertTrue(
+                    any(spec["invocation"].match(ln.strip()) for ln in lines),
+                    f"{job}: invocation not found",
                 )
 
     def test_the_same_control_parks_when_the_work_is_removed(self):
@@ -1745,126 +1911,90 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertEqual(written, "")
 
-    def test_hoisting_the_publish_line_above_the_work_is_caught(self):
-        """Publishing before deriving.
-
-        With the value hoisted, `$ran` is unbound where it is published, so this
-        also fails closed at runtime — but statically it is the difference
-        between a proof and a decoration, and it is caught where the diff is."""
-        for job, spec in PROOF_SPECS.items():
-            with self.subTest(job=job):
-                block = job_block(self.lint, job)
-                marker_line = next(
-                    ln for ln in block.splitlines()
-                    if ln.strip() == _marker(spec["var"])
-                )
-                anchor = "          set -euo pipefail\n"
-                self.assertIn(anchor, block, f"{job}: anchor moved")
-                hoisted = block.replace(marker_line + "\n", "").replace(
-                    anchor, anchor + marker_line + "\n", 1
-                )
-                assert_disables(
-                    job_ran_proof_problems,
-                    self.lint,
-                    self.lint.replace(block, hoisted, 1),
-                    f"{job}: publish line hoisted above the derivation",
-                )
-
     def test_a_command_after_the_publish_line_is_caught(self):
-        """The position half, which survives as defence in depth.
-
-        A command below the publish line can exit before the runner reads the
-        file back. Any trailing command reopens that, so the check rejects all of
-        them rather than trying to classify which are harmless."""
+        """A command below the invocation can exit before the runner reads the
+        output file back — and is an extra line besides."""
         for job, spec in PROOF_SPECS.items():
             with self.subTest(job=job):
                 block = job_block(self.lint, job)
-                marker_line = next(
+                line = next(
                     ln for ln in block.splitlines()
-                    if ln.strip() == _marker(spec["var"])
-                )
-                trailing = block.replace(
-                    marker_line + "\n", marker_line + "\n          echo done\n", 1
+                    if spec["invocation"].match(ln.strip())
                 )
                 assert_disables(
                     job_ran_proof_problems,
                     self.lint,
-                    self.lint.replace(block, trailing, 1),
-                    f"{job}: command added after the publish line",
+                    self.lint.replace(
+                        block,
+                        block.replace(line + "\n", line + "\n          echo done\n", 1),
+                        1,
+                    ),
+                    f"{job}: command added after the invocation",
                 )
 
-    def test_replacing_the_derivation_with_a_constant_is_caught(self):
-        """THE regression this redesign exists for.
+    def test_replacing_the_runner_with_a_constant_is_caught(self):
+        """THE regression this whole series exists for.
 
-        A constant published on the last line was the previous design, and it was
-        defeated by two inserted lines. Anything that turns the derivation back
-        into a constant must be rejected statically, because at runtime a
-        constant is indistinguishable from a real proof."""
+        A constant published as the last line was the FIRST design, and it was
+        defeated by two inserted lines. Anything that turns the proof back into a
+        constant must be rejected statically, because at runtime a constant is
+        indistinguishable from a real count."""
         for job, spec in PROOF_SPECS.items():
             with self.subTest(job=job):
                 block = job_block(self.lint, job)
-                derivation = next(
+                line = next(
                     ln for ln in block.splitlines()
-                    if spec["derivation"].match(ln.strip())
+                    if spec["invocation"].match(ln.strip())
                 )
-                indent = " " * (len(derivation) - len(derivation.lstrip()))
+                indent = " " * (len(line) - len(line.lstrip()))
                 assert_disables(
                     job_ran_proof_problems,
                     self.lint,
                     self.lint.replace(
                         block,
                         block.replace(
-                            derivation, f"{indent}{spec['var']}=1", 1
+                            line,
+                            f'{indent}echo "ran=1" >> "$GITHUB_OUTPUT"',
+                            1,
                         ),
                         1,
                     ),
-                    f"{job}: derivation replaced with a constant",
+                    f"{job}: runner replaced with a constant",
                 )
 
-    def test_dropping_the_floor_is_caught(self):
-        """A derivation that produced nothing still publishes without a floor.
+    def test_anything_appended_to_the_invocation_is_caught(self):
+        """The substring-match hole, closed by anchoring — and pinned.
 
-        For `ci-guards` that is the empty string; for the canary it is `0`, which
-        is what a loop that never iterates leaves behind. `lint-gate` rejects both
-        as well — this is the static half of the same check."""
+        `_DISCOVER_RE` used to match `unittest discover ... -p 'test_ci_*.py'`
+        and ignore the rest of the line. Measured, that accepted an appended
+        `-k '*bucket*'` which cut the run from 1264 tests to 18, and a `cd
+        /tmp/decoy` in front which ran a one-test decoy suite — both publishing
+        a GENUINE count, because the scope was the lie, not the number.
+
+        Each row is a separate spelling of "more than the bare invocation"."""
         for job, spec in PROOF_SPECS.items():
-            with self.subTest(job=job):
-                block = job_block(self.lint, job)
-                floor = next(
-                    ln for ln in block.splitlines() if ln.strip() == spec["floor"]
-                )
-                assert_disables(
-                    job_ran_proof_problems,
-                    self.lint,
-                    self.lint.replace(
-                        block, block.replace(floor + "\n", "", 1), 1
-                    ),
-                    f"{job}: floor dropped",
-                )
-
-    def test_moving_the_canary_increment_out_of_the_loop_is_caught(self):
-        """Outside the loop it is incremented a fixed number of times.
-
-        Hoisted above `for` or dropped below `done`, `$adjudicated` stops
-        counting adjudicators and becomes a constant wearing a derivation's
-        shape — which the runtime data dependency cannot tell apart, because the
-        variable is still bound."""
-        spec = PROOF_SPECS[CANARY_JOB]
-        block = job_block(self.lint, CANARY_JOB)
-        inc = next(
-            ln for ln in block.splitlines() if spec["derivation"].match(ln.strip())
-        )
-        done = next(ln for ln in block.splitlines() if ln.strip() == "done")
-        moved = block.replace(inc + "\n", "", 1).replace(
-            done + "\n", done + "\n          " + inc.strip() + "\n", 1
-        )
-        self.assertNotEqual(moved, block, "fixture matched nothing")
-        assert_disables(
-            job_ran_proof_problems,
-            self.lint,
-            self.lint.replace(block, moved, 1),
-            "canary increment moved below `done`",
-        )
+            runner = spec["runner"]
+            for label, mutated in {
+                "argument appended":
+                    f'python3 {runner} -k \'*bucket*\' >> "$GITHUB_OUTPUT"',
+                "failure swallowed":
+                    f'python3 {runner} >> "$GITHUB_OUTPUT" || true',
+                "piped through a filter":
+                    f'python3 {runner} | tail -1 >> "$GITHUB_OUTPUT"',
+                "redirected elsewhere":
+                    f'python3 {runner} >> /tmp/elsewhere',
+                "a `cd` in front":
+                    f'cd /tmp\n          python3 {runner} >> "$GITHUB_OUTPUT"',
+            }.items():
+                with self.subTest(job=job, shape=label):
+                    assert_disables(
+                        job_ran_proof_problems,
+                        self.lint,
+                        apply_mutation(
+                            self.lint, f'python3 {runner} >> "$GITHUB_OUTPUT"', mutated
+                        ),
+                        f"{job}: {label}",
+                    )
 
     def test_dropping_the_output_declaration_is_caught(self):
         for job in PROOF_JOBS:
@@ -1926,51 +2056,6 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
             "aggregator no longer requires the canary's proof",
         )
 
-    def test_dropping_the_per_method_assertion_is_caught(self):
-        """A per-class COUNT floor passes with the adjudicating test parked.
-
-        Measured: parking the one method in `TestTheDocAgreesWithTheRenderer`
-        that reads the real catalog left the class at two synthetic-fixture
-        tests, `Ran 3 tests / OK`, exit 0 — with the residual payload live and a
-        reader seeing 0 of 70 guard rows."""
-        assert_disables(
-            canary_job_problems,
-            self.lint,
-            apply_mutation(
-                self.lint, 'did not run ${method}', 'did not run __removed__'
-            ),
-            "renderer-canary lost its per-method assertion",
-        )
-
-    def test_dropping_an_adjudicating_method_name_is_caught(self):
-        """The class can stay in the loop while the method it must run does
-        not — which is the shape a rename produces."""
-        assert_disables(
-            canary_job_problems,
-            self.lint,
-            apply_mutation(
-                self.lint,
-                "test_the_reduction_and_the_renderer_agree_on_the_real_catalog",
-                "__renamed_away__",
-            ),
-            "an adjudicating method name dropped from the canary loop",
-        )
-
-    def test_flattening_the_per_class_loop_is_caught(self):
-        """An aggregate `Ran [1-9]` over the combined output lets ONE class
-        contribute zero tests while the other two carry the count.
-
-        Not hypothetical: emptying `TestTheDocAgreesWithTheRenderer` — renaming
-        its test methods, which is what an ordinary refactor produces — printed
-        "Ran 5 tests / OK" and exited 0 with the measured residual payload live
-        in the catalog and a reader seeing 0 of 70 guard rows."""
-        assert_disables(
-            canary_job_problems,
-            self.lint,
-            apply_mutation(self.lint, "for spec in \\", "for _unused in \\"),
-            "renderer-canary no longer loops per class",
-        )
-
     def test_removing_the_job_from_the_aggregator_is_caught(self):
         """A job outside `lint-gate.needs` cannot block a merge."""
         assert_disables(
@@ -2003,8 +2088,8 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
             self.lint,
             apply_mutation(
                 self.lint,
-                "python3 -m unittest discover -s . -p 'test_ci_*.py'",
-                "echo 'skipping the guards'",
+                f'python3 {GUARD_RUNNER} >> "$GITHUB_OUTPUT"',
+                'echo "ran=1" >> "$GITHUB_OUTPUT"',
             ),
             "ci-guards runs nothing",
         )
@@ -2016,14 +2101,14 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
         problems = guard_job_problems(
             apply_mutation(
                 self.lint,
-                "          out=$(python3 -m unittest discover -s . -p 'test_ci_*.py' 2>&1) || {",
-                "          # out=$(python3 -m unittest discover -s . -p 'test_ci_*.py' 2>&1) || {\n"
-                "          out=$(echo skipped) || {",
+                f'          python3 {GUARD_RUNNER} >> "$GITHUB_OUTPUT"',
+                f'          # python3 {GUARD_RUNNER} >> "$GITHUB_OUTPUT"\n'
+                '          echo "ran=1" >> "$GITHUB_OUTPUT"',
             )
         )
         self.assertTrue(
             problems,
-            "a commented-out `unittest discover` was accepted as execution",
+            "a commented-out runner invocation was accepted as execution",
         )
 
     def test_renaming_the_job_fails_closed(self):
