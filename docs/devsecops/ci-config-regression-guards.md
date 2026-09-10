@@ -215,7 +215,7 @@ first line of the run body — one token, cheaper than any of the three — park
 step with `canary_job_problems()` returning `[]`, zero test output and exit 0;
 `if false; then ... fi`, an uncalled function wrapper and `set -n` all measure the
 same. Proving a shell script reaches its end requires running it, so this is a
-limit of static text analysis rather than a defect in the check, and it is
+limit of static text analysis rather than a defect in the check, and it was
 PRE-EXISTING AND REPO-WIDE rather than something this job introduced — measured:
 the same `exit 0` injected into the `ci-guards` job's run block gives
 `guard_job_problems() == []`, and that sibling predates this row. Every guard that
@@ -223,14 +223,240 @@ proves a job runs by scanning executed text falls the same way. `renderer-canary
 IS inside `test_ci_required_graph_not_disabled`'s graph (one of its 23 nodes), and
 an early `exit 0` is outside that guard's stated scope rather than a gap in it:
 that guard exists as the complement of EXECUTION, forbidding runner-consumed keys
-because something else was meant to cover the shell body. For this job nothing
-does. Closing it means executing the step body in a guard and requiring three
-`^Ran [1-9]` lines — the #404 move, which closed ten shapes at once where three
-parser fixes had closed one each — and that is not free here, because the body
-needs the oracle and the only job holding it is the one being proved. Left open
-deliberately, with the shape written down. The `<<` refusal is likewise a
-substring test, not a heredoc parser: it also fires on `echo "shift: 1 << 2"` and
-`: $(( 1 << 2 ))`, which fail closed and do not belong in this step.
+because something else was meant to cover the shell body.
+
+**CLOSED for these two jobs by an EXECUTION PROOF, not by patching shape five.**
+Patching would have been the third fix to an enumeration, which ADR-001 §5 names
+as the signal to invert.
+
+**The first attempt at that inversion was wrong, and it is recorded here because
+the way it was wrong is the reusable part.** It made the last line of each work
+body publish a constant `ran=true` and argued that the line "is reachable only by
+executing everything above it". It is not. Reaching the last line is not the same
+as having run the work — close a parking construct *above* the publish line and
+the shell falls straight through it. An adversarial pass measured the defeat end
+to end on `ci-guards`:
+
+```bash
+if [ "${CLAUDESEC_FULL_GUARDS:-}" = "1" ]; then   # inserted
+# ...the entire work body, untouched...
+fi                                                # inserted, one line above
+echo "ran=true" >> "$GITHUB_OUTPUT"               # unchanged
+```
+
+`job_ran_proof_problems() == []`, `guard_job_problems() == []`, the full
+1255-test suite `OK`, and the step exiting 0 with `ran=true` written and **zero
+tests run** — for two inserted lines in one job, against a claim that the cost
+was "several coordinated edits across two jobs". `case ... esac` measures the
+same, so it is a class and not a spelling of `if`. Worst of all, the fixture had
+listed `if false; then ... fi` among the shapes it closed, but only because it
+put the marker *inside* the `if`; the attacker moves `fi` up one line. **A
+fixture that picks the weak variant of a shape reports the shape as closed.**
+
+The property a marker actually needs is DOMINATION — every path reaching it must
+have executed the work — and no amount of text analysis establishes domination.
+A **data dependency** gets closer: compute the published value *from* the work, so
+parking the work leaves its source unbound and the publish line dies. That closed
+the parking class, and a second pass then closed two more shapes on top of it
+(a seeded source variable; a `|| true` that let a red suite publish a real count).
+
+**A third pass defeated all of it, and found what the three versions had in
+common.** Each derived its proof from a blob whose SCOPE and VERDICT were both
+decided inside that same blob. Measured on the real body, each with every static
+guard returning `[]`:
+
+| edit | result |
+| --- | --- |
+| `cd /tmp/decoy` before an unchanged `discover` | exit 0, published `ran=1`, **zero real guards ran** |
+| `-k '*bucket*'` appended to `discover` | exit 0, published `ran=18` of 1264 |
+| red suite whose output has a column-0 `OK` line (with a trailing space), failure branch neutered | exit 0, published `ran=2`, suite `FAILED` |
+
+**None of those forges a number.** The counts are genuine — the `cd` target,
+everything after `-p`, and the presence of an `OK` line were simply never pinned,
+and `2>&1` lets a failing run put `OK` into its own output. So the `^OK` check
+added by the second pass was never a second *independent* reading; it re-read a
+blob the failing run controls. The old `_DISCOVER_RE` was a substring test that
+stopped matching at `-p`, which is why an appended argument was invisible.
+
+**Fixed by moving the three unpinnable things out of shell text** into two
+tracked runners, `scanner/tests/_ci_guard_runner.py` and
+`scanner/tests/_ci_canary_runner.py`. Each derives its scan root from its own
+`__file__` (so the working directory cannot redirect it), refuses arguments
+outright (so there is no filter to append), and prints a count only when
+`TestResult.wasSuccessful()` (so the verdict is structural rather than grepped).
+The canary runner additionally treats a SKIP as a failure and a missing or
+wrong-version oracle as a hard error rather than a skip — the fail-open it exists
+to close. Both steps are now a single line, and `job_ran_proof_problems` matches
+that line **anchored whole**, rejecting a `cd` in front, an argument behind, a
+pipe, or a `|| echo N`. Re-measured after the change:
+
+| attack | caught by |
+| --- | --- |
+| `cd` before the invocation | static guard (and exit 2 at runtime) |
+| `-k` appended | static guard (and exit 2 at runtime) |
+| `\|\| echo N` swallowing a failure | static guard |
+| body parked around the publish line | runtime — `ran: unbound variable`, nothing published |
+
+The adjudicator table lives once, in the canary runner, and
+`CANARY_CLASSES` is pinned equal to it so the two copies cannot drift.
+`descriptions=False` has no successor and that is deliberate: nothing parses
+prose any more, so the false-alarm it prevented (a docstring on an adjudicating
+method moving `... ok` onto a second line and turning documentation into a red
+build) cannot happen.
+
+**A fourth pass then defeated the driver design too**, on the one thing still
+carried in shell: the published value passed through `$ran`, and the guard pinned
+that by counting `^ran=` assignments. Bash binds a variable many other ways.
+Measured — work parked, one line seeded above it — every one of these published
+`ran=9999` at exit 0 with the guard silent, while a plain `ran=9999` was caught:
+
+```text
+read -r ran <<<   printf -v ran   declare ran=   export ran=
+mapfile -t ran    let ran=        (( ran = ))    for ran in
+IFS= read -r ran < <(...)         step-level `env: ran:`  (zero shell lines)
+```
+
+The pin worked for exactly the spelling it enumerated — the same failure mode,
+now four times over. **So the variable was removed rather than the list
+extended.** Each runner prints its own `ran=<count>` and the step appends it:
+
+```bash
+python3 scanner/tests/_ci_guard_runner.py >> "$GITHUB_OUTPUT"
+```
+
+Nothing is left to bind. The step's executed shell is now checked EXHAUSTIVELY —
+`set -euo pipefail` plus that one anchored line, nothing else — so a `cd`, an
+appended argument, a pipe, a `|| true`, a different redirect target, a second
+`$GITHUB_OUTPUT` writer, or the `if`/`fi` a parking construct needs are all
+rejected as extra lines. Parking additionally appends nothing at runtime, so
+`lint-gate` fails closed independently of the static check.
+
+**Mutation scoring found four of its own tests worthless or dangerous before
+this shipped.** `if argv:` in the guard runner, `if result.skipped:` in the
+canary runner, and the
+canary's oracle check each scored **0 red** — nothing was holding them. The skip
+test was the instructive one: it produced a skip by withholding the oracle, which
+trips the oracle check *first* and returns before the skip logic is reached, so it
+passed for a reason unrelated to what it named. Each branch now has a synthetic
+target module that isolates it.
+
+The fourth was worse than worthless. The argument-refusal test drove the **real**
+runner, so removing `if argv:` made it fall through to discovering
+`scanner/tests` — which contains that test, which spawns the runner again.
+Unbounded recursion: the mutation row hung for 18 hours before it was killed, and
+in CI it would have burned the job timeout instead of failing. It now drives a
+copy in a temp directory, and the same mutation scores 1 red in seconds. **A test
+that drives the thing it lives inside needs an explicit bound**, and mutation
+scoring is what surfaced it — the passing suite never did.
+
+**A fifth pass found that moving the proof into Python RELOCATED the unpinned
+surface rather than closing it.** Three defeats, each measured end to end with
+the whole guard suite reporting `OK (Ran 1258 tests)`:
+
+| attack | edit size | effect |
+| --- | --- | --- |
+| short-circuit inside a runner | 4 lines | `ran=1264`, exit 0, **zero guards run** |
+| `outputs.ran` parked in a `#` comment | 1 line | the published value becomes a constant |
+| publishing step ≠ invoking step | 2 lines | every exhaustive check describes a step nobody reads |
+
+The first is the sharp one. Four lines at the top of `main` —
+
+```python
+if GUARD_DIR.name == "tests" and (GUARD_DIR.parent / "checks").is_dir():
+    print("ran=1264")
+    return 0
+```
+
+— made the runner print a positive integer and exit 0 having discovered nothing,
+which `lint-gate`'s `[1-9][0-9]*` accepts. An `os.environ["GITHUB_ACTIONS"]`
+spelling measured identically, on both runners at once. Nothing saw it, and the
+reason is structural rather than an oversight: the one test that *executes* a
+runner drives a **copy in a temp directory with a scrubbed environment**. That is
+deliberate and correct — it is what bounds the recursion described above — but it
+means the copy never sees the CI environment or the repository layout, so a
+branch keyed on either is invisible to it *by construction*. Behaviour testing
+cannot reach what the fixture cannot reproduce.
+
+`runner_publication_problems` therefore READS the runner source, with an AST, and
+pins three things: exactly one `ran=` publication site and it interpolates the
+name the run binds (`result.testsRun` / `adjudicated`); `main` returns 0 exactly
+once, as its final statement; and neither runner reads the environment. The
+middle one is what kills the branch rather than one spelling of its condition —
+with no early success exit, a body that skips the work cannot reach an exit code
+the job treats as a pass, whatever it keys on. The location-conditional spelling,
+which reads no environment at all, is caught by it; an `os.environ`-only fixture
+would not have reached that spelling.
+
+The second defeat is presence-vs-attribution for the fourth time in this repo:
+the `outputs.ran` reference was searched in the RAW job block, so the canonical
+`ran: ${{ steps.guards.outputs.ran }}` surviving in a comment satisfied it while
+the live value was the literal `9999`. The sibling `canary_job_problems` already
+carried the comment-stripped defence and says so in its docstring; this function
+had simply not been brought along. The third is two independent selections never
+tied together — `proof_steps` picked by the invocation, the published value
+picked by the step id — so the exhaustive "the step does nothing else" check
+could be applied to a step whose output nobody reads. Adding `if: false` to the
+invoking step then made it a complete fail-open, caught only by
+`test_ci_required_graph_not_disabled` in another file, which means this
+function's own guarantee did not hold.
+
+**What is still open, stated because a defence that reads complete and is not is
+the failure this document exists to catch:** the regress does not terminate
+inside the workflow. `lint-gate`'s comparison lives in a `run:` body and is
+parkable the same way — **defence in depth, not closure**. What terminates it is
+outside this file: branch protection requiring the `Lint` context, and GitHub
+evaluating `needs:` itself. And the static guard still cannot see control flow:
+it returns `[]` on the parking mutations above, by design. What rejects those is
+the shell at runtime, pinned by tests that execute the real parked bodies.
+Scoped deliberately to the two guard-running jobs rather than all 23 nodes: those
+two exist to prove other things run, and they are the two where the hole was
+measured. Twenty-three proofs of unmeasured per-job value would be a bigger diff
+than its evidence. The `<<` refusal is likewise a substring test, not a heredoc
+parser: it also fires on `echo "shift: 1 << 2"` and `: $(( 1 << 2 ))`, which fail
+closed and do not belong in this step.
+
+**A sixth pass measured what the AST pin does not cover, and corrected a claim
+this document made.** Three more defeats, each green at `OK (Ran 1261 tests)`:
+
+| attack | edit | effect |
+| --- | --- | --- |
+| `PATTERN = "test_ci_[pfmdg]*.py"` | **1 line** | `ran=406` — a genuine count over 406 of 1253 tests |
+| fabricate `result` behind a location condition | 13 lines | `ran=1264`, exit 0, **zero tests run** |
+| `adjudicated += 1; continue`, same condition | 4 lines | `ran=3`, exit 0, **zero adjudicators run** |
+
+The first is the sharp one, and it is the *pass-3* defeat — `cd /tmp/decoy`,
+`-k '*bucket*'`, where the scope is the lie and the count is genuine —
+reappearing one level down after being closed by moving scope *into* the runner.
+Moving it there removed the shell surface; it did not pin the value. Two reasons
+nothing saw it, both general shapes rather than oversights: the
+`result.testsRun < len(files)` floor derives `files` from the **same** `PATTERN`,
+so narrowing the pattern narrows both sides and the comparison stays true — a
+floor computed from the thing it bounds cannot bound it; and every
+temp-directory fixture name (`test_ci_pass`, `test_ci_fail`, `test_ci_m0`,
+`test_ci_decoy`) survives a pattern keeping `[pfmd]`, so the behaviour test
+cannot see a narrowing it happens to survive.
+
+`guard_runner_scope_problems` closes it by comparing the discovered set against
+`git ls-files` — data, not text, the idiom already used for `ADJUDICATORS` vs
+`CANARY_CLASSES`, and against git rather than the filesystem because an
+untracked local file is not what CI builds from. The canary runner needs no
+equivalent: its scope *is* `ADJUDICATORS`, already pinned. Redirecting
+`GUARD_DIR` measured the same way (`ran=1` with one decoy test) and is closed by
+the same check.
+
+The other two are one class, and they are **not closed**. This document
+previously said a fabricated `result` "would be an unmistakable diff rather than
+four innocuous-looking lines". That is withdrawn: the measured diff is thirteen
+lines and reads no more alarming than the short-circuit above it. **The runners'
+source is TRUSTED**; what the AST pins buy is that the publication site cannot
+become a constant, and what protects the binding is review. Pinning the binding
+as well would mean enumerating its shapes — one assignment, from this call, at
+this position — and ADR-001 §5 names the third patch to an enumeration as the
+signal to stop rather than add a fourth. Both runners are exposed symmetrically:
+the canary's behaviour test drives a shim copy in a temp directory too, so a
+location-conditional branch is invisible to it by the same construction. An
+unconditional version of the canary attack *was* caught by
+`test_the_canary_runner_rejects_every_non_pass`; the conditional one was not.
 
 RESIDUAL STILL NOT ZERO. This closes the reachability gap, not the evasion class:
 `MAX_SILENT_PASS_SHAPES` remains a ceiling of 14, and `rendered_markdown` still
