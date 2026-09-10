@@ -349,6 +349,57 @@ copy in a temp directory, and the same mutation scores 1 red in seconds. **A tes
 that drives the thing it lives inside needs an explicit bound**, and mutation
 scoring is what surfaced it — the passing suite never did.
 
+**A fifth pass found that moving the proof into Python RELOCATED the unpinned
+surface rather than closing it.** Three defeats, each measured end to end with
+the whole guard suite reporting `OK (Ran 1258 tests)`:
+
+| attack | edit size | effect |
+| --- | --- | --- |
+| short-circuit inside a runner | 4 lines | `ran=1264`, exit 0, **zero guards run** |
+| `outputs.ran` parked in a `#` comment | 1 line | the published value becomes a constant |
+| publishing step ≠ invoking step | 2 lines | every exhaustive check describes a step nobody reads |
+
+The first is the sharp one. Four lines at the top of `main` —
+
+```python
+if GUARD_DIR.name == "tests" and (GUARD_DIR.parent / "checks").is_dir():
+    print("ran=1264")
+    return 0
+```
+
+— made the runner print a positive integer and exit 0 having discovered nothing,
+which `lint-gate`'s `[1-9][0-9]*` accepts. An `os.environ["GITHUB_ACTIONS"]`
+spelling measured identically, on both runners at once. Nothing saw it, and the
+reason is structural rather than an oversight: the one test that *executes* a
+runner drives a **copy in a temp directory with a scrubbed environment**. That is
+deliberate and correct — it is what bounds the recursion described above — but it
+means the copy never sees the CI environment or the repository layout, so a
+branch keyed on either is invisible to it *by construction*. Behaviour testing
+cannot reach what the fixture cannot reproduce.
+
+`runner_publication_problems` therefore READS the runner source, with an AST, and
+pins three things: exactly one `ran=` publication site and it interpolates the
+name the run binds (`result.testsRun` / `adjudicated`); `main` returns 0 exactly
+once, as its final statement; and neither runner reads the environment. The
+middle one is what kills the branch rather than one spelling of its condition —
+with no early success exit, a body that skips the work cannot reach an exit code
+the job treats as a pass, whatever it keys on. The location-conditional spelling,
+which reads no environment at all, is caught by it; an `os.environ`-only fixture
+would not have reached that spelling.
+
+The second defeat is presence-vs-attribution for the fourth time in this repo:
+the `outputs.ran` reference was searched in the RAW job block, so the canonical
+`ran: ${{ steps.guards.outputs.ran }}` surviving in a comment satisfied it while
+the live value was the literal `9999`. The sibling `canary_job_problems` already
+carried the comment-stripped defence and says so in its docstring; this function
+had simply not been brought along. The third is two independent selections never
+tied together — `proof_steps` picked by the invocation, the published value
+picked by the step id — so the exhaustive "the step does nothing else" check
+could be applied to a step whose output nobody reads. Adding `if: false` to the
+invoking step then made it a complete fail-open, caught only by
+`test_ci_required_graph_not_disabled` in another file, which means this
+function's own guarantee did not hold.
+
 **What is still open, stated because a defence that reads complete and is not is
 the failure this document exists to catch:** the regress does not terminate
 inside the workflow. `lint-gate`'s comparison lives in a `run:` body and is
@@ -362,7 +413,13 @@ two exist to prove other things run, and they are the two where the hole was
 measured. Twenty-three proofs of unmeasured per-job value would be a bigger diff
 than its evidence. The `<<` refusal is likewise a substring test, not a heredoc
 parser: it also fires on `echo "shift: 1 << 2"` and `: $(( 1 << 2 ))`, which fail
-closed and do not belong in this step.
+closed and do not belong in this step. And the AST pin on the runners is not
+closure either: a body that reaches the real `TextTestRunner.run()` with a
+deliberately emptied suite still binds `result`, and what rejects that today is
+the runner's own `testsRun < len(files)` floor, which the pin does not assert. A
+runner that fabricates a `result` object is possible too — and would be an
+unmistakable diff rather than four innocuous-looking lines, which is the whole
+distinction the pin is buying.
 
 RESIDUAL STILL NOT ZERO. This closes the reachability gap, not the evasion class:
 `MAX_SILENT_PASS_SHAPES` remains a ceiling of 14, and `rendered_markdown` still

@@ -96,6 +96,7 @@ vacuous pass. Duplicating that rule here would be two owners for one invariant.
 MARKDOWN_SCAN_EXEMPT = (
     "does not parse Markdown: every `.md`/`.toml` path here is a PATH, never a document. `guard_data_files()` collects them by AST out of the OTHER guards and `uncovered_paths()` matches each against the bucket's `grep -E` pattern; nothing in this file opens one. The rationale used to say 'the catalog PATH' singular, from when the set was two hand-written entries — it is a derived census of 109 now, which changes the size but not the reason for the exemption"
 )
+import ast
 import re
 import sys
 import unittest
@@ -520,6 +521,170 @@ def _import_canary_runner():
 
     return importlib.import_module("_ci_canary_runner")
 
+#: Per runner: the expression its published count MUST interpolate. Both names
+#: are bound only by the run itself — `result` by `TextTestRunner.run()`,
+#: `adjudicated` by the loop that drives one adjudicator at a time — so a body
+#: that skips the work has nothing to print.
+RUNNER_PUBLICATION = {
+    GUARD_RUNNER: "result.testsRun",
+    CANARY_RUNNER: "adjudicated",
+}
+
+
+def runner_publication_problems(source: str, path: str, data_expr: str) -> list:
+    """The runner cannot publish a count it did not compute, or exit early.
+
+    WHY THIS EXISTS
+    ---------------
+    Moving SCOPE, FILTER and VERDICT out of shell text and into these two files
+    did close every shell-level defeat. It did not close the class — it RELOCATED
+    the unpinned surface, and an adversarial pass measured the new one. Four lines
+    in `_ci_guard_runner.py`:
+
+        if GUARD_DIR.name == "tests" and (GUARD_DIR.parent / "checks").is_dir():
+            print("ran=1264")
+            return 0
+
+    Result: `python3 scanner/tests/_ci_guard_runner.py` printed `ran=1264` and
+    exited 0 having run ZERO guards, `lint-gate`'s `[1-9][0-9]*` accepted it, and
+    the whole guard suite reported `OK (Ran 1258 tests)`. An `os.environ
+    ["GITHUB_ACTIONS"]` spelling measured identically, on both runners at once.
+
+    Nothing saw it, and the reason is structural rather than an oversight: the
+    ONE test that EXECUTES a runner (`test_the_guard_runner_publishes_only_when_
+    the_suite_passed`) drives a COPY in a temp directory with `env={"PATH": ...}`.
+    That is deliberate and correct — driving the real file in place recurses,
+    which once hung for 18 hours — but it means the copy never sees the CI
+    environment or the repository layout, so any branch keyed on either is
+    invisible to it BY CONSTRUCTION. Behaviour testing cannot reach what the
+    fixture cannot reproduce; this reads the file instead.
+
+    WHAT IS PINNED, AND WHY THESE THREE
+    -----------------------------------
+    1. ONE publication site, and it is an f-string interpolating `data_expr`.
+       A short-circuit has to print something, and a literal `ran=1264` or an
+       `f"ran={1264}"` both die here. To publish, it must produce the name the
+       run binds.
+    2. `main` returns 0 EXACTLY ONCE, as its final statement. This is what kills
+       the branch itself rather than one spelling of its condition: with no early
+       success exit, a body that skips the work cannot reach an exit code the job
+       treats as a pass, no matter what it keys the branch on.
+    3. No `os.environ` / `os.getenv` anywhere. Neither runner needs one, so this
+       is free, and it removes the cheapest spelling before (2) has to.
+
+    (1) and (2) are the load-bearing pair; (3) is a cheap extra.
+
+    NOT CLOSED, stated because a defence that reads complete and is not is the
+    failure this file exists to catch: a body that reaches the real
+    `TextTestRunner.run()` with a DELIBERATELY EMPTIED suite still binds
+    `result`. The runner's own `testsRun < len(files)` floor rejects that today,
+    and this function does not pin that floor. Nor does it model a runner that
+    fabricates a `result` object — which is possible, and would be an
+    unmistakable diff rather than four innocuous-looking lines. As with the
+    workflow half, the regress terminates outside this file: at review.
+    """
+    problems = []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        return [f"`{path}` does not parse ({exc})"]
+
+    # 1. THE PUBLICATION SITE. Every string constant that opens with `ran=` is a
+    #    candidate, whether or not it interpolates — that is the point: a plain
+    #    literal is the forgery, so it must be COUNTED and rejected, never
+    #    filtered out for not being an f-string.
+    #    An f-string's own literal head is a `Constant` that `ast.walk` also
+    #    visits, so the parts of every `JoinedStr` are excluded first — counting
+    #    them made the REAL runners report two sites each.
+    inside_fstring = {
+        id(part)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.JoinedStr)
+        for part in ast.walk(node)
+        if part is not node
+    }
+    sites = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr):
+            head = node.values[0] if node.values else None
+            if (
+                isinstance(head, ast.Constant)
+                and isinstance(head.value, str)
+                and head.value.startswith("ran=")
+            ):
+                sites.append(("fstring", node))
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.startswith("ran=")
+            and id(node) not in inside_fstring
+        ):
+            sites.append(("literal", node))
+    if len(sites) != 1:
+        return problems + [
+            f"`{path}` has {len(sites)} `ran=` publication site(s), expected "
+            "exactly 1. A second one is a second answer to the only question "
+            f"the job asks: {[ast.unparse(n) for _, n in sites]}"
+        ]
+    kind, node = sites[0]
+    if kind != "fstring":
+        problems.append(
+            f"`{path}` publishes a CONSTANT `{ast.unparse(node)}`. The count "
+            "must be interpolated from the run, or a body that ran nothing can "
+            "print it."
+        )
+    else:
+        interpolations = [
+            v for v in node.values if isinstance(v, ast.FormattedValue)
+        ]
+        got = [ast.unparse(v.value) for v in interpolations]
+        if got != [data_expr]:
+            problems.append(
+                f"`{path}` publishes `{ast.unparse(node)}`, which interpolates "
+                f"{got} rather than exactly `[{data_expr!r}]`. That name is "
+                "bound by the run; anything else can be bound without it."
+            )
+
+    # 2. ONE SUCCESS EXIT, LAST. See the docstring: this is the check that closes
+    #    the branch rather than a spelling of its condition.
+    mains = [
+        n for n in tree.body
+        if isinstance(n, ast.FunctionDef) and n.name == "main"
+    ]
+    if len(mains) != 1:
+        problems.append(f"`{path}` defines {len(mains)} `main` functions, expected 1")
+    else:
+        main = mains[0]
+        zeros = [
+            n for n in ast.walk(main)
+            if isinstance(n, ast.Return)
+            and isinstance(n.value, ast.Constant)
+            and n.value.value == 0
+        ]
+        if len(zeros) != 1:
+            problems.append(
+                f"`{path}`'s `main` has {len(zeros)} `return 0` statements, "
+                "expected 1. Every extra one is a way to report success without "
+                "reaching the work."
+            )
+        elif main.body[-1] is not zeros[0]:
+            problems.append(
+                f"`{path}`'s `main` does not END with its `return 0` (last "
+                f"statement is `{type(main.body[-1]).__name__}`). A success exit "
+                "anywhere else can be reached without the work."
+            )
+
+    # 3. NO ENVIRONMENT READS. The cheapest measured spelling, removed for free.
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Attribute) and n.attr in ("environ", "getenv"):
+            problems.append(
+                f"`{path}` reads `{ast.unparse(n)}`. Neither runner needs the "
+                "environment, and a branch on it behaves differently in CI than "
+                "in every test that drives this file."
+            )
+    return problems
+
+
 PROOF_SPECS = {
     "ci-guards": {
         "runner": GUARD_RUNNER,
@@ -634,6 +799,28 @@ def job_ran_proof_problems(lint_text: str) -> list:
             declares = any(
                 pat.match(strip_inline_comment(raw)) for raw in block.splitlines()
             )
+        # COMMENT-STRIPPED, both spellings, before anything is READ out of the
+        # block. The reference below used to be searched in the RAW block, and an
+        # adversarial pass measured what that costs: put `ran: 9999` in the real
+        # `outputs:` map and leave the canonical
+        # `ran: ${{ steps.guards.outputs.ran }}` alive in a `#` comment two lines
+        # above, and this function returned `[]` with the whole suite at
+        # `OK (Ran 1258)`. The published value is then a CONSTANT — which is
+        # exactly the property this function exists to forbid, since "parking the
+        # body appends nothing, so `lint-gate` fails closed" is only true while
+        # the value comes from the step.
+        #
+        # The sibling `canary_job_problems` already carries this defence and says
+        # so in its docstring ("EVERYTHING HERE READS EXECUTED TEXT, NOT THE
+        # BLOCK"); this function had simply not been brought along with it. That
+        # is the same not-brought-along shape the gate check two functions up was
+        # fixed for.
+        visible = "\n".join(
+            strip_inline_comment(ln)
+            for ln in strip_comment_lines(block).splitlines()
+        )
+
+        ref_id = None
         if not declares:
             problems.append(
                 f"job `{job}` declares no `outputs:`. Without it the line its "
@@ -641,7 +828,7 @@ def job_ran_proof_problems(lint_text: str) -> list:
             )
         else:
             ref = re.search(
-                r"ran:\s*\$\{\{\s*steps\.([\w-]+)\.outputs\.ran\s*\}\}", block
+                r"ran:\s*\$\{\{\s*steps\.([\w-]+)\.outputs\.ran\s*\}\}", visible
             )
             if ref is None:
                 problems.append(
@@ -651,13 +838,15 @@ def job_ran_proof_problems(lint_text: str) -> list:
                     "repo already paid for once."
                 )
             elif not re.search(
-                rf"^\s*id:\s*{re.escape(ref.group(1))}\s*$", block, re.M
+                rf"^\s*id:\s*{re.escape(ref.group(1))}\s*$", visible, re.M
             ):
                 problems.append(
                     f"job `{job}` surfaces `ran` from step id `{ref.group(1)}`, "
                     "which no step in the job declares. The output resolves to "
                     "the empty string, so the proof can never be satisfied."
                 )
+            else:
+                ref_id = ref.group(1)
 
         # THE PROOF STEP ONLY, not the whole job. `renderer-canary` has a
         # legitimate `pip install` step before it, and an exhaustive check over
@@ -678,6 +867,40 @@ def job_ran_proof_problems(lint_text: str) -> list:
                 "leaving the published count genuine."
             )
             continue
+
+        # THE STEP THAT PUBLISHES, not merely a step that invokes. These were two
+        # independent selections — `proof_steps` picked by the invocation, the
+        # published value picked by `ref_id` — and nothing tied them together.
+        # Measured, with every check below still returning `[]`:
+        #
+        #     - name: Publish the proof      <- id: guards, echoes ran=9999
+        #       id: guards
+        #       run: |
+        #         set -euo pipefail
+        #         echo "ran=9999" >> "$GITHUB_OUTPUT"
+        #     - name: Run CI config regression guards   <- carries the invocation
+        #       run: |
+        #         set -euo pipefail
+        #         python3 scanner/tests/_ci_guard_runner.py >> "$GITHUB_OUTPUT"
+        #
+        # `guard_job_problems` and `job_ran_proof_problems` both returned `[]`.
+        # Every assertion below then ran against the SECOND step while the job's
+        # `ran` came from the first, so the exhaustive "the step does nothing
+        # else" check was being applied to a step whose output nobody reads.
+        # Adding `if: false` to the second step made it a complete fail-open, and
+        # was caught only by `test_ci_required_graph_not_disabled` in another
+        # file — i.e. this function's own guarantee did not hold, and the suite
+        # went red for an unrelated reason.
+        if ref_id is not None and not re.search(
+            rf"^\s*id:\s*{re.escape(ref_id)}\s*$", proof_steps[0], re.M
+        ):
+            problems.append(
+                f"job `{job}` runs the runner in a step that is NOT the step "
+                f"(`id: {ref_id}`) whose output it publishes. The checks below "
+                "would then describe a step nobody reads, and the publishing "
+                "step would be unconstrained."
+            )
+
         lines = [
             ln.strip() for ln in executed_shell(proof_steps[0]).splitlines()
             if ln.strip()
@@ -1809,6 +2032,83 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
                 "the runner scanned the CWD instead of its own directory",
             )
 
+    def test_the_runners_cannot_publish_a_count_they_did_not_compute(self):
+        """The relocated hole: four lines in a runner, `OK (Ran 1258 tests)`.
+
+        Both runners are read, because the measured defeat applied to both at
+        once. Every mutation below was executed as well as detected — the
+        short-circuits really did print a positive integer at exit 0 with zero
+        guards run, which is what makes them the sharp case rather than a
+        hypothetical one."""
+        for rel, data_expr in RUNNER_PUBLICATION.items():
+            src = (REPO_ROOT / rel).read_text()
+            with self.subTest(runner=rel, direction="control"):
+                self.assertEqual(
+                    runner_publication_problems(src, rel, data_expr), [],
+                    "the real runner does not satisfy its own pin",
+                )
+
+            # The MEASURED defeat, in both spellings. The second reads no
+            # environment at all, so a fixture that merely sets `GITHUB_ACTIONS`
+            # would not have reached it.
+            count = "1264" if rel == GUARD_RUNNER else "3"
+            short_circuits = {
+                "env-conditional": (
+                    "    import os\n"
+                    '    if os.environ.get("GITHUB_ACTIONS") == "true":\n'
+                    f'        print("ran={count}")\n'
+                    "        return 0\n"
+                ),
+                "location-conditional": (
+                    '    if GUARD_DIR.name == "tests":\n'
+                    f'        print("ran={count}")\n'
+                    "        return 0\n"
+                ),
+            }
+            # Every mutation below asserts it CHANGED the source before asserting
+            # the detector saw it: a `.replace()` whose needle has drifted is a
+            # no-op, and a no-op mutation makes the detector look correct for the
+            # one reason that would mean it is not being exercised at all.
+            anchor = "def main(argv: list) -> int:\n"
+            for label, injected in short_circuits.items():
+                with self.subTest(runner=rel, direction=label):
+                    mutated = src.replace(anchor, anchor + injected, 1)
+                    self.assertNotEqual(mutated, src, "the mutation did not apply")
+                    self.assertNotEqual(
+                        runner_publication_problems(mutated, rel, data_expr), [],
+                        f"a {label} short-circuit was accepted",
+                    )
+
+            with self.subTest(runner=rel, direction="a constant count"):
+                mutated = src.replace(
+                    f'print(f"ran={{{data_expr}}}")', f'print("ran={count}")', 1
+                )
+                self.assertNotEqual(mutated, src, "the publication site moved")
+                problems = runner_publication_problems(mutated, rel, data_expr)
+                self.assertTrue(
+                    any("CONSTANT" in p for p in problems), problems
+                )
+
+            with self.subTest(runner=rel, direction="a count from somewhere else"):
+                mutated = src.replace(
+                    f'print(f"ran={{{data_expr}}}")', 'print(f"ran={len(sys.argv)}")', 1
+                )
+                self.assertNotEqual(mutated, src, "the publication site moved")
+                problems = runner_publication_problems(mutated, rel, data_expr)
+                self.assertTrue(
+                    any("interpolates" in p for p in problems), problems
+                )
+
+            with self.subTest(runner=rel, direction="a success exit that is not last"):
+                # No `print` at all — only the early success exit. This is the
+                # half that does not depend on enumerating what the branch reads.
+                mutated = src.replace(anchor, anchor + "    return 0\n", 1)
+                self.assertNotEqual(mutated, src, "the mutation did not apply")
+                problems = runner_publication_problems(mutated, rel, data_expr)
+                self.assertTrue(
+                    any("return 0" in p for p in problems), problems
+                )
+
     def test_the_canary_table_drifting_from_the_guard_is_caught(self):
         """`CANARY_CLASSES` and the runner's `ADJUDICATORS` are one spec in two
         files, so drift between them must be a failure rather than a silent
@@ -1942,6 +2242,83 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
                         1,
                     ),
                     f"{job}: command added after the invocation",
+                )
+
+    def test_the_output_reference_surviving_only_in_a_comment_is_caught(self):
+        """Presence vs attribution, for the fourth time in this repo.
+
+        `ref` was searched in the RAW job block. Measured: leave the canonical
+        `ran: ${{ steps.<id>.outputs.ran }}` alive in a `#` comment and give the
+        real `outputs:` map a literal, and `job_ran_proof_problems` returned `[]`
+        with the whole suite at `OK (Ran 1258 tests)`. `ran` is then a constant,
+        which is precisely what the rest of this function forbids — the
+        data-dependency argument only holds while the value comes from the step.
+
+        Both spellings of a YAML comment, because whole-line and inline are
+        stripped by different helpers and only one of them being wired would read
+        exactly as green as both."""
+        for job in PROOF_JOBS:
+            block = job_block(self.lint, job)
+            line = next(
+                ln for ln in block.splitlines()
+                if re.match(r"^\s*ran:\s*\$\{\{\s*steps\.", ln)
+            )
+            indent = " " * (len(line) - len(line.lstrip()))
+            for label, replacement in {
+                "whole-line comment": (
+                    f"{indent}# {line.strip()}\n{indent}ran: 9999"
+                ),
+                "inline comment": f"{indent}ran: 9999  # {line.strip()}",
+            }.items():
+                with self.subTest(job=job, spelling=label):
+                    assert_disables(
+                        job_ran_proof_problems,
+                        self.lint,
+                        self.lint.replace(
+                            block, block.replace(line, replacement, 1), 1
+                        ),
+                        f"{job}: output reference parked in a {label}",
+                    )
+
+    def test_publishing_from_a_step_that_is_not_the_runner_step_is_caught(self):
+        """Two independent selections that were never tied together.
+
+        `proof_steps` is picked by the invocation; the published value is picked
+        by the step id in `outputs:`. Nothing required them to be the SAME step,
+        so every exhaustive check below could be applied to a step whose output
+        nobody reads while a sibling step published a constant. Measured, both
+        `guard_job_problems` and `job_ran_proof_problems` returned `[]`; adding
+        `if: false` to the invoking step then made it a complete fail-open,
+        caught only by a guard in another file."""
+        for job in PROOF_JOBS:
+            with self.subTest(job=job):
+                block = job_block(self.lint, job)
+                ref = re.search(
+                    r"ran:\s*\$\{\{\s*steps\.([\w-]+)\.outputs\.ran\s*\}\}", block
+                )
+                id_line = next(
+                    ln for ln in block.splitlines()
+                    if re.match(rf"^\s*id:\s*{re.escape(ref.group(1))}\s*$", ln)
+                )
+                indent = " " * (len(id_line) - len(id_line.lstrip()))
+                item = indent[:-2]
+                # The id, and a step publishing a constant under it, MOVE OFF the
+                # invoking step and onto a new one in front of it.
+                decoy = (
+                    f"{item}- name: Publish the proof\n"
+                    f"{id_line}\n"
+                    f"{indent}run: |\n"
+                    f"{indent}  set -euo pipefail\n"
+                    f'{indent}  echo "ran=9999" >> "$GITHUB_OUTPUT"\n'
+                    f"{item}- name: Run the work\n"
+                )
+                assert_disables(
+                    job_ran_proof_problems,
+                    self.lint,
+                    self.lint.replace(
+                        block, block.replace(id_line + "\n", decoy, 1), 1
+                    ),
+                    f"{job}: the publishing step is not the invoking step",
                 )
 
     def test_replacing_the_runner_with_a_constant_is_caught(self):
