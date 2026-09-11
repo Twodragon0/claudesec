@@ -486,10 +486,46 @@ caught it, is gated on the `scanner` bucket and does not run on the
 workflow/docs/template-only PRs this job exists for. The `testsRun < len(files)`
 aggregate floor is therefore replaced by a **per-file contribution** check:
 every discovered file must contribute at least one collected test, verified
-before the run so the verdict does not depend on what the run reports. That is
-the lesson the canary runner already paid for one level up, where a per-class
-count floor was defeated by parking the single adjudicating method and only a
-per-method floor saw it.
+before the run so the verdict does not depend on what the run reports.
+
+## Pass 8: the trust boundary is wider than the two runners
+
+The paragraph above claimed the per-file check was "the lesson the canary runner
+already paid for one level up". **That claim is withdrawn.** The canary's lesson
+was that a per-CLASS *count* floor fell to parking the one adjudicating method,
+and only a per-METHOD floor saw it. A per-FILE *contribution* check is the same
+count-floor shape one level down, and a pass measured it falling the same way:
+
+| attack | edit | effect |
+| --- | --- | --- |
+| `setUpModule` raising `SkipTest` | **2 lines** | `ran=1251`, exit 0, suite `OK (skipped=2)` |
+| `load_tests` returning ONE synthetic test | 5 lines | `ran=1252`, exit 0, suite `OK` |
+| `C.__module__ = "test_ci_<victim>"` | 1 line | a class defined anywhere claims any guard file's stem |
+
+The third is **fixed** here. The first per-file check walked the aggregate suite
+reading `type(test).__module__` — attribution by *attribute*, and the attribute
+is writable. Discovery now runs one file at a time and the union is what
+executes, so a sub-suite belongs to the file it was discovered in whatever its
+classes claim about themselves. Same count (`ran=1262`), no measurable cost.
+
+The first two are **not** fixed, and the skip one cannot be fixed the way the
+canary fixes it. `_ci_canary_runner` rejects any skip outright; `ci-guards`
+legitimately reports `OK (skipped=4)` in CI, because the renderer-adjudicated
+classes skip without the oracle — which is exactly why `renderer-canary` exists
+as a separate job. The job is admissible on a broad path bucket *because* it
+installs nothing, installing nothing means legitimate skips, and with legitimate
+skips present a skip used to silence a guard is indistinguishable from intended
+behaviour without an allowlist keyed to those three classes.
+
+**So the trust boundary is not "the two runners' source" — it is every guard
+module.** `unittest` gives a module documented ways to leave the run that no
+count can see, and a suite cannot establish its own completeness from inside
+itself. Eight passes have walked one rung at a time — publication, binding,
+scope, per-file, per-test — and the terminal rung is a manifest of every test
+id, which is itself a one-line edit. What these checks buy is not closure: it is
+that each weakening is a reviewable edit to a tracked file rather than an
+argument appended to a shell line. Say that, rather than claiming a rung closed
+a class.
 
 One structural note, recorded rather than fixed: the denominator of this whole
 ecosystem is the `test_ci_` **filename prefix**, hardcoded in at least three
