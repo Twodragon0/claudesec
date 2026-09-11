@@ -706,6 +706,32 @@ def runner_publication_problems(source: str, path: str, data_expr: str) -> list:
     problems` is the part of pass 6 that WAS closable without enumerating: a set
     compared against `git ls-files`.
 
+    **THE TRUST BOUNDARY IS WIDER THAN "THE TWO RUNNERS", and pass 8 measured
+    where.** Every GUARD MODULE is inside it too, because `unittest` gives a
+    module documented ways to leave the run that no count can see:
+
+        setUpModule raising SkipTest       2 lines -> ran=1251, exit 0, OK
+        load_tests returning ONE synthetic
+          test instead of an empty suite   5 lines -> ran=1252, exit 0, OK
+
+    The second is the sharper lesson: it defeats a per-FILE contribution floor
+    for exactly the reason a per-CLASS count floor was defeated one level up.
+    The pass-7 commit claimed per-file WAS that lesson applied. It was the same
+    mistake one level down, and that claim is withdrawn here.
+
+    The first cannot be closed the way the canary closes it. `_ci_canary_runner`
+    rejects any skip outright — but `ci-guards` legitimately reports
+    `OK (skipped=4)` in CI, because the renderer-adjudicated classes skip without
+    the oracle and that is precisely why `renderer-canary` exists as a separate
+    job. The job is admissible on a broad path bucket BECAUSE it installs
+    nothing; installing nothing means legitimate skips; and with legitimate skips
+    present, a skip used to silence a guard is indistinguishable from intended
+    behaviour without an allowlist keyed to those three classes.
+
+    So the suite cannot establish its own completeness from inside itself. What
+    it can do — and what the checks here do — is make each weakening a reviewable
+    edit to a tracked file rather than an argument appended to a shell line.
+
     Also not pinned here: a body reaching the real `TextTestRunner.run()` with a
     deliberately emptied suite still binds `result`. The runner's own
     `testsRun < len(files)` floor rejects that, and
@@ -2140,6 +2166,35 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
                 "published",
             )
             self.assertIn("test_ci_gone.py", err)
+
+        with self.subTest(direction="a forged __module__ cannot credit a file"):
+            # ATTRIBUTION BY CONSTRUCTION, not by attribute. The first per-file
+            # check walked the aggregate suite reading `type(test).__module__`,
+            # and that attribute is writable — measured directly against the old
+            # helper, one line let a class defined anywhere claim any guard
+            # file's stem. Discovering each file separately makes a sub-suite
+            # belong to the file it came from, whatever its classes claim.
+            code, out, err = drive({
+                "test_ci_victim.py": (
+                    "import unittest\n"
+                    "class V(unittest.TestCase):\n"
+                    "    def test_it(self): pass\n"
+                    "def load_tests(loader, tests, pattern):\n"
+                    "    return unittest.TestSuite()\n"
+                ),
+                "test_ci_cover.py": (
+                    "import unittest\n"
+                    "class C(unittest.TestCase):\n"
+                    "    def test_it(self): pass\n"
+                    "C.__module__ = 'test_ci_victim'\n"
+                ),
+            })
+            self.assertNotEqual(code, 0, err[-600:])
+            self.assertEqual(
+                out, "",
+                "a forged `__module__` covered for a module that ran nothing",
+            )
+            self.assertIn("test_ci_victim.py", err)
 
         with self.subTest(direction="a narrowed run is rejected"):
             # The floor tied to something the shell does not choose: more guard
