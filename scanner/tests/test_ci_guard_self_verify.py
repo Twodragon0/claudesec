@@ -557,6 +557,31 @@ def guard_runner_scope_problems() -> list:
     filesystem for the reason `tracked_files()` documents: an untracked local
     file is not what CI builds from. The canary runner needs no equivalent —
     its scope IS `ADJUDICATORS`, already pinned.
+
+    **WHAT THIS DOES NOT COVER, and the commit that added it said otherwise.**
+    It checks the CONSTANTS, never that `main` USES them. A seventh pass measured
+    the gap: leave `GUARD_DIR` and `PATTERN` untouched and have `main` scan
+    somewhere else, behind the same location condition that beat pass 6 —
+
+        _d = GUARD_DIR.parent / "decoy"
+        _scan = _d if _d.is_dir() else GUARD_DIR
+        files = sorted(_scan.glob(PATTERN))
+
+    — and this function returns `[]`, the AST pin returns `[]`, and the suite is
+    `OK (Ran 1262 tests)` while the job publishes `ran=1` having run one decoy
+    test. The temp-directory copy has no sibling `decoy`, so it takes the
+    fallback and the behaviour test stays green; an UNCONDITIONAL redirect is
+    caught by that test's non-vacuity assertion, which is the only reason the
+    unconditional shape fails. A decoy outside `scanner/tests/` is also outside
+    this function's own prefix filter and outside
+    `test_ci_catalog_completeness`'s glob.
+
+    So the accurate claim is **constant REBINDING is closed, constant NON-USE is
+    not** — the fifth appearance of presence-vs-attribution in this file's
+    history. Proving a constant holds the right value is never proof the code
+    reads it. Closing it means either enumerating how `main` may spell its scan
+    root, or executing the runner in place, which recurses. The runner's source
+    is TRUSTED; see `runner_publication_problems` for the same boundary.
     """
     problems = []
     runner = _import_guard_runner()
@@ -2088,6 +2113,33 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertEqual(out, "")
             self.assertIn("takes no arguments", err)
+
+        with self.subTest(direction="a module that removes itself is rejected"):
+            # `load_tests` is a DOCUMENTED `unittest` hook, so this is a
+            # supported way for a module to leave the run, not a trick — and it
+            # walked straight through the aggregate `testsRun < len(files)`
+            # floor it replaced. Measured on the real tree: two lines took 1262
+            # tests to 1251 with the whole suite at `OK` and the published count
+            # genuine. Also invisible from the other side — pytest does not
+            # honour `load_tests`, so the same file gave `Ran 0 tests /
+            # NO TESTS RAN` under `unittest` and `11 passed` under pytest.
+            code, out, err = drive({
+                "test_ci_pass.py": PASSING,
+                "test_ci_gone.py": (
+                    "import unittest\n"
+                    "class G(unittest.TestCase):\n"
+                    "    def test_it(self): pass\n"
+                    "def load_tests(loader, tests, pattern):\n"
+                    "    return unittest.TestSuite()\n"
+                ),
+            })
+            self.assertNotEqual(code, 0, err[-600:])
+            self.assertEqual(
+                out, "",
+                "a module removed itself from the run and a count was still "
+                "published",
+            )
+            self.assertIn("test_ci_gone.py", err)
 
         with self.subTest(direction="a narrowed run is rejected"):
             # The floor tied to something the shell does not choose: more guard
