@@ -59,6 +59,22 @@ GUARD_DIR = Path(__file__).resolve().parent
 PATTERN = "test_ci_*.py"
 
 
+def _modules_of(suite) -> list:
+    """The module every collected test came from, walking nested suites.
+
+    A `_FailedTest` from an unimportable module reports `unittest.loader`, which
+    simply will not match any guard file's stem — so an import error reads as
+    "that file contributed nothing", which is the correct verdict and is also
+    caught by the run itself."""
+    out = []
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            out += _modules_of(item)
+        else:
+            out.append(type(item).__module__)
+    return out
+
+
 def main(argv: list) -> int:
     # NO ARGUMENTS. `-k '*bucket*'` appended to the old shell invocation cut the
     # run from 1264 tests to 18 while every check still passed, so accepting
@@ -86,6 +102,41 @@ def main(argv: list) -> int:
     suite = unittest.defaultTestLoader.discover(
         start_dir=str(GUARD_DIR), pattern=PATTERN, top_level_dir=str(GUARD_DIR)
     )
+
+    # PER FILE, not in aggregate. This replaces a `testsRun < len(files)` floor
+    # that an adversarial pass walked straight through: two lines in any guard
+    # module —
+    #
+    #     def load_tests(loader, tests, pattern):
+    #         return unittest.TestSuite()
+    #
+    # — make `discover` collect NOTHING from it, while the file still exists, is
+    # still tracked, still matches `PATTERN`, and so still counts in
+    # `len(files)`. Measured: 1262 tests became 1251 with the whole suite at
+    # `OK`, and the count the job published was genuine. `load_tests` is a
+    # documented `unittest` hook, so this is a supported way for a module to
+    # remove itself from the run, not a trick.
+    #
+    # It is also invisible from the other side: pytest does not honour
+    # `load_tests`, so `scanner-unit-tests` still ran all 11 of that module's
+    # tests. Measured both ways on the same file — `Ran 0 tests / NO TESTS RAN`
+    # under `unittest`, `11 passed` under pytest. That job is gated on the
+    # `scanner` bucket, so on a workflow/docs/template-only PR — the shape this
+    # job exists for — nothing runs them at all.
+    #
+    # Checked BEFORE the run, so the verdict does not depend on what the run
+    # reports. The same lesson the canary runner already paid for one level up:
+    # a per-class COUNT floor was defeated by parking the single adjudicating
+    # method, and only a per-METHOD floor saw it.
+    collected = set(_modules_of(suite))
+    silent = sorted(p.name for p in files if p.stem not in collected)
+    if silent:
+        print(
+            f"{len(silent)} guard file(s) contributed NO tests, so the run was "
+            f"narrowed while the count stayed genuine: {silent}",
+            file=sys.stderr,
+        )
+        return 1
     # Everything human-readable goes to stderr; stdout carries the count and
     # nothing else, so the caller's `$( )` cannot pick up stray text.
     result = unittest.TextTestRunner(stream=sys.stderr, verbosity=1).run(suite)
@@ -97,17 +148,6 @@ def main(argv: list) -> int:
             file=sys.stderr,
         )
         return 1
-    if result.testsRun < len(files):
-        # A floor tied to something the shell does not choose. It cannot detect
-        # a narrowed run in general — one module can hold many tests — but it
-        # does reject the degenerate "discovered almost nothing" shapes.
-        print(
-            f"only {result.testsRun} test(s) ran across {len(files)} guard "
-            "file(s); the suite was narrowed",
-            file=sys.stderr,
-        )
-        return 1
-
     # `ran=<count>`, not a bare count. The caller appends this straight to
     # `$GITHUB_OUTPUT`, so no shell variable ever holds the value — see the
     # step body for the measured reason.

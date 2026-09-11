@@ -444,6 +444,60 @@ equivalent: its scope *is* `ADJUDICATORS`, already pinned. Redirecting
 `GUARD_DIR` measured the same way (`ran=1` with one decoy test) and is closed by
 the same check.
 
+**A seventh pass found that sentence overstated, and it is corrected here.** The
+scope check reads the CONSTANTS; it never establishes that `main` uses them.
+Leave `GUARD_DIR` and `PATTERN` untouched and scan elsewhere behind the same
+location condition that beat pass 6:
+
+```python
+_d = GUARD_DIR.parent / "decoy"
+_scan = _d if _d.is_dir() else GUARD_DIR
+files = sorted(_scan.glob(PATTERN))
+```
+
+Both pins return `[]`, the suite is `OK (Ran 1262 tests)`, and the job publishes
+`ran=1` having run one decoy test. The temp-directory copy has no sibling
+`decoy`, so it takes the fallback and the behaviour test stays green — an
+*unconditional* redirect is caught only by that test's non-vacuity assertion. A
+decoy placed outside `scanner/tests/` also falls outside the check's own prefix
+filter and outside `test_ci_catalog_completeness`'s glob. So the accurate claim
+is **constant rebinding is closed; constant non-use is not** — the fifth
+appearance of presence-vs-attribution in this series. It is the same boundary
+the fabrication residual sits on: the runners' source is trusted, and closing
+this would mean enumerating how `main` may spell its scan root, or executing the
+runner in place, which recurses.
+
+**What pass 7 did close is cheaper and is not in the runner's trusted source at
+all.** Two lines in any guard module —
+
+```python
+def load_tests(loader, tests, pattern):
+    return unittest.TestSuite()
+```
+
+— make `discover` collect nothing from it while the file still exists, is still
+tracked, still matches `PATTERN`, and so still counts in `len(files)`. Measured:
+1262 tests became 1251 at `OK`, with the published count genuine. `load_tests`
+is a documented `unittest` hook, so this is a supported way for a module to
+leave the run. It is invisible from the other side too: pytest does not honour
+it, so the same file gave `Ran 0 tests / NO TESTS RAN` under `unittest` and
+`11 passed` under pytest — and `scanner-unit-tests`, the job that would have
+caught it, is gated on the `scanner` bucket and does not run on the
+workflow/docs/template-only PRs this job exists for. The `testsRun < len(files)`
+aggregate floor is therefore replaced by a **per-file contribution** check:
+every discovered file must contribute at least one collected test, verified
+before the run so the verdict does not depend on what the run reports. That is
+the lesson the canary runner already paid for one level up, where a per-class
+count floor was defeated by parking the single adjudicating method and only a
+per-method floor saw it.
+
+One structural note, recorded rather than fixed: the denominator of this whole
+ecosystem is the `test_ci_` **filename prefix**, hardcoded in at least three
+places (the runner's `PATTERN`, `test_ci_catalog_completeness`'s glob, and the
+scope check's own filter). A guard renamed outside that prefix disappears from
+all three consistently. It also requires editing the inventory and the catalog,
+so it is a three-file diff rather than a one-line one.
+
 The other two are one class, and they are **not closed**. This document
 previously said a fabricated `result` "would be an unmistakable diff rather than
 four innocuous-looking lines". That is withdrawn: the measured diff is thirteen
