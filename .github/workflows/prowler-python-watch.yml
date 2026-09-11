@@ -52,9 +52,14 @@ jobs:
         id: ceiling
         run: |
           set -euo pipefail
-          # Run the check script; exit 2 means ceiling lifted, 0 means frozen/error.
-          result_code=0
-          bash scripts/check-prowler-python-ceiling.sh > /tmp/ceiling-result.txt 2>&1 || result_code=$?
+          # The script exits 2 when the ceiling lifted and 0 otherwise, but it
+          # ALSO prints `CEILING_LIFTED=` before that branch (see
+          # check-prowler-python-ceiling.sh), and the parse below reads that. So
+          # the exit code carries no extra information and is not captured — the
+          # `result_code` that used to hold it was never read again. `|| true` is
+          # still load-bearing: without it `set -e` aborts the step on the exit-2
+          # path, which is the SUCCESS path here.
+          bash scripts/check-prowler-python-ceiling.sh > /tmp/ceiling-result.txt 2>&1 || true
 
           echo "--- check-prowler-python-ceiling.sh output ---"
           cat /tmp/ceiling-result.txt
@@ -72,9 +77,15 @@ jobs:
             esac
           done < /tmp/ceiling-result.txt
 
-          echo "prowler_version=${prowler_version}" >> "${GITHUB_OUTPUT}"
-          echo "requires_python=${requires_python}"  >> "${GITHUB_OUTPUT}"
-          echo "ceiling_lifted=${ceiling_lifted}"    >> "${GITHUB_OUTPUT}"
+          # ONE redirect, not three. shellcheck SC2129, surfaced by the
+          # `actionlint` job added alongside this change — it was the ONLY
+          # finding in the whole workflow set, which is why the two ship
+          # together: the gate cannot land green without this.
+          {
+            echo "prowler_version=${prowler_version}"
+            echo "requires_python=${requires_python}"
+            echo "ceiling_lifted=${ceiling_lifted}"
+          } >> "${GITHUB_OUTPUT}"
 
           # THREE STATES, NOT TWO. `result_code` was captured here and never read
           # again (shellcheck SC2034), and `prowler_version=unknown` — what the

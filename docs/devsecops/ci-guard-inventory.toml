@@ -40,6 +40,7 @@
 [catalog]
 # Every `scanner/tests/test_ci_*.py`. Compared against the glob on disk.
 guards = [
+  "test_ci_actionlint_gate.py",
   "test_ci_adr_citation_spelling.py",
   "test_ci_adr_decision_numbering.py",
   "test_ci_branch_protection_codified.py",
