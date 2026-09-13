@@ -600,6 +600,32 @@ jobs:
           # NEW workflow is covered the day it lands rather than when someone
           # remembers to add it to a list.
           /tmp/actionlint
+          # SECOND PASS, FOR SC2154 ONLY — "referenced but not assigned".
+          # actionlint SUPPRESSES that code in its default shellcheck pass, and
+          # the suppression cost this repo a broken scheduled workflow: #539
+          # deleted a `result_code=` capture whose only reader was further down
+          # the same `run:` body, and `set -u` then aborted the step with
+          # `result_code: unbound variable` on the ORDINARY path. Measured on
+          # that tree: plain `shellcheck` reported SC2154, `actionlint` exited
+          # 0, and no PR check runs a scheduled workflow's body — so nothing
+          # saw it until the body was executed by hand against a stub.
+          #
+          # A SECOND INVOCATION rather than an option on the first, because
+          # the `--include` flag is EXCLUSIVE: it considers only the codes
+          # listed, so folding it into the first pass would silently disable
+          # every other rule — including the SC2129 that was this gate's first
+          # real finding. Two passes cost ~1s and keep both sets.
+          #
+          # (No comment line here may BEGIN with the linter's own name: a
+          # `# <name> ...` line inside a `run:` body is parsed as a directive,
+          # and an unparseable one is SC1072/SC1073 — measured, this very
+          # comment made the default pass exit 1 on its first draft.)
+          #
+          # Not a false-alarm factory, measured rather than assumed: SC2154 is
+          # at ZERO across every workflow and template here, because actionlint
+          # teaches shellcheck the step's `env:` keys — this very step reads
+          # `${ACTIONLINT_VERSION}` from `env:` and is silent.
+          SHELLCHECK_OPTS="--include=SC2154" /tmp/actionlint
 
   scanner-unit-tests:
     runs-on: ubuntu-latest
