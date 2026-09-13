@@ -53,6 +53,7 @@ from _ci_guard_util import (  # noqa: E402
     job_block,
     job_needs,
     key_column,
+    strip_comment_lines,
     strip_inline_comment,
     yaml_key_pattern,
 )
@@ -77,6 +78,15 @@ _SHELLCHECK_ASSERT_RE = re.compile(r"(?:^|[;&|])[ \t]*shellcheck\b", re.M)
 #: relies on actionlint discovering every workflow, which is what makes a NEW
 #: workflow covered the day it lands.
 _INVOKE_RE = re.compile(r"^\s*/tmp/actionlint\s*$", re.M)
+#: The SECOND pass. actionlint SUPPRESSES SC2154 ("referenced but not assigned")
+#: in its default shellcheck pass, and that suppression cost this repo a broken
+#: scheduled workflow — #539 deleted a `result_code=` capture whose only reader
+#: was further down the same `run:` body, `set -u` aborted the step on the
+#: ordinary path, plain `shellcheck` reported it, and `actionlint` exited 0.
+#: Pinned because it is one line away from deletion and its absence is silent.
+_SC2154_PASS_RE = re.compile(
+    r'^\s*SHELLCHECK_OPTS="--include=SC2154"\s+/tmp/actionlint\s*$', re.M
+)
 _SHA_PIN_RE = re.compile(r"ACTIONLINT_SHA256\s*:\s*([0-9a-f]{64})\b")
 _VER_PIN_RE = re.compile(r"ACTIONLINT_VERSION\s*:\s*['\"]?(\d+\.\d+\.\d+)")
 _SHA_VERIFY_RE = re.compile(r"sha256sum\s+-c\b")
@@ -125,6 +135,36 @@ def actionlint_gate_problems(lint_text: str) -> list:
             f"job `{JOB}` does not EXECUTE a bare `/tmp/actionlint`. Installing "
             "the binary is not running it, and a path argument would pin the "
             "scan to a list that a new workflow is not on."
+        )
+
+    if not _SC2154_PASS_RE.search(executed):
+        problems.append(
+            f"job `{JOB}` does not run the SC2154 pass "
+            '(`SHELLCHECK_OPTS="--include=SC2154" /tmp/actionlint`). actionlint '
+            "suppresses that code by default, so a variable read but never "
+            "assigned passes the first pass and kills the step at runtime under "
+            "`set -u` — which is how #539 broke `prowler-python-watch`. It must "
+            "be a SECOND invocation: `--include` is exclusive, so folding it "
+            "into the first would disable every other rule."
+        )
+
+    # `SHELLCHECK_OPTS` MAY APPEAR ONLY ON THE SC2154 LINE. Read from the
+    # comment-stripped BLOCK rather than the executed shell, because the
+    # narrowing that matters is not a shell line at all: an `env:` entry applies
+    # to BOTH invocations and, since `--include` is exclusive, reduces the
+    # default pass to SC2154 only — every other rule off, nothing in any `run:`
+    # changed, and a reader of executed shell alone sees no difference.
+    stray = [
+        ln.strip()
+        for ln in strip_comment_lines(block).splitlines()
+        if "SHELLCHECK_OPTS" in ln and not _SC2154_PASS_RE.match(ln)
+    ]
+    if stray:
+        problems.append(
+            f"job `{JOB}` sets `SHELLCHECK_OPTS` somewhere other than the "
+            f"SC2154 pass: {stray}. `--include` is exclusive, so anything that "
+            "reaches the first invocation turns every other shellcheck rule off "
+            "while leaving the run body unchanged."
         )
 
     assertion = _SHELLCHECK_ASSERT_RE.search(executed)
@@ -215,6 +255,27 @@ class TestTheActionlintGuardIsNonVacuous(unittest.TestCase):
             "\n          /tmp/actionlint\n",
             "\n          /tmp/actionlint .github/workflows/lint.yml\n",
             "invocation narrowed to one file",
+        )
+
+    def test_dropping_the_sc2154_pass_is_caught(self):
+        self._mutate(
+            '\n          SHELLCHECK_OPTS="--include=SC2154" /tmp/actionlint\n',
+            "\n",
+            "SC2154 pass deleted",
+        )
+
+    def test_hoisting_shellcheck_opts_to_env_is_caught(self):
+        # The narrowing that is NOT a deleted line. `--include` is EXCLUSIVE, so
+        # a `SHELLCHECK_OPTS` at env level applies to BOTH invocations and
+        # reduces the first pass to SC2154 only — measured: the default pass
+        # then reports nothing else, including the SC2129 that was this gate's
+        # first real finding. Nothing in the `run:` body changes, so a check
+        # that reads only the executed shell cannot see it.
+        self._mutate(
+            "          ACTIONLINT_VERSION: 1.7.12\n",
+            '          SHELLCHECK_OPTS: "--include=SC2154"\n'
+            "          ACTIONLINT_VERSION: 1.7.12\n",
+            "SHELLCHECK_OPTS hoisted to env",
         )
 
     def test_dropping_the_shellcheck_assertion_is_caught(self):

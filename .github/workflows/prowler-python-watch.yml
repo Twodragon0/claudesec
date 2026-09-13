@@ -52,14 +52,22 @@ jobs:
         id: ceiling
         run: |
           set -euo pipefail
-          # The script exits 2 when the ceiling lifted and 0 otherwise, but it
-          # ALSO prints `CEILING_LIFTED=` before that branch (see
-          # check-prowler-python-ceiling.sh), and the parse below reads that. So
-          # the exit code carries no extra information and is not captured — the
-          # `result_code` that used to hold it was never read again. `|| true` is
-          # still load-bearing: without it `set -e` aborts the step on the exit-2
-          # path, which is the SUCCESS path here.
-          bash scripts/check-prowler-python-ceiling.sh > /tmp/ceiling-result.txt 2>&1 || true
+          # CAPTURED, and the capture is load-bearing — restored here after
+          # #539 deleted it on the claim that it "was never read again". It is:
+          # the third-state check further down this same body reads
+          # `${result_code}` to tell "the script declined to answer" from "the
+          # script itself broke". With the capture gone, `set -u` aborted this
+          # step with `result_code: unbound variable` on the ORDINARY exit-0
+          # path — reproduced by executing this body against a stub.
+          #
+          # Nothing caught it: this workflow is scheduled, so no PR check runs
+          # it, and shellcheck's SC2154 for an unassigned reference is not a
+          # severity `actionlint` fails on (it exited 0 on the broken tree).
+          #
+          # `|| result_code=$?` rather than `|| true`: without a `||` at all,
+          # `set -e` aborts on the exit-2 path, which is the SUCCESS path here.
+          result_code=0
+          bash scripts/check-prowler-python-ceiling.sh > /tmp/ceiling-result.txt 2>&1 || result_code=$?
 
           echo "--- check-prowler-python-ceiling.sh output ---"
           cat /tmp/ceiling-result.txt
@@ -87,8 +95,7 @@ jobs:
             echo "ceiling_lifted=${ceiling_lifted}"
           } >> "${GITHUB_OUTPUT}"
 
-          # THREE STATES, NOT TWO. `result_code` was captured here and never read
-          # again (shellcheck SC2034), and `prowler_version=unknown` — what the
+          # THREE STATES, NOT TWO. `prowler_version=unknown` — what the
           # script emits when curl cannot reach PyPI — printed the SAME
           # "Still frozen" line as a real verdict. So "the ceiling is still in
           # place" and "this watcher reached no verdict at all" were
