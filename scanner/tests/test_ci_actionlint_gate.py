@@ -88,8 +88,36 @@ _SC2154_PASS_RE = re.compile(
     r'^\s*SHELLCHECK_OPTS="--include=SC2154"\s+/tmp/actionlint\s*$', re.M
 )
 _SHA_PIN_RE = re.compile(r"ACTIONLINT_SHA256\s*:\s*([0-9a-f]{64})\b")
+#: The shellcheck this job installs, and the one `shell-lint` hands the pinned
+#: action. ONE SPEC IN TWO FILES, so they are compared as data below — the
+#: `ADJUDICATORS`/`CANARY_CLASSES` idiom. They were NOT equal before this pin:
+#: measured on the first run of the actionlint job, `ubuntu-latest` shipped
+#: shellcheck 0.9.0 while `shell-lint` pinned v0.11.0, so any rule added in
+#: 0.10/0.11 was enforced on `.sh` files and silently absent from workflow
+#: `run:` bodies.
+_SC_VER_RE = re.compile(r"SHELLCHECK_VERSION\s*:\s*['\"]?(\d+\.\d+(?:\.\d+)?)")
+_SC_SHA_RE = re.compile(r"SHELLCHECK_SHA256\s*:\s*([0-9a-f]{64})\b")
+_SC_VERSION_ASSERT_RE = re.compile(
+    r'shellcheck --version \| grep -qx "version: \$\{SHELLCHECK_VERSION\}"'
+)
+SHELL_LINT_JOB = "shell-lint"
+_ACTION_SHELLCHECK_VER_RE = re.compile(
+    r"ludeeus/action-shellcheck@[0-9a-f]+.*?^\s*version:\s*v?(\d+\.\d+(?:\.\d+)?)",
+    re.S | re.M,
+)
 _VER_PIN_RE = re.compile(r"ACTIONLINT_VERSION\s*:\s*['\"]?(\d+\.\d+\.\d+)")
-_SHA_VERIFY_RE = re.compile(r"sha256sum\s+-c\b")
+#: PER ARTIFACT, not "a `sha256sum -c` appears somewhere". Once this step
+#: verified TWO downloads, a single bare check let either verification stand
+#: in for the other's absence — measured: deleting the actionlint one left
+#: the detector quiet because shellcheck's was still there.
+_SHA_VERIFY_RES = {
+    "actionlint": re.compile(
+        r'echo "\$\{ACTIONLINT_SHA256\}\s+/tmp/actionlint\.tgz"\s*\|\s*sha256sum -c'
+    ),
+    "shellcheck": re.compile(
+        r'echo "\$\{SHELLCHECK_SHA256\}\s+/tmp/shellcheck\.tar\.xz"\s*\|\s*sha256sum -c'
+    ),
+}
 
 
 def actionlint_gate_problems(lint_text: str) -> list:
@@ -194,11 +222,62 @@ def actionlint_gate_problems(lint_text: str) -> list:
             "over the network with no digest is the mutable-ref case OWASP "
             "CICD-SEC-3 names."
         )
-    if not _SHA_VERIFY_RE.search(executed):
+    unverified = sorted(
+        name for name, rx in _SHA_VERIFY_RES.items() if not rx.search(executed)
+    )
+    if unverified:
         problems.append(
-            f"job `{JOB}` declares a sha256 but never VERIFIES it — no "
-            "`sha256sum -c` runs. A digest nothing checks is decoration."
+            f"job `{JOB}` declares a sha256 for {unverified} but never VERIFIES "
+            "it against that artifact. A digest nothing checks is decoration, "
+            "and with two downloads in one step a single bare `sha256sum -c` "
+            "lets one verification stand in for the other's absence."
         )
+
+    # SHELLCHECK, PINNED AND EQUAL TO THE OTHER JOB'S PIN. Not "a shellcheck is
+    # present": the runner image's copy was 0.9.0 while `shell-lint` pinned
+    # v0.11.0, so the same repo linted `.sh` files and workflow `run:` bodies
+    # with different rule sets and nothing said so.
+    sc_ver = _SC_VER_RE.search(block)
+    if sc_ver is None:
+        problems.append(
+            f"job `{JOB}` does not pin `SHELLCHECK_VERSION`. It would then lint "
+            "with whatever the runner image ships, which is free to change and "
+            "is not the version `shell-lint` enforces."
+        )
+    if not _SC_SHA_RE.search(block):
+        problems.append(
+            f"job `{JOB}` does not pin `SHELLCHECK_SHA256` for the binary it "
+            "downloads — the mutable-ref case OWASP CICD-SEC-3 names."
+        )
+    if not _SC_VERSION_ASSERT_RE.search(executed):
+        problems.append(
+            f"job `{JOB}` does not ASSERT the installed shellcheck version "
+            "(anchored `grep -qx`). Downloading a pinned archive and then "
+            "linting with whatever is first on PATH is a pin that pins nothing."
+        )
+
+    shell_lint = job_block(lint_text, SHELL_LINT_JOB)
+    if shell_lint is None:
+        problems.append(
+            f"job `{SHELL_LINT_JOB}` not found, so the version this job pins "
+            "cannot be compared against the one it is supposed to match."
+        )
+    elif sc_ver is not None:
+        other = _ACTION_SHELLCHECK_VER_RE.search(shell_lint)
+        if other is None:
+            problems.append(
+                f"`{SHELL_LINT_JOB}` no longer passes a `version:` to "
+                "`ludeeus/action-shellcheck`, so the two pins cannot be "
+                "compared and one of them is now unconstrained."
+            )
+        elif other.group(1) != sc_ver.group(1):
+            problems.append(
+                f"shellcheck version drift: `{JOB}` installs "
+                f"{sc_ver.group(1)} but `{SHELL_LINT_JOB}` pins "
+                f"{other.group(1)}. One spec in two files; whichever is stale, "
+                "the two jobs are enforcing different rule sets and neither "
+                "says so."
+            )
 
     gate_block = job_block(lint_text, GATE_JOB)
     if gate_block is None:
@@ -278,21 +357,43 @@ class TestTheActionlintGuardIsNonVacuous(unittest.TestCase):
             "SHELLCHECK_OPTS hoisted to env",
         )
 
-    def test_dropping_the_shellcheck_assertion_is_caught(self):
-        # The `echo "shellcheck: $(shellcheck --version …)"` line REMAINS, which
-        # is the point: the token is still in the step, inside a command
-        # substitution that is not an assertion.
-        self._mutate(
-            "\n          shellcheck --version >/dev/null\n",
-            "\n",
-            "shellcheck assertion deleted, echo left behind",
-        )
-
     def test_dropping_the_sha_verification_is_caught(self):
         self._mutate(
             '\n          echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tgz" | sha256sum -c -\n',
             "\n",
             "sha256 declared but never verified",
+        )
+
+    def test_shellcheck_version_drift_between_the_two_jobs_is_caught(self):
+        # Mutated on the ACTIONLINT side so `shell-lint`'s pin — the one the
+        # repo has enforced for longer — stays the reference.
+        self._mutate(
+            "          SHELLCHECK_VERSION: 0.11.0\n",
+            "          SHELLCHECK_VERSION: 0.9.0\n",
+            "shellcheck pins drift apart",
+        )
+
+    def test_dropping_the_shellcheck_version_assertion_is_caught(self):
+        """Downloading a pinned archive and then linting with whatever is first
+        on PATH is a pin that pins nothing — and the `export PATH` line stays,
+        so the step still LOOKS like it installed something.
+
+        This also covers the command-position check: the
+        `echo "shellcheck: $(shellcheck --version …)"` line REMAINS after the
+        mutation, so the token is still in the step, inside a command
+        substitution that is not an assertion. `(` is excluded from the
+        command-position class precisely so that echo cannot stand in."""
+        self._mutate(
+            '\n          shellcheck --version | grep -qx "version: ${SHELLCHECK_VERSION}"\n',
+            "\n",
+            "installed version never asserted",
+        )
+
+    def test_dropping_the_shellcheck_sha_pin_is_caught(self):
+        self._mutate(
+            "          SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198\n",
+            "",
+            "shellcheck binary unpinned",
         )
 
     def test_dropping_the_version_pin_is_caught(self):
