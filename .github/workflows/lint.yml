@@ -580,16 +580,40 @@ jobs:
           # against the published asset, not copied from a draft.
           ACTIONLINT_VERSION: 1.7.12
           ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          # THE SAME VERSION `shell-lint` PINS FOR `ludeeus/action-shellcheck`.
+          # The two are a single spec in two files, so `test_ci_actionlint_gate`
+          # asserts they are equal — a second copy of a constant is how this
+          # repo has lost a check before.
+          SHELLCHECK_VERSION: 0.11.0
+          SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
         run: |
           set -euo pipefail
-          # SHELLCHECK IS ASSERTED FIRST, and that assertion is the point.
-          # actionlint runs its shellcheck-backed rules only when `shellcheck`
-          # is on PATH and SILENTLY SKIPS THEM otherwise, exiting 0 either way —
-          # a strictly weaker gate that reads identically green. A runner-image
-          # change that dropped shellcheck would halve this gate with no signal,
-          # the same "premise wrong, reads as working" shape as the dead kcov
-          # detection in #466. So: fail CLOSED rather than lint without it.
-          shellcheck --version >/dev/null
+          # SHELLCHECK IS INSTALLED AND PINNED, not taken from the runner image.
+          # Two reasons, the second measured:
+          #
+          #   actionlint runs its shellcheck-backed rules only when `shellcheck`
+          #   is on PATH and SILENTLY SKIPS THEM otherwise, exiting 0 either way
+          #   — a strictly weaker gate that reads identically green. That is the
+          #   "premise wrong, reads as working" shape of the dead kcov detection
+          #   in #466, so the version check below fails CLOSED.
+          #
+          #   And the runner image's copy is NOT the one this repo lints with:
+          #   measured on the first run of this job, `ubuntu-latest` shipped
+          #   version 0.9.0 while `shell-lint` pins the action to v0.11.0. A
+          #   rule added in 0.10/0.11 was therefore enforced on `.sh` files and
+          #   silently absent from workflow `run:` bodies. Pinning both to one
+          #   version removes the asymmetry AND the image's freedom to change it
+          #   under us.
+          sc_url="https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          curl -fsSL --retry 3 -o /tmp/shellcheck.tar.xz "$sc_url"
+          echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+          mkdir -p /tmp/scbin
+          mv "/tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /tmp/scbin/shellcheck
+          export PATH="/tmp/scbin:${PATH}"
+          # EXACT version, anchored whole with `-x`: a substring match would
+          # accept 0.11.0-rc or a 0.1.1 that happens to contain the digits.
+          shellcheck --version | grep -qx "version: ${SHELLCHECK_VERSION}"
           echo "shellcheck: $(shellcheck --version | awk '/version:/{print $2}')"
           url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
           curl -fsSL --retry 3 -o /tmp/actionlint.tgz "$url"
