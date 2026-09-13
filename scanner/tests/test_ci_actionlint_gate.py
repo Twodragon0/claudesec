@@ -87,7 +87,17 @@ _INVOKE_RE = re.compile(r"^\s*/tmp/actionlint\s*$", re.M)
 _SC2154_PASS_RE = re.compile(
     r'^\s*SHELLCHECK_OPTS="--include=SC2154"\s+/tmp/actionlint\s*$', re.M
 )
-_SHA_PIN_RE = re.compile(r"ACTIONLINT_SHA256\s*:\s*([0-9a-f]{64})\b")
+#: EVERY env pin below is LINE-ANCHORED, and the block they are searched in is
+#: comment-stripped first. Unanchored, all four were satisfiable by a COMMENT —
+#: measured, each of `ACTIONLINT_VERSION`, `ACTIONLINT_SHA256`,
+#: `SHELLCHECK_VERSION` and `SHELLCHECK_SHA256` left this function returning `[]`
+#: when the pin survived only as `# NAME: value`. The sharp case is not even
+#: fail-closed: put `SHELLCHECK_VERSION: 0.9.0` live and `# … 0.11.0` above it,
+#: and the parity check reads the COMMENT, reports agreement, and the job
+#: happily installs and asserts 0.9.0 — restoring the exact asymmetry the pin
+#: exists to close. `_ACTION_SHELLCHECK_VER_RE` was the only one already
+#: anchored (`^\s*version:`), and it was the only one that survived the sweep.
+_SHA_PIN_RE = re.compile(r"^\s*ACTIONLINT_SHA256\s*:\s*([0-9a-f]{64})\b", re.M)
 #: The shellcheck this job installs, and the one `shell-lint` hands the pinned
 #: action. ONE SPEC IN TWO FILES, so they are compared as data below — the
 #: `ADJUDICATORS`/`CANARY_CLASSES` idiom. They were NOT equal before this pin:
@@ -95,17 +105,28 @@ _SHA_PIN_RE = re.compile(r"ACTIONLINT_SHA256\s*:\s*([0-9a-f]{64})\b")
 #: shellcheck 0.9.0 while `shell-lint` pinned v0.11.0, so any rule added in
 #: 0.10/0.11 was enforced on `.sh` files and silently absent from workflow
 #: `run:` bodies.
-_SC_VER_RE = re.compile(r"SHELLCHECK_VERSION\s*:\s*['\"]?(\d+\.\d+(?:\.\d+)?)")
-_SC_SHA_RE = re.compile(r"SHELLCHECK_SHA256\s*:\s*([0-9a-f]{64})\b")
+_SC_VER_RE = re.compile(
+    r"^\s*SHELLCHECK_VERSION\s*:\s*['\"]?(\d+\.\d+(?:\.\d+)?)", re.M
+)
+_SC_SHA_RE = re.compile(r"^\s*SHELLCHECK_SHA256\s*:\s*([0-9a-f]{64})\b", re.M)
+#: THE WHOLE LINE, both ends. As a bare `re.search` this accepted
+#: `… grep -qx "version: ${SHELLCHECK_VERSION}" || true` — measured: the
+#: assertion is then a no-op, and combined with an `export PATH` that APPENDS
+#: instead of prepending, the job silently lints with the runner image's
+#: shellcheck while every check here stays quiet. Either half alone is
+#: fail-closed; together they are not.
 _SC_VERSION_ASSERT_RE = re.compile(
-    r'shellcheck --version \| grep -qx "version: \$\{SHELLCHECK_VERSION\}"'
+    r'^\s*shellcheck --version \| grep -qx "version: \$\{SHELLCHECK_VERSION\}"\s*$',
+    re.M,
 )
 SHELL_LINT_JOB = "shell-lint"
 _ACTION_SHELLCHECK_VER_RE = re.compile(
     r"ludeeus/action-shellcheck@[0-9a-f]+.*?^\s*version:\s*v?(\d+\.\d+(?:\.\d+)?)",
     re.S | re.M,
 )
-_VER_PIN_RE = re.compile(r"ACTIONLINT_VERSION\s*:\s*['\"]?(\d+\.\d+\.\d+)")
+_VER_PIN_RE = re.compile(
+    r"^\s*ACTIONLINT_VERSION\s*:\s*['\"]?(\d+\.\d+\.\d+)", re.M
+)
 #: PER ARTIFACT, not "a `sha256sum -c` appears somewhere". Once this step
 #: verified TWO downloads, a single bare check let either verification stand
 #: in for the other's absence — measured: deleting the actionlint one left
@@ -182,9 +203,17 @@ def actionlint_gate_problems(lint_text: str) -> list:
     # to BOTH invocations and, since `--include` is exclusive, reduces the
     # default pass to SC2154 only — every other rule off, nothing in any `run:`
     # changed, and a reader of executed shell alone sees no difference.
+    # SCOPE: the job block AND the workflow preamble. A `SHELLCHECK_OPTS` at
+    # WORKFLOW level applies to every job including this one, and it sits
+    # outside `job_block` — measured, the whole file scanned only per-job left
+    # this function returning `[]` while the default pass was reduced to SC2154
+    # alone. `shell-lint`'s own `SHELLCHECK_OPTS: -x` is deliberately NOT in
+    # scope: it is step-scoped there and cannot reach this job, and flagging it
+    # would be a false alarm on a legitimate setting.
+    preamble = lint_text.split("\njobs:\n", 1)[0]
     stray = [
         ln.strip()
-        for ln in strip_comment_lines(block).splitlines()
+        for ln in strip_comment_lines(preamble + "\n" + block).splitlines()
         if "SHELLCHECK_OPTS" in ln and not _SC2154_PASS_RE.match(ln)
     ]
     if stray:
@@ -394,6 +423,66 @@ class TestTheActionlintGuardIsNonVacuous(unittest.TestCase):
             "          SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198\n",
             "",
             "shellcheck binary unpinned",
+        )
+
+    def test_every_env_pin_parked_in_a_comment_is_caught(self):
+        """Presence vs attribution, for the sixth time in this series.
+
+        All four pins were unanchored `re.search` over the RAW block, so each
+        was satisfiable by a `# NAME: value` comment. The sharp case is not even
+        fail-closed: `SHELLCHECK_VERSION: 0.9.0` live with `# … 0.11.0` above it
+        made the parity check read the COMMENT and report agreement, while the
+        job installed and asserted 0.9.0 — the exact asymmetry the pin exists to
+        close, restored with every check green."""
+        for name, live in (
+            ("ACTIONLINT_VERSION", "          ACTIONLINT_VERSION: 1.7.12\n"),
+            (
+                "ACTIONLINT_SHA256",
+                "          ACTIONLINT_SHA256: "
+                "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8\n",
+            ),
+            ("SHELLCHECK_VERSION", "          SHELLCHECK_VERSION: 0.11.0\n"),
+            (
+                "SHELLCHECK_SHA256",
+                "          SHELLCHECK_SHA256: "
+                "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198\n",
+            ),
+        ):
+            with self.subTest(pin=name):
+                self._mutate(live, "          # " + live.strip() + "\n", f"{name} comment-only")
+
+    def test_a_live_pin_shadowed_by_a_comment_is_read_from_the_LIVE_line(self):
+        """The fail-OPEN half, kept separate because it is the dangerous one.
+
+        A comment claiming the right version above a live line carrying the
+        wrong one must read as DRIFT, not as agreement."""
+        self._mutate(
+            "          SHELLCHECK_VERSION: 0.11.0\n",
+            "          # SHELLCHECK_VERSION: 0.11.0\n          SHELLCHECK_VERSION: 0.9.0\n",
+            "comment claims parity, live line drifts",
+        )
+
+    def test_neutering_the_version_assertion_with_or_true_is_caught(self):
+        """`|| true` makes the assertion a no-op while leaving every token in
+        place. Fail-closed on its own — the pinned binary is still first on
+        PATH — but combined with an `export PATH` that APPENDS, the job lints
+        with the runner image's copy and nothing says so."""
+        self._mutate(
+            'grep -qx "version: ${SHELLCHECK_VERSION}"\n',
+            'grep -qx "version: ${SHELLCHECK_VERSION}" || true\n',
+            "assertion neutered with || true",
+        )
+
+    def test_a_workflow_level_shellcheck_opts_is_caught(self):
+        """Outside the job block entirely, so a per-job scan cannot see it —
+        and workflow-level `env:` reaches every job. Since `--include` is
+        exclusive it would reduce the default pass to SC2154 alone."""
+        mutant = self.lint.replace(
+            "\njobs:\n", '\nenv:\n  SHELLCHECK_OPTS: "--include=SC2154"\n\njobs:\n', 1
+        )
+        self.assertNotEqual(mutant, self.lint, "fixture is stale — `jobs:` moved")
+        assert_disables(
+            actionlint_gate_problems, self.lint, mutant, "workflow-level SHELLCHECK_OPTS"
         )
 
     def test_dropping_the_version_pin_is_caught(self):
