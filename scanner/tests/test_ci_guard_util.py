@@ -38,6 +38,7 @@ Imports nothing from `scanner/lib`, so it does not touch the 99% coverage gate.
 
 import re
 import sys
+import inspect
 import tempfile
 import unittest
 from pathlib import Path
@@ -1216,7 +1217,7 @@ class TestApplyLiveMutation(unittest.TestCase):
         text = "  echo done;# token=old\n  real=1\n"
         with self.assertRaises(AssertionError):
             apply_live_mutation(
-                text, "token=old", "token=new", strip=strip_inline_comment_sh
+                text, "token=old", "token=new", syntax="sh"
             )
 
     def test_a_markdown_heading_is_not_a_comment(self):
@@ -1225,17 +1226,45 @@ class TestApplyLiveMutation(unittest.TestCase):
         because the anchor's only occurrence sits in `### 3.3 ... (ADR-001 \u00a75)`.
         `#` opens a comment in YAML/shell/Python and a HEADING in Markdown, so
         the default refuses a perfectly live Markdown target — the escape hatch
-        is `line_comment=None`, and this pins both directions."""
+        is `syntax="markdown"`, and this pins both directions."""
         text = "### 3.3 something (ADR-001 \u00a75)\n\nbody\n"
         with self.assertRaises(AssertionError) as caught:
             apply_live_mutation(text, "ADR-001 \u00a75", "X")
         self.assertIn("only inside comments", str(caught.exception))
         self.assertEqual(
             apply_live_mutation(
-                text, "ADR-001 \u00a75", "X", line_comment=None
+                text, "ADR-001 \u00a75", "X", syntax="markdown"
             ).splitlines()[0],
             "### 3.3 something (X)",
         )
+
+
+    def test_the_two_step_comment_bypass_is_unrepresentable(self):
+        """The tenth adversarial pass's finding, pinned as an API shape.
+
+        When the stripper and the comment opener were separate parameters,
+        `line_comment=None` alone was caught — dropping the filter inflates the
+        live count and `expect_live` raises. But that raise advises "name the
+        count you mean", and `line_comment=None, expect_live=2` then landed the
+        mutation INSIDE the comment with every check green. Choosing both
+        together by language removes the first step, so there is no second."""
+        self.assertEqual(
+            sorted(_ci_guard_util._LIVE_SYNTAX),
+            ["markdown", "sh", "yaml"],
+            "a syntax was added or removed; prove how that language opens a "
+            "comment with a fixture above before changing this",
+        )
+        params = inspect.signature(apply_live_mutation).parameters
+        for knob in ("strip", "line_comment"):
+            self.assertNotIn(
+                knob,
+                params,
+                f"`{knob}` is back as a parameter: comment detection is "
+                "separately disableable again, which is the two-step bypass",
+            )
+        with self.assertRaises(AssertionError) as caught:
+            apply_live_mutation("a\n", "a", "b", syntax="python")
+        self.assertIn("unknown syntax", str(caught.exception))
 
 
 if __name__ == "__main__":

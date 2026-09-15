@@ -1290,8 +1290,19 @@ def apply_mutation(text: str, old: str, new: str, *, count: int = 1) -> str:
     return out
 
 
+# (stripper, line-comment opener) per source language, chosen TOGETHER on
+# purpose — see the SYNTAX paragraph in `apply_live_mutation`. `None` as the
+# opener means the language has no line comment at all, which is true of
+# Markdown and true of nothing else here.
+_LIVE_SYNTAX = {
+    "yaml": (strip_inline_comment, "#"),
+    "sh": (strip_inline_comment_sh, "#"),
+    "markdown": (lambda line: line, None),
+}
+
+
 def apply_live_mutation(
-    text: str, old: str, new: str, *, strip=None, line_comment="#", expect_live: int = 1
+    text: str, old: str, new: str, *, syntax: str = "yaml", expect_live: int = 1
 ) -> str:
     """`apply_mutation`, but the occurrence replaced must be on a LIVE line.
 
@@ -1316,9 +1327,26 @@ def apply_live_mutation(
     "did the text change" check is satisfied. This one requires the match to
     survive comment-stripping, so a comment-only hit raises instead.
 
-    `strip` defaults to `strip_inline_comment` (whitespace-boundary, right for
-    YAML). Pass `strip_inline_comment_sh` for shell bodies, where bash starts a
-    comment straight after `;`/`&`/`|`/`)` with no space.
+    SYNTAX IS ONE PARAMETER, NOT TWO, BECAUSE TWO WERE SEPARATELY DISABLEABLE.
+    This took a `strip=` callable and a `line_comment=` opener. Measured on the
+    tenth adversarial pass: `line_comment=None` alone is caught, because dropping
+    the comment filter INFLATES the live count and `expect_live` then raises —
+    but that raise says "name the count you mean", and an author who follows it
+    to `expect_live=2` lands the mutation back inside the comment with every
+    check green. A two-step bypass whose second step is the error message's own
+    advice is not a bypass anyone has to be adversarial to walk into.
+
+    So the stripper and the opener are chosen together, by language, and
+    "comments off" is not a value `syntax` can take: `yaml` (whitespace
+    boundary — also right for Dockerfiles), `sh` (bash opens a comment straight
+    after `;`/`&`/`|`/`)` with no space), `markdown` (no line comments exist; `#`
+    opens a HEADING). Add a key with a fixture rather than reaching for a knob.
+
+    LIVENESS IS JUDGED ON THE LINE THE MATCH STARTS ON. A multi-line needle
+    whose TAIL falls in a comment is still accepted and still edited — measured,
+    and left as is: the alternative is to reject needles that deliberately span
+    a comment, and no caller here does that. Know it before writing one that
+    does.
 
     THE COUNT PARAMETER IS DELIBERATELY NOT CALLED `count`. `apply_mutation`'s
     `count` is `str.replace`'s — HOW MANY occurrences to replace. This one is
@@ -1328,8 +1356,8 @@ def apply_live_mutation(
     only diverge once a second occurrence appears — i.e. later, silently, in
     someone else's change.
 
-        MARKDOWN CALLERS MUST PASS `line_comment=None`. A line opening with `#` is a
-    comment in YAML, shell and Python — and a HEADING in Markdown. Measured: a
+    MARKDOWN CALLERS MUST PASS `syntax="markdown"`. A line opening with `#` is
+    a comment in YAML, shell and Python — and a HEADING in Markdown. Measured: a
     sweep of every `apply_mutation` call in this suite flagged the ADR
     citation-spelling fixture as editing a comment, and its target turned out to
     be `### 3.3 ... (ADR-001 §5)`, a heading holding the anchor's ONLY
@@ -1340,7 +1368,14 @@ def apply_live_mutation(
     than merely landing on it. That remains `assert_disables`' job, and stating
     in the test why the mutant is really broken remains the author's.
     """
-    strip = strip or strip_inline_comment
+    try:
+        strip, line_comment = _LIVE_SYNTAX[syntax]
+    except KeyError:
+        raise AssertionError(
+            f"unknown syntax {syntax!r}; expected one of "
+            f"{sorted(_LIVE_SYNTAX)}. Add a key with a fixture proving how "
+            "that language opens a comment — do not pass a stripper here."
+        ) from None
 
     # Located on the WHOLE TEXT, not per line: every caller in this suite uses a
     # multi-line needle (`"\n          /tmp/actionlint\n"`) to pin exactly which
