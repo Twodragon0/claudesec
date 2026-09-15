@@ -74,6 +74,7 @@ OWASP CICD-SEC-1 (Insufficient Flow Control); NIST SP 800-218 (SSDF) PO.3, PW.4.
 """
 
 import ast
+import re
 import unittest
 from pathlib import Path
 
@@ -203,6 +204,159 @@ def scan_guard_suite() -> list:
     return sorted(hits)
 
 
+# ---------------------------------------------------------------------------
+# THE SECOND SHAPE: a PIN expressed as a regex inside a detector, not as an
+# assertion. `raw_presence_assertions` above only inspects assertion CALLS, and
+# in this suite the assertions are mostly thin wrappers over detector functions
+# that do the real work with `re.search`. A ninth adversarial pass walked
+# straight through that gap and a tenth measured the cost:
+#
+#     if not re.search(r'fullmatch\(\s*r?"\[1-9\]\[0-9\]\*"', gate_block):
+#
+# in `test_ci_guard_self_verify` pinned `lint-gate`'s positive-integer
+# requirement. Loosen the live regex to `r".*"` and leave a comment carrying the
+# old spelling, and the check stayed quiet — while `re.fullmatch(r".*", "")`
+# MATCHES, and `""` is exactly what a parked job publishes. Fail-open, and the
+# whole execution proof gone for one edited line plus a comment.
+#
+# DIRECTION IS THE DISCRIMINATOR, and it is why this is not a 66-entry list.
+# Only a NEGATIVE use — `if not <regex>.search(hay)` — is a pin, and only a pin
+# is defeated by a comment: the comment supplies the token the guard demands.
+# A positive use is a SCANNER looking for offenders, where a comment producing a
+# hit is a false alarm at worst, never a silent pass. Measured: every unanchored
+# search over un-stripped text is 66 sites, most of them scanners; restricted to
+# the negative direction it is 11. A check that cries wolf gets ignored, which
+# would cost exactly the detection this exists to provide.
+#
+# WHAT IS LEFT, after the triage that shrank this from 11: every remaining
+# haystack is a SINGLE TOKEN — a `line`, a `ref`, a regex group — not a
+# multi-line block, so there is nowhere for a comment to hide the token the
+# pin demands. They are recorded rather than excluded by a rule, because
+# "looks like one token" is a judgement and this list is the place to make it.
+KNOWN_PIN_SEARCHES = frozenset({
+    "test_ci_gate_topology.py:ref",
+    "test_ci_guard_self_verify.py:p",
+    "test_ci_guard_self_verify.py:proof_steps[0]",
+    "test_ci_no_ere_pipe_regression.py:line",
+    "test_ci_scanner_lib_reachability.py:line",
+    "test_ci_template_pin_policy.py:m.group('ref')",
+})
+
+#: Callables whose RESULT has comments removed. A pin read out of one of these
+#: cannot be satisfied by a comment, which is the whole point.
+#:
+#: EXPLICIT, and each entry checked by reading what it returns — NOT inferred
+#: from "this function mentions a stripper somewhere". That inference was tried
+#: and is wrong in the direction that matters: it classifies `job_block` as a
+#: stripper (its body names `strip_comment_lines` while returning RAW text), and
+#: `job_block` is exactly the haystack the defect that motivated this scan used.
+#: The heuristic would have reported that defect as absent — presence vs
+#: attribution, one level up, in the classifier instead of the guard.
+#:
+#: The last four are per-guard helpers, verified the same way:
+#:   `step_blocks`    `strip_comment_lines(text)` before splitting (util)
+#:   `_joined`        whole-line AND inline shell comments, per ADR-001 §1
+#:   `call_arguments` spans sliced from a comment-blanked mask
+#:   `_active_text`   `join_continuations(strip_comment_lines(text))`
+_STRIPPER_NAMES = (
+    "strip_comment_lines",
+    "non_comment_lines",
+    "strip_inline_comment",
+    "strip_inline_comment_sh",
+    "executed_shell",
+    "rendered_markdown",
+    "_strip_comment",
+    "_sh_stripped",
+    "step_blocks",
+    "_joined",
+    "call_arguments",
+    "_active_text",
+)
+
+
+def pin_searches(source: str, filename: str) -> list:
+    """Every `if not <regex>.search(<un-stripped text>)` pin in `source`.
+
+    Keyed by `<file>:<haystack expression>` rather than by line, because a
+    14-entry baseline keyed on line numbers churns on every edit above it and a
+    baseline that churns gets regenerated without being read.
+    """
+    tree = ast.parse(source)
+    patterns, stripped = {}, set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Call)
+            and ast.unparse(node.value.func) == "re.compile"
+            and node.value.args
+        ):
+            patterns[node.targets[0].id] = node.value.args[0]
+
+    # Three rounds, because stripping reaches a haystack indirectly as often as
+    # directly: `calls = call_arguments(js, ...)` then `args = calls[0]`, and
+    # `for block in step_blocks(text):`. A single pass left `args` in the
+    # baseline and the triage that found it a false positive is what this loop
+    # is for — a baseline of false alarms is the shape that gets a check ignored.
+    for _ in range(3):
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+            ):
+                text = ast.unparse(node.value)
+                if any(f"{s}(" in text for s in _STRIPPER_NAMES) or any(
+                    re.fullmatch(rf"{re.escape(s)}(\[.*\])?", text) for s in stripped
+                ):
+                    stripped.add(node.targets[0].id)
+            elif isinstance(node, (ast.For, ast.comprehension)) and isinstance(
+                node.target, ast.Name
+            ):
+                if any(f"{s}(" in ast.unparse(node.iter) for s in _STRIPPER_NAMES):
+                    stripped.add(node.target.id)
+
+    hits = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not)):
+            continue
+        call = node.operand
+        if not isinstance(call, ast.Call):
+            continue
+        # `re.search(pat, hay)` ALSO has an `ast.Attribute` func (`re` . `search`),
+        # so the module-level form must be tested FIRST. Getting that order wrong
+        # sent `pats.get("re")` to None and made this scan report the motivating
+        # defect as absent — measured, while writing this.
+        if ast.unparse(call.func) in ("re.search", "re.match"):
+            if len(call.args) < 2:
+                continue
+            pattern, haystack = call.args[0], ast.unparse(call.args[1])
+        elif isinstance(call.func, ast.Attribute) and call.func.attr in (
+            "search",
+            "match",
+        ):
+            pattern = patterns.get(ast.unparse(call.func.value))
+            haystack = ast.unparse(call.args[0]) if call.args else ""
+        else:
+            continue
+        if pattern is None or haystack in stripped:
+            continue
+        if any(f"{s}(" in haystack for s in _STRIPPER_NAMES):
+            continue
+        if _is_line_anchored(pattern):
+            continue
+        hits.append(f"{filename}:{haystack}")
+    return sorted(set(hits))
+
+
+def scan_pin_searches() -> list:
+    hits = []
+    for path in sorted(TESTS_DIR.glob("test_ci_*.py")):
+        hits.extend(pin_searches(path.read_text(encoding="utf-8"), path.name))
+    return sorted(set(hits))
+
+
 class TestGuardAssertionScoping(unittest.TestCase):
     def test_guard_files_found(self):
         # Canary: an empty glob would make the pin below pass vacuously.
@@ -229,6 +383,90 @@ class TestGuardAssertionScoping(unittest.TestCase):
             "the specific step/block that owns the control. A line-anchored regex "
             r"(`(?m)^\s*token`) also counts as scoped.",
         )
+
+
+    def test_no_new_pin_search_over_unstripped_text(self):
+        """A regex PIN read out of text that still has its comments."""
+        new = sorted(set(scan_pin_searches()) - KNOWN_PIN_SEARCHES)
+        self.assertEqual(
+            new,
+            [],
+            "Pin(s) read from un-stripped text:\n  " + "\n  ".join(new) + "\n\n"
+            "`if not <regex>.search(hay)` demands a token be PRESENT, so a "
+            "comment carrying that token satisfies it while the live control is "
+            "weakened — measured fail-open on `lint-gate`'s positive-integer "
+            "requirement.\nFix: search a comment-stripped view "
+            "(`strip_comment_lines`, `executed_shell`, ...), or line-anchor the "
+            "pattern so a `# ...` line cannot match.",
+        )
+
+    def test_pin_search_baseline_has_no_stale_entries(self):
+        stale = sorted(KNOWN_PIN_SEARCHES - set(scan_pin_searches()))
+        self.assertEqual(
+            stale,
+            [],
+            "Baseline entries no longer present — fixed or moved. Remove them, "
+            f"or the list stops meaning anything: {stale}",
+        )
+
+    def test_the_pin_scan_detects_the_defect_that_motivated_it(self):
+        """NON-VACUITY, against the exact pre-fix shape.
+
+        Both directions in one place: the un-stripped haystack is reported, and
+        the comment-stripped one is not."""
+        bad = (
+            "import re\n"
+            "def f(lint_text):\n"
+            "    gate_block = job_block(lint_text, GATE_JOB)\n"
+            "    if not re.search(r'fullmatch\\(', gate_block):\n"
+            "        return ['weakened']\n"
+        )
+        good = bad.replace(
+            "gate_block = job_block(lint_text, GATE_JOB)",
+            "gate_block = strip_comment_lines(job_block(lint_text, GATE_JOB))",
+        )
+        self.assertEqual(pin_searches(bad, "x.py"), ["x.py:gate_block"])
+        self.assertEqual(pin_searches(good, "x.py"), [])
+
+
+    def test_a_haystack_stripped_by_a_HELPER_is_not_reported(self):
+        """The false-alarm direction, and it is why the baseline is 6 not 11.
+
+        Empirical triage of the three multi-line entries found ALL THREE benign:
+        `_joined`, `call_arguments` and `step_blocks` each strip, and the last
+        was confirmed by execution (weaken the live `if:` on
+        `protection-drift-watch.yml`, leave the token in a comment -> the guard
+        goes red). Stripping reaches a haystack indirectly as often as directly,
+        so both shapes are covered here."""
+        via_loop = (
+            "import re\n"
+            "def f(text):\n"
+            "    for block in step_blocks(text):\n"
+            "        if not _RE.search(block):\n"
+            "            return ['x']\n"
+        )
+        via_subscript = (
+            "import re\n"
+            "def f(js):\n"
+            "    calls = call_arguments(js, 'listWorkflowRuns')\n"
+            "    args = calls[0]\n"
+            "    if not _RE.search(args):\n"
+            "        return ['x']\n"
+        )
+        self.assertEqual(pin_searches(via_loop, "x.py"), [])
+        self.assertEqual(pin_searches(via_subscript, "x.py"), [])
+
+    def test_a_positive_scanner_is_not_reported(self):
+        """Direction is the discriminator: a scanner looking for offenders is
+        not defeated by a comment, and flagging it would be the false alarm that
+        gets the whole check ignored."""
+        scanner = (
+            "import re\n"
+            "def f(text):\n"
+            "    if re.search(r'bad-token', text):\n"
+            "        return ['found']\n"
+        )
+        self.assertEqual(pin_searches(scanner, "x.py"), [])
 
     def test_baseline_has_no_stale_entries(self):
         found = set(scan_guard_suite())
