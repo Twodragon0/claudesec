@@ -45,6 +45,7 @@ import unittest
 from pathlib import Path
 
 from _ci_guard_util import (
+    apply_live_mutation,
     apply_mutation,
     assert_disables,
     block_ends_at,
@@ -212,7 +213,7 @@ class TestJunitReporterDetectors(unittest.TestCase):
         `checks: write` AND delete `annotate_only`: the detector must go quiet.
         Absence is only evidence once you have watched the thing be present
         (probe checklist item 8)."""
-        granted = apply_mutation(
+        granted = apply_live_mutation(
             self.clean,
             "permissions:\n  contents: read\n",
             "permissions:\n  contents: read\n  checks: write\n",
