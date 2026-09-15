@@ -1291,7 +1291,7 @@ def apply_mutation(text: str, old: str, new: str, *, count: int = 1) -> str:
 
 
 def apply_live_mutation(
-    text: str, old: str, new: str, *, strip=None, count: int = 1
+    text: str, old: str, new: str, *, strip=None, line_comment="#", count: int = 1
 ) -> str:
     """`apply_mutation`, but the occurrence replaced must be on a LIVE line.
 
@@ -1319,6 +1319,14 @@ def apply_live_mutation(
     `strip` defaults to `strip_inline_comment` (whitespace-boundary, right for
     YAML). Pass `strip_inline_comment_sh` for shell bodies, where bash starts a
     comment straight after `;`/`&`/`|`/`)` with no space.
+
+    MARKDOWN CALLERS MUST PASS `line_comment=None`. A line opening with `#` is a
+    comment in YAML, shell and Python — and a HEADING in Markdown. Measured: a
+    sweep of every `apply_mutation` call in this suite flagged the ADR
+    citation-spelling fixture as editing a comment, and its target turned out to
+    be `### 3.3 ... (ADR-001 §5)`, a heading holding the anchor's ONLY
+    occurrence. The sweep was wrong, not the fixture — but a Markdown caller
+    using the default here would be refused for the same reason.
 
     Still cannot decide SEMANTICS — whether the edit disables the control rather
     than merely landing on it. That remains `assert_disables`' job, and stating
@@ -1354,7 +1362,7 @@ def apply_live_mutation(
         probe = off + lead
         idx = bisect.bisect_right(line_start, probe) - 1
         line = lines[idx]
-        if line.lstrip().startswith("#"):
+        if line_comment and line.lstrip().startswith(line_comment):
             continue
         # The needle must begin inside the part of the line that SURVIVES
         # comment-stripping; anything past that boundary is prose.

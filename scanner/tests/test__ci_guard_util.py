@@ -1219,6 +1219,24 @@ class TestApplyLiveMutation(unittest.TestCase):
                 text, "token=old", "token=new", strip=strip_inline_comment_sh
             )
 
+    def test_a_markdown_heading_is_not_a_comment(self):
+        """Measured on the ADR citation fixture: a sweep of every
+        `apply_mutation` call in this suite reported it as editing a comment,
+        because the anchor's only occurrence sits in `### 3.3 ... (ADR-001 \u00a75)`.
+        `#` opens a comment in YAML/shell/Python and a HEADING in Markdown, so
+        the default refuses a perfectly live Markdown target — the escape hatch
+        is `line_comment=None`, and this pins both directions."""
+        text = "### 3.3 something (ADR-001 \u00a75)\n\nbody\n"
+        with self.assertRaises(AssertionError) as caught:
+            apply_live_mutation(text, "ADR-001 \u00a75", "X")
+        self.assertIn("only inside comments", str(caught.exception))
+        self.assertEqual(
+            apply_live_mutation(
+                text, "ADR-001 \u00a75", "X", line_comment=None
+            ).splitlines()[0],
+            "### 3.3 something (X)",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
