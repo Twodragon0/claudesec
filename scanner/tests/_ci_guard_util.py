@@ -41,6 +41,7 @@ root):
 """
 
 import json
+import bisect
 import re
 import subprocess
 import tomllib
@@ -1261,8 +1262,13 @@ def apply_mutation(text: str, old: str, new: str, *, count: int = 1) -> str:
        disk, so the assertion ran against the unmutated real file.
 
     This helper closes shapes 2 and 5 mechanically (the substring must be present
-    and the result must differ). Shapes 1, 3 and 4 are semantic — whether the
-    edit disables the CONTROL, not merely whether it changed bytes — and no
+    and the result must differ). SHAPE 4 IS NOW CLOSABLE TOO, by
+    `apply_live_mutation` below — it requires the match to survive
+    comment-stripping, so a fixture that edits the control's own explanatory
+    comment raises instead of silently proving nothing. Prefer it whenever the
+    target text carries comments that quote what they explain, which in this
+    repo is most of them. Shapes 1 and 3 remain semantic — whether the edit
+    disables the CONTROL, not merely whether it landed on live code — and no
     helper can decide them; use `assert_disables` for those, and state in the
     test why the mutant is really broken.
 
@@ -1279,6 +1285,107 @@ def apply_mutation(text: str, old: str, new: str, *, count: int = 1) -> str:
             "the file changed under the test, so this case proves nothing"
         )
     out = text.replace(old, new, count)
+    if out == text:
+        raise AssertionError(f"mutation {old!r} -> {new!r} left the text unchanged")
+    return out
+
+
+def apply_live_mutation(
+    text: str, old: str, new: str, *, strip=None, line_comment="#", count: int = 1
+) -> str:
+    """`apply_mutation`, but the occurrence replaced must be on a LIVE line.
+
+    CLOSES SHAPE 4, which `apply_mutation` above documents as unclosable: a
+    fixture that edits the control's own explanatory COMMENT instead of the
+    control. `str.replace` takes the FIRST occurrence, and in this repo the
+    comment usually comes first, because the comment quotes the command it
+    explains.
+
+    Measured, twice in one session, both silent:
+
+      * re-breaking `prowler-python-watch.yml` to check a fix,
+        `replace("|| result_code=$?", "|| true")` hit the copy inside the
+        comment three lines above the live command. Every token check still
+        passed, the tool correctly reported nothing, and the conclusion drawn
+        was "the detector does not work".
+      * mutating `protection-drift-watch.yml`, the target chosen was
+        `token_present == 'true'` while the pin demands `== 'false'`. Same
+        outcome: a clean pass read as a missing detection.
+
+    `apply_mutation` cannot catch either — both genuinely change bytes, so its
+    "did the text change" check is satisfied. This one requires the match to
+    survive comment-stripping, so a comment-only hit raises instead.
+
+    `strip` defaults to `strip_inline_comment` (whitespace-boundary, right for
+    YAML). Pass `strip_inline_comment_sh` for shell bodies, where bash starts a
+    comment straight after `;`/`&`/`|`/`)` with no space.
+
+    MARKDOWN CALLERS MUST PASS `line_comment=None`. A line opening with `#` is a
+    comment in YAML, shell and Python — and a HEADING in Markdown. Measured: a
+    sweep of every `apply_mutation` call in this suite flagged the ADR
+    citation-spelling fixture as editing a comment, and its target turned out to
+    be `### 3.3 ... (ADR-001 §5)`, a heading holding the anchor's ONLY
+    occurrence. The sweep was wrong, not the fixture — but a Markdown caller
+    using the default here would be refused for the same reason.
+
+    Still cannot decide SEMANTICS — whether the edit disables the control rather
+    than merely landing on it. That remains `assert_disables`' job, and stating
+    in the test why the mutant is really broken remains the author's.
+    """
+    strip = strip or strip_inline_comment
+
+    # Located on the WHOLE TEXT, not per line: every caller in this suite uses a
+    # multi-line needle (`"\n          /tmp/actionlint\n"`) to pin exactly which
+    # line it means. Liveness is then decided by the line the match STARTS on,
+    # after skipping any leading newlines the needle used as an anchor.
+    offsets = []
+    i = text.find(old)
+    while i != -1:
+        offsets.append(i)
+        i = text.find(old, i + 1)
+    if not offsets:
+        raise AssertionError(
+            f"mutation fixture is stale: {old!r} does not appear at all in the "
+            "target text — the file changed under the test, so this case proves "
+            "nothing"
+        )
+
+    lines = text.splitlines(keepends=True)
+    line_start, pos = [], 0
+    for line in lines:
+        line_start.append(pos)
+        pos += len(line)
+
+    lead = len(old) - len(old.lstrip("\n"))
+    live = []
+    for off in offsets:
+        probe = off + lead
+        idx = bisect.bisect_right(line_start, probe) - 1
+        line = lines[idx]
+        if line_comment and line.lstrip().startswith(line_comment):
+            continue
+        # The needle must begin inside the part of the line that SURVIVES
+        # comment-stripping; anything past that boundary is prose.
+        if probe - line_start[idx] < len(strip(line)):
+            live.append(off)
+
+    if not live:
+        raise AssertionError(
+            f"mutation fixture is stale: {old!r} appears {len(offsets)}x but on "
+            "no LIVE line — only inside comments. Editing a comment changes "
+            "bytes without touching the control, which is how two probes in "
+            "this suite reported a working detector as broken."
+        )
+    if len(live) != count:
+        at = [bisect.bisect_right(line_start, o + lead) for o in live]
+        raise AssertionError(
+            f"{old!r} starts on {len(live)} live lines, expected {count}: lines "
+            f"{at}. Narrow the needle — replacing the first silently picks one "
+            "for you."
+        )
+
+    off = live[0]
+    out = text[:off] + new + text[off + len(old):]
     if out == text:
         raise AssertionError(f"mutation {old!r} -> {new!r} left the text unchanged")
     return out
