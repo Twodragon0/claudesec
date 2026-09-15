@@ -1118,15 +1118,35 @@ def job_ran_proof_problems(lint_text: str) -> list:
     if gate_block is None:
         problems.append(f"aggregator job `{GATE_JOB}` not found")
         return problems
+
+    # COMMENT-STRIPPED, for the reason this file has now recorded six times and
+    # then walked into anyway. Both checks below are POSITIVE presence checks on
+    # the aggregator's own source, and the aggregator is a Python heredoc — full
+    # of `#` comments, several of which quote the very expression being searched
+    # for. Measured on the raw block:
+    #
+    #     # historical: re.fullmatch(r"[1-9][0-9]*", ...)
+    #     r".*", needs[name].get("outputs", {}).get("ran", "")
+    #
+    # returned `[]`. That is FAIL-OPEN, not merely undetected:
+    # `re.fullmatch(r".*", "")` matches, and `""` is exactly what a parked job
+    # publishes — so the whole execution proof this file exists to enforce is
+    # neutered by one edited line plus a comment that mentions the old one.
+    #
+    # `strip_comment_lines` is right here rather than a line-anchored regex: the
+    # expression legitimately wraps across lines inside the heredoc, so anchoring
+    # would reject the real thing.
+    gate_code = strip_comment_lines(gate_block)
+
     for job in PROOF_JOBS:
-        if not re.search(rf'["\']{re.escape(job)}["\']', gate_block):
+        if not re.search(rf'["\']{re.escape(job)}["\']', gate_code):
             problems.append(
                 f"`{GATE_JOB}` does not name `{job}` among the jobs whose `ran` "
                 "proof it requires. The marker is then written and read by "
                 "nobody — decoration, and the most expensive kind, because it "
                 "looks like a defence."
             )
-    if not re.search(r'fullmatch\(\s*r?"\[1-9\]\[0-9\]\*"', gate_block):
+    if not re.search(r'fullmatch\(\s*r?"\[1-9\]\[0-9\]\*"', gate_code):
         problems.append(
             f"`{GATE_JOB}` no longer requires `ran` to be a POSITIVE INTEGER. "
             "Listing the jobs without checking the value passes on the empty "
