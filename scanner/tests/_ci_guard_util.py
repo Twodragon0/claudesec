@@ -1291,7 +1291,7 @@ def apply_mutation(text: str, old: str, new: str, *, count: int = 1) -> str:
 
 
 def apply_live_mutation(
-    text: str, old: str, new: str, *, strip=None, line_comment="#", count: int = 1
+    text: str, old: str, new: str, *, strip=None, line_comment="#", expect_live: int = 1
 ) -> str:
     """`apply_mutation`, but the occurrence replaced must be on a LIVE line.
 
@@ -1320,7 +1320,15 @@ def apply_live_mutation(
     YAML). Pass `strip_inline_comment_sh` for shell bodies, where bash starts a
     comment straight after `;`/`&`/`|`/`)` with no space.
 
-    MARKDOWN CALLERS MUST PASS `line_comment=None`. A line opening with `#` is a
+    THE COUNT PARAMETER IS DELIBERATELY NOT CALLED `count`. `apply_mutation`'s
+    `count` is `str.replace`'s — HOW MANY occurrences to replace. This one is
+    `expect_live`: how many live occurrences must EXIST, of which the first is
+    replaced. A migration that mechanically carries `count=1` across would keep
+    a passing call passing while changing what the number asserts, and the two
+    only diverge once a second occurrence appears — i.e. later, silently, in
+    someone else's change.
+
+        MARKDOWN CALLERS MUST PASS `line_comment=None`. A line opening with `#` is a
     comment in YAML, shell and Python — and a HEADING in Markdown. Measured: a
     sweep of every `apply_mutation` call in this suite flagged the ADR
     citation-spelling fixture as editing a comment, and its target turned out to
@@ -1376,12 +1384,12 @@ def apply_live_mutation(
             "bytes without touching the control, which is how two probes in "
             "this suite reported a working detector as broken."
         )
-    if len(live) != count:
+    if len(live) != expect_live:
         at = [bisect.bisect_right(line_start, o + lead) for o in live]
         raise AssertionError(
-            f"{old!r} starts on {len(live)} live lines, expected {count}: lines "
-            f"{at}. Narrow the needle — replacing the first silently picks one "
-            "for you."
+            f"{old!r} starts on {len(live)} live lines, expected {expect_live}: "
+            f"lines {at}. Narrow the needle, or name the count you mean — "
+            "replacing the first silently picks one for you."
         )
 
     off = live[0]

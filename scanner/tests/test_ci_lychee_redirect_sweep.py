@@ -54,7 +54,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
-    apply_mutation,
+    apply_live_mutation,
     apply_regex_mutation,
     explicit_key_lines,
     extract_on_block,
@@ -373,10 +373,14 @@ class TestPresenceIsNotAttribution(unittest.TestCase):
         mutant = apply_regex_mutation(
             self.text, r"(?m)^permissions:\n(?:  .+\n)+", "", count=1
         )
-        mutant = apply_mutation(
+        # `expect_live=5`: the workflow has five step-level `env:` blocks and
+        # the decoy goes in the FIRST. Naming the count means a sixth block
+        # invalidates the fixture loudly instead of moving the decoy silently.
+        mutant = apply_live_mutation(
             mutant,
             "        env:\n",
             "        env:\n          issues: write\n          contents: read\n",
+            expect_live=5,
         )
         self.assertIn(
             "issues: write", mutant, "fixture stale: the decoy is not in the text"

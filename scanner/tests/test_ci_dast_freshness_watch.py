@@ -111,6 +111,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
+    apply_live_mutation,
     apply_mutation,
     assert_disables,
     explicit_key_lines,
@@ -635,7 +636,7 @@ class TestDetectorMutation(unittest.TestCase):
 
     def test_dropping_the_schedule_is_caught(self):
         mutant = apply_mutation(self.clean, "    - cron: '30 14 * * *'", "")
-        mutant = apply_mutation(mutant, "\n  schedule:\n", "\n")
+        mutant = apply_live_mutation(mutant, "\n  schedule:\n", "\n")
         assert_disables(trigger_problems, self.clean, mutant, "schedule removed")
 
     def test_dropping_the_push_trigger_is_caught(self):
@@ -827,7 +828,7 @@ class TestDetectorMutation(unittest.TestCase):
     def test_dropping_actions_read_is_caught(self):
         # The bug that actually shipped. Not a bypass — nothing checked it at all,
         # and it made every run 403 on the first API call.
-        mutant = apply_mutation(self.clean, "\n  actions: read", "")
+        mutant = apply_live_mutation(self.clean, "\n  actions: read", "")
         found = assert_disables(
             permission_problems, self.clean, mutant, "actions: read removed"
         )
