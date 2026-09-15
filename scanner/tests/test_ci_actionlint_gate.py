@@ -49,12 +49,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _ci_guard_util import (  # noqa: E402
+    apply_live_mutation,
     assert_disables,
     job_block,
     job_needs,
     key_column,
     strip_comment_lines,
     strip_inline_comment,
+    strip_inline_comment_sh,
     yaml_key_pattern,
 )
 from test_ci_reachability import executed_shell  # noqa: E402
@@ -338,11 +340,17 @@ class TestTheActionlintGuardIsNonVacuous(unittest.TestCase):
         self.block = job_block(self.lint, JOB)
         self.assertIsNotNone(self.block, "fixture is stale — the job moved")
 
-    def _mutate(self, old, new, label):
-        self.assertIn(old, self.block, f"fixture is stale: {label}")
-        mutant = self.lint.replace(
-            self.block, self.block.replace(old, new, 1), 1
+    def _mutate(self, old, new, label, *, count=1):
+        """LIVE lines only. This step is the worst case for a bare
+        `str.replace`: its explanation quotes almost every command it runs, and
+        the comment comes FIRST. `apply_live_mutation` raises on a comment-only
+        hit instead of editing prose and proving nothing — the failure that,
+        measured twice elsewhere in this suite, read as "the detector is
+        broken"."""
+        mutated_block = apply_live_mutation(
+            self.block, old, new, strip=strip_inline_comment_sh, count=count
         )
+        mutant = self.lint.replace(self.block, mutated_block, 1)
         self.assertNotEqual(mutant, self.lint, f"mutation did not apply: {label}")
         return assert_disables(actionlint_gate_problems, self.lint, mutant, label)
 

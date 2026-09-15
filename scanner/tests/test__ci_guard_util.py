@@ -45,6 +45,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _ci_guard_util  # noqa: E402  (module handle: the enumeration test patches its dirs)
 from _ci_guard_util import (  # noqa: E402
+    apply_live_mutation,
     apply_mutation,
     apply_regex_mutation,
     block_ends_at,
@@ -1170,6 +1171,53 @@ class TestAssertDisables(unittest.TestCase):
         with self.assertRaises(AssertionError) as cm:
             assert_disables(self._detector, "fine", "also fine")
         self.assertIn("does not actually disable", str(cm.exception))
+
+
+class TestApplyLiveMutation(unittest.TestCase):
+    """The helper that closes shape 4 — a fixture editing the control's own
+    explanatory comment instead of the control.
+
+    Both probes it was written for are replayed as fixtures, because each was a
+    silent pass that got read as "the detector is broken"."""
+
+    def test_it_replaces_the_live_line_not_the_comment_above_it(self):
+        # The measured shape: the comment quotes the command it explains, and it
+        # comes FIRST, so `str.replace` takes it.
+        text = (
+            "          # `|| result_code=$?` rather than `|| true`, because ...\n"
+            "          bash scripts/check.sh > /tmp/out 2>&1 || result_code=$?\n"
+        )
+        out = apply_live_mutation(text, "|| result_code=$?", "|| true")
+        self.assertIn("# `|| result_code=$?` rather than", out)
+        self.assertIn("2>&1 || true\n", out)
+
+    def test_a_comment_only_occurrence_raises(self):
+        text = "a:\n  # key: old\n  other: x\n"
+        with self.assertRaises(AssertionError) as caught:
+            apply_live_mutation(text, "key: old", "key: new")
+        self.assertIn("only inside comments", str(caught.exception))
+
+    def test_an_absent_needle_raises_and_says_so(self):
+        with self.assertRaises(AssertionError) as caught:
+            apply_live_mutation("a: 1\n", "b: 2", "b: 3")
+        self.assertIn("does not appear at all", str(caught.exception))
+
+    def test_more_live_matches_than_expected_raises(self):
+        """The second measured probe picked one of two similar lines for me.
+        Naming the count makes that a failure instead of a coin flip."""
+        text = "if: x == 'true'\nif: x == 'false'\n"
+        with self.assertRaises(AssertionError) as caught:
+            apply_live_mutation(text, "if: x == ", "if: y == ")
+        self.assertIn("2 live lines", str(caught.exception))
+
+    def test_a_shell_inline_comment_needs_the_sh_stripper(self):
+        """Bash starts a comment right after `;` with no space, so the default
+        whitespace-boundary stripper would call this line live."""
+        text = "  echo done;# token=old\n  real=1\n"
+        with self.assertRaises(AssertionError):
+            apply_live_mutation(
+                text, "token=old", "token=new", strip=strip_inline_comment_sh
+            )
 
 
 if __name__ == "__main__":
