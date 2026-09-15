@@ -74,6 +74,7 @@ OWASP CICD-SEC-1 (Insufficient Flow Control); NIST SP 800-218 (SSDF) PO.3, PW.4.
 """
 
 import ast
+import re
 import unittest
 from pathlib import Path
 
@@ -226,22 +227,37 @@ def scan_guard_suite() -> list:
 # search over un-stripped text is 66 sites, most of them scanners; restricted to
 # the negative direction it is 11. A check that cries wolf gets ignored, which
 # would cost exactly the detection this exists to provide.
+#
+# WHAT IS LEFT, after the triage that shrank this from 11: every remaining
+# haystack is a SINGLE TOKEN — a `line`, a `ref`, a regex group — not a
+# multi-line block, so there is nowhere for a comment to hide the token the
+# pin demands. They are recorded rather than excluded by a rule, because
+# "looks like one token" is a judgement and this list is the place to make it.
 KNOWN_PIN_SEARCHES = frozenset({
-    "test_ci_changes_job_merge_base.py:joined",
-    "test_ci_dast_freshness_watch.py:args",
-    "test_ci_drift_watch_not_silent.py:block",
     "test_ci_gate_topology.py:ref",
     "test_ci_guard_self_verify.py:p",
     "test_ci_guard_self_verify.py:proof_steps[0]",
     "test_ci_no_ere_pipe_regression.py:line",
-    "test_ci_prowler_version_pinned.py:active",
     "test_ci_scanner_lib_reachability.py:line",
     "test_ci_template_pin_policy.py:m.group('ref')",
-    "test_ci_trivy_version_pinned.py:active",
 })
 
-#: Names bound from something that removes comments. A pin read out of one of
-#: these cannot be satisfied by a comment, which is the whole point.
+#: Callables whose RESULT has comments removed. A pin read out of one of these
+#: cannot be satisfied by a comment, which is the whole point.
+#:
+#: EXPLICIT, and each entry checked by reading what it returns — NOT inferred
+#: from "this function mentions a stripper somewhere". That inference was tried
+#: and is wrong in the direction that matters: it classifies `job_block` as a
+#: stripper (its body names `strip_comment_lines` while returning RAW text), and
+#: `job_block` is exactly the haystack the defect that motivated this scan used.
+#: The heuristic would have reported that defect as absent — presence vs
+#: attribution, one level up, in the classifier instead of the guard.
+#:
+#: The last four are per-guard helpers, verified the same way:
+#:   `step_blocks`    `strip_comment_lines(text)` before splitting (util)
+#:   `_joined`        whole-line AND inline shell comments, per ADR-001 §1
+#:   `call_arguments` spans sliced from a comment-blanked mask
+#:   `_active_text`   `join_continuations(strip_comment_lines(text))`
 _STRIPPER_NAMES = (
     "strip_comment_lines",
     "non_comment_lines",
@@ -251,6 +267,10 @@ _STRIPPER_NAMES = (
     "rendered_markdown",
     "_strip_comment",
     "_sh_stripped",
+    "step_blocks",
+    "_joined",
+    "call_arguments",
+    "_active_text",
 )
 
 
@@ -264,21 +284,38 @@ def pin_searches(source: str, filename: str) -> list:
     tree = ast.parse(source)
     patterns, stripped = {}, set()
     for node in ast.walk(tree):
-        if not (
+        if (
             isinstance(node, ast.Assign)
             and len(node.targets) == 1
             and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Call)
+            and ast.unparse(node.value.func) == "re.compile"
+            and node.value.args
         ):
-            continue
-        value = node.value
-        if (
-            isinstance(value, ast.Call)
-            and ast.unparse(value.func) == "re.compile"
-            and value.args
-        ):
-            patterns[node.targets[0].id] = value.args[0]
-        if any(s in ast.unparse(value) for s in _STRIPPER_NAMES):
-            stripped.add(node.targets[0].id)
+            patterns[node.targets[0].id] = node.value.args[0]
+
+    # Three rounds, because stripping reaches a haystack indirectly as often as
+    # directly: `calls = call_arguments(js, ...)` then `args = calls[0]`, and
+    # `for block in step_blocks(text):`. A single pass left `args` in the
+    # baseline and the triage that found it a false positive is what this loop
+    # is for — a baseline of false alarms is the shape that gets a check ignored.
+    for _ in range(3):
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+            ):
+                text = ast.unparse(node.value)
+                if any(f"{s}(" in text for s in _STRIPPER_NAMES) or any(
+                    re.fullmatch(rf"{re.escape(s)}(\[.*\])?", text) for s in stripped
+                ):
+                    stripped.add(node.targets[0].id)
+            elif isinstance(node, (ast.For, ast.comprehension)) and isinstance(
+                node.target, ast.Name
+            ):
+                if any(f"{s}(" in ast.unparse(node.iter) for s in _STRIPPER_NAMES):
+                    stripped.add(node.target.id)
 
     hits = []
     for node in ast.walk(tree):
@@ -305,7 +342,7 @@ def pin_searches(source: str, filename: str) -> list:
             continue
         if pattern is None or haystack in stripped:
             continue
-        if any(s in haystack for s in _STRIPPER_NAMES):
+        if any(f"{s}(" in haystack for s in _STRIPPER_NAMES):
             continue
         if _is_line_anchored(pattern):
             continue
@@ -390,6 +427,34 @@ class TestGuardAssertionScoping(unittest.TestCase):
         )
         self.assertEqual(pin_searches(bad, "x.py"), ["x.py:gate_block"])
         self.assertEqual(pin_searches(good, "x.py"), [])
+
+
+    def test_a_haystack_stripped_by_a_HELPER_is_not_reported(self):
+        """The false-alarm direction, and it is why the baseline is 6 not 11.
+
+        Empirical triage of the three multi-line entries found ALL THREE benign:
+        `_joined`, `call_arguments` and `step_blocks` each strip, and the last
+        was confirmed by execution (weaken the live `if:` on
+        `protection-drift-watch.yml`, leave the token in a comment -> the guard
+        goes red). Stripping reaches a haystack indirectly as often as directly,
+        so both shapes are covered here."""
+        via_loop = (
+            "import re\n"
+            "def f(text):\n"
+            "    for block in step_blocks(text):\n"
+            "        if not _RE.search(block):\n"
+            "            return ['x']\n"
+        )
+        via_subscript = (
+            "import re\n"
+            "def f(js):\n"
+            "    calls = call_arguments(js, 'listWorkflowRuns')\n"
+            "    args = calls[0]\n"
+            "    if not _RE.search(args):\n"
+            "        return ['x']\n"
+        )
+        self.assertEqual(pin_searches(via_loop, "x.py"), [])
+        self.assertEqual(pin_searches(via_subscript, "x.py"), [])
 
     def test_a_positive_scanner_is_not_reported(self):
         """Direction is the discriminator: a scanner looking for offenders is
