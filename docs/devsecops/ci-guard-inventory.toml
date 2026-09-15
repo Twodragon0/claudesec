@@ -73,6 +73,7 @@ guards = [
   "test_ci_gitleaks_ruleset.py",
   "test_ci_guard_assertion_scoping.py",
   "test_ci_guard_self_verify.py",
+  "test_ci_guard_util.py",
   "test_ci_injection_surface.py",
   "test_ci_junit_reporter_live.py",
   "test_ci_kisa_control_alignment.py",
