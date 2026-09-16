@@ -373,10 +373,20 @@ def canary_job_problems(lint_text: str) -> list:
     # extractor instead of importing the one that already knew was the mistake.
     executed = executed_shell(block)
 
-    if not re.search(r"markdown-it-py==4\.0\.0", executed):
+    # VERSION-AGNOSTIC ON PURPOSE. This asserts the job installs a PINNED
+    # oracle; WHICH version is the single-source parity check below, against
+    # `runner.ORACLE_VERSION`. Spelling the version here too made it a second
+    # copy of that constant — the exact shape the ADJUDICATORS check thirty
+    # lines down calls "how this repo has lost a check before". Measured
+    # 2026-09-16: re-adjudicating markdown-it-py 4.0.0 -> 4.2.0 had to touch
+    # FIVE places, and this was the fifth; it turned a dependency bump into an
+    # enumeration walk, which is how one site gets missed (cf. #460/#547,
+    # codeql-action, same week). `==` is still required, so an unpinned install
+    # fails here, and a pinned-but-wrong one fails the parity check.
+    if not re.search(r"markdown-it-py==[\d.]+", executed):
         problems.append(
-            f"job `{CANARY_JOB}` does not INSTALL `markdown-it-py==4.0.0` in an "
-            "executed step. Without the oracle every class it runs SKIPS, and "
+            f"job `{CANARY_JOB}` does not INSTALL a pinned `markdown-it-py==` in "
+            "an executed step. Without the oracle every class it runs SKIPS, and "
             "the job reports success having adjudicated nothing — the exact "
             "fail-open it exists to close."
         )
@@ -1641,7 +1651,11 @@ class TestSelfVerifyDetectorIsNonVacuous(unittest.TestCase):
         assert_disables(
             canary_job_problems,
             self.lint,
-            apply_mutation(self.lint, "markdown-it-py==4.0.0", "some-other-pkg==1.0"),
+            apply_mutation(
+                self.lint,
+                f"markdown-it-py=={_import_canary_runner().ORACLE_VERSION}",
+                "some-other-pkg==1.0",
+            ),
             "renderer-canary no longer installs the oracle",
         )
 

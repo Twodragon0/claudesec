@@ -406,7 +406,7 @@ class TestTheRendererCrossCheckActuallyRuns(unittest.TestCase):
             )
         self.assertEqual(
             markdown_it.__version__,
-            "4.0.0",
+            "4.2.0",
             "markdown-it-py moved off the adjudicated version; re-measure the "
             "residual ceiling before changing the pin",
         )
