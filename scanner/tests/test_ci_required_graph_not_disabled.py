@@ -534,6 +534,26 @@ class TestGraphViolationDetector(unittest.TestCase):
         texts[fname] = mutant
         return graph_violations(texts)
 
+    def _new_violations_with(self, fname, mutant):
+        """Violations the mutation ADDED — the baseline subtracted out.
+
+        NO-FALSE-ALARM fixtures must assert a DELTA, never an absolute empty
+        list. Asserting `== []` couples them to every OTHER workflow being
+        clean, so one unrelated regression fails them too, with a message
+        about the shape they plant. Measured on this file: planting ONE real
+        `continue-on-error: true` on `dependency-review` produced SIX
+        failures, three of them no-false-alarm fixtures reporting that a
+        comment, or `always()`, had been wrongly flagged. None had. A check
+        that cries wolf on an unrelated defect is a check that gets ignored.
+        (Same defect shipped and was caught pre-merge in #552.)
+
+        The two fixtures whose SUBJECT is the real file — the unmutated-clean
+        control and the harness-identity check — deliberately keep `== []`:
+        failing on a real regression is what they are for.
+        """
+        baseline = graph_violations(workflow_texts())
+        return [h for h in self._violations_with(fname, mutant) if h not in baseline]
+
     def test_job_level_on_the_required_check_itself_is_caught(self):
         m = self.scan.replace(
             "  security-scan-gate:\n", "  security-scan-gate:\n    continue-on-error: true\n", 1
@@ -639,7 +659,7 @@ class TestGraphViolationDetector(unittest.TestCase):
             "NOTHING — every step-level check silently stops applying",
         )
         self.assertEqual(
-            [h for h in self._violations_with("security-scan.yml", m)
+            [h for h in self._new_violations_with("security-scan.yml", m)
              if "continue-on-error" in h or "working-directory" in h],
             [],
             "false alarm: a bare comment is not a disable",
@@ -819,7 +839,7 @@ class TestGraphViolationDetector(unittest.TestCase):
             with self.subTest(cond=cond):
                 mutant = self._gitleaks_step_with(f"if: {cond}")
                 self.assertEqual(
-                    self._violations_with("lint.yml", mutant),
+                    self._new_violations_with("lint.yml", mutant),
                     [],
                     f"{cond} was wrongly reported as a disable",
                 )
@@ -851,7 +871,7 @@ class TestGraphViolationDetector(unittest.TestCase):
             "  dependency-review:\n", "  dependency-review:\n    # continue-on-error: true\n", 1
         )
         self.assertEqual(
-            self._violations_with("lint.yml", m),
+            self._new_violations_with("lint.yml", m),
             [],
             "a `#`-commented key is inert and must not trip the guard",
         )
