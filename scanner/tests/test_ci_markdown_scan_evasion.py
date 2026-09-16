@@ -404,9 +404,16 @@ class TestTheRendererCrossCheckActuallyRuns(unittest.TestCase):
                 "requirements-ci.txt precisely so the renderer cross-check "
                 "cannot fail open again"
             )
+        # DERIVED, not spelled. This is the INSTALLED-vs-ADJUDICATED half of
+        # the pin; `_ci_canary_runner` owns the adjudicated value and the
+        # self-verify guard already compares it to what the canary job
+        # installs. A literal here made a third spelling of one constant, and
+        # the 4.0.0 -> 4.2.0 repin had to walk five of them.
+        from _ci_canary_runner import ORACLE_VERSION
+
         self.assertEqual(
             markdown_it.__version__,
-            "4.2.0",
+            ORACLE_VERSION,
             "markdown-it-py moved off the adjudicated version; re-measure the "
             "residual ceiling before changing the pin",
         )
