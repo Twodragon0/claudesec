@@ -38,6 +38,9 @@ Imports nothing from `scanner/lib`, so it does not touch the 99% coverage gate.
 
 import re
 import sys
+import ast
+import textwrap
+import inspect
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,6 +48,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _ci_guard_util  # noqa: E402  (module handle: the enumeration test patches its dirs)
 from _ci_guard_util import (  # noqa: E402
+    live_offsets,
     apply_live_mutation,
     apply_mutation,
     apply_regex_mutation,
@@ -1216,7 +1220,7 @@ class TestApplyLiveMutation(unittest.TestCase):
         text = "  echo done;# token=old\n  real=1\n"
         with self.assertRaises(AssertionError):
             apply_live_mutation(
-                text, "token=old", "token=new", strip=strip_inline_comment_sh
+                text, "token=old", "token=new", syntax="sh"
             )
 
     def test_a_markdown_heading_is_not_a_comment(self):
@@ -1225,17 +1229,109 @@ class TestApplyLiveMutation(unittest.TestCase):
         because the anchor's only occurrence sits in `### 3.3 ... (ADR-001 \u00a75)`.
         `#` opens a comment in YAML/shell/Python and a HEADING in Markdown, so
         the default refuses a perfectly live Markdown target — the escape hatch
-        is `line_comment=None`, and this pins both directions."""
+        is `syntax="markdown"`, and this pins both directions."""
         text = "### 3.3 something (ADR-001 \u00a75)\n\nbody\n"
         with self.assertRaises(AssertionError) as caught:
             apply_live_mutation(text, "ADR-001 \u00a75", "X")
         self.assertIn("only inside comments", str(caught.exception))
         self.assertEqual(
             apply_live_mutation(
-                text, "ADR-001 \u00a75", "X", line_comment=None
+                text, "ADR-001 \u00a75", "X", syntax="markdown"
             ).splitlines()[0],
             "### 3.3 something (X)",
         )
+
+
+    def test_the_two_step_comment_bypass_is_unrepresentable(self):
+        """The tenth adversarial pass's finding, pinned as an API shape.
+
+        When the stripper and the comment opener were separate parameters,
+        `line_comment=None` alone was caught — dropping the filter inflates the
+        live count and `expect_live` raises. But that raise advises "name the
+        count you mean", and `line_comment=None, expect_live=2` then landed the
+        mutation INSIDE the comment with every check green. Choosing both
+        together by language removes the first step, so there is no second."""
+        self.assertEqual(
+            sorted(_ci_guard_util._LIVE_SYNTAX),
+            ["markdown", "sh", "yaml"],
+            "a syntax was added or removed; prove how that language opens a "
+            "comment with a fixture above before changing this",
+        )
+        params = inspect.signature(apply_live_mutation).parameters
+        for knob in ("strip", "line_comment"):
+            self.assertNotIn(
+                knob,
+                params,
+                f"`{knob}` is back as a parameter: comment detection is "
+                "separately disableable again, which is the two-step bypass",
+            )
+        with self.assertRaises(AssertionError) as caught:
+            apply_live_mutation("a\n", "a", "b", syntax="python")
+        self.assertIn("unknown syntax", str(caught.exception))
+
+
+class TestLiveOffsets(unittest.TestCase):
+    """`live_offsets` exists so PROBES stop reimplementing the liveness rule.
+
+    A sweep over all 164 `apply_mutation` calls produced ten findings and all
+    ten were false, because it had written its own comment test twice over:
+    `line.startswith("#")` (a Markdown HEADING) and `needle-first-line in some
+    comment line` (a SUBSTRING, not an occurrence). Exposing the real predicate
+    only helps while there is exactly ONE of it — the OCSF loader's false-PASS
+    was fixed in one of two independent copies and stayed broken in the other.
+    """
+
+    def test_the_helper_uses_this_predicate_rather_than_a_copy(self):
+        src = inspect.getsource(apply_live_mutation)
+        tree = ast.parse(textwrap.dedent(src))
+        called = {
+            n.func.id
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        }
+        self.assertIn(
+            "live_offsets",
+            called,
+            "apply_live_mutation stopped calling live_offsets — if it grew its "
+            "own copy of the scan, a probe using live_offsets is no longer "
+            "asking the question the helper answers",
+        )
+        self.assertNotIn(
+            "text.find(old",
+            src,
+            "apply_live_mutation has its own find-loop again: two copies of the "
+            "predicate is the shape that left the OCSF loader half-fixed",
+        )
+
+    def test_splits_comment_occurrences_from_live_ones(self):
+        text = "# t=old\nt=old\n"
+        scan = live_offsets(text, "t=old")
+        self.assertEqual(scan.all, (2, 8))
+        self.assertEqual(scan.live, (8,))
+        self.assertEqual(scan.comment, (2,))
+
+    def test_a_substring_of_the_needle_is_not_an_occurrence(self):
+        """The exact shape of the four false 'fragile' findings: prose naming
+        `env:` does not put the needle `"        env:\n"` in a comment."""
+        text = "        # the env: block below\n        env:\n"
+        scan = live_offsets(text, "        env:\n")
+        self.assertEqual(len(scan.all), 1)
+        self.assertEqual(scan.comment, ())
+
+    def test_markdown_headings_are_live_under_the_markdown_syntax(self):
+        md = "### 3.3 something (ADR-001 \u00a75)\n"
+        self.assertEqual(len(live_offsets(md, "ADR-001 \u00a75", syntax="markdown").live), 1)
+        self.assertEqual(len(live_offsets(md, "ADR-001 \u00a75").live), 0)
+
+    def test_an_absent_needle_raises_rather_than_reporting_no_hazard(self):
+        with self.assertRaises(AssertionError) as caught:
+            live_offsets("a\n", "nope")
+        self.assertIn("does not appear at all", str(caught.exception))
+
+    def test_an_unknown_syntax_raises(self):
+        with self.assertRaises(AssertionError) as caught:
+            live_offsets("a\n", "a", syntax="python")
+        self.assertIn("unknown syntax", str(caught.exception))
 
 
 if __name__ == "__main__":

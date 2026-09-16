@@ -47,6 +47,7 @@ import subprocess
 import tomllib
 from glob import glob
 from pathlib import Path
+from typing import NamedTuple
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -1290,57 +1291,65 @@ def apply_mutation(text: str, old: str, new: str, *, count: int = 1) -> str:
     return out
 
 
-def apply_live_mutation(
-    text: str, old: str, new: str, *, strip=None, line_comment="#", expect_live: int = 1
-) -> str:
-    """`apply_mutation`, but the occurrence replaced must be on a LIVE line.
+# (stripper, line-comment opener) per source language, chosen TOGETHER on
+# purpose — see the SYNTAX paragraph in `apply_live_mutation`. `None` as the
+# opener means the language has no line comment at all, which is true of
+# Markdown and true of nothing else here.
+_LIVE_SYNTAX = {
+    "yaml": (strip_inline_comment, "#"),
+    "sh": (strip_inline_comment_sh, "#"),
+    "markdown": (lambda line: line, None),
+}
 
-    CLOSES SHAPE 4, which `apply_mutation` above documents as unclosable: a
-    fixture that edits the control's own explanatory COMMENT instead of the
-    control. `str.replace` takes the FIRST occurrence, and in this repo the
-    comment usually comes first, because the comment quotes the command it
-    explains.
 
-    Measured, twice in one session, both silent:
+class LiveScan(NamedTuple):
+    """Where a needle occurs, split by whether the occurrence is LIVE.
 
-      * re-breaking `prowler-python-watch.yml` to check a fix,
-        `replace("|| result_code=$?", "|| true")` hit the copy inside the
-        comment three lines above the live command. Every token check still
-        passed, the tool correctly reported nothing, and the conclusion drawn
-        was "the detector does not work".
-      * mutating `protection-drift-watch.yml`, the target chosen was
-        `token_present == 'true'` while the pin demands `== 'false'`. Same
-        outcome: a clean pass read as a missing detection.
-
-    `apply_mutation` cannot catch either — both genuinely change bytes, so its
-    "did the text change" check is satisfied. This one requires the match to
-    survive comment-stripping, so a comment-only hit raises instead.
-
-    `strip` defaults to `strip_inline_comment` (whitespace-boundary, right for
-    YAML). Pass `strip_inline_comment_sh` for shell bodies, where bash starts a
-    comment straight after `;`/`&`/`|`/`)` with no space.
-
-    THE COUNT PARAMETER IS DELIBERATELY NOT CALLED `count`. `apply_mutation`'s
-    `count` is `str.replace`'s — HOW MANY occurrences to replace. This one is
-    `expect_live`: how many live occurrences must EXIST, of which the first is
-    replaced. A migration that mechanically carries `count=1` across would keep
-    a passing call passing while changing what the number asserts, and the two
-    only diverge once a second occurrence appears — i.e. later, silently, in
-    someone else's change.
-
-        MARKDOWN CALLERS MUST PASS `line_comment=None`. A line opening with `#` is a
-    comment in YAML, shell and Python — and a HEADING in Markdown. Measured: a
-    sweep of every `apply_mutation` call in this suite flagged the ADR
-    citation-spelling fixture as editing a comment, and its target turned out to
-    be `### 3.3 ... (ADR-001 §5)`, a heading holding the anchor's ONLY
-    occurrence. The sweep was wrong, not the fixture — but a Markdown caller
-    using the default here would be refused for the same reason.
-
-    Still cannot decide SEMANTICS — whether the edit disables the control rather
-    than merely landing on it. That remains `assert_disables`' job, and stating
-    in the test why the mutant is really broken remains the author's.
+    `all` and `live` are byte offsets into the scanned text; `comment` is
+    `all - live`, precomputed because deriving it is exactly what went wrong.
     """
-    strip = strip or strip_inline_comment
+
+    all: tuple
+    live: tuple
+
+    @property
+    def comment(self) -> tuple:
+        return tuple(o for o in self.all if o not in set(self.live))
+
+
+def live_offsets(text: str, old: str, *, syntax: str = "yaml") -> LiveScan:
+    """THE PREDICATE `apply_live_mutation` USES, EXPOSED SO PROBES STOP
+    REIMPLEMENTING IT.
+
+    Written because a sweep over all 164 `apply_mutation` calls in this suite
+    produced ten findings and ALL TEN WERE FALSE — the sweep had reimplemented
+    "is this occurrence a comment?" two different wrong ways:
+
+      * `line.startswith("#")` on Markdown, where `#` opens a HEADING. It
+        reported a fixture as editing a comment whose needle had exactly ONE
+        occurrence, so there was no ambiguity to resolve at all.
+      * `old.strip().splitlines()[0] in <any comment line>` — a SUBSTRING of
+        the needle, not an occurrence of it. Prose mentioning `env:` flagged a
+        fixture whose needle is `"        env:\n"`, text `str.find` can never
+        select there. Four "fragile" sites, all clean when measured properly.
+
+    Ten wrong findings cost a migration PR's worth of work and nearly cost four
+    unnecessary fixture rewrites. `apply_live_mutation` CALLS this function, so
+    a probe that calls it is asking the same question the helper answers — not
+    a paraphrase that agrees until it doesn't.
+
+    Raises on a needle that does not occur at all, for the same reason
+    `apply_mutation` does: a probe that silently scans for absent text reports
+    "no hazard" indistinguishably from "no occurrences".
+    """
+    try:
+        strip, line_comment = _LIVE_SYNTAX[syntax]
+    except KeyError:
+        raise AssertionError(
+            f"unknown syntax {syntax!r}; expected one of "
+            f"{sorted(_LIVE_SYNTAX)}. Add a key with a fixture proving how "
+            "that language opens a comment — do not pass a stripper here."
+        ) from None
 
     # Located on the WHOLE TEXT, not per line: every caller in this suite uses a
     # multi-line needle (`"\n          /tmp/actionlint\n"`) to pin exactly which
@@ -1377,6 +1386,79 @@ def apply_live_mutation(
         if probe - line_start[idx] < len(strip(line)):
             live.append(off)
 
+    return LiveScan(all=tuple(offsets), live=tuple(live))
+
+
+def apply_live_mutation(
+    text: str, old: str, new: str, *, syntax: str = "yaml", expect_live: int = 1
+) -> str:
+    """`apply_mutation`, but the occurrence replaced must be on a LIVE line.
+
+    CLOSES SHAPE 4, which `apply_mutation` above documents as unclosable: a
+    fixture that edits the control's own explanatory COMMENT instead of the
+    control. `str.replace` takes the FIRST occurrence, and in this repo the
+    comment usually comes first, because the comment quotes the command it
+    explains.
+
+    Measured, twice in one session, both silent:
+
+      * re-breaking `prowler-python-watch.yml` to check a fix,
+        `replace("|| result_code=$?", "|| true")` hit the copy inside the
+        comment three lines above the live command. Every token check still
+        passed, the tool correctly reported nothing, and the conclusion drawn
+        was "the detector does not work".
+      * mutating `protection-drift-watch.yml`, the target chosen was
+        `token_present == 'true'` while the pin demands `== 'false'`. Same
+        outcome: a clean pass read as a missing detection.
+
+    `apply_mutation` cannot catch either — both genuinely change bytes, so its
+    "did the text change" check is satisfied. This one requires the match to
+    survive comment-stripping, so a comment-only hit raises instead.
+
+    SYNTAX IS ONE PARAMETER, NOT TWO, BECAUSE TWO WERE SEPARATELY DISABLEABLE.
+    This took a `strip=` callable and a `line_comment=` opener. Measured on the
+    tenth adversarial pass: `line_comment=None` alone is caught, because dropping
+    the comment filter INFLATES the live count and `expect_live` then raises —
+    but that raise says "name the count you mean", and an author who follows it
+    to `expect_live=2` lands the mutation back inside the comment with every
+    check green. A two-step bypass whose second step is the error message's own
+    advice is not a bypass anyone has to be adversarial to walk into.
+
+    So the stripper and the opener are chosen together, by language, and
+    "comments off" is not a value `syntax` can take: `yaml` (whitespace
+    boundary — also right for Dockerfiles), `sh` (bash opens a comment straight
+    after `;`/`&`/`|`/`)` with no space), `markdown` (no line comments exist; `#`
+    opens a HEADING). Add a key with a fixture rather than reaching for a knob.
+
+    LIVENESS IS JUDGED ON THE LINE THE MATCH STARTS ON. A multi-line needle
+    whose TAIL falls in a comment is still accepted and still edited — measured,
+    and left as is: the alternative is to reject needles that deliberately span
+    a comment, and no caller here does that. Know it before writing one that
+    does.
+
+    THE COUNT PARAMETER IS DELIBERATELY NOT CALLED `count`. `apply_mutation`'s
+    `count` is `str.replace`'s — HOW MANY occurrences to replace. This one is
+    `expect_live`: how many live occurrences must EXIST, of which the first is
+    replaced. A migration that mechanically carries `count=1` across would keep
+    a passing call passing while changing what the number asserts, and the two
+    only diverge once a second occurrence appears — i.e. later, silently, in
+    someone else's change.
+
+    MARKDOWN CALLERS MUST PASS `syntax="markdown"`. A line opening with `#` is
+    a comment in YAML, shell and Python — and a HEADING in Markdown. Measured: a
+    sweep of every `apply_mutation` call in this suite flagged the ADR
+    citation-spelling fixture as editing a comment, and its target turned out to
+    be `### 3.3 ... (ADR-001 §5)`, a heading holding the anchor's ONLY
+    occurrence. The sweep was wrong, not the fixture — but a Markdown caller
+    using the default here would be refused for the same reason.
+
+    Still cannot decide SEMANTICS — whether the edit disables the control rather
+    than merely landing on it. That remains `assert_disables`' job, and stating
+    in the test why the mutant is really broken remains the author's.
+    """
+    scan = live_offsets(text, old, syntax=syntax)
+    offsets, live = scan.all, scan.live
+
     if not live:
         raise AssertionError(
             f"mutation fixture is stale: {old!r} appears {len(offsets)}x but on "
@@ -1385,7 +1467,7 @@ def apply_live_mutation(
             "this suite reported a working detector as broken."
         )
     if len(live) != expect_live:
-        at = [bisect.bisect_right(line_start, o + lead) for o in live]
+        at = [text.count("\n", 0, o) + 1 for o in live]
         raise AssertionError(
             f"{old!r} starts on {len(live)} live lines, expected {expect_live}: "
             f"lines {at}. Narrow the needle, or name the count you mean — "

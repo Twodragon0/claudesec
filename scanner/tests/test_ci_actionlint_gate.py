@@ -56,7 +56,6 @@ from _ci_guard_util import (  # noqa: E402
     key_column,
     strip_comment_lines,
     strip_inline_comment,
-    strip_inline_comment_sh,
     yaml_key_pattern,
 )
 from test_ci_reachability import executed_shell  # noqa: E402
@@ -348,8 +347,7 @@ class TestTheActionlintGuardIsNonVacuous(unittest.TestCase):
         measured twice elsewhere in this suite, read as "the detector is
         broken"."""
         mutated_block = apply_live_mutation(
-            self.block, old, new, strip=strip_inline_comment_sh,
-            expect_live=expect_live
+            self.block, old, new, syntax="sh", expect_live=expect_live
         )
         mutant = self.lint.replace(self.block, mutated_block, 1)
         self.assertNotEqual(mutant, self.lint, f"mutation did not apply: {label}")
