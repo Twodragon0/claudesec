@@ -47,6 +47,7 @@ import subprocess
 import tomllib
 from glob import glob
 from pathlib import Path
+from typing import NamedTuple
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -1301,6 +1302,93 @@ _LIVE_SYNTAX = {
 }
 
 
+class LiveScan(NamedTuple):
+    """Where a needle occurs, split by whether the occurrence is LIVE.
+
+    `all` and `live` are byte offsets into the scanned text; `comment` is
+    `all - live`, precomputed because deriving it is exactly what went wrong.
+    """
+
+    all: tuple
+    live: tuple
+
+    @property
+    def comment(self) -> tuple:
+        return tuple(o for o in self.all if o not in set(self.live))
+
+
+def live_offsets(text: str, old: str, *, syntax: str = "yaml") -> LiveScan:
+    """THE PREDICATE `apply_live_mutation` USES, EXPOSED SO PROBES STOP
+    REIMPLEMENTING IT.
+
+    Written because a sweep over all 164 `apply_mutation` calls in this suite
+    produced ten findings and ALL TEN WERE FALSE — the sweep had reimplemented
+    "is this occurrence a comment?" two different wrong ways:
+
+      * `line.startswith("#")` on Markdown, where `#` opens a HEADING. It
+        reported a fixture as editing a comment whose needle had exactly ONE
+        occurrence, so there was no ambiguity to resolve at all.
+      * `old.strip().splitlines()[0] in <any comment line>` — a SUBSTRING of
+        the needle, not an occurrence of it. Prose mentioning `env:` flagged a
+        fixture whose needle is `"        env:\n"`, text `str.find` can never
+        select there. Four "fragile" sites, all clean when measured properly.
+
+    Ten wrong findings cost a migration PR's worth of work and nearly cost four
+    unnecessary fixture rewrites. `apply_live_mutation` CALLS this function, so
+    a probe that calls it is asking the same question the helper answers — not
+    a paraphrase that agrees until it doesn't.
+
+    Raises on a needle that does not occur at all, for the same reason
+    `apply_mutation` does: a probe that silently scans for absent text reports
+    "no hazard" indistinguishably from "no occurrences".
+    """
+    try:
+        strip, line_comment = _LIVE_SYNTAX[syntax]
+    except KeyError:
+        raise AssertionError(
+            f"unknown syntax {syntax!r}; expected one of "
+            f"{sorted(_LIVE_SYNTAX)}. Add a key with a fixture proving how "
+            "that language opens a comment — do not pass a stripper here."
+        ) from None
+
+    # Located on the WHOLE TEXT, not per line: every caller in this suite uses a
+    # multi-line needle (`"\n          /tmp/actionlint\n"`) to pin exactly which
+    # line it means. Liveness is then decided by the line the match STARTS on,
+    # after skipping any leading newlines the needle used as an anchor.
+    offsets = []
+    i = text.find(old)
+    while i != -1:
+        offsets.append(i)
+        i = text.find(old, i + 1)
+    if not offsets:
+        raise AssertionError(
+            f"mutation fixture is stale: {old!r} does not appear at all in the "
+            "target text — the file changed under the test, so this case proves "
+            "nothing"
+        )
+
+    lines = text.splitlines(keepends=True)
+    line_start, pos = [], 0
+    for line in lines:
+        line_start.append(pos)
+        pos += len(line)
+
+    lead = len(old) - len(old.lstrip("\n"))
+    live = []
+    for off in offsets:
+        probe = off + lead
+        idx = bisect.bisect_right(line_start, probe) - 1
+        line = lines[idx]
+        if line_comment and line.lstrip().startswith(line_comment):
+            continue
+        # The needle must begin inside the part of the line that SURVIVES
+        # comment-stripping; anything past that boundary is prose.
+        if probe - line_start[idx] < len(strip(line)):
+            live.append(off)
+
+    return LiveScan(all=tuple(offsets), live=tuple(live))
+
+
 def apply_live_mutation(
     text: str, old: str, new: str, *, syntax: str = "yaml", expect_live: int = 1
 ) -> str:
@@ -1368,49 +1456,8 @@ def apply_live_mutation(
     than merely landing on it. That remains `assert_disables`' job, and stating
     in the test why the mutant is really broken remains the author's.
     """
-    try:
-        strip, line_comment = _LIVE_SYNTAX[syntax]
-    except KeyError:
-        raise AssertionError(
-            f"unknown syntax {syntax!r}; expected one of "
-            f"{sorted(_LIVE_SYNTAX)}. Add a key with a fixture proving how "
-            "that language opens a comment — do not pass a stripper here."
-        ) from None
-
-    # Located on the WHOLE TEXT, not per line: every caller in this suite uses a
-    # multi-line needle (`"\n          /tmp/actionlint\n"`) to pin exactly which
-    # line it means. Liveness is then decided by the line the match STARTS on,
-    # after skipping any leading newlines the needle used as an anchor.
-    offsets = []
-    i = text.find(old)
-    while i != -1:
-        offsets.append(i)
-        i = text.find(old, i + 1)
-    if not offsets:
-        raise AssertionError(
-            f"mutation fixture is stale: {old!r} does not appear at all in the "
-            "target text — the file changed under the test, so this case proves "
-            "nothing"
-        )
-
-    lines = text.splitlines(keepends=True)
-    line_start, pos = [], 0
-    for line in lines:
-        line_start.append(pos)
-        pos += len(line)
-
-    lead = len(old) - len(old.lstrip("\n"))
-    live = []
-    for off in offsets:
-        probe = off + lead
-        idx = bisect.bisect_right(line_start, probe) - 1
-        line = lines[idx]
-        if line_comment and line.lstrip().startswith(line_comment):
-            continue
-        # The needle must begin inside the part of the line that SURVIVES
-        # comment-stripping; anything past that boundary is prose.
-        if probe - line_start[idx] < len(strip(line)):
-            live.append(off)
+    scan = live_offsets(text, old, syntax=syntax)
+    offsets, live = scan.all, scan.live
 
     if not live:
         raise AssertionError(
@@ -1420,7 +1467,7 @@ def apply_live_mutation(
             "this suite reported a working detector as broken."
         )
     if len(live) != expect_live:
-        at = [bisect.bisect_right(line_start, o + lead) for o in live]
+        at = [text.count("\n", 0, o) + 1 for o in live]
         raise AssertionError(
             f"{old!r} starts on {len(live)} live lines, expected {expect_live}: "
             f"lines {at}. Narrow the needle, or name the count you mean — "
