@@ -500,7 +500,7 @@ jobs:
       - name: Install the CommonMark reference
         # Pinned to the version every renderer-agreement docstring adjudicates
         # against. A range would let a release change the oracle between runs.
-        run: python3 -m pip install --disable-pip-version-check markdown-it-py==4.0.0
+        run: python3 -m pip install --disable-pip-version-check markdown-it-py==4.2.0
       - name: Run the renderer-adjudicated guard classes
         id: canary
         run: |

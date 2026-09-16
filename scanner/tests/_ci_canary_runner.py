@@ -52,7 +52,18 @@ ADJUDICATORS = (
 #: ImportError, which is correct in the package-free job and is exactly the
 #: fail-open this runner exists to close, so a missing or wrong version is a
 #: hard failure here rather than a skip.
-ORACLE_VERSION = "4.0.0"
+#:
+#: 4.0.0 -> 4.2.0 re-adjudicated 2026-09-16 for Dependabot #535. The
+#: measurement that justifies a repin is NOT "the suite still passes" — the
+#: ceiling is an INEQUALITY, so a residual that changed SHAPE while staying
+#: at 14 would sail through it. Both renderers were run over the same
+#: seed-1234 corpus (16831 docs) and the silent-pass sets compared AS SETS:
+#: 14 vs 14, sha256 of the sorted docs `6f0e18c6ffc2038e` on both, symmetric
+#: difference empty in both directions. Oracle non-vacuity re-checked under
+#: 4.2.0 (visible=True, commented=False, unterminated=False).
+#:
+#: Scope: that corpus at that seed. Not a general equivalence claim.
+ORACLE_VERSION = "4.2.0"
 
 
 def _oracle_problem() -> str | None:
