@@ -867,6 +867,22 @@ class TestGraphViolationDetector(unittest.TestCase):
         self.assertEqual(graph_violations(), [])
 
     def test_commented_key_is_not_a_false_alarm(self):
+        """A `#`-commented job key is inert and must not be read as declared.
+
+        THE LEVER IS `keys_at_column` IN `_ci_guard_util`, NOT ANYTHING IN
+        THIS FILE. Named here because #553 recorded, wrongly, that no
+        detector change could make this test fail. Two were tried and both
+        missed: `_steps_of`'s whole-line comment skip, and the
+        `strip_inline_comment` before the step-key match. Both sit on the
+        STEP path; this fixture travels the JOB-level path,
+        `_declares` -> `keys_at_column`. Delete the comment skip there and
+        this test fails — ALONE, 1 of 28, which is what a well-scoped
+        no-false-alarm fixture should look like.
+
+        Two probes agreeing on "cannot fail" said nothing; reading the call
+        chain settled it in one pass. That is the standing lesson about
+        probes, applied to a probe about a probe.
+        """
         m = self.lint.replace(
             "  dependency-review:\n", "  dependency-review:\n    # continue-on-error: true\n", 1
         )
