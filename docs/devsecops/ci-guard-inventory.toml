@@ -65,6 +65,7 @@ guards = [
   "test_ci_dependabot_automerge.py",
   "test_ci_dependabot_config.py",
   "test_ci_diagram_gen_canonical_sync.py",
+  "test_ci_doc_pin_restatement.py",
   "test_ci_docker_image_size_gate.py",
   "test_ci_docker_kcov_parity.py",
   "test_ci_dockerfile_base_pinned.py",
