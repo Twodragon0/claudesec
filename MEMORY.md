@@ -114,7 +114,9 @@ tags: [memory, operations, quality, continuous-improvement]
 - **Stale issue triage:** closed #71/#72/#73→#74 (DAST noise, superseded by #283) and #14
   (npm OIDC `--provenance` live via #262 + `provenance-verify.yml` green + v0.7.2 published).
   10 open issues remain (real backlog: compliance/perf/enhancement); #68 is the ZAP-baseline
-  single-tracker issue and is intentionally kept open.
+  single-tracker issue and is intentionally kept open. **CORRECTED 2026-09-17: "single-tracker"
+  implies something writes to it; nothing does** (`dast-baseline.yml` sets
+  `allow_issue_writing: false`) — see the `#68` entry in Open Backlog.
 - **dashboard_data_loader split:** `dashboard_data_loader.py` (930 lines, over the cap) split
   via façade re-export into `dashboard_data_analysis.py` (220: Prowler analysis + provider
   filters + env status); loader now 735 lines, re-exports the moved public names plus
@@ -391,6 +393,13 @@ The largest block in this log and the one whose *method* matters more than its d
   (#505). It costs what green-while-defeated costs — a tracker that cries wolf gets muted, and
   a muted DAST tracker is how the nightly went 42 nights unwatched. Read the NEWEST comment,
   never the body, on any tracker an action maintains.
+  **SUPERSEDED 2026-09-17 for #498 — do not apply this sentence unqualified.** #505 added a
+  body-refresh step, and once it existed the direction flipped: the body is regenerated nightly
+  while the append-only delta stream goes quiet whenever a run has no new-vs-resolved alerts, so
+  the newest comment is now the STALER surface there. The discriminator is **whether a
+  body-refresh step exists**, not the tracker's age — see the `#498` entry in Open Backlog.
+  Left in place rather than rewritten because this sentence was true when written and the
+  reasoning above it still holds for trackers without such a step.
 - **Write-only state is not state.** zscaler's `_unreachable` `reason` had recorded four
   distinct causes with zero consumers since #472, so all five inaccessible sections printed
   one fixed sentence and SAAS-ZIA-002's claimed "RBA restricted" — right for one of the four
@@ -491,7 +500,9 @@ deliverable here; the diffs are small.
 
 ### Cycle #523–#554 — ten adversarial passes on the guards' own foundation (merged 2026-09-03 → 09-17)
 
-Thirty PRs, and the through-line is that **the checking apparatus became the subject**.
+**28 merged PRs** in the #523–#554 range (#532 is not a PR; #534 is still open; #535 and #547
+are closed-unmerged Dependabot PRs superseded by #550 and #549). The through-line is that
+**the checking apparatus became the subject**.
 Where #513–#522 found declared-vs-observed gaps in the repo's controls, this cycle found them
 in the guards that assert those controls — twice in the guard guarding the guards. Counts:
 guards **1126 → 1472** (`python3 scanner/tests/_ci_guard_runner.py` → `ran=1472, OK (skipped=1)`),
@@ -529,8 +540,9 @@ catalog rows **67 → 73**.
   experiment, with its prediction written down before the run. Its first probe was also wrong:
   an anchored `re.match` reported `markdown` as no-match because the bucket pattern
   `(\.md$|^lychee\.toml$)` has no leading `^`. **The probe was wrong, not the bucket.**
-- **Ten adversarial passes on the `ci-guards` execution proof, and the attacker kept winning
-  cheaply** (#536–#538, #543–#546, #548). #536 shipped carrying four rounds of its own
+- **The `ci-guards` execution proof reached its TENTH adversarial pass, and the attacker kept
+  winning cheaply** (#536–#538, #543–#546, #548). Passes seven (#537), eight (#538), nine (#542)
+  and ten (#546) are this cycle's; #536 carries four earlier rounds inside one PR. #536 shipped carrying four rounds of its own
   correction: a constant `ran=true` fell to closing a parking construct **above** it (2 lines);
   a parsed count fell to seeding `out="Ran 1 tests in 0.0s"` or `|| true` so a **red** suite
   publishes a real number; `grep -qE '^OK'` was not independent (`2>&1` captures the failure
@@ -607,12 +619,19 @@ catalog rows **67 → 73**.
   asserted as a *ceiling* and an inequality cannot distinguish a residual that stayed at 14 from
   one that **changed shape** and stayed at 14 — so both renderers ran the same seed-1234 corpus
   (16,831 docs) and the silent-pass documents were compared **as sets**: 14/14, identical
-  `sha256 6f0e18c6ffc2038e`, symmetric difference empty in both directions. Then the honest part:
-  #551's sweep flagged six constants and **five were false** (prowler, shellcheck, requests,
-  trivy, version — every one fixture text or incident prose), and #552's proposed ban on version
-  restatement would have been **vacuous**, since after #551 the catalog holds zero `pkg==ver`
-  literals and zero 40-hex SHA pins. What shipped instead pins the four real `vX.Y.Z` claims,
-  one of them **deliberately wrong** so the guard has a positive control.
+  `sha256 6f0e18c6ffc2038e`, symmetric difference empty in both directions. Then the honest
+  part: #551's sweep flagged six constants and **five were false** (prowler, shellcheck,
+  requests and trivy are fixture text or incident prose; `version`'s `4.11.0` is an unrelated
+  OMC marker). #552 shipped `test_ci_doc_pin_restatement.py` **narrowed to one spelling on
+  purpose** — `<pkg>==<ver>` for the 12 packages this repo pins in `requirements*.txt` — which
+  matched **zero** lines on landing, so four fixtures plant the defect back rather than let a
+  vacuous ban read as protection. **The catalog's eight `vX.Y.Z` tags are EXEMPT by design, not
+  pinned.** They are incident narrative, and one quotes a wrong version deliberately (*a stale
+  `# v4.2.2` comment on a `v7.0.0` SHA*) **because that is what the incident was** — it is the
+  **negative** control the guard must never flag, and the stated reason the broader parity check
+  ("every version named here must match reality") was **rejected**: it fails on exactly that
+  line and then needs an exemption list, the enumeration ladder ADR-001 §5 says to stop
+  climbing. Do not read those version claims as drift-guarded; by design they are not.
 - **#554 corrects #553, and the correction is the entry.** #553 recorded that no detector change
   could make `test_commented_key_is_not_a_false_alarm` fail, and filed it as a pre-existing
   oddity. It fails, and it fails alone (`1 failed, 27 passed`). Both of #553's probes reached for
@@ -651,7 +670,12 @@ authoritative as a right one. Check with `gh issue list --state open` before tru
   tracks the newest scheduled run). The quoted "last re-confirmed 2026-08-31T21:08" was
   therefore both stale and derived from the wrong surface; it is exactly the
   restating-state-it-does-not-own rot the last bullet of this section warns about, committed
-  inside the warning's own list. **Branch protection has been unmonitored since 2026-08-07.**
+  inside the warning's own list. **Branch protection has been unmonitored since 2026-06-17**,
+  when `b2d7195` (#251) added the workflow — not since the issue was filed on 2026-08-07. #396
+  only added the self-healing issue on 08-06; the secret never existed, so every scheduled run
+  before that took the no-op branch and reported green with nothing to show for it. Dating the
+  gap from the issue understates it by roughly seven weeks, which is the wrong direction for a
+  control that is supposed to make silence loud.
   Scope precision: the endpoint is not unreachable — `gh api
   repos/Twodragon0/claudesec/branches/main/protection` returns fine from an admin-scoped local
   token (measured 2026-09-17: `code_owner=true`, `dismiss_stale=false`, `strict=true`,
@@ -661,9 +685,13 @@ authoritative as a right one. Check with `gh issue list --state open` before tru
   what stays unbuilt is the *continuous* comparison, which is the whole point of a drift watch.
 - **`#498` ZAP full-scan tracker — stays open; the body-freeze is FIXED, do NOT re-propose it.**
   #505 added a step that rewrites the body from the newest run, pinned by
-  `test_ci_dast_tracker_body_refresh.py`. Measured 2026-09-17: the body is regenerated
-  (`2026-09-16T07:04`, run `35066181914`, matching that morning's `schedule success`) and reads
-  **High 0 / Medium 0 / Low 0 / Informational 4** — INFO-tier only, as claimed. The
+  `test_ci_dast_tracker_body_refresh.py`. **Check the condition, not the values below:** the
+  body carries its own `Refreshed (UTC)` line and run URL, so compare that timestamp against
+  `gh run list --workflow=dast-full-scan.yml` — if it tracks the newest nightly, the refresh
+  step is working. (An earlier draft of this entry quoted the exact body timestamp and run id
+  and was superseded by the next nightly **within a day** — the rot this file's closing rule
+  exists to prevent, committed while correcting three instances of it.) Risk tiering when last
+  read was INFO-only, but re-read it rather than trusting that. The
   `.../'+safeHref(hubUrl)+'` "URL" is ZAP scraping a JS string literal out of inline
   `<script>` source, not an endpoint.
   **Correction — the reading habit did NOT survive the fix, it INVERTED for this tracker.**
@@ -681,14 +709,20 @@ authoritative as a right one. Check with `gh issue list --state open` before tru
   **Correction to the 2026-09-02 revision**, which called it "the intentional single-tracker
   issue" and so implied something still writes to it. Nothing does:
   `.github/workflows/dast-baseline.yml` sets `allow_issue_writing: false`, and the issue has
-  `comments=0` with `updatedAt=2026-04-05` while the job itself runs on every PR. The workflow's
+  `comments=0` with `updatedAt=2026-04-05` while the job still runs on code PRs (its
+  `pull_request` trigger carries `paths-ignore` for `docs/**` and `**/*.md`, so docs-only PRs
+  skip it — this very entry's PR did). The workflow's
   own comment (lines 47–55) already names all three non-blocking layers — `continue-on-error`,
   `fail_action: false`, `allow_issue_writing: false` — and states the consequence: baseline
   findings land ONLY in the `zap-baseline-results` artifact, "which nothing reads automatically
-  … a scan that fails to run at all is indistinguishable from a clean scan." That is recorded as
-  **deliberate** for a non-required advisory job, so this is not the green-while-dead class and
-  needs no fix; the DAST verdict is human-review-only by design. Contrast #498, which is the
-  live one. Check: `grep -n allow_issue_writing .github/workflows/dast-baseline.yml`.
+  … a scan that fails to run at all is indistinguishable from a clean scan." **That sentence IS
+  the green-while-dead class, stated outright and knowingly ACCEPTED** — not, as an earlier draft
+  of this entry had it, an exemption from it. The distinction that matters is accepted-with-its-
+  cost-written-down versus undetected, and only the second is a defect; `dast-freshness-watch.yml`
+  exists because the repo does treat the hazard as real elsewhere. So: no fix proposed for a
+  non-required advisory job on a local container, but do not cite #68 as evidence the class is
+  absent here. Contrast #498, which is the live tracker. Check:
+  `grep -n allow_issue_writing .github/workflows/dast-baseline.yml`.
 - **`#12` Zscaler MCP integration**, **`#18` GitHub Projects board**, **`#20` marketplace
   plugin update** are `enhancement`-labelled product asks, not correctness work.
 - **Merged 2026-09-01 → 09-02, do NOT re-propose as open.** The reasoning moved into the
