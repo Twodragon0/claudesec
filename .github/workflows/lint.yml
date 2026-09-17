@@ -697,6 +697,8 @@ jobs:
         run: bash scanner/tests/test_check_network_tls.sh
       - name: Run bash unit tests (cicd/pipeline checks)
         run: bash scanner/tests/test_check_cicd_pipeline.sh
+      - name: Run bash unit tests (cicd/freshness checks)
+        run: bash scanner/tests/test_check_cicd_freshness.sh
       - name: Run bash unit tests (code/security-flaws checks)
         run: bash scanner/tests/test_check_code_security_flaws.sh
       - name: Run bash unit tests (code/sast-tools checks)
