@@ -498,7 +498,7 @@ deliverable here; the diffs are small.
   their subject. Codecov deleted outright — the repo has **zero** Actions secrets
   (`total_count: 0`), so no token ever existed and the badge rendered `unknown`.
 
-### Cycle #523–#554 — ten adversarial passes on the guards' own foundation (merged 2026-09-03 → 09-17)
+### Cycle #523–#554 — the guards' own foundation under adversarial passes 7–10 (merged 2026-09-03 → 09-17)
 
 **28 merged PRs** in the #523–#554 range (#532 is not a PR; #534 is still open; #535 and #547
 are closed-unmerged Dependabot PRs superseded by #550 and #549). The through-line is that
@@ -542,8 +542,8 @@ catalog rows **67 → 73**.
   `(\.md$|^lychee\.toml$)` has no leading `^`. **The probe was wrong, not the bucket.**
 - **The `ci-guards` execution proof reached its TENTH adversarial pass, and the attacker kept
   winning cheaply** (#536–#538, #543–#546, #548). Passes seven (#537), eight (#538), nine (#542)
-  and ten (#546) are this cycle's; #536 carries four earlier rounds inside one PR. #536 shipped carrying four rounds of its own
-  correction: a constant `ran=true` fell to closing a parking construct **above** it (2 lines);
+  and ten (#546) are this cycle's, while #536 carries four earlier rounds inside one PR:
+  a constant `ran=true` fell to closing a parking construct **above** it (2 lines);
   a parsed count fell to seeding `out="Ran 1 tests in 0.0s"` or `|| true` so a **red** suite
   publishes a real number; `grep -qE '^OK'` was not independent (`2>&1` captures the failure
   report, and guard messages put `OK  path` at column 0) and additionally fell to `cd /tmp/decoy`
@@ -624,8 +624,11 @@ catalog rows **67 → 73**.
   requests and trivy are fixture text or incident prose; `version`'s `4.11.0` is an unrelated
   OMC marker). #552 shipped `test_ci_doc_pin_restatement.py` **narrowed to one spelling on
   purpose** — `<pkg>==<ver>` for the 12 packages this repo pins in `requirements*.txt` — which
-  matched **zero** lines on landing, so four fixtures plant the defect back rather than let a
-  vacuous ban read as protection. **The catalog's eight `vX.Y.Z` tags are EXEMPT by design, not
+  matched **zero** lines on landing, so **five fixtures carry the weight** rather than let a
+  vacuous ban read as protection: two plant the defect back (the shipped shape and the
+  comment-hidden one) and must trip, two require the legal shapes — narrative tags, packages
+  this repo does not own — to stay unflagged, and a fifth asserts the package list is non-empty,
+  because an empty set matches nothing and would report success having checked nothing. **The catalog's eight `vX.Y.Z` tags are EXEMPT by design, not
   pinned.** They are incident narrative, and one quotes a wrong version deliberately (*a stale
   `# v4.2.2` comment on a `v7.0.0` SHA*) **because that is what the incident was** — it is the
   **negative** control the guard must never flag, and the stated reason the broader parity check
