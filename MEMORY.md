@@ -114,7 +114,9 @@ tags: [memory, operations, quality, continuous-improvement]
 - **Stale issue triage:** closed #71/#72/#73→#74 (DAST noise, superseded by #283) and #14
   (npm OIDC `--provenance` live via #262 + `provenance-verify.yml` green + v0.7.2 published).
   10 open issues remain (real backlog: compliance/perf/enhancement); #68 is the ZAP-baseline
-  single-tracker issue and is intentionally kept open.
+  single-tracker issue and is intentionally kept open. **CORRECTED 2026-09-17: "single-tracker"
+  implies something writes to it; nothing does** (`dast-baseline.yml` sets
+  `allow_issue_writing: false`) — see the `#68` entry in Open Backlog.
 - **dashboard_data_loader split:** `dashboard_data_loader.py` (930 lines, over the cap) split
   via façade re-export into `dashboard_data_analysis.py` (220: Prowler analysis + provider
   filters + env status); loader now 735 lines, re-exports the moved public names plus
@@ -391,6 +393,13 @@ The largest block in this log and the one whose *method* matters more than its d
   (#505). It costs what green-while-defeated costs — a tracker that cries wolf gets muted, and
   a muted DAST tracker is how the nightly went 42 nights unwatched. Read the NEWEST comment,
   never the body, on any tracker an action maintains.
+  **SUPERSEDED 2026-09-17 for #498 — do not apply this sentence unqualified.** #505 added a
+  body-refresh step, and once it existed the direction flipped: the body is regenerated nightly
+  while the append-only delta stream goes quiet whenever a run has no new-vs-resolved alerts, so
+  the newest comment is now the STALER surface there. The discriminator is **whether a
+  body-refresh step exists**, not the tracker's age — see the `#498` entry in Open Backlog.
+  Left in place rather than rewritten because this sentence was true when written and the
+  reasoning above it still holds for trackers without such a step.
 - **Write-only state is not state.** zscaler's `_unreachable` `reason` had recorded four
   distinct causes with zero consumers since #472, so all five inaccessible sections printed
   one fixed sentence and SAAS-ZIA-002's claimed "RBA restricted" — right for one of the four
@@ -407,9 +416,15 @@ The largest block in this log and the one whose *method* matters more than its d
   equal** (#509). The reason arity alone was not enough: a key with no `{{KEY}}` in the
   template is a DEAD replacement and FOUR already existed, so the common drift is adding
   key+argument and forgetting the template. Baselined as EQUAL, not merely non-growing, so
-  wiring one up also fails until it is dropped. **Deleting those four dead keys and their
-  caller arguments is still OPEN** — it is a behaviour change in a 73-argument call, not a
-  guard.
+  wiring one up also fails until it is dropped. Deleting those four dead keys and their caller
+  arguments was left OPEN here — a behaviour change in a 73-argument call, not a guard.
+  **DONE 2026-09-02; this sentence contradicted the Open Backlog entry below for two weeks.**
+  Verified 2026-09-17: `KNOWN_DEAD_KEYS = set()` and
+  `python3 -m pytest scanner/tests/test_ci_template_keys_arity.py -q` → `14 passed`. Recorded
+  rather than deleted because the shape is the point — a cycle entry states what was true *at
+  merge*, so a follow-up sentence inside one silently becomes a false claim the moment the
+  follow-up lands. Land the completion in the same edit that writes the next cycle, or do not
+  write the "still OPEN" clause into the historical entry at all.
 - **ruff widened to `["E9","F","B","PLE"]`** (#508). `B905` (`zip()` without `strict=`) is why,
   and its two sites needed OPPOSITE answers. `BLE001`/`S110` stay REJECTED **with the numbers**
   (61 + 21, concentrated in paths that exist to degrade rather than crash — 82 `# noqa` for
@@ -483,34 +498,234 @@ deliverable here; the diffs are small.
   their subject. Codecov deleted outright — the repo has **zero** Actions secrets
   (`total_count: 0`), so no token ever existed and the badge rendered `unknown`.
 
+### Cycle #523–#554 — the guards' own foundation under adversarial passes 7–10 (merged 2026-09-03 → 09-17)
+
+**28 merged PRs** in the #523–#554 range (#532 is not a PR; #534 is still open; #535 and #547
+are closed-unmerged Dependabot PRs superseded by #550 and #549). The through-line is that
+**the checking apparatus became the subject**.
+Where #513–#522 found declared-vs-observed gaps in the repo's controls, this cycle found them
+in the guards that assert those controls — twice in the guard guarding the guards. Counts:
+guards **1126 → 1472** (`python3 scanner/tests/_ci_guard_runner.py` → `ran=1472, OK (skipped=1)`),
+catalog rows **67 → 73**.
+
+- **Patching an enumeration a third time is the signal to invert it** (#528–#531, #533). #528
+  widened the ADR guards off the literal `ADR-001` (the series is now DISCOVERED from
+  `docs/devsecops/adr-[0-9]*.md`, so a new ADR cannot stay unscanned) — done the week ADR-002
+  had **zero** citations, the one moment widening costs no baseline churn; ADR-001 had reached
+  **81** uncounted citations by the other route. #529 then found that fix was inline in one
+  guard while five others read published Markdown with less or nothing, and measured **all
+  twenty guard-by-vector cells green-while-defeated before any fix**. Differential fuzz against
+  markdown-it-py over 16,831 documents: **45 residual shapes → 14**, pinned as
+  `MAX_SILENT_PASS_SHAPES`. **Why vectors 1 and 2 shipped at all is the sharpest part:**
+  `markdown-it-py` was not in `requirements-ci.txt`, so every renderer-agreement class reported
+  `testsRun=0, OK (skipped=1)` — the only check that could catch a primitive/renderer divergence
+  never ran, and **failed open**. #530 stopped patching and inverted per ADR-001 §5: the
+  catalog's machine-readable half moved to `ci-guard-inventory.toml` (70 guards, 17 collectors;
+  `tomllib` is stdlib so `ci-guards` stays package-free), every verdict staying in prose. **The
+  intuitive fix was measurably worse** — a single-pass reducer with shared block state scored
+  **42** silent-pass shapes against the shipped 14, in two independent implementations. Measure
+  before planning, not after. And state the inversion's limit honestly, as #530 does: the
+  residual is **not eliminated, it moves** — to `test_ci_catalog_doc_sync.py`, where the failure
+  mode becomes documentation drift instead of a guard certifying coverage the published
+  inventory does not show. A better failure mode is the win; do not read it as a solved class.
+- **A check that cannot run where it matters is not a check** (#531, #533). The only comparison
+  that adjudicates the Markdown reduction *at a consumer* needs `markdown-it-py`, and
+  `ci-guards` installs **zero packages by design** — a property documented in three places and
+  asserted by none. So a catalog-only PR, the exact shape that introduces a residual, got the
+  job and **skipped** the check; the measured payload leaves a reader seeing **0 of 70** guard
+  rows with the suite green. Fixed with a separate 20 s `renderer-canary` rather than widening
+  a bucket (which would have silently falsified those three docs). #531 **could not prove its
+  own property** — its diff touched `scanner/tests/`, so the `scanner` bucket matched and kcov
+  ran anyway. A doc-only PR is the only shape that can carry that proof, so #533 *is* the
+  experiment, with its prediction written down before the run. Its first probe was also wrong:
+  an anchored `re.match` reported `markdown` as no-match because the bucket pattern
+  `(\.md$|^lychee\.toml$)` has no leading `^`. **The probe was wrong, not the bucket.**
+- **The `ci-guards` execution proof reached its TENTH adversarial pass, and the attacker kept
+  winning cheaply** (#536–#538, #543–#546, #548). Passes seven (#537), eight (#538), nine (#542)
+  and ten (#546) are this cycle's, while #536 carries four earlier rounds inside one PR:
+  a constant `ran=true` fell to closing a parking construct **above** it (2 lines);
+  a parsed count fell to seeding `out="Ran 1 tests in 0.0s"` or `|| true` so a **red** suite
+  publishes a real number; `grep -qE '^OK'` was not independent (`2>&1` captures the failure
+  report, and guard messages put `OK  path` at column 0) and additionally fell to `cd /tmp/decoy`
+  and to `-k` cutting **1264 tests to 18**. Pass 7 (#537): `load_tests` returning an empty suite
+  — **two lines** — took 1262 tests to 1251 with the suite `OK` and the published count genuine,
+  and it is invisible from the other side because **pytest does not honour `load_tests`** (same
+  file: `Ran 0 / NO TESTS RAN` under unittest, `11 passed` under pytest). Pass 8 (#538) beat
+  #537's per-file floor three ways, cheapest **1 line** (`C.__module__ = "test_ci_<victim>"`,
+  because attribution was by a *writable attribute*); the repair was **attribution by
+  construction** — discover one file at a time and let the union be what executes — at no
+  measurable cost (~45 s either way). **The fail-open one is #543**, and it was in the check
+  guarding the whole proof: `job_ran_proof_problems` pinned `lint-gate`'s positive-integer
+  requirement with `re.search` over the **raw** block, which is a Python heredoc whose comments
+  quote that very expression. Loosen the live regex to `r".*"`, leave a `# historical:` comment
+  carrying the old spelling, and the detector returns `[]` — and since `re.fullmatch(r".*", "")`
+  matches, `""` is exactly what a parked job publishes. Five rounds of execution proof, neutered
+  by one edited line plus a comment.
+- **Direction is the discriminator — the single most reusable rule this cycle produced** (#543,
+  #552). A guard reading raw text is defeatable by a comment **only in the negative direction**:
+  `if not <regex>.search(hay)` is a *pin*, and a comment supplies exactly the token the pin
+  demands. A *positive* use is a scanner hunting offenders, where a comment hit is a false alarm
+  at worst — so hardening it is not merely unnecessary, it is harmful. Measured on #543: every
+  unanchored search over un-stripped text is **66 sites**, most of them scanners; restricted to
+  the negative direction it is **11**. Fixing all 66 would produce a check that cries wolf, and
+  a check that cries wolf gets ignored — costing exactly the detection it exists to provide.
+  The same flip decides which text to read: **presence checks read RENDERED markdown** (a row
+  hidden in a comment is a silent PASS), while **absence checks read RAW** (over-finding text a
+  browser drops is a loud, fixable FAILURE, never a guard certifying what it did not check).
+  Reducing first in an absence check would let a restated pin be smuggled into an HTML comment
+  and pass. Read the direction before reaching for the anchor.
+- **The mutation helper every fixture routes through was itself unguarded** (#544–#546, #548).
+  #544 closed `apply_mutation` docstring shape 4 ("text edited in a comment that quotes the
+  control verbatim"), which the docstring called unclosable: `str.replace` takes the **first**
+  occurrence and in this repo the comment usually comes first, *because the comment quotes the
+  command it explains* — twice this produced a silent pass read as a missing detection. #545
+  renamed `count` → `expect_live` **before** migrating, because `apply_mutation(count=)` means
+  "how many to replace" and `apply_live_mutation(count=)` means "how many must exist" — same
+  name, different question, and a mechanical migration carrying `count=1` across keeps passing
+  calls passing while changing what the number asserts; done at three callers rather than
+  thirty. Pass 10 (#546) then found the helper's self-tests were named `test__ci_guard_util.py`
+  — **two underscores**, mirroring the module — which the runner's `test_ci_*.py` discovery does
+  not match: gutting `apply_live_mutation` entirely left `ci-guards` reporting **`ran=1285`,
+  clean**, with all 74 meta-guard tests green.
+- **A probe that reimplements the predicate is worth less than no probe** (#548). The sweep
+  auditing all **164** `apply_mutation` call sites returned **ten findings, and all ten were
+  false.** It wrote its own answer to "is this occurrence a comment?" twice and was wrong both
+  times: `line.startswith("#")` is true of a Markdown **heading**, and
+  `old.strip().splitlines()[0] in <comment line>` tests a **substring of the needle**, not an
+  occurrence of it — `str.find` can never select there. Cost: a migration PR's worth of work and
+  nearly four unnecessary rewrites. `live_offsets` is now exported so probes call the same
+  predicate the code under test uses, instead of paraphrasing it.
+- **actionlint: the claim rested on whoever opened the PR** (#539–#542). Every PR body in this
+  repo recorded `actionlint … rc=0` while `grep -rn actionlint .github/workflows/*.yml` returned
+  **nothing** — and actionlint exited **1 on `main`**, on an SC2129 that had sat there for weeks
+  underneath those green bodies. #539 was a reconstruction, not a rebase: the abandoned worktree
+  had **zero commits** and its tip was the merge-base, 62 commits back. #539 then **broke the
+  scheduled `prowler-python-watch` workflow** by deleting a `result_code=` capture on the claim
+  it "was never read again" — it is read fifty lines down the same `run:` body, so `set -u`
+  aborted the step on the **ordinary exit-0 path**; #540 reproduced that by *executing* the step
+  body against a stub before fixing anything. #541 found the job linting with the runner image's
+  shellcheck **0.9.0** while `shell-lint` pins **0.11.0** — one repo, two rule sets, and the
+  image free to move under us. #542 then defeated #541's four new pins **six ways**, one of them
+  **fail-open**: an unanchored `re.search` means `# SHELLCHECK_VERSION: 0.11.0` commented above a
+  live `0.9.0` makes the parity check report agreement while the job downloads, verifies and
+  asserts 0.9.0 — every check green, restoring the exact asymmetry #541 existed to close. The
+  one pin already anchored at line start was the **only** survivor.
+- **"One constant, N spellings" — and the sweep for it was mostly false positives** (#547→#549,
+  #535→#550, #551, #552). Dependabot bumped codeql-action at **one** of four pinned sites
+  (#547); #549 superseded it covering all four, and `test_ci_template_pin_policy` caught it —
+  the third time, after #478→#483 and #511. #535 likewise landed markdown-it-py 4.2.0 against an
+  oracle still adjudicated at 4.0.0 and was correctly red. #550's re-adjudication is the method
+  worth copying: **"the suite still passes" does not justify a repin**, because the residual is
+  asserted as a *ceiling* and an inequality cannot distinguish a residual that stayed at 14 from
+  one that **changed shape** and stayed at 14 — so both renderers ran the same seed-1234 corpus
+  (16,831 docs) and the silent-pass documents were compared **as sets**: 14/14, identical
+  `sha256 6f0e18c6ffc2038e`, symmetric difference empty in both directions. Then the honest
+  part: #551's sweep flagged six constants and **five were false** (prowler, shellcheck,
+  requests and trivy are fixture text or incident prose; `version`'s `4.11.0` is an unrelated
+  OMC marker). #552 shipped `test_ci_doc_pin_restatement.py` **narrowed to one spelling on
+  purpose** — `<pkg>==<ver>` for the 12 packages this repo pins in `requirements*.txt` — which
+  matched **zero** lines on landing, so **five fixtures carry the weight** rather than let a
+  vacuous ban read as protection: two plant the defect back (the shipped shape and the
+  comment-hidden one) and must trip, two require the legal shapes — narrative tags, packages
+  this repo does not own — to stay unflagged, and a fifth asserts the package list is non-empty,
+  because an empty set matches nothing and would report success having checked nothing. **The catalog's eight `vX.Y.Z` tags are EXEMPT by design, not
+  pinned.** They are incident narrative, and one quotes a wrong version deliberately (*a stale
+  `# v4.2.2` comment on a `v7.0.0` SHA*) **because that is what the incident was** — it is the
+  **negative** control the guard must never flag, and the stated reason the broader parity check
+  ("every version named here must match reality") was **rejected**: it fails on exactly that
+  line and then needs an exemption list, the enumeration ladder ADR-001 §5 says to stop
+  climbing. Do not read those version claims as drift-guarded; by design they are not.
+- **#554 corrects #553, and the correction is the entry.** #553 recorded that no detector change
+  could make `test_commented_key_is_not_a_false_alarm` fail, and filed it as a pre-existing
+  oddity. It fails, and it fails alone (`1 failed, 27 passed`). Both of #553's probes reached for
+  comment-handling levers on the **step** path — the code that file itself contains — while the
+  fixture travels `_declares` → `keys_at_column`, whose comment skip lives in `_ci_guard_util`
+  one module over, on the **job** path. Neither probe could ever have moved it. **Two probes
+  agreeing on "cannot fail" is worth nothing**; reading the call chain settled it in one pass.
+  The lever is now written onto the fixture's docstring, because the next person will reach for
+  the same two wrong ones.
+
 ## Open Backlog
 
-Re-derived from `gh issue list` + verified repo state on **2026-09-02**. **Verify before
-working an item** — this list rotted twice before, and the previous revision (2026-08-26)
-listed FOUR already-closed issues (#295, #297, #381, #399) as open.
+Re-derived from `gh issue list --state open` + measured repo state on **2026-09-17**. **Verify
+before working an item** — this list rotted twice before, and the 2026-08-26 revision listed
+FOUR already-closed issues (#295, #297, #381, #399) as open.
 
-**Closed since the last revision — do NOT re-propose as open:** `#295` (prowler/alpine
-freeze), `#297` (quarterly ADR-001 audit), `#381` (lychee sweep), `#399` (DAST nightly not
-running). Check with `gh issue list --state open` before trusting any entry below.
+**Nothing opened or closed since the 2026-09-02 revision** — the same eight issues
+(#405, #498, #68, #39, #15, #12, #18, #20). A stable issue set is not a verified backlog:
+re-measuring found
+**three entries that were wrong about MECHANISM** while naming the right issue, which is the
+failure this file is least able to detect, because a wrong mechanism reads exactly as
+authoritative as a right one. Check with `gh issue list --state open` before trusting any entry.
+
+**Closed in an earlier revision — do NOT re-propose as open:** `#295` (prowler/alpine freeze),
+`#297` (quarterly ADR-001 audit), `#381` (lychee sweep), `#399` (DAST nightly not running).
 
 - **`#405` branch-protection drift-watch is not running** (`REPO_ADMIN_TOKEN` missing).
   **BLOCKED ON A HUMAN — there is no code fix.** The workflow self-heals into this issue
-  rather than reporting green (#396), so the issue IS the alert, and it re-confirms itself on
-  every scheduled run (last 2026-08-31T21:08). Unblock: a fine-grained PAT scoped to this repo
-  with **Administration: read**, stored as the `REPO_ADMIN_TOKEN` repo secret; the next clean
-  run closes the issue. Check: `gh run list --workflow=protection-drift-watch.yml` runs green
-  either way, so the ISSUE state is the signal, not the run conclusion.
+  rather than reporting green (#396), so the issue IS the alert. Unblock: a fine-grained PAT
+  scoped to this repo with **Administration: read**, stored as the `REPO_ADMIN_TOKEN` repo
+  secret; the next clean run closes the issue. Check the *decision condition*, never a date:
+  `gh secret list` empty ⇒ still blocked (the repo has zero Actions secrets), and
+  `gh run list --workflow=protection-drift-watch.yml` is green either way, so the ISSUE state
+  is the signal, not the run conclusion. **Correction to the 2026-09-02 revision:** the
+  workflow does not comment — it **rewrites the issue body** (`comments=0`, and `updatedAt`
+  tracks the newest scheduled run). The quoted "last re-confirmed 2026-08-31T21:08" was
+  therefore both stale and derived from the wrong surface; it is exactly the
+  restating-state-it-does-not-own rot the last bullet of this section warns about, committed
+  inside the warning's own list. **Branch protection has been unmonitored since 2026-06-17**,
+  when `b2d7195` (#251) added the workflow — not since the issue was filed on 2026-08-07. #396
+  only added the self-healing issue on 08-06; the secret never existed, so every scheduled run
+  before that took the no-op branch and reported green with nothing to show for it. Dating the
+  gap from the issue understates it by roughly seven weeks, which is the wrong direction for a
+  control that is supposed to make silence loud.
+  Scope precision: the endpoint is not unreachable — `gh api
+  repos/Twodragon0/claudesec/branches/main/protection` returns fine from an admin-scoped local
+  token (measured 2026-09-17: `code_owner=true`, `dismiss_stale=false`, `strict=true`,
+  `enforce_admins=true`, 2 required contexts, consistent with ADR-002 and #526). **Only the
+  Actions runner lacks a credential.** So the drift-watch gap is a missing secret, not missing
+  access, and a human can read the current posture at any time without unblocking the watch —
+  what stays unbuilt is the *continuous* comparison, which is the whole point of a drift watch.
 - **`#498` ZAP full-scan tracker — stays open; the body-freeze is FIXED, do NOT re-propose it.**
   #505 added a step that rewrites the body from the newest run, pinned by
-  `test_ci_dast_tracker_body_refresh.py`. Everything still open on the issue is ZAP INFO-tier:
-  suspicious comments, storable/cacheable content, User Agent Fuzzer. The
+  `test_ci_dast_tracker_body_refresh.py`. **Check the condition, not the values below:** the
+  body carries its own `Refreshed (UTC)` line and run URL, so compare that timestamp against
+  `gh run list --workflow=dast-full-scan.yml` — if it tracks the newest nightly, the refresh
+  step is working. (An earlier draft of this entry quoted the exact body timestamp and run id
+  and was superseded by the next nightly **within a day** — the rot this file's closing rule
+  exists to prevent, committed while correcting three instances of it.) Risk tiering when last
+  read was INFO-only, but re-read it rather than trusting that. The
   `.../'+safeHref(hubUrl)+'` "URL" is ZAP scraping a JS string literal out of inline
-  `<script>` source — not an endpoint. **The reading habit survives the fix**: on any tracker
-  an action maintains, check the newest comment rather than the body, because the action's own
-  delta stream is still append-only and only this repo's step refreshes the body.
+  `<script>` source, not an endpoint.
+  **Correction — the reading habit did NOT survive the fix, it INVERTED for this tracker.**
+  The previous revision said to prefer the newest comment over the body. On #498 that is now
+  backwards: the newest comment is **2026-09-01** while the body is **2026-09-16**, because
+  #505's step refreshes the body nightly and the append-only delta stream simply stopped
+  producing comments once there were no new-vs-resolved deltas to report. A no-delta run writes
+  nothing, so on a delta-stream tracker **comment silence is ambiguous between "nothing changed"
+  and "nothing ran"** — which is why the refreshed body, carrying its own run URL and timestamp,
+  is the surface to read here. Keep the comment-first habit for trackers WITHOUT a refresh step;
+  the discriminator is whether a body-refresh step exists, not the tracker's age.
 - **`#39` ISMS-P 29 FAIL controls prioritised remediation plan** and **`#15` incident-response
   process 65% → 80%** are product/content work, not CI.
-- **`#68` ZAP baseline** is the intentional single-tracker issue — keep it open.
+- **`#68` ZAP baseline — keep it open, but it is a DORMANT ARTIFACT, not a maintained tracker.**
+  **Correction to the 2026-09-02 revision**, which called it "the intentional single-tracker
+  issue" and so implied something still writes to it. Nothing does:
+  `.github/workflows/dast-baseline.yml` sets `allow_issue_writing: false`, and the issue has
+  `comments=0` with `updatedAt=2026-04-05` while the job still runs on code PRs (its
+  `pull_request` trigger carries `paths-ignore` for `docs/**` and `**/*.md`, so docs-only PRs
+  skip it — this very entry's PR did). The workflow's
+  own comment (lines 47–55) already names all three non-blocking layers — `continue-on-error`,
+  `fail_action: false`, `allow_issue_writing: false` — and states the consequence: baseline
+  findings land ONLY in the `zap-baseline-results` artifact, "which nothing reads automatically
+  … a scan that fails to run at all is indistinguishable from a clean scan." **That sentence IS
+  the green-while-dead class, stated outright and knowingly ACCEPTED** — not, as an earlier draft
+  of this entry had it, an exemption from it. The distinction that matters is accepted-with-its-
+  cost-written-down versus undetected, and only the second is a defect; `dast-freshness-watch.yml`
+  exists because the repo does treat the hazard as real elsewhere. So: no fix proposed for a
+  non-required advisory job on a local container, but do not cite #68 as evidence the class is
+  absent here. Contrast #498, which is the live tracker. Check:
+  `grep -n allow_issue_writing .github/workflows/dast-baseline.yml`.
 - **`#12` Zscaler MCP integration**, **`#18` GitHub Projects board**, **`#20` marketplace
   plugin update** are `enhancement`-labelled product asks, not correctness work.
 - **Merged 2026-09-01 → 09-02, do NOT re-propose as open.** The reasoning moved into the
