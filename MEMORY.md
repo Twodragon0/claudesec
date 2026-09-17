@@ -505,12 +505,18 @@ catalog rows **67 → 73**.
   guard while five others read published Markdown with less or nothing, and measured **all
   twenty guard-by-vector cells green-while-defeated before any fix**. Differential fuzz against
   markdown-it-py over 16,831 documents: **45 residual shapes → 14**, pinned as
-  `MAX_SILENT_PASS_SHAPES`. #530 stopped patching and inverted per ADR-001 §5: the catalog's
-  machine-readable half moved to `ci-guard-inventory.toml` (70 guards, 17 collectors; `tomllib`
-  is stdlib so `ci-guards` stays package-free), every verdict staying in prose. **The intuitive
-  fix was measurably worse** — a single-pass reducer with shared block state scored **42**
-  silent-pass shapes against the shipped 14, in two independent implementations. Measure before
-  planning, not after.
+  `MAX_SILENT_PASS_SHAPES`. **Why vectors 1 and 2 shipped at all is the sharpest part:**
+  `markdown-it-py` was not in `requirements-ci.txt`, so every renderer-agreement class reported
+  `testsRun=0, OK (skipped=1)` — the only check that could catch a primitive/renderer divergence
+  never ran, and **failed open**. #530 stopped patching and inverted per ADR-001 §5: the
+  catalog's machine-readable half moved to `ci-guard-inventory.toml` (70 guards, 17 collectors;
+  `tomllib` is stdlib so `ci-guards` stays package-free), every verdict staying in prose. **The
+  intuitive fix was measurably worse** — a single-pass reducer with shared block state scored
+  **42** silent-pass shapes against the shipped 14, in two independent implementations. Measure
+  before planning, not after. And state the inversion's limit honestly, as #530 does: the
+  residual is **not eliminated, it moves** — to `test_ci_catalog_doc_sync.py`, where the failure
+  mode becomes documentation drift instead of a guard certifying coverage the published
+  inventory does not show. A better failure mode is the win; do not read it as a solved class.
 - **A check that cannot run where it matters is not a check** (#531, #533). The only comparison
   that adjudicates the Markdown reduction *at a consumer* needs `markdown-it-py`, and
   `ci-guards` installs **zero packages by design** — a property documented in three places and
@@ -543,6 +549,19 @@ catalog rows **67 → 73**.
   carrying the old spelling, and the detector returns `[]` — and since `re.fullmatch(r".*", "")`
   matches, `""` is exactly what a parked job publishes. Five rounds of execution proof, neutered
   by one edited line plus a comment.
+- **Direction is the discriminator — the single most reusable rule this cycle produced** (#543,
+  #552). A guard reading raw text is defeatable by a comment **only in the negative direction**:
+  `if not <regex>.search(hay)` is a *pin*, and a comment supplies exactly the token the pin
+  demands. A *positive* use is a scanner hunting offenders, where a comment hit is a false alarm
+  at worst — so hardening it is not merely unnecessary, it is harmful. Measured on #543: every
+  unanchored search over un-stripped text is **66 sites**, most of them scanners; restricted to
+  the negative direction it is **11**. Fixing all 66 would produce a check that cries wolf, and
+  a check that cries wolf gets ignored — costing exactly the detection it exists to provide.
+  The same flip decides which text to read: **presence checks read RENDERED markdown** (a row
+  hidden in a comment is a silent PASS), while **absence checks read RAW** (over-finding text a
+  browser drops is a loud, fixable FAILURE, never a guard certifying what it did not check).
+  Reducing first in an absence check would let a restated pin be smuggled into an HTML comment
+  and pass. Read the direction before reaching for the anchor.
 - **The mutation helper every fixture routes through was itself unguarded** (#544–#546, #548).
   #544 closed `apply_mutation` docstring shape 4 ("text edited in a comment that quotes the
   control verbatim"), which the docstring called unclosable: `str.replace` takes the **first**
