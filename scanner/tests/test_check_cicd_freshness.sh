@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034,SC2329
+# SC2154 ($_cf_skip_reason, $_cf_query_skip_reason "referenced but not
+# assigned") is disabled at the two use sites rather than here: they are
+# assigned by scanner/checks/cicd/freshness.sh, which this file sources, and
+# reading them from there is deliberate — comparing against the production
+# string is what makes those assertions survive rewording while still failing
+# when a skip is re-routed to a different reason.
 # Unit tests for scanner/checks/cicd/freshness.sh
 #
 # WHAT IS STUBBED, AND WHY IT HAS TO BE
@@ -38,13 +44,22 @@ FORMAT="text"
 QUIET=1
 SEVERITY="low"
 
-# Titles are captured, not just IDs: CICD-011's pass message has to name the
-# workflow that certified freshness, and that is asserted below.
+# Titles AND reason/detail text are captured, not just IDs.
+#
+# WHY THE MESSAGE IS PART OF THE RECORD
+# A bare `SKIP:CICD-010` expectation is satisfied by ANY skip of CICD-010, and
+# this check has three different reasons to skip: preconditions unmet, no
+# matching workflow, and — the one the 403 cases exist for — a failed query.
+# Asserting only the verdict would let the query-failure branch be deleted
+# outright while the suite stayed green, because the precondition branch emits
+# the same `SKIP:CICD-010`. The same hole applies to `WARN`, where "never ran"
+# is indistinguishable by verdict from any warn added later. So the reason
+# travels with the result, and the assertions below discriminate on it.
 RESULTS=()
 pass()  { RESULTS+=("PASS:$1:$2"); }
-fail()  { RESULTS+=("FAIL:$1:${3:-}:$2"); }
-warn()  { RESULTS+=("WARN:$1:$2"); }
-skip()  { RESULTS+=("SKIP:$1:$2"); }
+fail()  { RESULTS+=("FAIL:$1:${3:-}:$2 || ${4:-}"); }
+warn()  { RESULTS+=("WARN:$1:$2 || ${3:-}"); }
+skip()  { RESULTS+=("SKIP:$1:$2 || ${3:-}"); }
 info()  { :; }
 
 source "$LIB_DIR/checks.sh"
@@ -94,8 +109,13 @@ assert_fail_severity() {
   fi
 }
 
-# Asserts a result exists AND its title contains $4 — for message content that
-# carries meaning a bare verdict cannot, like which workflow certified freshness.
+# Asserts a result exists AND its message contains $4 — for the cases where a
+# bare verdict does not identify which branch produced it.
+#
+# Prefer passing a PRODUCTION VARIABLE (`$_cf_query_skip_reason`) over a literal
+# phrase. Comparing against the live string keeps the assertion immune to
+# rewording — both sides change together — while still failing if the branch is
+# swapped for a different reason, which is exactly the split needed here.
 assert_result_mentions() {
   local desc="$1" expected_type="$2" check_id="$3" needle="$4"
   local found=false r
@@ -108,6 +128,27 @@ assert_result_mentions() {
     echo "  PASS: $desc"; ((TEST_PASSED++))
   else
     echo "  FAIL: $desc (expected $expected_type:$check_id mentioning '$needle', got: ${RESULTS[*]:-none})"; ((TEST_FAILED++))
+  fi
+}
+
+# The complement: a result of this type exists for this id, and it does NOT
+# carry $4. Used to identify a branch by ELIMINATION — with three possible skip
+# reasons, ruling out two names the third without hardcoding any of its prose.
+assert_result_lacks() {
+  local desc="$1" expected_type="$2" check_id="$3" needle="$4"
+  local seen=false carried=false r
+  for r in "${RESULTS[@]+"${RESULTS[@]}"}"; do
+    if [[ "$r" == "${expected_type}:${check_id}:"* ]]; then
+      seen=true
+      [[ "$r" == *"$needle"* ]] && carried=true
+    fi
+  done
+  if $seen && ! $carried; then
+    echo "  PASS: $desc"; ((TEST_PASSED++))
+  elif ! $seen; then
+    echo "  FAIL: $desc (no $expected_type:$check_id at all, got: ${RESULTS[*]:-none})"; ((TEST_FAILED++))
+  else
+    echo "  FAIL: $desc (the $expected_type:$check_id carried '$needle')"; ((TEST_FAILED++))
   fi
 }
 
@@ -151,8 +192,9 @@ gh() {
         return "$STUB_RUNS_RC"
       fi
       case "$wf" in
-        deploy.yml) printf '%s' "$STUB_RUNS_DEPLOY" ;;
-        codeql.yml) printf '%s' "$STUB_RUNS_SCAN" ;;
+        deploy.yml)           printf '%s' "$STUB_RUNS_DEPLOY" ;;
+        release-drafter.yml)  printf '%s' "$STUB_RUNS_DEPLOY" ;;
+        codeql.yml)           printf '%s' "$STUB_RUNS_SCAN" ;;
         *)          printf '' ;;
       esac
       ;;
@@ -250,6 +292,11 @@ SCAN_DIR="$tmpdir/repo" run_check_no_gh
 assert_has_result "gh absent -> skip CICD-010" "SKIP" "CICD-010"
 assert_has_result "gh absent -> skip CICD-011" "SKIP" "CICD-011"
 assert_has_result "gh absent -> skip CICD-012" "SKIP" "CICD-012"
+# The PRECONDITION reason, not the query-failure one: no query was ever made.
+# shellcheck disable=SC2154  # both are assigned by the sourced freshness.sh
+assert_result_mentions "gh absent cites the precondition" "SKIP" "CICD-010" "$_cf_skip_reason"
+# shellcheck disable=SC2154
+assert_result_lacks "gh absent does not blame a failed query" "SKIP" "CICD-010" "$_cf_query_skip_reason"
 
 echo "=== CICD-010/011/012: gh present but logged out -> skip ==="
 
@@ -275,12 +322,34 @@ SCAN_DIR="$tmpdir/repo" run_check_non_github
 assert_has_result "non-GitHub remote -> skip CICD-010" "SKIP" "CICD-010"
 assert_has_result "non-GitHub remote -> skip CICD-011" "SKIP" "CICD-011"
 
+# The reason-based assertions below compare against these production strings.
+# An EMPTY one would make every `assert_result_mentions` trivially true (a
+# substring test against "" matches anything), which is the same vacuity this
+# whole section exists to remove — so their non-emptiness is asserted, once,
+# rather than assumed.
+echo "=== Discriminator strings are non-empty (guards the guards) ==="
+for _v in _cf_skip_reason _cf_query_skip_reason; do
+  if [[ -n "${!_v:-}" ]]; then
+    echo "  PASS: \$$_v is populated"; ((TEST_PASSED++))
+  else
+    echo "  FAIL: \$$_v is empty — reason assertions would be vacuous"; ((TEST_FAILED++))
+  fi
+done
+
 echo "=== CICD-010/011: no matching workflow -> skip ==="
 
 STUB_ALERTS="0"
 SCAN_DIR="$tmpdir/plain" run_check
 assert_has_result "no deploy workflow -> skip CICD-010" "SKIP" "CICD-010"
 assert_has_result "no scan workflow -> skip CICD-011" "SKIP" "CICD-011"
+# Identify the branch by ELIMINATION: three skip reasons exist, so ruling out
+# the other two pins this one without hardcoding its wording. Without this, the
+# no-workflow branch could be deleted and the precondition skip would satisfy
+# the two assertions above.
+assert_result_lacks "no-deploy skip is not the precondition skip" "SKIP" "CICD-010" "$_cf_skip_reason"
+assert_result_lacks "no-deploy skip is not the query-failure skip" "SKIP" "CICD-010" "$_cf_query_skip_reason"
+assert_result_lacks "no-scan skip is not the precondition skip" "SKIP" "CICD-011" "$_cf_skip_reason"
+assert_result_lacks "no-scan skip is not the query-failure skip" "SKIP" "CICD-011" "$_cf_query_skip_reason"
 
 # ── Path 2: failures accumulating after the last success -> CICD-010 fail ────
 
@@ -347,6 +416,11 @@ echo "=== CICD-011: scan workflow that never succeeded -> WARN, not FAIL ==="
 STUB_RUNS_SCAN=$(printf 'failure\t%s\n' "$(iso_ago 1)")
 SCAN_DIR="$tmpdir/repo" run_check
 assert_has_result "scan never succeeded -> WARN CICD-011" "WARN" "CICD-011"
+# `WARN:CICD-011` alone would also be satisfied by any warn added here later,
+# so the branch is pinned on the claim it makes. "stale" is the other possible
+# story about an unsatisfactory scan, and it must NOT be the one told here.
+assert_result_mentions "the WARN says nothing has ever succeeded" "WARN" "CICD-011" "never succeeded"
+assert_result_lacks "the WARN does not claim staleness" "WARN" "CICD-011" "stale"
 assert_no_result "scan never succeeded is not a FAIL" "FAIL" "CICD-011"
 
 # ── Path 4: zero alerts without established freshness -> CICD-012 fail ───────
@@ -358,6 +432,10 @@ STUB_ALERTS="0"
 SCAN_DIR="$tmpdir/repo" run_check
 assert_has_result "zero alerts with a stale scan -> FAIL CICD-012" "FAIL" "CICD-012"
 assert_fail_severity "CICD-012 unbacked zero is high severity" "CICD-012" "high"
+# The `stale` branch specifically — this is the one verdict here that stayed a
+# `high`, so it must not be reachable by the `unknown` story.
+assert_result_mentions "CICD-012 FAIL cites staleness" "FAIL" "CICD-012" "stale"
+assert_result_lacks "CICD-012 FAIL is not the unknown-evidence case" "FAIL" "CICD-012" "nothing known to have looked"
 
 echo "=== CICD-012: zero alerts + fresh scan -> PASS ==="
 
@@ -389,6 +467,9 @@ STUB_ALERTS="0"
 SCAN_DIR="$tmpdir/plain" run_check
 assert_has_result "CICD-011 skipped -> skip CICD-011" "SKIP" "CICD-011"
 assert_has_result "zero alerts with CICD-011 skipped -> WARN CICD-012" "WARN" "CICD-012"
+# The `unknown` branch, not the `stale` one — those are different claims and
+# only the second would justify a `high`.
+assert_result_mentions "the WARN says nothing is known to have looked" "WARN" "CICD-012" "nothing known to have looked"
 assert_no_result "CICD-011 skipped does not produce a CICD-012 FAIL" "FAIL" "CICD-012"
 assert_no_result "CICD-011 skipped does not certify the zero as PASS" "PASS" "CICD-012"
 
@@ -409,9 +490,19 @@ SCAN_DIR="$tmpdir/repo" run_check
 assert_has_result "fork: deploy never ran -> WARN CICD-010" "WARN" "CICD-010"
 assert_has_result "fork: scan never ran -> WARN CICD-011" "WARN" "CICD-011"
 assert_has_result "fork: zero alerts, nothing looked -> WARN CICD-012" "WARN" "CICD-012"
+# Each warn has to tell the "nothing ran" story specifically. An empty history
+# and a refused query both yield no data, and only the first is a warn — so the
+# warns must not be reachable by the query-failure reason.
+assert_result_mentions "fork CICD-010 warn cites never-succeeded" "WARN" "CICD-010" "never succeeded"
+assert_result_mentions "fork CICD-011 warn cites never-succeeded" "WARN" "CICD-011" "never succeeded"
+assert_result_mentions "fork CICD-012 warn cites nothing having looked" "WARN" "CICD-012" "nothing known to have looked"
 assert_no_result "fork produces no CICD-010 FAIL" "FAIL" "CICD-010"
 assert_no_result "fork produces no CICD-011 FAIL" "FAIL" "CICD-011"
 assert_no_result "fork produces no CICD-012 FAIL" "FAIL" "CICD-012"
+# A fork asks the question successfully and gets "nothing"; it must not be
+# reported as a question that could not be asked.
+assert_no_result "fork does not skip CICD-010" "SKIP" "CICD-010"
+assert_no_result "fork does not skip CICD-011" "SKIP" "CICD-011"
 
 # ── Query failure: a refused question is not an empty answer ─────────────────
 #
@@ -428,12 +519,27 @@ STUB_ALERTS="0"
 SCAN_DIR="$tmpdir/repo" run_check
 assert_has_result "run-list 403 -> SKIP CICD-010" "SKIP" "CICD-010"
 assert_has_result "run-list 403 -> SKIP CICD-011" "SKIP" "CICD-011"
+# THE LOAD-BEARING PAIR. Preconditions are satisfied in this scenario and the
+# workflows exist, so the ONLY correct skip reason is the failed query. Asserted
+# against the production string itself, so rewording the message keeps this
+# green while re-routing the branch to any other reason turns it red. Without
+# these two, deleting the query-failure branch entirely would leave the
+# precondition skip satisfying both assertions above.
+assert_result_mentions "403 CICD-010 skip cites the failed QUERY" "SKIP" "CICD-010" "$_cf_query_skip_reason"
+assert_result_mentions "403 CICD-011 skip cites the failed QUERY" "SKIP" "CICD-011" "$_cf_query_skip_reason"
+assert_result_lacks "403 CICD-010 skip is not the precondition skip" "SKIP" "CICD-010" "$_cf_skip_reason"
+assert_result_lacks "403 CICD-011 skip is not the precondition skip" "SKIP" "CICD-011" "$_cf_skip_reason"
 assert_no_result "403 is not reported as a never-run WARN on CICD-010" "WARN" "CICD-010"
 assert_no_result "403 is not reported as a never-run WARN on CICD-011" "WARN" "CICD-011"
 assert_no_result "403 does not fabricate a CICD-010 FAIL" "FAIL" "CICD-010"
+# This scenario feeds FRESH successful histories, so a 403 that leaked through
+# as an empty result would have produced a PASS — the silent direction.
+assert_no_result "403 does not pass CICD-010 on unread history" "PASS" "CICD-010"
+assert_no_result "403 does not pass CICD-011 on unread history" "PASS" "CICD-011"
 # CICD-012's own query still succeeds here, but freshness is unknown, so the
 # zero is reported as unexplained rather than graded.
 assert_has_result "403 upstream -> CICD-012 WARN (freshness unknown)" "WARN" "CICD-012"
+assert_result_mentions "403 upstream CICD-012 warn cites nothing having looked" "WARN" "CICD-012" "nothing known to have looked"
 STUB_RUNS_RC=0
 
 # ── Workflow classification: the early exit makes over-matching a FALSE NEGATIVE
@@ -511,6 +617,93 @@ assert_classified "prowler-python-watch is NOT a scan"  no-match prowler-python-
 # ...and the real scans it was shadowing are still found.
 assert_classified "dast-full-scan survives the monitor filter" match dast-full-scan.yml
 assert_classified "dast-baseline survives the monitor filter"  match dast-baseline.yml
+
+# ── Deploy-workflow classification ───────────────────────────────────────────
+#
+# Release AUTOMATION is not a release. A failing `release-drafter.yml` would
+# otherwise make CICD-010 assert "the declared pipeline is intact but no longer
+# ships" about a repo that ships fine — a false `high`.
+#
+# Recorded because it is the obvious first fix and it does NOT work:
+# separator-adjacency (`(^|[-_.])release([-_.]|$)`) still matches both
+# `release-drafter` and `release-please`, since `release` leads in each. The
+# exclusion vocabulary is what discriminates, and this asserts that.
+
+echo "=== Deploy-workflow classification ==="
+
+assert_deploy() {
+  local desc="$1" expect="$2" name="$3"
+  local got=""
+  [[ $'\n'"$DEPLOY_MATCHES"$'\n' == *$'\n'"$name"$'\n'* ]] && got="$name"
+  if [[ "$expect" == "match" && -n "$got" ]] || [[ "$expect" == "no-match" && -z "$got" ]]; then
+    echo "  PASS: $desc"; ((TEST_PASSED++))
+  else
+    echo "  FAIL: $desc (expected $expect for $name)"; ((TEST_FAILED++))
+  fi
+}
+
+for _wf in release-drafter.yml release-please.yml publish-docs.yml \
+           release-notes.yml changelog.yml deploy.yml npm-publish.yml \
+           cd.yml release.yml rollout-prod.yml; do
+  : > "$tmpdir/wfnames/.github/workflows/$_wf"
+done
+DEPLOY_MATCHES=$(SCAN_DIR="$tmpdir/wfnames" _cicd_freshness_workflows \
+  "$CICD_FRESHNESS_DEPLOY_PATTERN" "$CICD_FRESHNESS_NONDEPLOY_PATTERN")
+
+# Real deployment paths must survive.
+assert_deploy "deploy.yml is a deploy path"      match    deploy.yml
+assert_deploy "npm-publish.yml is a deploy path" match    npm-publish.yml
+assert_deploy "release.yml is a deploy path"     match    release.yml
+assert_deploy "cd.yml is a deploy path"          match    cd.yml
+assert_deploy "rollout-prod.yml is a deploy path" match   rollout-prod.yml
+# Release metadata automation is not.
+assert_deploy "release-drafter is NOT a deploy path" no-match release-drafter.yml
+assert_deploy "release-please is NOT a deploy path"  no-match release-please.yml
+assert_deploy "release-notes is NOT a deploy path"   no-match release-notes.yml
+assert_deploy "changelog is NOT a deploy path"       no-match changelog.yml
+assert_deploy "publish-docs is NOT a deploy path"    no-match publish-docs.yml
+
+# ── The exclusions are actually WIRED UP, not merely correct ─────────────────
+#
+# The assertions above call `_cicd_freshness_workflows` directly and pass both
+# patterns themselves, so they prove the MATCHER works — and prove nothing
+# about whether CICD-010 hands it the exclusion. Measured: dropping
+# `$CICD_FRESHNESS_NONDEPLOY_PATTERN` from the production call site left every
+# assertion above green. That is the vacuity this repo's guard audit keeps
+# finding, so the wiring gets a behavioural case that goes through the check.
+#
+# A repo whose only deploy-shaped workflow is `release-drafter.yml`, with a
+# history of failures piling up after a success: wired correctly the workflow is
+# excluded and CICD-010 skips; unwired it becomes a `high` claiming the repo can
+# no longer ship.
+
+echo "=== Deploy exclusions are wired into CICD-010, not just into the matcher ==="
+
+mkdir -p "$tmpdir/drafteronly/.github/workflows"
+cat > "$tmpdir/drafteronly/.github/workflows/release-drafter.yml" <<'YML'
+name: Release Drafter
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo drafting notes
+YML
+STUB_RUNS_RC=0
+STUB_RUNS_DEPLOY=$(printf 'failure\t%s\nfailure\t%s\nsuccess\t%s\n' \
+  "$(iso_ago 1)" "$(iso_ago 2)" "$(iso_ago 3)")
+STUB_RUNS_SCAN=""
+STUB_ALERTS="0"
+SCAN_DIR="$tmpdir/drafteronly" run_check
+assert_has_result "drafter-only repo -> CICD-010 skips" "SKIP" "CICD-010"
+assert_result_lacks "that skip is the no-workflow one, not the precondition" "SKIP" "CICD-010" "$_cf_skip_reason"
+assert_result_lacks "that skip is the no-workflow one, not a query failure" "SKIP" "CICD-010" "$_cf_query_skip_reason"
+assert_no_result "a failing release-drafter is not a broken deploy path" "FAIL" "CICD-010"
+assert_no_result "a failing release-drafter is not an unproven deploy path" "WARN" "CICD-010"
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

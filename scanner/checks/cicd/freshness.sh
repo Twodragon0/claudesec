@@ -37,6 +37,16 @@
 #         success (CICD-010), or a scan that ran but is now stale (CICD-011/012).
 # Only the third is a security finding; the first two are reports about evidence.
 #
+# COUPLED TO A SNAPSHOT TEST — see scanner/tests/test_scan_report_baseline.py
+# That test runs a REAL scan of `access-control,cicd,code` against this
+# repository and asserts `failed == 0`. These three checks are in that scope,
+# so a verdict here that becomes a `fail` when pointed at claudesec itself
+# breaks that baseline. In CI they never even evaluate: the job exports no
+# `GH_TOKEN`, so the precondition below fails and all three `skip`. Measured
+# with a token they all `pass`, so that assertion does not break today — but it
+# does stop being a claim about this repo's source tree and becomes one about
+# its live CI health. Read the note in that test before changing a verdict here.
+#
 # KNOWN LIMITATION — CICD-011 AND CICD-012 DO NOT READ THE SAME PRODUCER
 # CICD-011 measures the freshness of ANY scan-shaped workflow, while CICD-012
 # reads the Dependabot alert count. A container or DAST scan succeeding says
@@ -64,19 +74,36 @@ CICD_FRESHNESS_API_TIMEOUT_SEC=15
 # Workflow-name patterns. Matched case-insensitively against the workflow file
 # name, which is the only workflow identity available without a second API call.
 #
-# The deploy pattern is deliberately NOT narrowed, and the scan pattern is.
-# They are not symmetric, because their loops are not:
-#   CICD-010 AGGREGATES over every match, so an extra match can only add a
-#     finding — and that finding names the workflow, so a human can dismiss it
-#     in one glance. Narrowing it could silently drop a real deployment path,
-#     which nothing would report.
+# Both sets are kept by a positive vocabulary and then narrowed by exclusions,
+# because the two loops fail differently and BOTH failures are real:
 #   CICD-011 STOPS at the first match that proves freshness, so an extra match
-#     can SUPPRESS the real signal. Measured: with a bare `depend`/`audit`, the
+#     SUPPRESSES the real signal. Measured: with a bare `depend`/`audit`, the
 #     alphabetically-first match in this repo was `dependabot-auto-merge.yml`,
 #     and a merge-automation bot was certifying "the security scan is fresh".
-# Over-matching is a false positive on one side and a false NEGATIVE on the
-# other, so only the side that can lie by omission is tightened.
+#   CICD-010 AGGREGATES over every match, so an extra match cannot hide
+#     anything — but it can still ASSERT something false at `high`, namely that
+#     a repo which ships fine no longer ships.
 CICD_FRESHNESS_DEPLOY_PATTERN='deploy|release|publish|rollout|promote|(^|[-_.])cd([-_.]|$)'
+
+# Release AUTOMATION is not a release. `release-drafter.yml`,
+# `release-please.yml` and `publish-docs.yml` all match the deploy vocabulary
+# above while shipping nothing, so one of them failing would have produced
+# CICD-010's "the declared pipeline is intact but no longer ships" — a false
+# claim, at `high`, on a repo whose real deployment is healthy.
+#
+# Separator-adjacency does NOT fix this, which is worth recording because it is
+# the obvious first idea: `(^|[-_.])release([-_.]|$)` still matches
+# `release-drafter` and `release-please`, since in both `release` sits at the
+# start followed by a separator. An exclusion vocabulary is what discriminates.
+#
+# `docs` is excluded even though a documentation site's `publish-docs.yml` may
+# genuinely BE its deployment path, because of where the two errors land.
+# Excluded and wrong -> CICD-010 finds no deploy workflow and skips, which is
+# this file's standard answer to a question it cannot settle. Included and wrong
+# -> a `high` asserting the repo can no longer ship. The skip is the honest
+# outcome, so this exclusion follows the grading rule at the top of this file
+# instead of making an exception to it.
+CICD_FRESHNESS_NONDEPLOY_PATTERN='draft|notes|changelog|please|docs|label'
 # Scanner vocabulary plus separator-bounded generic words. Bare `sca` is gone
 # (it hit `scale`, `scaffold`, `escalate`, and `scan` already covered it); bare
 # `depend` and bare `audit` are gone for the reason above — `dependency-review`
@@ -147,8 +174,10 @@ _cicd_freshness_gh_ready() {
 # per assertion; that alone pushed the suite past the repo's 30s per-test cap.
 # `nocasematch` is restored to whatever it was, so sourcing this check cannot
 # change how any later check's `[[ ... ]]` behaves.
+# $2 is an optional extra exclusion pattern, on top of the monitor filter that
+# applies to every set.
 _cicd_freshness_workflows() {
-  local pattern="$1" path base was_nocasematch=1
+  local pattern="$1" exclude="${2:-}" path base was_nocasematch=1
   [[ -d "$SCAN_DIR/.github/workflows" ]] || return 0
   shopt -q nocasematch || was_nocasematch=0
   shopt -s nocasematch
@@ -156,6 +185,7 @@ _cicd_freshness_workflows() {
     [[ -f "$path" ]] || continue
     base="${path##*/}"
     [[ "$base" =~ $CICD_FRESHNESS_MONITOR_PATTERN ]] && continue
+    [[ -n "$exclude" && "$base" =~ $exclude ]] && continue
     if [[ "$base" =~ $pattern ]]; then
       echo "$base"
     fi
@@ -182,12 +212,26 @@ _cicd_freshness_runs() {
 }
 
 # Epoch seconds for an ISO-8601 UTC timestamp; empty when unparseable.
-# GNU date takes -d, BSD/macOS date takes -j -f; try both rather than assume.
+# GNU date takes -d, BSD/macOS date takes -j -f, and there is no portable form.
+# Which one works is a property of the host, so it is probed once instead of
+# per timestamp: the old version always tried the GNU form first, so on macOS
+# every single conversion paid a guaranteed-failing fork before the real one.
+_CICD_FRESHNESS_DATE_MODE=""
 _cicd_freshness_epoch() {
   local iso="$1"
   [[ -n "$iso" ]] || return 0
-  date -u -d "$iso" +%s 2>/dev/null && return 0
-  date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$iso" +%s 2>/dev/null && return 0
+  if [[ -z "$_CICD_FRESHNESS_DATE_MODE" ]]; then
+    if date -u -d "1970-01-01T00:00:00Z" +%s >/dev/null 2>&1; then
+      _CICD_FRESHNESS_DATE_MODE="gnu"
+    else
+      _CICD_FRESHNESS_DATE_MODE="bsd"
+    fi
+  fi
+  if [[ "$_CICD_FRESHNESS_DATE_MODE" == "gnu" ]]; then
+    date -u -d "$iso" +%s 2>/dev/null
+  else
+    date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$iso" +%s 2>/dev/null
+  fi
   return 0
 }
 
@@ -230,11 +274,21 @@ _cf_query_skip_reason="GitHub run history query failed (rate limit, revoked scop
 # Failures piling up after the last success means `main` cannot ship. A repo in
 # that state has no working remediation path, which is why this is `high` even
 # though nothing in the workflow file is wrong.
+#
+# NO EARLY EXIT HERE, unlike CICD-011, and the difference is the quantifier.
+# CICD-011 asks an EXISTENTIAL question — "did any scan succeed recently?" — so
+# the first yes settles it. CICD-010 asks a UNIVERSAL one — "do all deployment
+# paths still ship?" — and a universal cannot be settled by one witness: every
+# healthy workflow must be read to rule out a broken sibling. Short-circuiting
+# on the first broken one would only help in the failing case, which is exactly
+# where the complete list belongs in the message. So the cost stays at one call
+# per deploy-matching workflow (one in this repo, after the exclusions above).
 
 if [[ "$_cf_ready" -eq 0 ]]; then
   skip "CICD-010" "Deployment path liveness" "$_cf_skip_reason"
 else
-  _cf_deploy_workflows=$(_cicd_freshness_workflows "$CICD_FRESHNESS_DEPLOY_PATTERN")
+  _cf_deploy_workflows=$(_cicd_freshness_workflows \
+    "$CICD_FRESHNESS_DEPLOY_PATTERN" "$CICD_FRESHNESS_NONDEPLOY_PATTERN")
   if [[ -z "$_cf_deploy_workflows" ]]; then
     skip "CICD-010" "Deployment path liveness" \
       "No deployment or release workflow found under .github/workflows"
@@ -256,7 +310,9 @@ else
           _cf_seen_success=1
           break
         fi
-        if echo "$_cf_conclusion" | grep -qE "^(${CICD_FRESHNESS_FAILED_CONCLUSIONS})$"; then
+        # Builtin regex, not `echo | grep` — that was two forks per run examined,
+        # up to 50 runs per workflow. Same ERE either way.
+        if [[ "$_cf_conclusion" =~ ^(${CICD_FRESHNESS_FAILED_CONCLUSIONS})$ ]]; then
           _cf_fails=$((_cf_fails + 1))
         fi
       done <<< "$_cf_runs"
