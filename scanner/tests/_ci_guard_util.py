@@ -268,6 +268,48 @@ def uses_refs(text: str) -> list:
     return out
 
 
+# The comment starts at the FIRST whitespace-preceded `#` (the strip_inline_comment
+# boundary); everything after it is the comment BODY. Anchoring the version to the
+# end of the line instead would read `# pinned, see #479` as the label "479" — the
+# trailing issue reference is the last `#` on the line. Caught by this module's own
+# self-test, which is the reason a primitive gets one.
+_COMMENT_BODY_RE = re.compile(r"\s+#(?P<body>.*)$")
+_VERSION_ONLY_RE = re.compile(r"v?\d[\w.+-]*")
+
+
+def uses_refs_labeled(text: str) -> list:
+    """`(lineno, ref, label)` for every `uses:` value, where `label` is the
+    trailing version comment (`# v7.0.0` -> `"v7.0.0"`) or `None`.
+
+    Exists because `uses_refs` STRIPS that comment — correct for every caller
+    that asks "is this ref pinned", and useless for the one that asks "does the
+    label agree with the pin". Built on the same `_USES_LINE_RE` and the same
+    `strip_inline_comment` boundary rather than a second matcher, because the
+    ref regex has been fixed in three directions (quoted key, space before the
+    colon, quoted value) and a copy would inherit none of them.
+
+    The label is read from the RAW line and only when it looks like a version
+    (`v?\\d...`), so an explanatory trailing comment (`# pinned, see #479`) reads
+    as unlabelled rather than as a bogus version. Whitespace before the `#` is
+    required, matching `strip_inline_comment`: a `#` inside the ref itself is
+    part of the token, not a comment."""
+    out = []
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        if raw.lstrip().startswith("#"):
+            continue
+        m = _USES_LINE_RE.match(strip_inline_comment(raw))
+        if not m:
+            continue
+        cm = _COMMENT_BODY_RE.search(raw)
+        label = None
+        if cm:
+            body = cm.group("body").strip()
+            if _VERSION_ONLY_RE.fullmatch(body):
+                label = body
+        out.append((lineno, m.group("ref"), label))
+    return out
+
+
 def non_comment_lines(text: str) -> list:
     """The lines of `text` with whole-line `#` comments dropped."""
     return [line for line in text.splitlines() if not line.lstrip().startswith("#")]
