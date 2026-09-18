@@ -69,6 +69,9 @@ def _split_ref(ref: str):
     if "@" not in ref:
         return None
     path, _, rev = ref.rpartition("@")
+    rev = rev.lower()  # git prints lowercase, but an uppercase pin is the SAME
+    # commit — case-folding here keeps it from being SILENTLY skipped, and keeps
+    # two spellings of one sha from becoming two identities.
     if len(rev) != _SHA_LEN or not all(c in "0123456789abcdef" for c in rev):
         return None
     parts = path.split("/")
@@ -253,14 +256,40 @@ class TestDetectorFiresOnEachShape(unittest.TestCase):
         self.assertTrue(any(p.startswith("C:") for p in after), after)
 
     def test_a_commented_out_ref_is_not_a_site(self):
-        """`uses_refs_labeled` skips whole-line comments, so a ref quoted in
-        prose cannot manufacture a conflict (a FALSE ALARM here, not a bypass —
-        but a guard that cries wolf gets ignored)."""
+        """A ref quoted in prose must not manufacture a conflict — the FALSE
+        ALARM direction, since a guard that cries wolf gets disabled.
+
+        The commented ref carries the SAME sha as the live one ON PURPOSE. An
+        earlier version of this fixture used a different sha, which made it
+        VACUOUS: two identities can never be compared, so `[]` came back whether
+        or not the comment was skipped, and deleting the comment-skip did not
+        change the result. Found by the false-positive review of #557 — this
+        file cites #553's "assert a delta, not an empty list" and then broke it.
+
+        With one sha, comment-blindness is observable: the commented line would
+        register as a second, UNLABELLED site of the same action and trip C. So
+        `[]` here is now evidence that the skip ran."""
         body = (
             f"      - uses: actions/checkout@{self.SHA_A}  # v7.0.1\n"
-            f"      # - uses: actions/checkout@{self.SHA_B}  # v6.0.0\n"
+            f"      # - uses: actions/checkout@{self.SHA_A}  # v6.0.0\n"
         )
         self.assertEqual([], label_problems(self._doc(body)))
+
+    def test_the_comment_skip_is_what_makes_that_green(self):
+        """The positive control for the test above: with the skip removed, the
+        SAME fixture must produce a finding. Without this, `[]` there certifies
+        whichever mechanism happened to abort first rather than the control."""
+        body = (
+            f"      - uses: actions/checkout@{self.SHA_A}  # v7.0.1\n"
+            f"      # - uses: actions/checkout@{self.SHA_A}  # v6.0.0\n"
+        )
+        uncommented = body.replace("      # - uses:", "      - uses:")
+        self.assertNotEqual(body, uncommented, "fixture stale")
+        problems = label_problems(self._doc(uncommented))
+        self.assertTrue(
+            any(p.startswith("A:") for p in problems),
+            f"the fixture cannot distinguish a comment-blind parser: {problems}",
+        )
 
     def test_subpaths_of_one_action_share_an_identity(self):
         """codeql-action/init and /analyze are one release: a disagreement
@@ -305,12 +334,39 @@ class TestDetectorFiresOnEachShape(unittest.TestCase):
         )
 
     def test_tag_pinned_and_local_refs_are_out_of_scope(self):
-        body = (
-            "      - uses: actions/checkout@v4\n"
-            "      - uses: ./.github/actions/setup\n"
-            "      - uses: docker://alpine:3.23\n"
+        """Asserted against `_split_ref` DIRECTLY, not through the detector.
+
+        Routing it through `label_problems` was vacuous: none of these forms
+        carries a version label, so `[]` came back even with `_split_ref`
+        monkeypatched to accept everything — measured. The same shape as the
+        commented-ref fixture above, found by the same review pass."""
+        for ref in (
+            "actions/checkout@v4",
+            "actions/checkout@main",
+            "./.github/actions/setup",
+            "docker://alpine:3.23",
+            "actions/checkout@" + "a" * 39,   # too short
+            "checkout@" + "a" * 40,            # no owner
+            "actions/checkout@" + "g" * 40,    # not hex
+        ):
+            with self.subTest(ref=ref):
+                self.assertIsNone(_split_ref(ref))
+
+    def test_an_uppercase_sha_is_the_same_identity(self):
+        """A pin spelled in uppercase hex is the same commit. Rejecting it would
+        SKIP the ref silently; treating it as a separate identity would split one
+        action in two and hide a disagreement. Case-folded, so neither happens."""
+        lower, upper = "a" * 40, "A" * 40
+        self.assertEqual(
+            _split_ref(f"actions/checkout@{upper}"),
+            _split_ref(f"actions/checkout@{lower}"),
         )
-        self.assertEqual([], label_problems(self._doc(body)))
+        body = (
+            f"      - uses: actions/checkout@{lower}  # v7.0.1\n"
+            f"      - uses: actions/checkout@{upper}  # v6.0.0\n"
+        )
+        problems = label_problems(self._doc(body))
+        self.assertTrue(any(p.startswith("A:") for p in problems), problems)
 
 
 if __name__ == "__main__":
