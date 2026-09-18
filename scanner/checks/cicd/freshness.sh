@@ -47,6 +47,18 @@
 # does stop being a claim about this repo's source tree and becomes one about
 # its live CI health. Read the note in that test before changing a verdict here.
 #
+# KNOWN LIMITATION — CICD-011 CLASSIFIES BY FILENAME, CICD-005 BY CONTENT
+# CICD-005 greps inside workflow files (`files_contain`) for tool names, so it
+# finds Trivy no matter which file runs it. CICD-011 only ever sees the file
+# NAME, because identifying a workflow's steps would cost a second API call per
+# workflow. A repo that runs its scanner inside `security.yml` or `ci.yml` —
+# both very common names — therefore gets CICD-005 `pass`, CICD-011 `skip`, and
+# CICD-012 `warn`: a nudge about missing evidence at a repo that has the
+# evidence, just not in its filenames. The residual sits at `warn`, so it does
+# not block anything, and the monitor-filter override above narrows one common
+# shape of it. A content-based fallback is the real fix and is not attempted
+# here; it would change the cost model of the whole file.
+#
 # KNOWN LIMITATION — CICD-011 AND CICD-012 DO NOT READ THE SAME PRODUCER
 # CICD-011 measures the freshness of ANY scan-shaped workflow, while CICD-012
 # reads the Dependabot alert count. A container or DAST scan succeeding says
@@ -74,8 +86,9 @@ CICD_FRESHNESS_API_TIMEOUT_SEC=15
 # Workflow-name patterns. Matched case-insensitively against the workflow file
 # name, which is the only workflow identity available without a second API call.
 #
-# Both sets are kept by a positive vocabulary and then narrowed by exclusions,
-# because the two loops fail differently and BOTH failures are real:
+# Both sets are kept by a positive vocabulary and then narrowed by exclusions
+# THAT EACH CALL SITE CHOOSES, because the two loops fail differently and both
+# failures are real:
 #   CICD-011 STOPS at the first match that proves freshness, so an extra match
 #     SUPPRESSES the real signal. Measured: with a bare `depend`/`audit`, the
 #     alphabetically-first match in this repo was `dependabot-auto-merge.yml`,
@@ -83,6 +96,9 @@ CICD_FRESHNESS_API_TIMEOUT_SEC=15
 #   CICD-010 AGGREGATES over every match, so an extra match cannot hide
 #     anything — but it can still ASSERT something false at `high`, namely that
 #     a repo which ships fine no longer ships.
+# The consequence is that an exclusion is only justified for the set whose loop
+# it protects. Sharing one filter across both sets was a defect, not a
+# simplification: see the note on _cicd_freshness_workflows.
 CICD_FRESHNESS_DEPLOY_PATTERN='deploy|release|publish|rollout|promote|(^|[-_.])cd([-_.]|$)'
 
 # Release AUTOMATION is not a release. `release-drafter.yml`,
@@ -113,22 +129,38 @@ CICD_FRESHNESS_NONDEPLOY_PATTERN='draft|notes|changelog|please|docs|label'
 # running hourly must not be allowed to certify security-scan freshness.
 CICD_FRESHNESS_SCAN_PATTERN='codeql|semgrep|sonarqube|snyk|trivy|grype|gitleaks|trufflehog|osv|sast|dast|zap|(^|[-_.])scan([-_.]|$)|dependency[-_.](review|submission|check|scan|audit)|(npm|pip|yarn|pnpm|cargo|bundler)[-_.]audit|security[-_.]audit'
 
-# Monitors are excluded from BOTH sets. A workflow that watches whether another
-# workflow ran is not itself a producer, and letting one certify freshness is
-# the same defect as letting a merge bot certify it — the watcher runs on
-# schedule and looks perfectly fresh while the thing it watches is dead.
+# Monitors are excluded from the SCAN set only — never from the deploy set. A
+# workflow that watches whether another workflow ran is not itself a scanner,
+# and letting one certify freshness is the same defect as letting a merge bot
+# certify it: the watcher runs on schedule and looks perfectly fresh exactly
+# when the thing it watches is dead. CICD-010 has no such hazard, because it
+# aggregates rather than stopping at one witness, so applying this there only
+# ever deleted real deployment paths.
 #
 # Measured on this repository: `dast-freshness-watch.yml` sorts before
 # `dast-full-scan.yml` and `security-scan.yml`, so it won CICD-011's early exit
 # and certified "the security scan is fresh". Its own header says
 # "NOTIFICATION-ONLY workflow" that runs no scan at all.
 #
-# This is a negative filter on a monitoring vocabulary, and it is deliberately
-# allowed to be imperfect, because its two error directions are not equal:
-# wrongly EXCLUDING a real scan leaves CICD-011 with another workflow or with
-# "unknown", which now grades as warn/skip; wrongly INCLUDING a monitor
-# produces a false PASS. Only one of those lies.
+# THE COST OF A WRONG EXCLUSION IS NOT MERELY SMALLER — IT IS ALSO VISIBLE
+# An earlier version of this comment claimed the two error directions differ in
+# kind: wrongly excluding "degrades to warn/skip", wrongly including "produces a
+# false pass". Only half of that survived measurement. A repo whose one scan is
+# `security-monitor.yml`, running Trivy correctly, gets CICD-011 `skip` and then
+# CICD-012 `warn` — "Zero open alerts with nothing known to have looked". That
+# is a negative verdict printed about a repository that is doing the right
+# thing. The magnitudes are still asymmetric (a warn is not a false pass), but
+# the claim that one side is harmless was wrong, which is why the override below
+# exists rather than the filter simply being accepted as lossy.
 CICD_FRESHNESS_MONITOR_PATTERN='(^|[-_.])(watch|watcher|monitor|reminder|notice|notify|alert|drift)([-_.]|$)'
+
+# An explicit scanner name outranks the monitor suffix. A file called
+# `trivy-monitor.yml` has already said what it runs, and `scan-and-notify.yml`
+# is an ordinary shape; the bare filter discarded both. Deliberately EXCLUDES
+# `dast`/`sast`, which are scan FAMILIES rather than tools, so
+# `dast-freshness-watch.yml` — the notification-only workflow this filter exists
+# for — stays out.
+CICD_FRESHNESS_SCANNER_TOOL_PATTERN='codeql|semgrep|sonarqube|snyk|trivy|grype|gitleaks|trufflehog|osv|zap|(^|[-_.])scan([-_.]|$)'
 
 # Run conclusions that count as an accumulating failure. `cancelled` and `skipped`
 # are deliberately excluded — neither means the pipeline is broken — and an
@@ -174,18 +206,31 @@ _cicd_freshness_gh_ready() {
 # per assertion; that alone pushed the suite past the repo's 30s per-test cap.
 # `nocasematch` is restored to whatever it was, so sourcing this check cannot
 # change how any later check's `[[ ... ]]` behaves.
-# $2 is an optional extra exclusion pattern, on top of the monitor filter that
-# applies to every set.
+# $2 is an optional exclusion pattern and $3 an optional override that outranks
+# it. NOTHING is excluded unless the caller asks, which is a correction: the
+# monitor filter used to live inside this shared function unconditionally, so it
+# narrowed BOTH sets while only the scan set had an argument for narrowing. That
+# silently dropped `deploy-notify.yml`, `promote-and-notify.yml` and
+# `release-alert.yml` from CICD-010 — the exact "silently drop a real deployment
+# path, which nothing would report" outcome the comment above argues against.
+# Each call site now names its own exclusions.
 _cicd_freshness_workflows() {
-  local pattern="$1" exclude="${2:-}" path base was_nocasematch=1
+  local pattern="$1" exclude="${2:-}" override="${3:-}" path base was_nocasematch=1
   [[ -d "$SCAN_DIR/.github/workflows" ]] || return 0
   shopt -q nocasematch || was_nocasematch=0
   shopt -s nocasematch
   for path in "$SCAN_DIR"/.github/workflows/*.yml "$SCAN_DIR"/.github/workflows/*.yaml; do
     [[ -f "$path" ]] || continue
     base="${path##*/}"
-    [[ "$base" =~ $CICD_FRESHNESS_MONITOR_PATTERN ]] && continue
-    [[ -n "$exclude" && "$base" =~ $exclude ]] && continue
+    if [[ -n "$exclude" && "$base" =~ $exclude ]]; then
+      # An override match rescues the file. A name that carries a real scanner
+      # token has already told us what it does, and that outranks a generic
+      # suffix: `trivy-monitor.yml`, `codeql-watch.yml` and `scan-and-notify.yml`
+      # are all ordinary shapes that the bare monitor filter threw away.
+      if [[ -z "$override" ]] || [[ ! "$base" =~ $override ]]; then
+        continue
+      fi
+    fi
     if [[ "$base" =~ $pattern ]]; then
       echo "$base"
     fi
@@ -254,12 +299,20 @@ if _cicd_freshness_gh_ready; then
 fi
 
 # CICD-011's verdict gates CICD-012, so it is tracked explicitly rather than
-# re-derived. THREE states, not a boolean: the boolean version lumped "a scan
-# ran and is stale" together with "we have no idea whether anything ran", and
-# CICD-012 then graded both as a `high`. Only the first is a security finding.
+# re-derived. FOUR states. Each collapse of this variable has hidden a real
+# distinction: as a boolean it lumped "stale" with "no idea", and as three
+# states it lumped "the scanner only ever fails" in with "no idea" too.
 #   fresh    a scan succeeded inside the threshold
 #   stale    a scan ran, but its newest success is past the threshold
-#   unknown  nothing ran, or the question could not be asked at all
+#   broken   the scan has run and only ever failed — never once succeeded
+#   unknown  no run exists at all, or the question could not be asked
+# `unknown` is the only one that is not a finding. `broken` is the worst of the
+# four, because a zero sitting behind a producer known to be dead is more
+# misleading than one behind a producer that is merely late.
+#
+# INVARIANT: every exit path out of CICD-011 must leave this set, and CICD-012
+# must have a branch for each value. `unknown` is the initial value precisely so
+# that a path someone forgets to annotate degrades to the non-accusatory answer.
 _cf_scan_state="unknown"
 # Which workflow certified freshness — reported so a reader can check that the
 # producer CICD-012 leans on is actually the one that ran. See the limitation
@@ -349,7 +402,10 @@ fi
 if [[ "$_cf_ready" -eq 0 ]]; then
   skip "CICD-011" "Security scan freshness" "$_cf_skip_reason"
 else
-  _cf_scan_workflows=$(_cicd_freshness_workflows "$CICD_FRESHNESS_SCAN_PATTERN")
+  _cf_scan_workflows=$(_cicd_freshness_workflows \
+    "$CICD_FRESHNESS_SCAN_PATTERN" \
+    "$CICD_FRESHNESS_MONITOR_PATTERN" \
+    "$CICD_FRESHNESS_SCANNER_TOOL_PATTERN")
   if [[ -z "$_cf_scan_workflows" ]]; then
     skip "CICD-011" "Security scan freshness" \
       "No security scan or dependency submission workflow found under .github/workflows"
@@ -360,10 +416,20 @@ else
     # healthy repo pays one call instead of one per workflow. Only the failing
     # case, where no workflow is fresh, walks the whole list, and it has to:
     # the newest timestamp across all of them is what the message reports.
+    #
+    # The inner loop ALSO counts failures, mirroring CICD-010's
+    # `_cf_seen_success`/`_cf_fails` pair. It used to drop every non-success
+    # conclusion, which collapsed two different worlds into one verdict: a fork
+    # with zero runs, and a scanner that has failed fifty times in a row. The
+    # first is genuinely unknown; the second is fifty data points that all say
+    # the same bad thing, and calling it "unknown rather than bad" was false.
+    # It is also the scenario this file's own header opens with — a dependency
+    # submission job that breaks at runtime and stops reporting.
     _cf_cutoff=$(( $(date -u +%s) - CICD_FRESHNESS_SCAN_MAX_AGE_DAYS * 86400 ))
     _cf_newest_epoch=""
     _cf_newest_iso=""
     _cf_newest_wf=""
+    _cf_scan_failing=""
     _cf_query_failed=0
     while IFS= read -r _cf_wf; do
       [[ -n "$_cf_wf" ]] || continue
@@ -371,17 +437,30 @@ else
         _cf_query_failed=1
         break
       fi
+      _cf_wf_success=0
+      _cf_wf_fails=0
       while IFS=$'\t' read -r _cf_conclusion _cf_updated; do
-        [[ "$_cf_conclusion" == "success" ]] || continue
-        _cf_epoch=$(_cicd_freshness_epoch "$_cf_updated")
-        [[ -n "$_cf_epoch" ]] || continue
-        if [[ -z "$_cf_newest_epoch" || "$_cf_epoch" -gt "$_cf_newest_epoch" ]]; then
-          _cf_newest_epoch="$_cf_epoch"
-          _cf_newest_iso="$_cf_updated"
-          _cf_newest_wf="$_cf_wf"
+        [[ -n "$_cf_conclusion" ]] || continue
+        if [[ "$_cf_conclusion" == "success" ]]; then
+          _cf_epoch=$(_cicd_freshness_epoch "$_cf_updated")
+          [[ -n "$_cf_epoch" ]] || continue
+          _cf_wf_success=1
+          if [[ -z "$_cf_newest_epoch" || "$_cf_epoch" -gt "$_cf_newest_epoch" ]]; then
+            _cf_newest_epoch="$_cf_epoch"
+            _cf_newest_iso="$_cf_updated"
+            _cf_newest_wf="$_cf_wf"
+          fi
+          break
         fi
-        break
+        if [[ "$_cf_conclusion" =~ ^(${CICD_FRESHNESS_FAILED_CONCLUSIONS})$ ]]; then
+          _cf_wf_fails=$((_cf_wf_fails + 1))
+        fi
       done <<< "$_cf_runs"
+      # Gated on FAILURES, not on "any runs at all" — a history of nothing but
+      # `cancelled` is not bad news, and CICD-010 does not count it either.
+      if [[ "$_cf_wf_success" -eq 0 && "$_cf_wf_fails" -gt 0 ]]; then
+        _cf_scan_failing+="${_cf_wf} (${_cf_wf_fails} failed, never succeeded) "
+      fi
       if [[ -n "$_cf_newest_epoch" && "$_cf_newest_epoch" -ge "$_cf_cutoff" ]]; then
         break
       fi
@@ -389,13 +468,22 @@ else
 
     if [[ "$_cf_query_failed" -eq 1 ]]; then
       skip "CICD-011" "Security scan freshness" "$_cf_query_skip_reason"
+    elif [[ -z "$_cf_newest_epoch" && -n "$_cf_scan_failing" ]]; then
+      # `fail`, because something DID run and the answer is bad — the third row
+      # of the classification at the top of this file. A scanner that only ever
+      # fails is not an absence of evidence; it is evidence of an outage.
+      _cf_scan_state="broken"
+      fail "CICD-011" "Security scan has only ever failed on ${_cf_branch}" "high" \
+        "On ${_cf_branch}: ${_cf_scan_failing}— the scan runs and never completes, so no scan result has ever existed" \
+        "Fix the failing scan run; until it completes once there is nothing for a freshness threshold to measure" \
+        ".github/workflows"
     elif [[ -z "$_cf_newest_epoch" ]]; then
-      # `warn`, not `fail`: a declared workflow with no successful run is the
-      # default state of every fork, and CICD-005 already fails `high` when no
-      # scan tooling is configured at all. Scoring this as a second `high`
+      # `warn`, not `fail`: ZERO runs, which is the default state of every fork
+      # (GitHub disables Actions there), and CICD-005 already fails `high` when
+      # no scan tooling is configured at all. Scoring this as a second `high`
       # double-counted one cause and punished the absence of evidence.
-      warn "CICD-011" "Security scan has never succeeded on ${_cf_branch}" \
-        "A scan workflow is declared but no successful run exists, so scan freshness is unknown rather than bad"
+      warn "CICD-011" "Security scan has never run on ${_cf_branch}" \
+        "A scan workflow is declared but no run of it exists at all, so scan freshness is unknown rather than bad"
     else
       _cf_age_days=$(( ( $(date -u +%s) - _cf_newest_epoch ) / 86400 ))
       if [[ "$_cf_age_days" -gt "$CICD_FRESHNESS_SCAN_MAX_AGE_DAYS" ]]; then
@@ -417,11 +505,12 @@ fi
 
 # ── CICD-012: Evidence behind a zero alert count ─────────────────────────────
 # Zero open alerts is only good news if something is known to have looked. What
-# that zero means depends on WHICH of CICD-011's three states produced it:
+# that zero means depends on WHICH of CICD-011's four states produced it:
 #   fresh    a scan recently succeeded — the zero has a producer behind it.
 #   stale    a scan runs but its results are old — the zero is being read as
-#            current when it is not. This is the real finding, and the only
-#            `high` here.
+#            current when it is not.
+#   broken   the scan runs and has never once completed, so the zero was never
+#            produced by a finished scan at all. Worse than stale.
 #   unknown  nothing is known to have looked. Reported as missing evidence, not
 #            as a defect, because "unknown" is also what a fork and a
 #            permission-limited token look like.
@@ -439,6 +528,11 @@ else
     pass "CICD-012" "Alert count is non-zero, so it is not an absence to explain"
   elif [[ "$_cf_scan_state" == "fresh" ]]; then
     pass "CICD-012" "Zero open alerts, backed by a fresh successful scan (CICD-011 via ${_cf_fresh_wf})"
+  elif [[ "$_cf_scan_state" == "broken" ]]; then
+    fail "CICD-012" "Zero open alerts produced by a scan that has never succeeded" "high" \
+      "Worse than stale: CICD-011 found the scan running and failing every time, so this zero was never produced by a completed scan at all" \
+      "Fix the failing scan run — this zero is an artifact of the scan never finishing, not a result" \
+      ".github/workflows"
   elif [[ "$_cf_scan_state" == "stale" ]]; then
     fail "CICD-012" "Zero open alerts read as clean while the scan behind them is stale" "high" \
       "The scan demonstrably runs, so this zero looks current and is not: CICD-011 measured its newest success past the freshness threshold" \

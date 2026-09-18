@@ -195,6 +195,7 @@ gh() {
         deploy.yml)           printf '%s' "$STUB_RUNS_DEPLOY" ;;
         release-drafter.yml)  printf '%s' "$STUB_RUNS_DEPLOY" ;;
         codeql.yml)           printf '%s' "$STUB_RUNS_SCAN" ;;
+        trivy-monitor.yml)    printf '%s' "$STUB_RUNS_SCAN" ;;
         *)          printf '' ;;
       esac
       ;;
@@ -409,19 +410,46 @@ STUB_RUNS_SCAN=$(printf 'success\t%s\n' "$(iso_ago 2)")
 CLAUDESEC_CICD_SCAN_MAX_AGE_DAYS=1 SCAN_DIR="$tmpdir/repo" run_check
 assert_has_result "2d-old scan under a 1d threshold -> FAIL CICD-011" "FAIL" "CICD-011"
 
-echo "=== CICD-011: scan workflow that never succeeded -> WARN, not FAIL ==="
+# ── ZERO RUNS vs ALL RUNS FAILED — two states, two verdicts ─────────────────
+#
+# These used to share one branch and one message, which read "no successful run
+# exists, so scan freshness is unknown rather than bad". For a scanner that has
+# failed every time that sentence is simply false: there is no shortage of
+# evidence, the evidence is uniformly bad. It is also the scenario this file's
+# header opens with. So the two are split, and both directions are pinned —
+# each case asserts it is NOT the other one's verdict.
 
-# Declared-but-never-run is an absence of evidence, not a defect, and CICD-005
-# already fails `high` for missing scan tooling. A `fail` here double-counted.
-STUB_RUNS_SCAN=$(printf 'failure\t%s\n' "$(iso_ago 1)")
+echo "=== CICD-011: zero runs -> WARN (genuinely unknown) ==="
+
+STUB_RUNS_SCAN=""
 SCAN_DIR="$tmpdir/repo" run_check
-assert_has_result "scan never succeeded -> WARN CICD-011" "WARN" "CICD-011"
-# `WARN:CICD-011` alone would also be satisfied by any warn added here later,
-# so the branch is pinned on the claim it makes. "stale" is the other possible
-# story about an unsatisfactory scan, and it must NOT be the one told here.
-assert_result_mentions "the WARN says nothing has ever succeeded" "WARN" "CICD-011" "never succeeded"
-assert_result_lacks "the WARN does not claim staleness" "WARN" "CICD-011" "stale"
-assert_no_result "scan never succeeded is not a FAIL" "FAIL" "CICD-011"
+assert_has_result "no runs at all -> WARN CICD-011" "WARN" "CICD-011"
+assert_result_mentions "the WARN says it has never RUN" "WARN" "CICD-011" "never run"
+assert_result_lacks "the zero-run WARN does not claim staleness" "WARN" "CICD-011" "stale"
+assert_no_result "zero runs is not a FAIL" "FAIL" "CICD-011"
+
+echo "=== CICD-011: runs exist and all failed -> FAIL high (broken, not unknown) ==="
+
+STUB_RUNS_SCAN=$(printf 'failure\t%s\nfailure\t%s\nfailure\t%s\n' \
+  "$(iso_ago 1)" "$(iso_ago 2)" "$(iso_ago 3)")
+SCAN_DIR="$tmpdir/repo" run_check
+assert_has_result "all runs failed -> FAIL CICD-011" "FAIL" "CICD-011"
+assert_fail_severity "a scanner that only fails is high severity" "CICD-011" "high"
+assert_result_mentions "the FAIL says it has only ever failed" "FAIL" "CICD-011" "only ever failed"
+# The discriminator that matters: `broken` must not be told as `unknown`.
+assert_result_lacks "the broken FAIL does not call freshness unknown" "FAIL" "CICD-011" "unknown rather than bad"
+assert_no_result "all-failed is not downgraded to WARN" "WARN" "CICD-011"
+# ...and the failure count reaches the message, so the evidence is visible.
+assert_result_mentions "the FAIL reports how many runs failed" "FAIL" "CICD-011" "3 failed"
+
+echo "=== CICD-011: cancelled-only history -> WARN, not broken ==="
+
+# `cancelled` is not bad news, and CICD-010 does not count it as a failure
+# either. A history of nothing but cancellations is closer to no history at all.
+STUB_RUNS_SCAN=$(printf 'cancelled\t%s\ncancelled\t%s\n' "$(iso_ago 1)" "$(iso_ago 2)")
+SCAN_DIR="$tmpdir/repo" run_check
+assert_has_result "cancelled-only -> WARN CICD-011" "WARN" "CICD-011"
+assert_no_result "cancelled-only is not graded broken" "FAIL" "CICD-011"
 
 # ── Path 4: zero alerts without established freshness -> CICD-012 fail ───────
 
@@ -436,6 +464,19 @@ assert_fail_severity "CICD-012 unbacked zero is high severity" "CICD-012" "high"
 # `high`, so it must not be reachable by the `unknown` story.
 assert_result_mentions "CICD-012 FAIL cites staleness" "FAIL" "CICD-012" "stale"
 assert_result_lacks "CICD-012 FAIL is not the unknown-evidence case" "FAIL" "CICD-012" "nothing known to have looked"
+
+echo "=== CICD-012: zero alerts + BROKEN scan -> FAIL high (worse than stale) ==="
+
+# A zero behind a producer that has never once completed is more misleading
+# than one behind a producer that is merely late, so it is at least as severe.
+STUB_RUNS_SCAN=$(printf 'failure\t%s\nfailure\t%s\n' "$(iso_ago 1)" "$(iso_ago 2)")
+STUB_ALERTS="0"
+SCAN_DIR="$tmpdir/repo" run_check
+assert_has_result "zero alerts behind a broken scan -> FAIL CICD-012" "FAIL" "CICD-012"
+assert_fail_severity "broken-producer zero is high severity" "CICD-012" "high"
+assert_result_mentions "CICD-012 names the never-succeeded producer" "FAIL" "CICD-012" "never succeeded"
+assert_no_result "a broken producer is not graded as merely unknown" "WARN" "CICD-012"
+assert_no_result "a broken producer does not certify the zero" "PASS" "CICD-012"
 
 echo "=== CICD-012: zero alerts + fresh scan -> PASS ==="
 
@@ -494,7 +535,10 @@ assert_has_result "fork: zero alerts, nothing looked -> WARN CICD-012" "WARN" "C
 # and a refused query both yield no data, and only the first is a warn — so the
 # warns must not be reachable by the query-failure reason.
 assert_result_mentions "fork CICD-010 warn cites never-succeeded" "WARN" "CICD-010" "never succeeded"
-assert_result_mentions "fork CICD-011 warn cites never-succeeded" "WARN" "CICD-011" "never succeeded"
+# A fork has ZERO runs, so CICD-011's zero-run branch is the correct one — not
+# the `broken` branch, which requires observed failures.
+assert_result_mentions "fork CICD-011 warn cites never having RUN" "WARN" "CICD-011" "never run"
+assert_result_lacks "fork CICD-011 is not graded broken" "WARN" "CICD-011" "only ever failed"
 assert_result_mentions "fork CICD-012 warn cites nothing having looked" "WARN" "CICD-012" "nothing known to have looked"
 assert_no_result "fork produces no CICD-010 FAIL" "FAIL" "CICD-010"
 assert_no_result "fork produces no CICD-011 FAIL" "FAIL" "CICD-011"
@@ -578,14 +622,23 @@ for _wf in \
   lychee-redirect-sweep.yml npm-publish.yml og-meta-verify.yml \
   protection-drift-watch.yml provenance-verify.yml prowler-python-watch.yml \
   security-scan.yml \
+  trivy-monitor.yml codeql-watch.yml scan-and-notify.yml gitleaks-alert.yml \
+  security-notify.yml deploy-notify.yml promote-and-notify.yml release-alert.yml \
   dependency-review.yml npm-audit.yml pip-audit.yml codeql-analysis.yml \
   trivy-scan.yml scale-test.yml scaffold.yml escalate-oncall.yml \
   shellcheck-lint.yml; do
   : > "$tmpdir/wfnames/.github/workflows/$_wf"
 done
-# Load the pattern and the matcher into this shell, then classify once.
+# Load the patterns and the matcher into this shell, then classify once.
+#
+# Three arguments, the same ones CICD-011 passes. Exclusions are no longer baked
+# into the shared function: the monitor filter is only justified for the set
+# whose loop it protects, so each call site names its own.
 SCAN_DIR="$tmpdir/repo" run_check >/dev/null
-WF_MATCHES=$(SCAN_DIR="$tmpdir/wfnames" _cicd_freshness_workflows "$CICD_FRESHNESS_SCAN_PATTERN")
+WF_MATCHES=$(SCAN_DIR="$tmpdir/wfnames" _cicd_freshness_workflows \
+  "$CICD_FRESHNESS_SCAN_PATTERN" \
+  "$CICD_FRESHNESS_MONITOR_PATTERN" \
+  "$CICD_FRESHNESS_SCANNER_TOOL_PATTERN")
 
 # Real scans must survive the narrowing.
 assert_classified "security-scan.yml is a scan"        match    security-scan.yml
@@ -617,6 +670,19 @@ assert_classified "prowler-python-watch is NOT a scan"  no-match prowler-python-
 # ...and the real scans it was shadowing are still found.
 assert_classified "dast-full-scan survives the monitor filter" match dast-full-scan.yml
 assert_classified "dast-baseline survives the monitor filter"  match dast-baseline.yml
+
+# An explicit scanner token in the name OUTRANKS the monitor suffix. The bare
+# filter discarded these, and `scan-and-notify.yml` is an ordinary real shape —
+# a scan that reports its own result. `dast`/`sast` are deliberately NOT
+# override tokens (they name scan families, not tools), which is what keeps
+# `dast-freshness-watch.yml` — notification-only by its own header — excluded.
+assert_classified "trivy-monitor is a scan (tool token wins)"   match trivy-monitor.yml
+assert_classified "codeql-watch is a scan (tool token wins)"    match codeql-watch.yml
+assert_classified "scan-and-notify is a scan (scan token wins)" match scan-and-notify.yml
+assert_classified "gitleaks-alert is a scan (tool token wins)"  match gitleaks-alert.yml
+# ...and the override does not re-admit the notification-only watcher.
+assert_classified "dast-freshness-watch stays excluded"         no-match dast-freshness-watch.yml
+assert_classified "security-notify stays excluded (no tool token)" no-match security-notify.yml
 
 # ── Deploy-workflow classification ───────────────────────────────────────────
 #
@@ -663,6 +729,14 @@ assert_deploy "release-notes is NOT a deploy path"   no-match release-notes.yml
 assert_deploy "changelog is NOT a deploy path"       no-match changelog.yml
 assert_deploy "publish-docs is NOT a deploy path"    no-match publish-docs.yml
 
+# The MONITOR filter must not reach this set. It lived inside the shared matcher
+# and so narrowed both, which deleted these three from CICD-010 — the precise
+# "silently drop a real deployment path" outcome the file argues against. A
+# deployment that notifies on completion is still a deployment.
+assert_deploy "deploy-notify is a deploy path"       match    deploy-notify.yml
+assert_deploy "promote-and-notify is a deploy path"  match    promote-and-notify.yml
+assert_deploy "release-alert is a deploy path"       match    release-alert.yml
+
 # ── The exclusions are actually WIRED UP, not merely correct ─────────────────
 #
 # The assertions above call `_cicd_freshness_workflows` directly and pass both
@@ -704,6 +778,77 @@ assert_result_lacks "that skip is the no-workflow one, not the precondition" "SK
 assert_result_lacks "that skip is the no-workflow one, not a query failure" "SKIP" "CICD-010" "$_cf_query_skip_reason"
 assert_no_result "a failing release-drafter is not a broken deploy path" "FAIL" "CICD-010"
 assert_no_result "a failing release-drafter is not an unproven deploy path" "WARN" "CICD-010"
+
+# ── The SCAN exclusions are wired into CICD-011 too ──────────────────────────
+#
+# Same reasoning as above, other side. `assert_classified` passes the exclusion
+# and override itself, so it proves the matcher and not the call site. A repo
+# whose only scan-shaped workflow is the notification-only watcher must find no
+# scan at all; unwired, that watcher's fresh success would PASS CICD-011 and
+# then certify CICD-012's zero — the original defect, restored silently.
+
+echo "=== Scan exclusions are wired into CICD-011, not just into the matcher ==="
+
+mkdir -p "$tmpdir/watchonly/.github/workflows"
+cat > "$tmpdir/watchonly/.github/workflows/dast-freshness-watch.yml" <<'YML'
+name: DAST Freshness Watch
+on:
+  schedule:
+    - cron: '0 4 * * *'
+permissions:
+  contents: read
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo NOTIFICATION-ONLY, runs no scan
+YML
+STUB_RUNS_RC=0
+STUB_RUNS_DEPLOY=""
+STUB_RUNS_SCAN=$(printf 'success\t%s\n' "$FRESH")
+STUB_ALERTS="0"
+SCAN_DIR="$tmpdir/watchonly" run_check
+assert_has_result "watcher-only repo -> CICD-011 skips" "SKIP" "CICD-011"
+assert_result_lacks "that skip is the no-workflow one, not the precondition" "SKIP" "CICD-011" "$_cf_skip_reason"
+assert_result_lacks "that skip is the no-workflow one, not a query failure" "SKIP" "CICD-011" "$_cf_query_skip_reason"
+assert_no_result "a notification-only watcher cannot pass CICD-011" "PASS" "CICD-011"
+assert_no_result "and therefore cannot certify CICD-012's zero" "PASS" "CICD-012"
+assert_has_result "so CICD-012 reports the zero as unexplained" "WARN" "CICD-012"
+
+# ── The scanner-token OVERRIDE is wired in too ───────────────────────────────
+#
+# The watcher case above is excluded whether or not the override is passed, so
+# it cannot detect the override going missing. Measured: dropping the third
+# argument from CICD-011's call site left all 132 other assertions green — the
+# same hole as the deploy exclusion had, one layer down. A repo whose only scan
+# is `trivy-monitor.yml` must therefore PASS: the tool token in the name
+# outranks the monitor suffix, and unwired it would be excluded and skip.
+
+echo "=== The scanner-token override is wired into CICD-011 ==="
+
+mkdir -p "$tmpdir/trivyonly/.github/workflows"
+cat > "$tmpdir/trivyonly/.github/workflows/trivy-monitor.yml" <<'YML'
+name: Trivy
+on:
+  schedule:
+    - cron: '0 2 * * *'
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - run: trivy fs .
+YML
+STUB_RUNS_RC=0
+STUB_RUNS_DEPLOY=""
+STUB_RUNS_SCAN=$(printf 'success\t%s\n' "$FRESH")
+STUB_ALERTS="0"
+SCAN_DIR="$tmpdir/trivyonly" run_check
+assert_has_result "trivy-monitor.yml certifies freshness -> PASS CICD-011" "PASS" "CICD-011"
+assert_result_mentions "and the PASS names it" "PASS" "CICD-011" "trivy-monitor.yml"
+assert_no_result "the tool token stops it being excluded as a monitor" "SKIP" "CICD-011"
+assert_has_result "so its zero alert count is certified" "PASS" "CICD-012"
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 
