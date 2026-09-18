@@ -11,9 +11,9 @@ three of eleven rows were wrong and one carried a hedge instead of a number:
     infra           16 stated, 18 implemented
     access-control   6 stated, 10 implemented
     saas            33 stated, 49 implemented
-    network         "5+" stated, 7 implemented
+    network         "5+" stated, 10 implemented
 
-and the prose said `~120+ checks` against a real 193. Nothing failed, because
+and the prose said `~120+ checks` against a real 198. Nothing failed, because
 nothing compared them. A README count is the first number a reader trusts and
 the last one anybody re-measures, so the drift direction that matters is the
 flattering one: `saas` understated by 16 checks reads as modesty, while the same
@@ -121,7 +121,11 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ci_guard_util import REPO_ROOT, rendered_markdown  # noqa: E402
+from _ci_guard_util import (  # noqa: E402
+    REPO_ROOT,
+    rendered_markdown,
+    strip_inline_comment_sh,
+)
 
 CHECKS_DIR = REPO_ROOT / "scanner" / "checks"
 README = REPO_ROOT / "README.md"
@@ -134,12 +138,17 @@ README = REPO_ROOT / "README.md"
 UNIT_EXEMPT = {
     "prowler": (
         "the cell states `16 providers` — Prowler PROVIDERS, not checks. The "
-        "integration emits 15 unique IDs (`PROWLER-001` plus 14 "
-        "`PROWLER-<provider>-001`), which is a different number of a different "
-        "thing, so asserting the check count here would demand a wrong edit. "
-        "The 16 is already guarded at its real source: "
-        "`test_ci_provider_labels_sync` pins `PROVIDER_LABELS` at exactly 16 "
-        "entries and pins the bash mirror equal to it."
+        "integration emits 17 unique literal IDs: `PROWLER-001` plus one "
+        "`PROWLER-<provider>-001` for each of the 16 providers. So the row "
+        "would be wrong either way — 16 is not the check count, and the check "
+        "count is not what the cell means. The 16 is already guarded at its "
+        "real source: `test_ci_provider_labels_sync` pins `PROVIDER_LABELS` at "
+        "exactly 16 entries and pins the bash mirror equal to it. "
+        "An earlier version of this note said 14 provider IDs and read the "
+        "16-vs-14 gap as a real shortfall in the integration. That gap was an "
+        "artifact of a too-narrow extraction pattern, which could not see "
+        "`PROWLER-K8S-001` or `PROWLER-M365-001` because of the digits inside "
+        "their middle segment. The providers and the IDs agree at 16."
     ),
 }
 
@@ -175,13 +184,45 @@ KNOWN_CATEGORIES = frozenset({
     "windows",
 })
 
-#: A check ID as the scanner emits it: the first argument to one of the four
-#: result helpers. A repo-wide sweep found every `pass|fail|warn|skip "…"` call
-#: site in `scanner/checks/**` matches this shape and none constructs the ID
-#: from a variable, so the extraction is complete rather than best-effort. If
-#: that stops being true, `test_the_categories_partition_every_id` is what
-#: notices: an ID the pattern cannot see is an ID missing from both sides.
-_ID_CALL = re.compile(r'\b(?:pass|fail|warn|skip) +"([A-Z]+(?:-[A-Z]+)?-[0-9]+)"')
+#: A LITERAL check ID: the first argument to one of the four result helpers.
+#:
+#: SCOPE, stated first because the previous version of this comment overclaimed
+#: and the claim was false. What is counted is the number of check IDs WRITTEN
+#: AS LITERALS. Three call sites assemble the ID at runtime —
+#: `warn "${check_id_prefix}-000"`, `pass "${check_id_prefix}-001"`,
+#: `fail "${check_id_prefix}-001"` in `scanner/checks/prowler/integration.sh` —
+#: and no literal scan of any kind can see what those expand to, because the
+#: value does not exist until the shell runs. They are excluded and DECLARED, in
+#: `_RUNTIME_ASSEMBLED` below, not silently dropped.
+#:
+#: The comment this replaces said a sweep "found every call site matches this
+#: shape and none constructs the ID from a variable, so the extraction is
+#: complete rather than best-effort". Both halves were wrong, and the way they
+#: were wrong is worth recording: the sweep was
+#: `git grep -hoE '\b(pass|fail|...)'`, and `\b` is not supported by git grep's
+#: ERE engine, so it matched ZERO lines. Piping zero lines into a `grep -v`
+#: filter prints nothing, and nothing was read as "no non-conforming shapes".
+#: A vacuous measurement with no canary on its own denominator — exactly what
+#: ADR-001 §4 means by proving the harness can produce a RED before trusting a
+#: green. The correct sweep returns 666 lines and 200 distinct first arguments.
+#:
+#: The pattern is also WIDER than the one it replaces, which missed five real
+#: IDs: `[A-Z]+(-[A-Z]+)?-[0-9]+` required a numeric tail and at most one
+#: hyphenated middle, so `TRIVY-CRIT`, `TRIVY-HIGH`, `TRIVY-MED` (no numeric
+#: tail) and `PROWLER-K8S-001`, `PROWLER-M365-001` (digits inside a middle
+#: segment) were invisible. That understated `network` as 7 against 10,
+#: `prowler` as 15 against 17, and the total as 193 against 198.
+_ID_CALL = re.compile(r'(?:pass|fail|warn|skip) +"([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)"')
+
+#: EVERY literal first argument to the four helpers, whatever its shape. The
+#: denominator for `test_the_extraction_sees_every_call_site`, which is the
+#: canary on `_ID_CALL`'s own coverage.
+_ANY_CALL = re.compile(r'(?:pass|fail|warn|skip) +"([^"]*)"')
+
+#: A first argument that is assembled at runtime rather than written out.
+#: Matched at the START, so `${prefix}-001` is recognised while a literal that
+#: merely contains a `$` later is not quietly excused.
+_RUNTIME_ASSEMBLED = re.compile(r"^\$[{(]?[A-Za-z_]")
 
 #: A `Scanner Categories` row: `| \`<category>\` | <cell> | <covers> |`.
 #:
@@ -226,18 +267,47 @@ def category_dirs():
     return sorted(p.name for p in CHECKS_DIR.iterdir() if p.is_dir())
 
 
+def active_shell(text: str) -> str:
+    """`text` with bash comments removed, line by line.
+
+    ADR-001 §1: a token surviving only in a comment must never satisfy an
+    invariant — and here it would not merely satisfy one, it would INFLATE a
+    count. `scanner/checks/network/scan-tools.sh:48` already carries
+    `# warn "command substitution: 1 unterminated here-document" at source
+    time.`, a documentation line whose text is shaped exactly like a live call.
+    It happens not to match `_ID_CALL` today, so it changes no number; the
+    exposure is that widening the pattern is what makes such a line countable,
+    and the widening is the other half of this change.
+
+    `strip_inline_comment_sh`, not `strip_inline_comment`: these are shell
+    files, where `#` opens a comment after a metacharacter with no intervening
+    space, and the shared helper is quote-aware so a `#` inside a message string
+    survives."""
+    return "\n".join(strip_inline_comment_sh(l) for l in text.splitlines())
+
+
+def first_args(path: Path):
+    """`(all literal first arguments, those counted as IDs)` under `path`.
+
+    Both from the same comment-stripped text, so the canary and the count can
+    never disagree about their denominator."""
+    every, ids = set(), set()
+    for f in sorted(path.rglob("*")):
+        if not f.is_file():
+            continue
+        text = active_shell(f.read_text(encoding="utf-8", errors="replace"))
+        every.update(_ANY_CALL.findall(text))
+        ids.update(_ID_CALL.findall(text))
+    return every, ids
+
+
 def ids_in(path: Path):
-    """The set of unique check IDs emitted anywhere under `path`.
+    """The set of unique LITERAL check IDs emitted anywhere under `path`.
 
     A SET, because an ID is emitted from several call sites — one per verdict
     branch — and the README states how many checks exist, not how many ways each
     can end."""
-    found = set()
-    for f in sorted(path.rglob("*")):
-        if not f.is_file():
-            continue
-        found.update(_ID_CALL.findall(f.read_text(encoding="utf-8", errors="replace")))
-    return found
+    return first_args(path)[1]
 
 
 def code_counts():
@@ -317,6 +387,66 @@ class TestTheMeasurementIsSound(unittest.TestCase):
             "Either they are empty, or the IDs are written in a shape "
             "`_ID_CALL` does not match — fix the pattern, do not write 0 into "
             "the README.",
+        )
+
+    def test_the_extraction_sees_every_call_site(self):
+        """The canary on `_ID_CALL`'s own coverage — the axis that had NO
+        detector, and the one that let five real IDs go uncounted.
+
+        The comment on `_ID_CALL` used to claim `partition_every_id` covered
+        this. It does not, and the claim is self-contradicting: an ID the
+        pattern cannot see is missing from BOTH operands, so `sum(per-dir) ==
+        len(repo-wide)` still holds. Verified — that test passed while
+        `TRIVY-CRIT`, `TRIVY-HIGH`, `TRIVY-MED`, `PROWLER-K8S-001` and
+        `PROWLER-M365-001` were all invisible.
+
+        So this compares against a genuinely different denominator: EVERY
+        literal first argument to the four helpers, whatever its shape. Each one
+        must either be counted as an ID or be a declared runtime assembly.
+        Anything else is a shape the extraction cannot see, and it fails here
+        naming the offender rather than quietly lowering a number.
+
+        LIMIT, because this does not close infinitely and should not read as if
+        it did: `_ANY_CALL` is itself a pattern. It is complete over `<helper>
+        "<literal>"` by the shell grammar, which is the whole call syntax in
+        use, so the residual is not "a cleverer literal" — it is a call whose
+        HELPER NAME changes (caught by `test_every_category_emits_at_least_one_id`
+        driving a category to zero) or an ID assembled at runtime, which is
+        unreachable by construction and declared below."""
+        every, ids = first_args(CHECKS_DIR)
+        self.assertTrue(every, "no helper call sites found at all — sweep broke")
+        unseen = sorted(
+            a for a in every - ids if not _RUNTIME_ASSEMBLED.match(a)
+        )
+        self.assertEqual(
+            unseen,
+            [],
+            "first argument(s) to pass/fail/warn/skip that `_ID_CALL` does not "
+            f"recognise as a check ID: {unseen}. Each is a check the counts do "
+            "not include, so every README number is understated by the ones in "
+            "this list. Widen `_ID_CALL`, or — if the string genuinely is not a "
+            "check ID — say so here rather than leaving it to be rediscovered.",
+        )
+
+    def test_runtime_assembled_ids_are_declared_not_silent(self):
+        """The honest residual, asserted so it stays visible and stays small.
+
+        `${check_id_prefix}-001` cannot be resolved by any literal scan; the
+        value does not exist until the shell runs. Excluding it is the only
+        option, so the thing worth guarding is that the exclusion is a KNOWN,
+        BOUNDED set rather than a growing quiet one. If a fourth runtime call
+        site appears, this fails and a human decides whether the counts are
+        still meaningful."""
+        every, ids = first_args(CHECKS_DIR)
+        runtime = sorted(a for a in every - ids if _RUNTIME_ASSEMBLED.match(a))
+        self.assertEqual(
+            runtime,
+            ["${check_id_prefix}-000", "${check_id_prefix}-001"],
+            f"the set of runtime-assembled check IDs changed: {runtime}. These "
+            "are invisible to every literal scan, so they are excluded from the "
+            "counts and the README understates the scanner by however many they "
+            "expand to at run time. A change here means re-deciding whether a "
+            "literal count is still the right denominator.",
         )
 
     def test_the_categories_partition_every_id(self):
@@ -618,6 +748,50 @@ class TestTheDetectorIsNotInert(unittest.TestCase):
         self.assertEqual(_ID_CALL.findall('fail "SAAS-API-012" "x"'), ["SAAS-API-012"])
         self.assertEqual(_ID_CALL.findall('# see INFRA-001 for context'), [])
         self.assertEqual(_ID_CALL.findall('_id="INFRA-001"'), [])
+
+    def test_the_id_pattern_sees_the_five_it_used_to_miss(self):
+        """Regression pin on the widening, by ID rather than by count.
+
+        A count assertion would have gone green again the moment the numbers
+        were edited to match a still-broken pattern. These are the five real
+        IDs `[A-Z]+(-[A-Z]+)?-[0-9]+` could not see, in the two shapes that
+        defeated it: no numeric tail, and digits inside a middle segment."""
+        for line, want in (
+            ('fail "TRIVY-CRIT" "x"', ["TRIVY-CRIT"]),
+            ('fail "TRIVY-HIGH" "x"', ["TRIVY-HIGH"]),
+            ('warn "TRIVY-MED" "x"', ["TRIVY-MED"]),
+            ('skip "PROWLER-K8S-001" "x"', ["PROWLER-K8S-001"]),
+            ('skip "PROWLER-M365-001" "x"', ["PROWLER-M365-001"]),
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(_ID_CALL.findall(line), want)
+
+    def test_a_comment_cannot_inflate_a_count(self):
+        """ADR-001 §1, and it is a live exposure rather than a hypothetical.
+
+        `scanner/checks/network/scan-tools.sh:48` carries a `# warn "..."`
+        documentation line. It does not match `_ID_CALL` today, but the widened
+        pattern is what makes such a line countable, so the stripping and the
+        widening belong in the same change."""
+        live = 'warn "NET-001" "real"\n'
+        self.assertEqual(_ID_CALL.findall(active_shell(live)), ["NET-001"])
+        for commented in (
+            '# warn "NET-999" "documentation"\n',
+            '    # warn "NET-999" "indented"\n',
+            'echo ok ;# warn "NET-999" "after a metacharacter"\n',
+        ):
+            with self.subTest(line=commented.strip()):
+                self.assertEqual(_ID_CALL.findall(active_shell(commented)), [])
+
+    def test_a_runtime_assembled_id_is_recognised_as_such(self):
+        # It must be classified, not counted and not left unclassified — both of
+        # the other two outcomes would be wrong in opposite directions.
+        for arg in ("${check_id_prefix}-001", "$prefix-001", "${x}"):
+            with self.subTest(arg=arg):
+                self.assertTrue(_RUNTIME_ASSEMBLED.match(arg))
+        for arg in ("INFRA-001", "TRIVY-CRIT", "PROWLER-M365-001"):
+            with self.subTest(arg=arg):
+                self.assertIsNone(_RUNTIME_ASSEMBLED.match(arg))
 
     def test_the_row_pattern_needs_three_columns(self):
         # The README holds many tables. A two-column or four-column table with a

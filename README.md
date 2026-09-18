@@ -280,7 +280,7 @@ claudesec/
 
 ## Scanner CLI
 
-ClaudeSec includes a zero-dependency bash scanner that checks your project for security best practices across 11 categories (193 checks). The `prowler` category integrates with [Prowler](https://github.com/prowler-cloud/prowler) for deep multi-cloud scanning.
+ClaudeSec includes a zero-dependency bash scanner that checks your project for security best practices across 11 categories (198 checks). The `prowler` category integrates with [Prowler](https://github.com/prowler-cloud/prowler) for deep multi-cloud scanning.
 
 **Scanner anchors**
 
@@ -448,7 +448,7 @@ See `templates/claudesec-network.example.yml` for config. Trivy runs by default 
 |----------|--------|--------|
 | `infra` | 18 | Docker, Kubernetes, IaC (Terraform/Helm) |
 | `ai` | 9 | LLM API keys, prompt injection, RAG, agent tools |
-| `network` | 7 | TLS, security headers, CORS, firewall rules; Trivy (vuln/misconfig), optional Nmap/SSLScan → dashboard tab |
+| `network` | 10 | TLS, security headers, CORS, firewall rules; Trivy (vuln/misconfig), optional Nmap/SSLScan → dashboard tab |
 | `cloud` | 13 | AWS, GCP, Azure (IAM, logging, storage, network) |
 | `access-control` | 10 | .env files, password hashing, JWT, sessions |
 | `cicd` | 8 | GHA permissions, SHA pinning, SAST, lockfiles |
