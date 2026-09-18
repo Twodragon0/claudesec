@@ -53,8 +53,11 @@ from collections import defaultdict
 from pathlib import Path
 
 from _ci_guard_util import (
+    _USES_LINE_RE,
+    strip_inline_comment,
     tracked_files,
     uses_refs_labeled,
+    version_tokens,
     workflow_and_action_files,
 )
 
@@ -115,6 +118,24 @@ def _split_ref(ref: str):
 # effect), this FAILS CLOSED on the form: ADR-001 §5's rule for a shape the scanner
 # provably cannot read. The broader gap is reported separately.
 _FLOW_USES_RE = re.compile(r"[{,]\s*['\"]?uses['\"]?\s*:", re.IGNORECASE)
+
+
+def ambiguous_label_lines(text: str) -> list:
+    """`(lineno, body)` for a SHA-pinned `uses:` whose comment names TWO OR MORE
+    versions. `version_tokens` refuses to guess which is the label, so without
+    this the site would drop out of A/B/C in silence — the same bypass shape the
+    old parsing rules had. Reported instead: a false alarm at worst."""
+    out = []
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        if raw.lstrip().startswith("#"):
+            continue
+        m = _USES_LINE_RE.match(strip_inline_comment(raw))
+        if not m or not _split_ref(m.group("ref")):
+            continue
+        cm = re.search(r"\s+#(.*)$", raw)
+        if cm and len(version_tokens(cm.group(1))) > 1:
+            out.append((lineno, cm.group(1).strip()))
+    return out
 
 
 def unscannable_uses_lines(text: str) -> list:
@@ -243,13 +264,22 @@ class TestActionPinLabels(unittest.TestCase):
 
         So the pin is the SET of actions that carry no label, which additions
         cannot fund."""
+        # Keyed on (action, SHA), NOT on the action. A/B/C compare within one
+        # (action, sha), so an action-level pin holds as long as ANY one of its
+        # SHAs stays labelled — and every site of a DIFFERENT sha can go dark
+        # unseen. Measured: a partial bump moves 3 of 7 `setup-python` sites to
+        # a new sha (ordinary), those three get annotated in a style the parser
+        # missed, one drifts a MAJOR out, and the action never enters the dark
+        # set because the OLD sha keeps its labels. Every check green with a
+        # wrong label live. Found by the false-negative review of #557 as the
+        # successor to the count-based pin it had just replaced.
         labelled, bare = set(), set()
         for _, text in _real_docs():
             for _, ref, lab in uses_refs_labeled(text):
                 split = _split_ref(ref)
                 if split:
-                    (labelled if lab else bare).add(split[0])
-        dark = bare - labelled
+                    (labelled if lab else bare).add(split)
+        dark = {action for action, _ in bare - labelled}
         # The message states the FACT, not a diagnosis. An action appearing here
         # may have lost its labels or may be newly added and never have had any,
         # and this check cannot tell those apart — only a second pinned set
@@ -267,6 +297,21 @@ class TestActionPinLabels(unittest.TestCase):
             "meaningful version to name.\n"
             f"  now labelled: {sorted(UNLABELLED_ACTIONS - dark)}\n"
             "    -> good; drop it from UNLABELLED_ACTIONS.",
+        )
+
+    def test_no_label_in_the_repo_is_ambiguous(self):
+        """A comment naming two versions leaves its site out of A/B/C, so the
+        repo must contain none."""
+        found = [
+            f"{p}:{ln}  # {body}"
+            for p, text in _real_docs()
+            for ln, body in ambiguous_label_lines(text)
+        ]
+        self.assertEqual(
+            [], found,
+            "a pin's comment names more than one version, so which one is the "
+            "label cannot be decided and the site drops out of the consistency "
+            "check. Name exactly one:\n  " + "\n  ".join(found),
         )
 
     def test_no_uses_is_written_in_a_form_the_scanner_cannot_read(self):
@@ -463,6 +508,43 @@ class TestDetectorFiresOnEachShape(unittest.TestCase):
         )
         problems = label_problems(self._doc(body))
         self.assertTrue(any(p.startswith("A:") for p in problems), problems)
+
+    def test_a_partial_bump_cannot_hide_a_dark_sha(self):
+        """The dark-set key must be (action, SHA), not the action.
+
+        A partial bump — the ordinary way an action ends up at two SHAs — can
+        leave every site of the NEW sha bare while the old sha keeps its labels.
+        Keyed on the action, membership is unchanged and nothing fires; A/B/C
+        are blind too, because they compare within one (action, sha) and the new
+        one has no labelled site to compare against."""
+        docs = [("f.yml",
+                 f"      - uses: actions/setup-python@{self.SHA_A}  # v7.0.0\n"
+                 f"      - uses: actions/setup-python@{self.SHA_B}\n")]
+        by_action, by_pair = set(), set()
+        for _, text in docs:
+            for _, ref, lab in uses_refs_labeled(text):
+                split = _split_ref(ref)
+                if split and not lab:
+                    by_action.add(split[0])
+                    by_pair.add(split)
+            for _, ref, lab in uses_refs_labeled(text):
+                split = _split_ref(ref)
+                if split and lab:
+                    by_action.discard(split[0])
+                    by_pair.discard(split)
+        self.assertEqual(set(), by_action, "per-action keying misses the dark sha")
+        self.assertEqual(1, len(by_pair), "per-(action,sha) keying must see it")
+        self.assertEqual([], label_problems(docs), "A/B/C are blind here by design")
+
+    def test_an_ambiguous_label_is_reported_not_guessed(self):
+        """Two versions in one comment: the parser refuses to pick, so the line
+        must be REPORTED. Dropping it silently is the bypass the old parsing
+        rules had."""
+        one = f"      - uses: actions/checkout@{self.SHA_A}  # v7.0.0\n"
+        two = f"      - uses: actions/checkout@{self.SHA_A}  # v7.0.0 -> v8.0.0\n"
+        self.assertEqual([], ambiguous_label_lines(one))
+        self.assertEqual(1, len(ambiguous_label_lines(two)))
+        self.assertIsNone(uses_refs_labeled(two)[0][2], "must not guess a label")
 
     def test_flow_style_uses_is_reported_not_skipped(self):
         """Actions executes a flow-style step; the line matcher cannot see it.

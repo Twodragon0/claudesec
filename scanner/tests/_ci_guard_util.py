@@ -289,9 +289,44 @@ _COMMENT_BODY_RE = re.compile(r"\s+#(?P<body>.*)$")
 # A version must start with `v` or contain a dot, so `# see #479` does not
 # donate "479" as a label. The terminator set keeps `v7.0.0-rc1` whole while
 # ending the token at a space, comma, semicolon or parenthesis.
-_LABEL_RE = re.compile(
-    r"^(?:tag=)?(?P<label>v\d[\w.+-]*|\d+\.[\w.+-]+)(?=[\s,;)]|$)"
+# SEARCH the comment body for version tokens; do not anchor to its head and do
+# not enumerate terminators. Both earlier rules failed in the SILENT direction —
+# a form they could not read became "unlabelled", which drops the site from the
+# comparison instead of flagging it:
+#
+#   fullmatch      `# v5.0.0 (node24)`            (the style this repo ships)
+#   head+terminator `# v7.0.0: node24 runtime`, `(v7.0.0)`, `V7.0.0`, `pin to
+#                   v7.0.0`, `ref=v7.0.0`, `~v7.0.0`, `v7.0.0/v7`, ... 18 of 20
+#                   real-author forms measured by the review of #557
+#
+# Third attempt at this rule, so it stops enumerating shapes (ADR-001 §5) and
+# asks the only question that matters: which version tokens does the body name?
+# `v`-or-a-dot still required, so `# see #479` donates nothing and a bare `# 8`
+# is not a version. Case-insensitive because `V7.0.0` is the same claim.
+#
+# TWO OR MORE distinct tokens is AMBIGUOUS and is NOT guessed at. `# v7.0.0 ->
+# v8.0.0` names two versions and picking either is a coin flip that would then
+# be asserted as fact. The primitive returns None, and the guard reports the
+# line — see `ambiguous_label_lines`. Silence would be the bypass; a report is
+# a false alarm at worst.
+_VERSION_TOKEN_RE = re.compile(
+    r"(?<![\w.])(?:v\d[\w.+-]*|\d+\.[\w.+-]+)", re.IGNORECASE
 )
+
+
+def version_tokens(comment_body: str) -> list:
+    """Distinct version-like tokens named in a comment body, order preserved."""
+    seen, out = set(), []
+    for raw in _VERSION_TOKEN_RE.findall(comment_body):
+        # Case-FOLDED, not just matched case-insensitively: `# V7.0.0` and
+        # `# v7.0.0` are the same claim, so returning them verbatim would make
+        # the consistency check report a conflict between two spellings of one
+        # version — a false alarm, and the direction that gets a guard disabled.
+        tok = raw.rstrip(".-+").lower()
+        if tok and tok not in seen:
+            seen.add(tok)
+            out.append(tok)
+    return out
 
 
 def uses_refs_labeled(text: str) -> list:
@@ -323,9 +358,9 @@ def uses_refs_labeled(text: str) -> list:
         cm = _COMMENT_BODY_RE.search(raw)
         label = None
         if cm:
-            lm = _LABEL_RE.match(cm.group("body").strip())
-            if lm:
-                label = lm.group("label")
+            toks = version_tokens(cm.group("body"))
+            if len(toks) == 1:
+                label = toks[0]
         out.append((lineno, m.group("ref"), label))
     return out
 
