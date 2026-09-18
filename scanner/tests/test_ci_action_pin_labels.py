@@ -258,7 +258,30 @@ def label_corpus() -> list:
     `lint.yml`, because the annotated form parsed to None).
 
     Enumerated from `git ls-files`, not the filesystem: an untracked local file
-    is not what CI builds from (`tracked_files`)."""
+    is not what CI builds from (`tracked_files`).
+
+    DELIBERATELY OUT, measured 2026-09-18. Three other tracked files carry
+    SHA-pinned `uses:` refs: `scanner/tests/test_check_cicd_pipeline.sh`
+    (fixtures), `docs/reports/session-report-2026-06-01.md` (a historical
+    snapshot — pinning it would falsify a record of what was true in June), and
+    `docs/github/actions-security.md`, 5 reader-facing pins in the document that
+    TEACHES SHA-pinning.
+
+    The last one is the arguable case, and the argument for adding it does not
+    survive measurement. It is stale — `actions/checkout@b4ffde65 # v4.1.1`
+    against the `# v7.0.1` this repo runs — but **adding it would not catch
+    that**: `b4ffde65` and `3d3c42e5` are different SHAs, so A and B have
+    nothing to compare across the boundary, and the doc's own labels are
+    internally consistent. Widening buys prospective protection against future
+    drift WITHIN the doc, not the rot that makes it worth caring about.
+
+    Sharper still, and the reason this is recorded rather than left to
+    rediscovery: `b4ffde65` really is `v4.1.1`, but the `v4` alias has since
+    MOVED to `11d5960a`, so the doc's `# v4` labels (lines 134, 164) were true
+    when written and are false now. A guard that can only compare labels to each
+    other cannot see that — the doc is internally consistent and externally
+    wrong, which is exactly the limit stated at the top of this module. Closing
+    it needs the tag-resolving watch, not a wider corpus."""
     paths = {str(Path(p).relative_to(REPO_ROOT)) for p in workflow_and_action_files()}
     paths |= {
         p for p in tracked_files()
