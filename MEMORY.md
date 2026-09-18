@@ -645,11 +645,76 @@ catalog rows **67 → 73**.
   The lever is now written onto the fixture's docstring, because the next person will reach for
   the same two wrong ones.
 
+### Cycle #555–#559 — a comment that restates code, in four places (merged 2026-09-17 → 09-18)
+
+Five PRs from one sweep. The shape is narrower than the last cycle's and easier to recognise:
+**a comment, a doc or a backlog entry restating something it does not own, and nothing comparing
+the two.** Every instance was found by measuring the claim against its subject, and the two that
+looked worst on paper turned out to be the least interesting.
+
+- **A stable issue set is not a verified backlog** (#555). The open-issue list was IDENTICAL to
+  the previous revision's eight — which is exactly why re-reading it would have passed. Measuring
+  found **three entries wrong about MECHANISM while naming the right issue**: `#405`'s watch
+  rewrites the issue BODY and never comments (so the quoted "last re-confirmed" timestamp was
+  read off a surface that does not exist), `#498`'s "prefer the newest comment over the body"
+  habit had **inverted** once #505 added a body refresh (a no-delta run writes no comment, so
+  comment silence is ambiguous between "nothing changed" and "nothing ran"), and `#68` was called
+  a maintained tracker when `dast-baseline.yml` sets `allow_issue_writing: false` and nothing
+  writes to it at all. A wrong mechanism reads exactly as authoritative as a right one, which is
+  the failure this file is least able to detect on its own.
+- **Fixing one instance of a contradiction and leaving the adjacent one IS the defect** (#555).
+  That PR corrected the `#498` backlog entry and left the unqualified standing directive at line
+  392 — inside the same bullet that cites #505, the PR that falsified it — plus the original
+  "single-tracker" phrasing about `#68`. Review caught both. The rule now: before committing a
+  correction, grep the whole file for the claim's other spellings, **headings included** (the
+  same PR corrected "ten adversarial passes" in the body and left it in the section heading,
+  which is what a scanning reader takes away).
+- **Do not update a restated value — delete the restatement** (#556). `Dockerfile.nginx:2` said
+  Dependabot bumps the digest "when nginx:1.27-alpine is rebuilt" while the `FROM` one line below
+  read `1.31-alpine`. `31fb40e` (#235, 2026-06-16) moved the tag and left the sentence; **three**
+  Dependabot digest bumps crossed the same file afterwards (#293, #353, #476) and none touched
+  it, because Dependabot rewrites the `FROM` line only. Four commits through one file, three
+  months, nothing comparing a claim to the code one line below it. Writing `1.31` would have
+  repeated the defect at the next tag move; the comment now states the CONDITION and points at
+  where the tag actually lives.
+- **The document teaching SHA-pinning tag-pinned its own example** (#558). `actions-security.md`
+  opens with a GOOD/BAD pair whose whole point is "pin to full SHA", and its hardened Docker
+  example pinned `docker/setup-buildx-action@v3`, `docker/login-action@v3`,
+  `docker/build-push-action@v5`. A reader copying the good example got the practice the same page
+  calls unsafe. The staleness was the smaller half. **The sharper measurement is about aliases:**
+  `b4ffde65` really IS `actions/checkout@v4.1.1`, but the `v4` ALIAS has since moved to
+  `11d5960a`, so the doc's two `# v4` labels were true when written and are false now — a label
+  can rot without anyone editing it. All 8 replacement labels were round-trip verified against
+  their tags through the API before landing; internal consistency is not correctness.
+- **The scanner was printing a 404** (#559). `https://owasp.org/www-project-top-10-ci-cd-security-risks/`
+  404s after two redirects and the URL it resolves to 404s as well — 9 occurrences across 8
+  tracked files, the worst being `scanner/lib/output.sh:172`, which emits it as the reference URL
+  for every `CICD-*` finding. Replaced with the project's own repository, verified to still carry
+  `CICD-SEC-01…10` so every citation still resolves to something real. **Why CI cannot see it is
+  DELIBERATE and already written down** in `lint.yml`: `--accept '100..=599'` makes any HTTP
+  status pass so a flaky 5xx cannot block a docs merge, and the compensating control is the
+  monthly strict sweep. Checked before blaming it — the 2026-09-01 sweep ran clean (457 links, 0
+  errors), so the link died after it; the sweep is not the defect. **Do not file the sweep as
+  broken without that check.**
+- **One probe saved from being a false finding** (#559). `https://www.kisa.or.kr/...` in the same
+  function returns **400 to curl and 200 to a browser user-agent** — bot-blocking, not rot. All
+  15 URLs `_finding_ref_url` emits were probed; 13 return 200 and only those two were worth a
+  second look. The cheap conclusion on the KISA one is wrong, and the next sweep will hit the
+  same 400.
+- **The sweep's own yield, stated so the next one is scoped honestly.** Seven "comment restates
+  code" candidates, **two real**. The five false were: a lighthouse label (`# v12.6.2` where that
+  repo tags `12.6.2` — the version was right and the PROBE's predicate was wrong), the alpine →
+  Python measurement table in `Dockerfile` (narrative, not a restatement), a fixture string in a
+  guard, and a workflow `KEY: value` scan that returned **zero** hits because #542's guard holds.
+  Expect that ratio. The real finds were the nginx comment and the `setup-python  # v6.1.0` label
+  on a `v7.0.0` sha, which is in flight as #557 and gets its own entry when it lands.
+
 ## Open Backlog
 
-Re-derived from `gh issue list --state open` + measured repo state on **2026-09-17**. **Verify
-before working an item** — this list rotted twice before, and the 2026-08-26 revision listed
-FOUR already-closed issues (#295, #297, #381, #399) as open.
+Re-derived from `gh issue list --state open` + measured repo state on **2026-09-17**, re-checked
+**2026-09-18** with the set unchanged. **Verify before working an item** — this list rotted twice
+before, and the 2026-08-26 revision listed FOUR already-closed issues (#295, #297, #381, #399)
+as open.
 
 **Nothing opened or closed since the 2026-09-02 revision** — the same eight issues
 (#405, #498, #68, #39, #15, #12, #18, #20). A stable issue set is not a verified backlog:
