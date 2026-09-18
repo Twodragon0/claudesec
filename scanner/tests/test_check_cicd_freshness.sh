@@ -194,6 +194,7 @@ gh() {
       case "$wf" in
         deploy.yml)           printf '%s' "$STUB_RUNS_DEPLOY" ;;
         release-drafter.yml)  printf '%s' "$STUB_RUNS_DEPLOY" ;;
+        deploy-notify.yml)    printf '%s' "$STUB_RUNS_DEPLOY" ;;
         codeql.yml)           printf '%s' "$STUB_RUNS_SCAN" ;;
         trivy-monitor.yml)    printf '%s' "$STUB_RUNS_SCAN" ;;
         *)          printf '' ;;
@@ -778,6 +779,62 @@ assert_result_lacks "that skip is the no-workflow one, not the precondition" "SK
 assert_result_lacks "that skip is the no-workflow one, not a query failure" "SKIP" "CICD-010" "$_cf_query_skip_reason"
 assert_no_result "a failing release-drafter is not a broken deploy path" "FAIL" "CICD-010"
 assert_no_result "a failing release-drafter is not an unproven deploy path" "WARN" "CICD-010"
+
+# ── ...and the OTHER direction: no exclusion the deploy set must not have ─────
+#
+# The case above only catches an exclusion being REMOVED. Its fixture's single
+# workflow is `release-drafter.yml`, which is excluded under either wiring, so
+# it cannot reveal an exclusion being ADDED. Measured on this tree: appending
+# `|$CICD_FRESHNESS_MONITOR_PATTERN` to CICD-010's exclusion argument lands,
+# parses, and leaves all 136 assertions green.
+#
+# That added direction is the regression FIX-MONITOR-SCOPE exists to prevent —
+# someone restoring the monitor filter to the shared path, or bolting it onto
+# the deploy call "for consistency". A deployment that notifies on completion is
+# still a deployment, so a repo whose only deploy path is `deploy-notify.yml`
+# must be JUDGED: wired correctly its accumulating failures are a `high`; with
+# the monitor filter applied to deploy it vanishes and CICD-010 skips.
+#
+# Separate fixture rather than an edit to the one above — each direction needs a
+# repo shape that only it can distinguish.
+
+echo "=== No monitor filter on the deploy set — a notifying deploy is still judged ==="
+
+mkdir -p "$tmpdir/notifyonly/.github/workflows"
+cat > "$tmpdir/notifyonly/.github/workflows/deploy-notify.yml" <<'YML'
+name: Deploy and notify
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo shipping
+      - run: echo posting to chat
+YML
+STUB_RUNS_RC=0
+STUB_RUNS_DEPLOY=$(printf 'failure\t%s\nfailure\t%s\nsuccess\t%s\n' \
+  "$(iso_ago 1)" "$(iso_ago 2)" "$(iso_ago 3)")
+STUB_RUNS_SCAN=""
+STUB_ALERTS="0"
+SCAN_DIR="$tmpdir/notifyonly" run_check
+assert_has_result "notify-suffixed deploy is judged -> FAIL CICD-010" "FAIL" "CICD-010"
+assert_fail_severity "and it is high severity" "CICD-010" "high"
+# Pin it to THIS workflow and THIS count, so the verdict cannot be satisfied by
+# some other deploy match or by the counter being broken.
+assert_result_mentions "the FAIL names deploy-notify.yml" "FAIL" "CICD-010" "deploy-notify.yml"
+assert_result_mentions "the FAIL reports the accumulated failures" "FAIL" "CICD-010" "2 failed since last success"
+# The mutation's actual signature: the workflow disappears and CICD-010 skips.
+assert_no_result "a notifying deploy is not excluded into a skip" "SKIP" "CICD-010"
+assert_no_result "nor left unproven" "WARN" "CICD-010"
+# This fixture has no scan workflow, so CICD-011/012 must not be contributing
+# findings that could be mistaken for the verdict under test.
+assert_has_result "no scan workflow here -> CICD-011 skips" "SKIP" "CICD-011"
+assert_no_result "CICD-011 raises nothing in this fixture" "FAIL" "CICD-011"
+assert_no_result "CICD-012 raises nothing in this fixture" "FAIL" "CICD-012"
 
 # ── The SCAN exclusions are wired into CICD-011 too ──────────────────────────
 #
