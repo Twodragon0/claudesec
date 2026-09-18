@@ -53,11 +53,12 @@ from collections import defaultdict
 from pathlib import Path
 
 from _ci_guard_util import (
+    _COMMENT_BODY_RE,
     _USES_LINE_RE,
+    label_candidates,
     strip_inline_comment,
     tracked_files,
     uses_refs_labeled,
-    version_tokens,
     workflow_and_action_files,
 )
 
@@ -140,7 +141,14 @@ def labels_agree(a: str, b: str) -> bool:
     them would have fired A.
 
     Compatible means equal, or one is the other's prefix AT A DOT BOUNDARY —
-    `v7` ⊂ `v7.0.1` but NOT `v7` ⊂ `v71.0`, which is a different major."""
+    `v7` ⊂ `v7.0.1` but NOT `v7` ⊂ `v71.0`, which is a different major.
+
+    THE TRADE, recorded rather than fixed: a STALE alias on a sha that also
+    carries its full version no longer trips A, where before it did — for the
+    wrong reason, since A was calling a truthful pair a contradiction. Whether
+    `v7` still points at this sha is undecidable offline and already inside the
+    "cannot verify against the real tag" limit at the top of this module. B
+    still catches a moved alias whenever both the old and the new site exist."""
     # The leading `v` is normalised here, not in `version_tokens`, so the
     # message still quotes the label as written. `v12.6.2` and `12.6.2` are one
     # release: `treosh/lighthouse-ci-action` is labelled `# v12.6.2` today while
@@ -157,10 +165,19 @@ def labels_agree(a: str, b: str) -> bool:
 
 
 def ambiguous_label_lines(text: str) -> list:
-    """`(lineno, body)` for a SHA-pinned `uses:` whose comment names TWO OR MORE
-    versions. `version_tokens` refuses to guess which is the label, so without
-    this the site would drop out of A/B/C in silence — the same bypass shape the
-    old parsing rules had. Reported instead: a false alarm at worst."""
+    """`(lineno, body)` for a SHA-pinned `uses:` whose comment offers TWO OR MORE
+    candidate labels. Those sites resolve to no label, so without this they would
+    drop out of A/B/C in silence — the bypass shape the old parsing rules had.
+
+    MUST use the same selector as the label path. It did not: this called
+    `version_tokens` (bracket-blind) while `uses_refs_labeled` called
+    `label_candidates` (bracket-aware), so `# v7.0.0 (CodeQL bundle 2.19.0)` was
+    labelled `v7.0.0` AND reported ambiguous. The cry-wolf the bracket fix
+    removed from the label path reappeared in the report, and the message
+    asserted something FALSE — that the site leaves A/B/C, when it is labelled
+    and compared normally, sending a reviewer after a disarmed check that is not
+    disarmed. `label_candidates` was put in `_ci_guard_util` to prevent exactly
+    this drift and the second caller did not use it."""
     out = []
     for lineno, raw in enumerate(text.splitlines(), start=1):
         if raw.lstrip().startswith("#"):
@@ -168,9 +185,9 @@ def ambiguous_label_lines(text: str) -> list:
         m = _USES_LINE_RE.match(strip_inline_comment(raw))
         if not m or not _split_ref(m.group("ref")):
             continue
-        cm = re.search(r"\s+#(.*)$", raw)
-        if cm and len(version_tokens(cm.group(1))) > 1:
-            out.append((lineno, cm.group(1).strip()))
+        cm = _COMMENT_BODY_RE.search(raw)
+        if cm and len(label_candidates(cm.group("body"))) > 1:
+            out.append((lineno, cm.group("body").strip()))
     return out
 
 
@@ -692,6 +709,38 @@ class TestDetectorFiresOnEachShape(unittest.TestCase):
         self.assertEqual([], ambiguous_label_lines(one))
         self.assertEqual(1, len(ambiguous_label_lines(two)))
         self.assertIsNone(uses_refs_labeled(two)[0][2], "must not guess a label")
+
+    def test_the_report_and_the_label_agree_on_what_is_ambiguous(self):
+        """The two paths must use ONE selector. They drifted once: the report
+        still called the bracket-blind `version_tokens` after the label path
+        moved to `label_candidates`, so a bracketed tool version was labelled
+        correctly AND reported ambiguous — with a message claiming the site had
+        left A/B/C when it had not.
+
+        The invariant, asserted directly: a line is reported ambiguous IF AND
+        ONLY IF it resolves to no label."""
+        for body in (
+            "v7.0.0",
+            "v7.0.0 (CodeQL bundle 2.19.0)",
+            "v0.15.0 (ZAP 2.15.0)",
+            "v5.0.0 (node 24.1)",
+            "v7.0.0 -> v8.0.0",
+            "v7.0.0; supersedes v6.1.0",
+            "v7.0.0 for python 3.11",
+            "see #479",
+        ):
+            with self.subTest(body=body):
+                line = f"      - uses: actions/checkout@{self.SHA_A}  # {body}\n"
+                reported = bool(ambiguous_label_lines(line))
+                unlabelled = uses_refs_labeled(line)[0][2] is None
+                # Prose resolves to no label and is NOT ambiguous, so the
+                # biconditional holds only over comments naming a version.
+                if label_candidates(f" {body}"):
+                    self.assertEqual(
+                        reported, unlabelled,
+                        f"report says ambiguous={reported} but label path says "
+                        f"unlabelled={unlabelled}",
+                    )
 
     def test_flow_style_uses_is_reported_not_skipped(self):
         """Actions executes a flow-style step; the line matcher cannot see it.
