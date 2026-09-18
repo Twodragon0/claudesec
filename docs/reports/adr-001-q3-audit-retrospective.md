@@ -246,5 +246,5 @@ ADR-001 §3의 "1차가 CRITICAL을 찾으면 2차 패스"를 이번엔 **관점
 - [ADR-001: CI Guard Hardening & Periodic Adversarial Audit](../devsecops/adr-001-ci-guard-hardening-and-audit-cadence.md)
 - [CI Config Regression Guards 카탈로그](../devsecops/ci-config-regression-guards.md)
 - OWASP Top 10 CI/CD Security Risks — CICD-SEC-1 (Insufficient Flow Control):
-  <https://owasp.org/www-project-top-10-ci-cd-security-risks/>
+  <https://github.com/OWASP/www-project-top-10-ci-cd-security-risks>
 - NIST SP 800-218 (SSDF) — PO.3 / PW.4: <https://csrc.nist.gov/pubs/sp/800/218/final>

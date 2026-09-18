@@ -169,7 +169,7 @@ _finding_ref_url() {
     CODE-SEC-002) echo "https://owasp.org/Top10/A08_2021-Software_and_Data_Integrity_Failures/" ;;
     CODE-SEC-003|SECRETS-*) echo "https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/" ;;
     CODE-SEC-*) echo "https://owasp.org/Top10/" ;;
-    CICD-*) echo "https://owasp.org/www-project-top-10-ci-cd-security-risks/" ;;
+    CICD-*) echo "https://github.com/OWASP/www-project-top-10-ci-cd-security-risks" ;;
     AI-*|LLM-*) echo "https://owasp.org/www-project-top-10-for-large-language-model-applications/" ;;
     IAM-*) echo "https://owasp.org/Top10/A01_2021-Broken_Access_Control/" ;;
     NET-*|TLS-*) echo "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/" ;;

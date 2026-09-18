@@ -1602,7 +1602,7 @@ re-file them):
 
 - OWASP Top 10 CI/CD Security Risks — CICD-SEC-1 (Insufficient Flow Control),
   CICD-SEC-3 (Dependency Chain Abuse), CICD-SEC-7 (Insecure System
-  Configuration): <https://owasp.org/www-project-top-10-ci-cd-security-risks/>
+  Configuration): <https://github.com/OWASP/www-project-top-10-ci-cd-security-risks>
 - NIST SP 800-218 (Secure Software Development Framework, SSDF) — PO.3, PW.4:
   <https://csrc.nist.gov/pubs/sp/800/218/final>
 - OWASP Top 10:2021 A08 — Software and Data Integrity Failures:

@@ -104,7 +104,7 @@ Control, CICD-SEC-7 Insecure System Configuration)을 코드로 막는 **회귀 
 ## 참고
 
 - OWASP Top 10 CI/CD Security Risks — CICD-SEC-1, CICD-SEC-3, CICD-SEC-7:
-  <https://owasp.org/www-project-top-10-ci-cd-security-risks/>
+  <https://github.com/OWASP/www-project-top-10-ci-cd-security-risks>
 - OWASP Top 10:2021 A08 — Software and Data Integrity Failures:
   <https://owasp.org/Top10/A08_2021-Software_and_Data_Integrity_Failures/>
 - NIST SP 800-218 (SSDF) — PO.3, PW.4:
