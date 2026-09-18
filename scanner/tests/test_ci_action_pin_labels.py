@@ -56,8 +56,22 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # (`@v4`) and local (`./`) refs name their own version and are out of scope.
 _SHA_LEN = 40
 
-# Measured 2026-09-18 over `label_corpus()`: 74 labelled, 4 bare, 78 total.
-MIN_LABELLED_PINS = 74
+# The actions that carry NO version label anywhere in the corpus, pinned as an
+# EXACT SET (measured 2026-09-18). Deliberately not a count: a count is payable
+# by unrelated additions, which is how the previous `MIN_LABELLED_PINS = 74`
+# floor failed — add a four-step workflow (live 74 -> 78) and every `setup-node`
+# label could then be stripped back to 74 with the check still green and A/B/C
+# reporting nothing. Measured by the false-positive review of #557.
+#
+# Two-sided, following `DESIRED_CONTEXTS`: an action going dark ADDS a member
+# and fails; labelling one of these REMOVES a member and also fails, so the
+# improvement is recorded here rather than silently absorbed. Adding a labelled
+# pin changes nothing, so ordinary work stays green.
+UNLABELLED_ACTIONS = frozenset({
+    "docker/build-push-action",
+    "ludeeus/action-shellcheck",
+    "lycheeverse/lychee-action",
+})
 
 
 def _split_ref(ref: str):
@@ -160,36 +174,54 @@ def _real_docs() -> list:
 
 
 class TestActionPinLabels(unittest.TestCase):
-    def test_workflow_files_exist(self):
-        """Canary: a moved workflow dir must fail loudly, not pass vacuously."""
-        files = workflow_and_action_files()
-        self.assertGreater(len(files), 5, "workflow enumeration collapsed")
+    def test_the_whole_corpus_is_enumerated(self):
+        """Canary over `label_corpus()` — what the guard actually reads.
 
-    def test_labelled_pin_count_does_not_regress(self):
-        """Non-vacuity of the SUBJECT, as a RATCHET rather than a floor.
+        It used to assert over `workflow_and_action_files()` alone: 19 files
+        against a 32-file corpus, so the 13 `templates/` entries this guard adds
+        — the half that ships to other repositories — had NO enumeration canary
+        and could collapse silently. A regression introduced by the scope
+        widening itself, found by the false-positive review of #557.
 
-        A/B/C are all trivially satisfiable over unlabelled refs, so labels going
-        dark disarms this guard without failing it. A loose threshold does not
-        notice that: the first version of this test allowed anything above 20
-        while 74 pins were labelled, so an entire action could lose its labels —
-        the exact silent-degradation path the false-negative review of #557
-        demonstrated — with the canary still green.
+        `test_templates_are_in_scope` does not cover it either: `any()` is still
+        satisfied when 13 files become 1."""
+        corpus = label_corpus()
+        workflows = [p for p in corpus if p.startswith(".github/")]
+        templates = [p for p in corpus if p.startswith("templates/")]
+        self.assertGreaterEqual(len(workflows), 15, f"workflow enumeration collapsed: {workflows}")
+        self.assertGreaterEqual(len(templates), 13, f"templates enumeration collapsed: {templates}")
 
-        Ratchet direction: `>=`. Adding a labelled pin is fine and RAISES the
-        baseline; removing one is a decision that has to be made here, in this
-        constant, where a reviewer sees it."""
-        labelled = [
-            (p, ln, ref)
-            for p, text in _real_docs()
-            for ln, ref, lab in uses_refs_labeled(text)
-            if lab is not None and _split_ref(ref)
-        ]
-        self.assertGreaterEqual(
-            len(labelled), MIN_LABELLED_PINS,
-            f"labelled SHA pins fell to {len(labelled)}, below the "
-            f"{MIN_LABELLED_PINS} baseline. Labels going dark disarms A/B/C "
-            f"silently — if a pin was legitimately removed, lower the constant "
-            f"in this file and say why in the PR."
+    def test_no_action_goes_dark(self):
+        """Non-vacuity of the SUBJECT, pinned per ACTION rather than as a total.
+
+        A/B/C are all trivially satisfiable over unlabelled refs, so an action
+        losing every label disarms this guard without failing it — and C cannot
+        see it, because C compares labelled sites against bare ones and there is
+        nothing left to compare.
+
+        Two earlier versions of this check were both payable. `> 20` against 74
+        live was slack by construction. `>= 74` looked like a ratchet and was
+        not: the constant only moves when a human edits it, so adding one
+        four-step workflow (74 -> 78) funded stripping all four `setup-node`
+        labels back to 74 — measured, with every check green. A total that
+        unrelated additions can pay for is a floor wearing a ratchet's
+        docstring.
+
+        So the pin is the SET of actions that carry no label, which additions
+        cannot fund."""
+        labelled, bare = set(), set()
+        for _, text in _real_docs():
+            for _, ref, lab in uses_refs_labeled(text):
+                split = _split_ref(ref)
+                if split:
+                    (labelled if lab else bare).add(split[0])
+        dark = bare - labelled
+        self.assertEqual(
+            UNLABELLED_ACTIONS, dark,
+            "the set of actions carrying NO version label changed.\n"
+            f"  went dark (disarms A/B/C for them): {sorted(dark - UNLABELLED_ACTIONS)}\n"
+            f"  newly labelled (good — record it):  {sorted(UNLABELLED_ACTIONS - dark)}\n"
+            "Update UNLABELLED_ACTIONS in this file and say which, and why.",
         )
 
     def test_labels_are_internally_consistent(self):
@@ -345,6 +377,11 @@ class TestDetectorFiresOnEachShape(unittest.TestCase):
             "actions/checkout@main",
             "./.github/actions/setup",
             "docker://alpine:3.23",
+            # The two above carry no `@` at all, so they exit on the first line
+            # and never reach the `.`-prefix and `://` filters. These do, and are
+            # the cases that actually exercise them:
+            "./.github/actions/setup@" + "a" * 40,
+            "docker://ghcr.io/x@" + "a" * 40,
             "actions/checkout@" + "a" * 39,   # too short
             "checkout@" + "a" * 40,            # no owner
             "actions/checkout@" + "g" * 40,    # not hex
