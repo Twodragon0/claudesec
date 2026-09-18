@@ -274,7 +274,24 @@ def uses_refs(text: str) -> list:
 # trailing issue reference is the last `#` on the line. Caught by this module's own
 # self-test, which is the reason a primitive gets one.
 _COMMENT_BODY_RE = re.compile(r"\s+#(?P<body>.*)$")
-_VERSION_ONLY_RE = re.compile(r"v?\d[\w.+-]*")
+
+# The label is the version at the HEAD of the comment body, and trailing context
+# after it is allowed. Requiring the body to be a version and NOTHING else
+# (`fullmatch`) was wrong in a way that disarms the consistency check rather
+# than tripping it: this repo already ships
+# `dependency-review-action@a1d282b3…  # v5.0.0 (node24)`, which read as
+# UNLABELLED, so the site left the comparison silently. Adopt that existing
+# style across an action's sites and the "one sha, one label" invariant has
+# nothing left to compare — found by the false-negative review of #557, with a
+# PoC that relabels one of seven `setup-python` sites a MAJOR out and stays
+# green. Renovate's own `# tag=v1.2.3` spelling is accepted for the same reason.
+#
+# A version must start with `v` or contain a dot, so `# see #479` does not
+# donate "479" as a label. The terminator set keeps `v7.0.0-rc1` whole while
+# ending the token at a space, comma, semicolon or parenthesis.
+_LABEL_RE = re.compile(
+    r"^(?:tag=)?(?P<label>v\d[\w.+-]*|\d+\.[\w.+-]+)(?=[\s,;)]|$)"
+)
 
 
 def uses_refs_labeled(text: str) -> list:
@@ -288,11 +305,14 @@ def uses_refs_labeled(text: str) -> list:
     ref regex has been fixed in three directions (quoted key, space before the
     colon, quoted value) and a copy would inherit none of them.
 
-    The label is read from the RAW line and only when it looks like a version
-    (`v?\\d...`), so an explanatory trailing comment (`# pinned, see #479`) reads
-    as unlabelled rather than as a bogus version. Whitespace before the `#` is
-    required, matching `strip_inline_comment`: a `#` inside the ref itself is
-    part of the token, not a comment."""
+    The label is read from the RAW line, taken from the HEAD of the comment body
+    with trailing context allowed (`# v5.0.0 (node24)` -> `"v5.0.0"`), so an
+    explanatory comment (`# pinned, see #479`) reads as unlabelled rather than as
+    a bogus version. Whitespace before the `#` is required, matching
+    `strip_inline_comment`: a `#` inside the ref itself is part of the token, not
+    a comment. See `_LABEL_RE` for why "version and nothing else" was the wrong
+    rule — it silently DROPPED sites from the comparison instead of flagging
+    them."""
     out = []
     for lineno, raw in enumerate(text.splitlines(), start=1):
         if raw.lstrip().startswith("#"):
@@ -303,9 +323,9 @@ def uses_refs_labeled(text: str) -> list:
         cm = _COMMENT_BODY_RE.search(raw)
         label = None
         if cm:
-            body = cm.group("body").strip()
-            if _VERSION_ONLY_RE.fullmatch(body):
-                label = body
+            lm = _LABEL_RE.match(cm.group("body").strip())
+            if lm:
+                label = lm.group("label")
         out.append((lineno, m.group("ref"), label))
     return out
 

@@ -44,13 +44,20 @@ import unittest
 from collections import defaultdict
 from pathlib import Path
 
-from _ci_guard_util import uses_refs_labeled, workflow_and_action_files
+from _ci_guard_util import (
+    tracked_files,
+    uses_refs_labeled,
+    workflow_and_action_files,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Only 40-hex SHA pins carry a version label worth cross-checking. Tag-pinned
 # (`@v4`) and local (`./`) refs name their own version and are out of scope.
 _SHA_LEN = 40
+
+# Measured 2026-09-18 over `label_corpus()`: 74 labelled, 4 bare, 78 total.
+MIN_LABELLED_PINS = 74
 
 
 def _split_ref(ref: str):
@@ -121,10 +128,31 @@ def label_problems(docs) -> list:
     return problems
 
 
+def label_corpus() -> list:
+    """Repo-relative paths whose `uses:` labels are in scope.
+
+    `workflow_and_action_files()` is NOT enough. It covers what THIS repo runs;
+    `templates/` is what `scripts/setup.sh` installs into OTHER people's
+    repositories, and a version label there is read by maintainers who cannot
+    see our history — the highest-cost place for a wrong one, and the lowest
+    chance of anyone noticing. The false-negative review of #557 found a real C
+    violation living in exactly that gap
+    (`dependency-review-action` labelled in `templates/` and reading as bare in
+    `lint.yml`, because the annotated form parsed to None).
+
+    Enumerated from `git ls-files`, not the filesystem: an untracked local file
+    is not what CI builds from (`tracked_files`)."""
+    paths = {str(Path(p).relative_to(REPO_ROOT)) for p in workflow_and_action_files()}
+    paths |= {
+        p for p in tracked_files()
+        if p.startswith("templates/") and p.endswith((".yml", ".yaml"))
+    }
+    return sorted(paths)
+
+
 def _real_docs() -> list:
     return [
-        (str(Path(p).relative_to(REPO_ROOT)), Path(p).read_text(encoding="utf-8"))
-        for p in workflow_and_action_files()
+        (p, (REPO_ROOT / p).read_text(encoding="utf-8")) for p in label_corpus()
     ]
 
 
@@ -134,18 +162,31 @@ class TestActionPinLabels(unittest.TestCase):
         files = workflow_and_action_files()
         self.assertGreater(len(files), 5, "workflow enumeration collapsed")
 
-    def test_some_ref_is_actually_labelled(self):
-        """Non-vacuity of the SUBJECT: if nothing carries a label, A/B/C are all
-        trivially satisfiable and a green here would mean nothing."""
+    def test_labelled_pin_count_does_not_regress(self):
+        """Non-vacuity of the SUBJECT, as a RATCHET rather than a floor.
+
+        A/B/C are all trivially satisfiable over unlabelled refs, so labels going
+        dark disarms this guard without failing it. A loose threshold does not
+        notice that: the first version of this test allowed anything above 20
+        while 74 pins were labelled, so an entire action could lose its labels —
+        the exact silent-degradation path the false-negative review of #557
+        demonstrated — with the canary still green.
+
+        Ratchet direction: `>=`. Adding a labelled pin is fine and RAISES the
+        baseline; removing one is a decision that has to be made here, in this
+        constant, where a reviewer sees it."""
         labelled = [
             (p, ln, ref)
             for p, text in _real_docs()
             for ln, ref, lab in uses_refs_labeled(text)
             if lab is not None and _split_ref(ref)
         ]
-        self.assertGreater(
-            len(labelled), 20, "almost no SHA pin carries a version label; this "
-            "guard would be asserting over an empty set"
+        self.assertGreaterEqual(
+            len(labelled), MIN_LABELLED_PINS,
+            f"labelled SHA pins fell to {len(labelled)}, below the "
+            f"{MIN_LABELLED_PINS} baseline. Labels going dark disarms A/B/C "
+            f"silently — if a pin was legitimately removed, lower the constant "
+            f"in this file and say why in the PR."
         )
 
     def test_labels_are_internally_consistent(self):
@@ -231,6 +272,37 @@ class TestDetectorFiresOnEachShape(unittest.TestCase):
         )
         problems = label_problems(self._doc(body))
         self.assertTrue(any(p.startswith("A:") for p in problems), problems)
+
+    def test_annotated_labels_do_not_disarm_A(self):
+        """Regression pin for the HIGH the false-negative review of #557 found.
+
+        With the old `fullmatch` rule, adopting this repo's existing
+        `# v5.0.0 (node24)` style across an action's sites made every one of them
+        read as unlabelled, so a MAJOR drift among them produced NO finding —
+        a green guard over the exact incident it was written for. Both arms are
+        asserted: the drift must fire, and the consistent-annotated case must
+        NOT, because a guard that cries wolf on a legal style gets disabled."""
+        annotated = "".join(
+            f"      - uses: actions/setup-python@{self.SHA_A}  # v7.0.0 (node24)\n"
+            for _ in range(3)
+        )
+        self.assertEqual([], label_problems(self._doc(annotated)))
+        drifted = annotated.replace("# v7.0.0 (node24)", "# v6.1.0 (node24)", 1)
+        self.assertNotEqual(annotated, drifted, "fixture stale")
+        problems = label_problems(self._doc(drifted))
+        self.assertTrue(any(p.startswith("A:") for p in problems), problems)
+
+    def test_templates_are_in_scope(self):
+        """Regression pin for the second HIGH: `templates/` ships to OTHER
+        repositories via `scripts/setup.sh`, so a wrong label there is read by
+        maintainers with none of our context — and it was outside the corpus,
+        hiding a live C violation."""
+        corpus = label_corpus()
+        self.assertTrue(
+            any(p.startswith("templates/") for p in corpus),
+            "templates/ dropped out of the corpus; a label that ships to other "
+            "repos would stop being checked",
+        )
 
     def test_tag_pinned_and_local_refs_are_out_of_scope(self):
         body = (

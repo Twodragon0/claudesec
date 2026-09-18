@@ -203,6 +203,29 @@ class TestUsesRefsLabeled(unittest.TestCase):
         out = uses_refs_labeled(f"      - uses: treosh/x@{self.SHA}  # 12.6.2\n")
         self.assertEqual(out[0][2], "12.6.2")
 
+    def test_annotated_label_keeps_the_version(self):
+        """`# v5.0.0 (node24)` ships in this repo today. Reading it as UNLABELLED
+        drops the site from the consistency comparison instead of flagging it —
+        a silent disarm, which is why the rule is head-of-body and not fullmatch
+        (false-negative review of #557)."""
+        for body, want in (
+            ("v5.0.0 (node24)", "v5.0.0"),
+            ("v7.0.1, node24", "v7.0.1"),
+            ("tag=v7.0.1", "v7.0.1"),          # Renovate's SHA-pin spelling
+            ("v7.0.0-rc1", "v7.0.0-rc1"),      # terminator must not split a pre-release
+        ):
+            with self.subTest(body=body):
+                out = uses_refs_labeled(f"      - uses: a/b@{self.SHA}  # {body}\n")
+                self.assertEqual(out[0][2], want)
+
+    def test_prose_never_donates_a_version(self):
+        """The false-alarm direction. A bare number must not become a label, or
+        `# see #479` would manufacture a conflict against a real one."""
+        for body in ("see #479", "pinned, see #479", "do not bump", "#479"):
+            with self.subTest(body=body):
+                out = uses_refs_labeled(f"      - uses: a/b@{self.SHA}  # {body}\n")
+                self.assertIsNone(out[0][2])
+
 
 class TestNonCommentLines(unittest.TestCase):
     def test_drops_full_line_comments(self):
