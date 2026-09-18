@@ -36,6 +36,49 @@ Thresholds are floors, not the measured values, so ordinary CI variance (a
 linter absent on the runner turning a pass into a skip) does not produce a red
 build. ``failed == 0`` is the assertion that actually carries the baseline.
 
+WHAT ``failed == 0`` SILENTLY DEPENDS ON — READ BEFORE ADDING A TOKEN
+--------------------------------------------------------------------
+This baseline scans ``access-control,cicd,code`` against claudesec ITSELF, so
+every check in that scope has to come out non-failing on this repository. Not
+all of them are static file greps: ``scanner/checks/cicd/freshness.sh``
+(CICD-010/011/012) reads GitHub Actions run history through ``gh``.
+
+Those three pass here **because they never run in CI.** They gate on
+``gh auth status``, and ``.github/workflows/lint.yml`` exports no ``GH_TOKEN``
+or ``GITHUB_TOKEN`` — Actions does not place the automatic token in the
+environment unless a workflow asks for it — so the precondition fails and all
+three report ``skip``, which this file does not count. Measured 2026-09-18:
+with an empty ``HOME`` and no token, ``gh auth status`` exits non-zero.
+
+The dependency is therefore on an ABSENCE, and until this note nothing declared
+it.
+
+What adding a token does NOT do is break this immediately — that was worth
+measuring rather than assuming. Measured 2026-09-18 with a live authenticated
+``gh``: the same three categories still report ``failed: 0``, ``score: 97``,
+grade A; ``skipped`` drops 10 -> 7 and ``passed`` rises 34 -> 37 as
+CICD-010/011/012 move from ``skip`` to ``pass``. So a token changes the counts
+this file tolerates, not the assertion it enforces.
+
+The hazard is the second-order one. With a token, ``failed == 0`` stops being a
+statement about this repository's SOURCE TREE and quietly becomes one about its
+LIVE CI HEALTH: whether the nightly scan still succeeds, whether ``main`` still
+deploys, what Dependabot currently reports. Those change without anyone touching
+a file here. The build would then go red as ``expected 0 failed checks, got N``
+on some unrelated commit, days after the token landed, in a snapshot test whose
+name points at the scan report rather than at the CI outage that actually caused
+it.
+
+So if you are adding a token to that job, decide deliberately whether this
+assertion should follow live CI health. Two ways out, neither implemented here
+because both alter the baseline's contract rather than its inputs:
+
+1. Exclude network-dependent checks from baseline generation explicitly, so the
+   scope is a stated choice rather than an accident of credentials.
+2. Replace ``failed == 0`` with a snapshot comparison against a committed
+   expected-verdict set, so a new failure arrives as a reviewable diff instead
+   of a threshold breach.
+
 Security baseline references:
 - OWASP Top 10 (https://owasp.org/www-project-top-ten/)
 - NIST SP 800-53 Rev 5 — the scanner control mapping tracks NIST controls.
