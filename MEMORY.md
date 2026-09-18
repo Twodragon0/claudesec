@@ -645,12 +645,16 @@ catalog rows **67 → 73**.
   The lever is now written onto the fixture's docstring, because the next person will reach for
   the same two wrong ones.
 
-### Cycle #555–#559 — a comment that restates code, in four places (merged 2026-09-17 → 09-18)
+### Cycle #555–#559 — a comment that restates code, and a guard that kept re-enumerating (merged 2026-09-17 → 09-18)
 
-Five PRs from one sweep. The shape is narrower than the last cycle's and easier to recognise:
-**a comment, a doc or a backlog entry restating something it does not own, and nothing comparing
-the two.** Every instance was found by measuring the claim against its subject, and the two that
-looked worst on paper turned out to be the least interesting.
+Six PRs. Five came out of one sweep and share a shape that is narrower than the last cycle's and
+easier to recognise: **a comment, a doc or a backlog entry restating something it does not own,
+and nothing comparing the two.** Every instance was found by measuring the claim against its
+subject, and the two that looked worst on paper turned out to be the least interesting.
+
+The sixth, #557, is the sweep's one real code finding and carries the cycle's other lesson: the
+guard written to catch that class needed four passes to stop ENUMERATING the shapes it was
+meant to model.
 
 - **A stable issue set is not a verified backlog** (#555). The open-issue list was IDENTICAL to
   the previous revision's eight — which is exactly why re-reading it would have passed. Measuring
@@ -707,7 +711,42 @@ looked worst on paper turned out to be the least interesting.
   Python measurement table in `Dockerfile` (narrative, not a restatement), a fixture string in a
   guard, and a workflow `KEY: value` scan that returned **zero** hits because #542's guard holds.
   Expect that ratio. The real finds were the nginx comment and the `setup-python  # v6.1.0` label
-  on a `v7.0.0` sha, which is in flight as #557 and gets its own entry when it lands.
+  on a `v7.0.0` sha, which landed as #557 — the entry below.
+- **#557: a label one MAJOR below what runs, and a guard that took four attempts to stop
+  enumerating.** `lint.yml` pinned `actions/setup-python@5fda3b95  # v6.1.0` while that sha is
+  **v7.0.0**. The sha is what Actions executes, so nothing misbehaved — the cost is that a
+  reader, a reviewer or the next bumper reasons a major below reality. Six sibling refs were
+  BARE, so the one wrong label had nothing to disagree with; that is why it survived.
+  `test_ci_action_pin_labels.py` asserts INTERNAL CONSISTENCY only — one (action, sha) carries
+  at most one label, one (action, label) maps to at most one sha, and an action labelled
+  anywhere is labelled everywhere. **It cannot check a label against the real tag**: that needs
+  the GitHub API and guards run offline, so the limit is written into the docstring AND the
+  catalog row rather than implied away. 58% of identities are single-site, where nothing can
+  fire at all.
+- **The same mistake four times, one character apart each time** (#557). "Two spellings of one
+  release read as two claims" had to be closed for uppercase (`V7.0.0`), for major aliases
+  (`v7` vs `v7.0.1`), for the `v` prefix (`v12.6.2` vs `12.6.2`) and for bracketed context
+  (`v4.38.0 (CodeQL bundle 2.19.0)`). Every one fired on CORRECT data, which is the direction
+  that gets a guard deleted rather than fixed. And two core rules each took a THIRD attempt —
+  label parsing (fullmatch → head+terminator → search) and the disarm pin (`>20` → `>=74` →
+  an exact SET) — both times because the previous version enumerated shapes. ADR-001 §5 names
+  this exactly; recognising it on attempt one would have saved both series.
+- **A guard's own fixes are where the next defect comes from** (#557). Two adversarial passes
+  found 21 real issues across several rounds, and a large share were introduced BY an earlier
+  fix in the same PR: the sha was case-folded and the path was not; widening the corpus left
+  13 of 32 files without an enumeration canary; the catalog row kept naming a constant that had
+  been deleted; a "ratchet" was payable by unrelated additions; and the bracket fix moved the
+  cry-wolf from the label path into the REPORT, where its message asserted something false.
+  The last one is generalised in `WRAPPED_PRIMITIVES`: a caller must not reach past a decision
+  function to the primitive it wraps, checked by AST (never grep — the module it polices
+  mentions the forbidden name five times in prose explaining the rule).
+- **Negative fixtures that proved nothing, twice in one file** (#557). Two `assertEqual([], …)`
+  controls were vacuous: one put a different sha in the commented ref, so no comparison could
+  ever occur and deleting the comment-skip changed nothing; the other routed out-of-scope ref
+  FORMS through the detector, which returns `[]` for them regardless because none carries a
+  label. Both now assert a DELTA or call the predicate directly, and the comment one carries a
+  positive control. This file cited #553's "assert a delta, not an empty list" three tests above
+  the first of them.
 
 ## Open Backlog
 
