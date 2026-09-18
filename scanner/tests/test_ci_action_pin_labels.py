@@ -27,6 +27,13 @@ pinned at seven sites with one label has nothing to contradict. That was exactly
 the shape of the live defect — six bare `setup-python` refs and one wrong label.
 C converts single-site drift into a detectable conflict at the next site.
 
+THE SECOND THING IT CANNOT DO: an action pinned at exactly ONE site. A, B and C
+all need two sites sharing an identity, so a lone wrong label is undetectable
+here by construction. Measured 2026-09-18: 11 of 19 identities in the corpus are
+single-site (58%) — down from 68% before `templates/` was folded in, which is
+part of why widening the corpus was worth doing, but still most of it. Adding
+`templates/` raised coverage; only the tag-resolving watch closes the rest.
+
 Verifying a label against the actual tag needs network and therefore belongs in
 a scheduled watch workflow (the `protection-drift-watch` / `dast-freshness-watch`
 pattern), not here. Not built yet; recorded so the gap is a decision and not an
@@ -40,6 +47,7 @@ System Configuration); NIST SSDF PW.4 / PO.3 (verify third-party components and
 their provenance).
 """
 
+import re
 import unittest
 from collections import defaultdict
 from pathlib import Path
@@ -91,7 +99,33 @@ def _split_ref(ref: str):
     parts = path.split("/")
     if len(parts) < 2 or path.startswith(".") or "://" in path:
         return None
-    return "/".join(parts[:2]), rev
+    # The PATH is case-folded for the same reason the sha is: GitHub resolves
+    # `Actions/Checkout` to `actions/checkout` (verified against the API), so
+    # leaving it case-sensitive SPLITS one action into two identities and hides
+    # a disagreement between them — the silent direction, and the one the
+    # unlabelled-set pin cannot see either.
+    return "/".join(parts[:2]).lower(), rev
+
+
+# A `uses:` inside a YAML FLOW mapping (`- { uses: x@sha, with: {...} }`). Actions
+# runs it — PyYAML resolves the step fully — but `_USES_LINE_RE` anchors the key to
+# the start of the line, so the whole ref is invisible to every line-scanning guard
+# in this repo, not just this one. Rather than widen the shared matcher (which
+# would change what the SHA-pin and gate-topology guards see, in one PR, as a side
+# effect), this FAILS CLOSED on the form: ADR-001 §5's rule for a shape the scanner
+# provably cannot read. The broader gap is reported separately.
+_FLOW_USES_RE = re.compile(r"[{,]\s*['\"]?uses['\"]?\s*:", re.IGNORECASE)
+
+
+def unscannable_uses_lines(text: str) -> list:
+    """`(lineno, line)` for every flow-style `uses:` the line matcher cannot see."""
+    out = []
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        if raw.lstrip().startswith("#"):
+            continue
+        if _FLOW_USES_RE.search(raw):
+            out.append((lineno, raw.strip()))
+    return out
 
 
 def label_problems(docs) -> list:
@@ -222,6 +256,22 @@ class TestActionPinLabels(unittest.TestCase):
             f"  went dark (disarms A/B/C for them): {sorted(dark - UNLABELLED_ACTIONS)}\n"
             f"  newly labelled (good — record it):  {sorted(UNLABELLED_ACTIONS - dark)}\n"
             "Update UNLABELLED_ACTIONS in this file and say which, and why.",
+        )
+
+    def test_no_uses_is_written_in_a_form_the_scanner_cannot_read(self):
+        """Fail closed on flow-style `uses:`, which Actions executes and the line
+        matcher cannot see — so A/B/C would pass over it in silence."""
+        found = [
+            f"{p}:{ln}  {line}"
+            for p, text in _real_docs()
+            for ln, line in unscannable_uses_lines(text)
+        ]
+        self.assertEqual(
+            [], found,
+            "a `uses:` is written in YAML flow style, which every line-scanning "
+            "guard in this repo is blind to (this one, the SHA-pin check and the "
+            "gate topology check). Rewrite it as a block mapping:\n  "
+            + "\n  ".join(found),
         )
 
     def test_labels_are_internally_consistent(self):
@@ -388,6 +438,32 @@ class TestDetectorFiresOnEachShape(unittest.TestCase):
         ):
             with self.subTest(ref=ref):
                 self.assertIsNone(_split_ref(ref))
+
+    def test_a_case_varied_path_is_the_same_identity(self):
+        """GitHub resolves `Actions/Checkout` to `actions/checkout`, so leaving
+        the path case-sensitive would SPLIT one action in two and hide the
+        disagreement — and the unlabelled-set pin cannot see that either."""
+        lower = f"actions/checkout@{self.SHA_A}"
+        mixed = f"Actions/Checkout@{self.SHA_A}"
+        self.assertEqual(_split_ref(lower), _split_ref(mixed))
+        body = (
+            f"      - uses: {lower}  # v7.0.1\n"
+            f"      - uses: {mixed}  # v6.0.0\n"
+        )
+        problems = label_problems(self._doc(body))
+        self.assertTrue(any(p.startswith("A:") for p in problems), problems)
+
+    def test_flow_style_uses_is_reported_not_skipped(self):
+        """Actions executes a flow-style step; the line matcher cannot see it.
+        Silence there would be a bypass, so the form itself is the finding."""
+        flow = (
+            '      - { uses: "actions/setup-python@%s", with: { python-version: "3.11" } }\n'
+            % self.SHA_A
+        )
+        self.assertEqual([], unscannable_uses_lines(
+            f"      - uses: actions/setup-python@{self.SHA_A}  # v7.0.0\n"
+        ))
+        self.assertEqual(1, len(unscannable_uses_lines(flow)))
 
     def test_an_uppercase_sha_is_the_same_identity(self):
         """A pin spelled in uppercase hex is the same commit. Rejecting it would
