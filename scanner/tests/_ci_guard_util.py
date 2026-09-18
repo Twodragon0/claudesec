@@ -322,6 +322,25 @@ _VERSION_TOKEN_RE = re.compile(
 )
 
 
+# A LAYERING declaration, consumed by the meta-guard in
+# `test_ci_guard_assertion_scoping.py`: `{low-level primitive: the decision
+# function that wraps it}`. A guard module must call the VALUE, never the KEY.
+#
+# The shape this exists for, measured: `label_candidates` was written so nobody
+# has to decide what `version_tokens` output MEANS, and the second caller
+# (`ambiguous_label_lines`) reached past it and re-decided differently — so one
+# comment shape was labelled correctly by one path and reported ambiguous by the
+# other, with a failure message asserting something false. The divergence was
+# only observable on a comment nobody had written yet; this fails the moment the
+# second caller is typed.
+#
+# NOT every shared helper belongs here. `strip_inline_comment` and
+# `strip_inline_comment_sh` have 16 and 14 callers and are PEERS chosen by
+# language, not layers — a naive "one caller per primitive" rule would wrongly
+# flag them. The entry is warranted only when calling the key requires making a
+# decision the value already made.
+WRAPPED_PRIMITIVES = {"version_tokens": "label_candidates"}
+
 _BRACKETED_RE = re.compile(r"\([^)]*\)|\[[^\]]*\]")
 
 
