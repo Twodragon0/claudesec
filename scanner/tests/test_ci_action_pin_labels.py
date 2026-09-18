@@ -250,12 +250,23 @@ class TestActionPinLabels(unittest.TestCase):
                 if split:
                     (labelled if lab else bare).add(split[0])
         dark = bare - labelled
+        # The message states the FACT, not a diagnosis. An action appearing here
+        # may have lost its labels or may be newly added and never have had any,
+        # and this check cannot tell those apart — only a second pinned set
+        # could, at a maintenance cost the distinction does not earn, BECAUSE
+        # THE REMEDY IS THE SAME for both. Saying "went dark" (an earlier
+        # version did) is wrong for the newly-added case and sends the reader
+        # after a regression that never happened — measured by the
+        # false-positive review of #557 on a new third-party action.
         self.assertEqual(
             UNLABELLED_ACTIONS, dark,
-            "the set of actions carrying NO version label changed.\n"
-            f"  went dark (disarms A/B/C for them): {sorted(dark - UNLABELLED_ACTIONS)}\n"
-            f"  newly labelled (good — record it):  {sorted(UNLABELLED_ACTIONS - dark)}\n"
-            "Update UNLABELLED_ACTIONS in this file and say which, and why.",
+            "the set of actions carrying NO version label anywhere changed.\n"
+            f"  no label anywhere: {sorted(dark - UNLABELLED_ACTIONS)}\n"
+            "    -> either label EVERY site of it (preferred: that puts it under "
+            "A/B/C), or add it to UNLABELLED_ACTIONS if the action has no "
+            "meaningful version to name.\n"
+            f"  now labelled: {sorted(UNLABELLED_ACTIONS - dark)}\n"
+            "    -> good; drop it from UNLABELLED_ACTIONS.",
         )
 
     def test_no_uses_is_written_in_a_form_the_scanner_cannot_read(self):
