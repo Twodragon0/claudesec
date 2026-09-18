@@ -141,6 +141,15 @@ def labels_agree(a: str, b: str) -> bool:
 
     Compatible means equal, or one is the other's prefix AT A DOT BOUNDARY —
     `v7` ⊂ `v7.0.1` but NOT `v7` ⊂ `v71.0`, which is a different major."""
+    # The leading `v` is normalised here, not in `version_tokens`, so the
+    # message still quotes the label as written. `v12.6.2` and `12.6.2` are one
+    # release: `treosh/lighthouse-ci-action` is labelled `# v12.6.2` today while
+    # that repo tags `12.6.2`, and the bare form is accepted, so two sites
+    # spelling the same release either way reported a contradiction between
+    # identical versions. Third instance of the family the case fold and the
+    # alias rule each closed one member of — one character along each time.
+    a = a[1:] if a[:1] == "v" else a
+    b = b[1:] if b[:1] == "v" else b
     if a == b:
         return True
     short, long = sorted((a, b), key=len)
@@ -614,6 +623,42 @@ class TestDetectorFiresOnEachShape(unittest.TestCase):
         for l1, l2 in (("v7", "v71.0"), ("v7", "v6.1.0"), ("v4", "v5")):
             with self.subTest(pair=(l1, l2)):
                 self.assertTrue(any(p.startswith("A:") for p in two(l1, l2)))
+
+    def test_a_bundled_tool_version_in_brackets_is_context_not_an_alternative(self):
+        """Bracketing, not count, decides ambiguity. This repo pins four actions
+        whose most useful annotation is the BUNDLED tool's version — codeql,
+        both zaproxy actions, lighthouse — so reporting those as ambiguous told
+        maintainers to delete the informative half of the comment. The shipping
+        style `# v5.0.0 (node24)` only escaped because `node24` has no dot."""
+        for body, want in (
+            ("v4.38.0 (CodeQL bundle 2.19.0)", "v4.38.0"),
+            ("v0.15.0 (ZAP 2.15.0)", "v0.15.0"),
+            ("v5.0.0 (node 24.1)", "v5.0.0"),
+            ("(v7.0.0)", "v7.0.0"),          # fallback: nothing outside brackets
+            ("latest (v7.0.0)", "v7.0.0"),   # fallback again
+        ):
+            with self.subTest(body=body):
+                out = uses_refs_labeled(
+                    f"      - uses: a/b@{self.SHA_A}  # {body}\n"
+                )
+                self.assertEqual(want, out[0][2])
+        # Same-level alternatives must still refuse to resolve.
+        for body in ("v7.0.0 -> v8.0.0", "v7.0.0; supersedes v6.1.0"):
+            with self.subTest(body=body):
+                out = uses_refs_labeled(
+                    f"      - uses: a/b@{self.SHA_A}  # {body}\n"
+                )
+                self.assertIsNone(out[0][2])
+
+    def test_the_v_prefix_is_not_a_different_version(self):
+        """`v12.6.2` and `12.6.2` are one release. lighthouse-ci-action is
+        labelled `# v12.6.2` here while that repo tags `12.6.2`, and the bare
+        form is accepted — so without this, two sites spelling the same release
+        either way reported a contradiction between identical versions."""
+        for a, b in (("v12.6.2", "12.6.2"), ("v7.0.0", "7.0.0"), ("v8", "8.0.0")):
+            with self.subTest(pair=(a, b)):
+                self.assertTrue(labels_agree(a, b))
+        self.assertFalse(labels_agree("v7", "v71.0"))
 
     def test_an_ambiguous_label_is_reported_not_guessed(self):
         """Two versions in one comment: the parser refuses to pick, so the line

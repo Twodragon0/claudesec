@@ -322,6 +322,30 @@ _VERSION_TOKEN_RE = re.compile(
 )
 
 
+_BRACKETED_RE = re.compile(r"\([^)]*\)|\[[^\]]*\]")
+
+
+def label_candidates(comment_body: str) -> list:
+    """Version tokens a comment OFFERS as the label, bracketed context removed.
+
+    The discriminator for "ambiguous" is BRACKETING, not count. `# v7.0.0 ->
+    v8.0.0` names two alternatives at the same level and must not be guessed at;
+    `# v4.38.0 (CodeQL bundle 2.19.0)` names one version plus context, and this
+    repo pins four actions — codeql-action, both zaproxy actions,
+    lighthouse-ci-action — whose most useful annotation is exactly the bundled
+    scanner's version. Counting tokens flat reported all four as ambiguous, and
+    the remedy it offered was to delete the informative half of the comment,
+    which trains people toward barer pins: against this guard's own purpose.
+
+    The house style `# v5.0.0 (node24)` survived only because `node24` has no
+    dot — `# v5.0.0 (node 24.1)` did not. A cliff edge, not a margin.
+
+    Falls back to the whole body when nothing is left outside the brackets, so
+    `# (v7.0.0)` and `# latest (v7.0.0)` still resolve."""
+    outside = version_tokens(_BRACKETED_RE.sub(" ", comment_body))
+    return outside or version_tokens(comment_body)
+
+
 def version_tokens(comment_body: str) -> list:
     """Distinct version-like tokens named in a comment body, order preserved."""
     seen, out = set(), []
@@ -366,7 +390,7 @@ def uses_refs_labeled(text: str) -> list:
         cm = _COMMENT_BODY_RE.search(raw)
         label = None
         if cm:
-            toks = version_tokens(cm.group("body"))
+            toks = label_candidates(cm.group("body"))
             if len(toks) == 1:
                 label = toks[0]
         out.append((lineno, m.group("ref"), label))
