@@ -52,7 +52,12 @@ RUN apk add --no-cache \
 # prowler's requirement is now `>=3.10,<3.14` (it was `<3.13` when this file was
 # written; prowler-cloud/prowler#6737). py3.12 is comfortably inside it.
 #
-# Verified for 5.39.1 on this exact base, 2026-08-24:
+# Verified for 5.39.1 on 2026-08-24, on alpine:3.20 — the base AT THE TIME.
+# #479 moved the base to 3.23 the next day and did not re-run this; the record
+# said "this exact base" until 2026-09-18, which claimed a verification nobody
+# performed. Per the measured table at the top of this file, 3.23 gives Python
+# 3.12.14 — same 3.12 line, still inside prowler's `>=3.10,<3.14` — so the
+# conclusion carries over, but the run below was NOT repeated on 3.23:
 #   alpine:3.20 -> Python 3.12.13
 #   pip install prowler==5.39.1 -> ok
 #   prowler --version -> "Prowler 5.39.1"   (runs, not just installs)

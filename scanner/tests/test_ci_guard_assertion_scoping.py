@@ -74,13 +74,18 @@ OWASP CICD-SEC-1 (Insufficient Flow Control); NIST SP 800-218 (SSDF) PO.3, PW.4.
 """
 
 import ast
+import os
 import re
+import sys
 import unittest
 from pathlib import Path
 
 # scanner/tests/this_file -> parents[2] == repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTS_DIR = REPO_ROOT / "scanner" / "tests"
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _ci_guard_util import WRAPPED_PRIMITIVES  # noqa: E402
 
 # Positive presence assertions -> index of the HAYSTACK argument.
 PRESENCE_ASSERTIONS = {"assertIn": 1, "assertRegex": 0}
@@ -355,6 +360,79 @@ def scan_pin_searches() -> list:
     for path in sorted(TESTS_DIR.glob("test_ci_*.py")):
         hits.extend(pin_searches(path.read_text(encoding="utf-8"), path.name))
     return sorted(set(hits))
+
+
+def wrapped_primitive_calls(source: str, filename: str) -> list:
+    """`"<file>:<line> <primitive> -> use <decision fn>"` for every CALL to a
+    low-level primitive that a decision function already wraps.
+
+    AST, not grep, because the names appear constantly in prose — the module
+    that triggered this rule mentions `version_tokens` five times in comments
+    explaining why it must not be called. A text scan would report every one of
+    them and the guard would be deleted within a week."""
+    hits = []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return hits
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        name = fn.id if isinstance(fn, ast.Name) else (
+            fn.attr if isinstance(fn, ast.Attribute) else None
+        )
+        if name in WRAPPED_PRIMITIVES:
+            hits.append(
+                f"{filename}:{node.lineno} {name} -> use {WRAPPED_PRIMITIVES[name]}"
+            )
+    return hits
+
+
+def scan_wrapped_primitives() -> list:
+    hits = []
+    for path in sorted(TESTS_DIR.glob("test_ci_*.py")):
+        hits.extend(wrapped_primitive_calls(path.read_text(encoding="utf-8"), path.name))
+    return sorted(set(hits))
+
+
+class TestWrappedPrimitivesAreNotCalledDirectly(unittest.TestCase):
+    """A guard must call the DECISION function, not the primitive under it.
+
+    Generalised from a real defect: `label_candidates` exists so nobody has to
+    decide what `version_tokens` output means, and a second caller reached past
+    it and decided differently. The divergence was only observable on an input
+    nobody had written yet — this fails at the mistake site instead."""
+
+    def test_no_guard_calls_a_wrapped_primitive(self):
+        found = scan_wrapped_primitives()
+        self.assertEqual(
+            [], found,
+            "a guard calls a primitive whose wrapper already decides what its "
+            "output means; call the wrapper so the two cannot diverge:\n  "
+            + "\n  ".join(found),
+        )
+
+    def test_the_declaration_is_not_empty(self):
+        """Non-vacuity of the SUBJECT: an empty dict makes the scan trivially
+        green and the rule silently inert."""
+        self.assertTrue(WRAPPED_PRIMITIVES, "WRAPPED_PRIMITIVES emptied")
+
+    def test_the_detector_fires_on_a_call_and_not_on_prose(self):
+        """Both directions. The prose arm is the one that decides whether this
+        guard survives: the module it polices explains the rule using the very
+        name it forbids calling."""
+        prim = next(iter(WRAPPED_PRIMITIVES))
+        self.assertEqual(
+            1, len(wrapped_primitive_calls(f"x = {prim}('a')\n", "f.py"))
+        )
+        for benign in (
+            f"# never call {prim} here\n",
+            f'"""Use the wrapper, not {prim}."""\nx = 1\n',
+            f"s = 'call {prim}()'\n",
+        ):
+            with self.subTest(benign=benign.strip()[:40]):
+                self.assertEqual([], wrapped_primitive_calls(benign, "f.py"))
 
 
 class TestGuardAssertionScoping(unittest.TestCase):

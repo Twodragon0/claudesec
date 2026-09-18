@@ -268,6 +268,154 @@ def uses_refs(text: str) -> list:
     return out
 
 
+# The comment starts at the FIRST whitespace-preceded `#` (the strip_inline_comment
+# boundary); everything after it is the comment BODY. Anchoring the version to the
+# end of the line instead would read `# pinned, see #479` as the label "479" — the
+# trailing issue reference is the last `#` on the line. Caught by this module's own
+# self-test, which is the reason a primitive gets one.
+_COMMENT_BODY_RE = re.compile(r"\s+#(?P<body>.*)$")
+
+# The label is the version at the HEAD of the comment body, and trailing context
+# after it is allowed. Requiring the body to be a version and NOTHING else
+# (`fullmatch`) was wrong in a way that disarms the consistency check rather
+# than tripping it: this repo already ships
+# `dependency-review-action@a1d282b3…  # v5.0.0 (node24)`, which read as
+# UNLABELLED, so the site left the comparison silently. Adopt that existing
+# style across an action's sites and the "one sha, one label" invariant has
+# nothing left to compare — found by the false-negative review of #557, with a
+# PoC that relabels one of seven `setup-python` sites a MAJOR out and stays
+# green. Renovate's own `# tag=v1.2.3` spelling is accepted for the same reason.
+#
+# A version must start with `v` or contain a dot, so `# see #479` does not
+# donate "479" as a label. The terminator set keeps `v7.0.0-rc1` whole while
+# ending the token at a space, comma, semicolon or parenthesis.
+# SEARCH the comment body for version tokens; do not anchor to its head and do
+# not enumerate terminators. Both earlier rules failed in the SILENT direction —
+# a form they could not read became "unlabelled", which drops the site from the
+# comparison instead of flagging it:
+#
+#   fullmatch      `# v5.0.0 (node24)`            (the style this repo ships)
+#   head+terminator `# v7.0.0: node24 runtime`, `(v7.0.0)`, `V7.0.0`, `pin to
+#                   v7.0.0`, `ref=v7.0.0`, `~v7.0.0`, `v7.0.0/v7`, ... 18 of 20
+#                   real-author forms measured by the review of #557
+#
+# Third attempt at this rule, so it stops enumerating shapes (ADR-001 §5) and
+# asks the only question that matters: which version tokens does the body name?
+# `v`-or-a-dot still required, so `# see #479` donates nothing and a bare `# 8`
+# is not a version. Case-insensitive because `V7.0.0` is the same claim.
+#
+# DO NOT read that as "prose cannot donate a label" — a bare DOTTED number still
+# can. `# 3.11` beside a `setup-python` pin (a maintainer noting the Python
+# version) yields the label `3.11`, as do `# 1.2` and `# 2026.09.17`. Nothing
+# distinguishes a version from any dotted number without knowing the action, and
+# the direction is over-report, so it is documented rather than guessed at. Left
+# open deliberately by the review of #557; stated here because the next audit
+# would otherwise re-derive it from the sentence above.
+#
+# TWO OR MORE distinct tokens is AMBIGUOUS and is NOT guessed at. `# v7.0.0 ->
+# v8.0.0` names two versions and picking either is a coin flip that would then
+# be asserted as fact. The primitive returns None, and the guard reports the
+# line — see `ambiguous_label_lines`. Silence would be the bypass; a report is
+# a false alarm at worst.
+_VERSION_TOKEN_RE = re.compile(
+    r"(?<![\w.])(?:v\d[\w.+-]*|\d+\.[\w.+-]+)", re.IGNORECASE
+)
+
+
+# A LAYERING declaration, consumed by the meta-guard in
+# `test_ci_guard_assertion_scoping.py`: `{low-level primitive: the decision
+# function that wraps it}`. A guard module must call the VALUE, never the KEY.
+#
+# The shape this exists for, measured: `label_candidates` was written so nobody
+# has to decide what `version_tokens` output MEANS, and the second caller
+# (`ambiguous_label_lines`) reached past it and re-decided differently — so one
+# comment shape was labelled correctly by one path and reported ambiguous by the
+# other, with a failure message asserting something false. The divergence was
+# only observable on a comment nobody had written yet; this fails the moment the
+# second caller is typed.
+#
+# NOT every shared helper belongs here. `strip_inline_comment` and
+# `strip_inline_comment_sh` have 16 and 14 callers and are PEERS chosen by
+# language, not layers — a naive "one caller per primitive" rule would wrongly
+# flag them. The entry is warranted only when calling the key requires making a
+# decision the value already made.
+WRAPPED_PRIMITIVES = {"version_tokens": "label_candidates"}
+
+_BRACKETED_RE = re.compile(r"\([^)]*\)|\[[^\]]*\]")
+
+
+def label_candidates(comment_body: str) -> list:
+    """Version tokens a comment OFFERS as the label, bracketed context removed.
+
+    The discriminator for "ambiguous" is BRACKETING, not count. `# v7.0.0 ->
+    v8.0.0` names two alternatives at the same level and must not be guessed at;
+    `# v4.38.0 (CodeQL bundle 2.19.0)` names one version plus context, and this
+    repo pins four actions — codeql-action, both zaproxy actions,
+    lighthouse-ci-action — whose most useful annotation is exactly the bundled
+    scanner's version. Counting tokens flat reported all four as ambiguous, and
+    the remedy it offered was to delete the informative half of the comment,
+    which trains people toward barer pins: against this guard's own purpose.
+
+    The house style `# v5.0.0 (node24)` survived only because `node24` has no
+    dot — `# v5.0.0 (node 24.1)` did not. A cliff edge, not a margin.
+
+    Falls back to the whole body when nothing is left outside the brackets, so
+    `# (v7.0.0)` and `# latest (v7.0.0)` still resolve."""
+    outside = version_tokens(_BRACKETED_RE.sub(" ", comment_body))
+    return outside or version_tokens(comment_body)
+
+
+def version_tokens(comment_body: str) -> list:
+    """Distinct version-like tokens named in a comment body, order preserved."""
+    seen, out = set(), []
+    for raw in _VERSION_TOKEN_RE.findall(comment_body):
+        # Case-FOLDED, not just matched case-insensitively: `# V7.0.0` and
+        # `# v7.0.0` are the same claim, so returning them verbatim would make
+        # the consistency check report a conflict between two spellings of one
+        # version — a false alarm, and the direction that gets a guard disabled.
+        tok = raw.rstrip(".-+").lower()
+        if tok and tok not in seen:
+            seen.add(tok)
+            out.append(tok)
+    return out
+
+
+def uses_refs_labeled(text: str) -> list:
+    """`(lineno, ref, label)` for every `uses:` value, where `label` is the
+    trailing version comment (`# v7.0.0` -> `"v7.0.0"`) or `None`.
+
+    Exists because `uses_refs` STRIPS that comment — correct for every caller
+    that asks "is this ref pinned", and useless for the one that asks "does the
+    label agree with the pin". Built on the same `_USES_LINE_RE` and the same
+    `strip_inline_comment` boundary rather than a second matcher, because the
+    ref regex has been fixed in three directions (quoted key, space before the
+    colon, quoted value) and a copy would inherit none of them.
+
+    The label is read from the RAW line, taken from the HEAD of the comment body
+    with trailing context allowed (`# v5.0.0 (node24)` -> `"v5.0.0"`), so an
+    explanatory comment (`# pinned, see #479`) reads as unlabelled rather than as
+    a bogus version. Whitespace before the `#` is required, matching
+    `strip_inline_comment`: a `#` inside the ref itself is part of the token, not
+    a comment. See `_LABEL_RE` for why "version and nothing else" was the wrong
+    rule — it silently DROPPED sites from the comparison instead of flagging
+    them."""
+    out = []
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        if raw.lstrip().startswith("#"):
+            continue
+        m = _USES_LINE_RE.match(strip_inline_comment(raw))
+        if not m:
+            continue
+        cm = _COMMENT_BODY_RE.search(raw)
+        label = None
+        if cm:
+            toks = label_candidates(cm.group("body"))
+            if len(toks) == 1:
+                label = toks[0]
+        out.append((lineno, m.group("ref"), label))
+    return out
+
+
 def non_comment_lines(text: str) -> list:
     """The lines of `text` with whole-line `#` comments dropped."""
     return [line for line in text.splitlines() if not line.lstrip().startswith("#")]

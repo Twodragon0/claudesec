@@ -77,6 +77,7 @@ from _ci_guard_util import (  # noqa: E402
     truncate_at_unclosed_html_comment,
     trigger_block,
     uses_refs,
+    uses_refs_labeled,
     workflow_and_action_files,
     yaml_key_pattern,
 )
@@ -167,6 +168,63 @@ class TestStripInlineCommentSh(unittest.TestCase):
             strip_inline_comment_sh('echo "a # b" ; run'), 'echo "a # b" ; run'
         )
         self.assertEqual(strip_inline_comment_sh("echo 'a;#b'"), "echo 'a;#b'")
+
+
+class TestUsesRefsLabeled(unittest.TestCase):
+    SHA = "a" * 40
+
+    def test_reads_the_version_label(self):
+        out = uses_refs_labeled(f"      - uses: actions/checkout@{self.SHA}  # v7.0.1\n")
+        self.assertEqual(out, [(1, f"actions/checkout@{self.SHA}", "v7.0.1")])
+
+    def test_unlabelled_ref_yields_none(self):
+        out = uses_refs_labeled(f"      - uses: actions/checkout@{self.SHA}\n")
+        self.assertEqual(out, [(1, f"actions/checkout@{self.SHA}", None)])
+
+    def test_non_version_trailing_comment_is_not_a_label(self):
+        # A prose comment must read as UNLABELLED, not as a bogus version, or the
+        # consistency check would compare explanations against each other.
+        out = uses_refs_labeled(
+            f"      - uses: actions/checkout@{self.SHA}  # pinned, see #479\n"
+        )
+        self.assertEqual(out[0][2], None)
+
+    def test_whole_line_comment_is_not_a_ref(self):
+        self.assertEqual(uses_refs_labeled(f"  # - uses: a/b@{self.SHA}  # v1\n"), [])
+
+    def test_ref_is_the_same_value_uses_refs_returns(self):
+        # The two must not drift into separate matchers: same line, same ref.
+        line = f'      - "uses" : "actions/checkout@{self.SHA}"  # v7.0.1\n'
+        self.assertEqual(
+            [(n, r) for n, r, _ in uses_refs_labeled(line)], uses_refs(line)
+        )
+
+    def test_label_without_leading_v_is_read(self):
+        out = uses_refs_labeled(f"      - uses: treosh/x@{self.SHA}  # 12.6.2\n")
+        self.assertEqual(out[0][2], "12.6.2")
+
+    def test_annotated_label_keeps_the_version(self):
+        """`# v5.0.0 (node24)` ships in this repo today. Reading it as UNLABELLED
+        drops the site from the consistency comparison instead of flagging it —
+        a silent disarm, which is why the rule is head-of-body and not fullmatch
+        (false-negative review of #557)."""
+        for body, want in (
+            ("v5.0.0 (node24)", "v5.0.0"),
+            ("v7.0.1, node24", "v7.0.1"),
+            ("tag=v7.0.1", "v7.0.1"),          # Renovate's SHA-pin spelling
+            ("v7.0.0-rc1", "v7.0.0-rc1"),      # terminator must not split a pre-release
+        ):
+            with self.subTest(body=body):
+                out = uses_refs_labeled(f"      - uses: a/b@{self.SHA}  # {body}\n")
+                self.assertEqual(out[0][2], want)
+
+    def test_prose_never_donates_a_version(self):
+        """The false-alarm direction. A bare number must not become a label, or
+        `# see #479` would manufacture a conflict against a real one."""
+        for body in ("see #479", "pinned, see #479", "do not bump", "#479"):
+            with self.subTest(body=body):
+                out = uses_refs_labeled(f"      - uses: a/b@{self.SHA}  # {body}\n")
+                self.assertIsNone(out[0][2])
 
 
 class TestNonCommentLines(unittest.TestCase):
