@@ -143,6 +143,38 @@ UNIT_EXEMPT = {
     ),
 }
 
+#: The categories that MUST exist, as a literal floor.
+#:
+#: Every other comparison in this file derives both sides from the tree, which
+#: makes them all blind in exactly one direction: delete
+#: `scanner/checks/<category>/` AND its README row AND adjust the total, and
+#: every set relation is satisfied by the smaller tree. MEASURED on this guard
+#: before this constant existed — removing `scanner/checks/saas/` (49 checks),
+#: its row, and retotalling to `10 categories (144 checks)` left all 19 tests
+#: GREEN. That is a silent loss of a quarter of the scanner's coverage, and no
+#: amount of internal consistency notices it, because consistency is the thing
+#: the deletion preserved.
+#:
+#: So the floor is a LITERAL and deliberately not derived. Adding a category
+#: does NOT require touching this list — the filesystem comparisons handle the
+#: additive direction — but REMOVING one fails until a human deletes the name
+#: here. That is the point: a reviewable one-line edit that says "we dropped
+#: saas" is fine; losing it to a refactor is not. Counts are absent on purpose,
+#: since those legitimately move on every PR while the names do not.
+KNOWN_CATEGORIES = frozenset({
+    "access-control",
+    "ai",
+    "cicd",
+    "cloud",
+    "code",
+    "infra",
+    "macos",
+    "network",
+    "prowler",
+    "saas",
+    "windows",
+})
+
 #: A check ID as the scanner emits it: the first argument to one of the four
 #: result helpers. A repo-wide sweep found every `pass|fail|warn|skip "…"` call
 #: site in `scanner/checks/**` matches this shape and none constructs the ID
@@ -151,13 +183,32 @@ UNIT_EXEMPT = {
 #: notices: an ID the pattern cannot see is an ID missing from both sides.
 _ID_CALL = re.compile(r'\b(?:pass|fail|warn|skip) +"([A-Z]+(?:-[A-Z]+)?-[0-9]+)"')
 
-#: A `Scanner Categories` row: `| \`<category>\` | <cell> | <covers> |`. The
-#: category is backticked in the published table, which is also what keeps this
-#: from matching the many other tables in the README — none of them puts a
-#: backticked single word in column one followed by exactly two more columns.
+#: A `Scanner Categories` row: `| \`<category>\` | <cell> | <covers> |`.
+#:
+#: The category is captured SEPARATELY from the count, and the count group is
+#: `[^|]*`, which matches EMPTY. Deliberate, and it is the property an
+#: inverse-mutation pass has to check: a matcher that gathered rows by "there is
+#: a number here" would drop a row whose number was deleted at the EXTRACTION
+#: step, so the assertion about numbers would never see the one edit it exists
+#: to catch. Rows are gathered by category NAME and the cell is read afterwards,
+#: which is what makes `stated_count` returning None a detectable state rather
+#: than an invisible one.
 _ROW = re.compile(
     r"^\|\s*`([a-z][a-z-]*)`\s*\|([^|]*)\|[^|]*\|\s*$", re.MULTILINE
 )
+
+#: The heading the category table lives under. The haystack is SCOPED to this
+#: section before `_ROW` runs (ADR-001 §2 — bound the haystack, then match).
+#:
+#: A MEASURED false positive, not a hypothetical. Unscoped, `_ROW` matches any
+#: three-column row in the README whose first cell is a backticked lowercase
+#: word. Adding an ordinary options table elsewhere in the file —
+#: `| \`verbose\` | 0 | chatty |` — made the guard report `verbose` as a
+#: category with no directory. It passed only because no such table happened to
+#: exist yet, in a 1000-line README full of tables. A false positive is not a
+#: harmless over-report: it fails a PR that did nothing wrong, which is how a
+#: guard comes to be deleted.
+_SECTION = "### Scanner Categories"
 
 #: The `Scanner CLI` sentence's total. `(\d+) checks` inside the parenthesis,
 #: anchored on the category count so a number elsewhere in the prose cannot
@@ -194,18 +245,35 @@ def code_counts():
     return {name: len(ids_in(CHECKS_DIR / name)) for name in category_dirs()}
 
 
+def category_section(text):
+    """The `### Scanner Categories` section only, as a READER sees it.
+
+    ORDER: reduce, THEN slice. Not interchangeable. `rendered_markdown` runs on
+    the whole document first so that an unterminated `<!--` ABOVE the heading
+    swallows the heading too and this returns nothing — which is the behaviour
+    `test_ci_markdown_scan_evasion.test_no_detector_sees_a_row_under_a_hidden_ANCHOR`
+    exists to demand. Slicing first and reducing the slice would find the
+    heading in raw text and so never notice that a reader lost it.
+
+    Bounded by the next heading at level 1-3, so a new `####` subsection inside
+    the table's section does not truncate it while a sibling `###` does."""
+    reduced = rendered_markdown(text)
+    start = reduced.find(_SECTION)
+    if start == -1:
+        return ""
+    rest = reduced[start + len(_SECTION):]
+    nxt = re.search(r"(?m)^#{1,3} ", rest)
+    return rest[: nxt.start()] if nxt else rest
+
+
 def doc_rows(text):
     """`{category: cell text}` from the README's category table, as a READER
     sees it.
 
-    Reduced by `rendered_markdown` BEFORE the search, not after — a row hidden
-    in a comment, a fence or an HTML block, or one sitting below an unterminated
-    `<!--`, renders as nothing and must not satisfy a comparison here. Reducing
-    after the search would leave the four enumerated vectors wide open while
-    keeping every token a static check looks for; that exact shape is what
-    `test_ci_markdown_scan_evasion.test_no_detector_sees_a_row_under_a_hidden_ANCHOR`
-    exists to catch, and this function is registered there."""
-    return {m.group(1): m.group(2).strip() for m in _ROW.finditer(rendered_markdown(text))}
+    Scoped to the table's own section and reduced before the match — see
+    `category_section` for the ordering constraint, and `_SECTION` for the
+    measured false positive that the scoping closes."""
+    return {m.group(1): m.group(2).strip() for m in _ROW.finditer(category_section(text))}
 
 
 def stated_count(cell):
@@ -269,6 +337,45 @@ class TestTheMeasurementIsSound(unittest.TestCase):
             f"to {sum(counts.values())} but {len(every)} unique IDs exist under "
             f"{CHECKS_DIR}. An ID shared between two categories, or emitted "
             "outside `scanner/checks/<category>/`, breaks the per-row counts.",
+        )
+
+    def test_no_known_category_has_silently_disappeared(self):
+        """The floor. The one direction every derived comparison is blind to.
+
+        See `KNOWN_CATEGORIES` for the measurement: without this, deleting a
+        category directory together with its README row and the total left all
+        19 tests green while 49 checks left the product. Asserted against BOTH
+        sides, because a category can be lost from the tree (coverage gone) or
+        from the published table (coverage undocumented) independently."""
+        dirs = set(code_counts())
+        rows = set(doc_rows(README.read_text(encoding="utf-8")))
+        gone_from_tree = sorted(KNOWN_CATEGORIES - dirs)
+        gone_from_doc = sorted(KNOWN_CATEGORIES - rows)
+        self.assertEqual(
+            gone_from_tree,
+            [],
+            f"category directory has disappeared: {gone_from_tree}. Every other "
+            "check here compares the tree against the README, so both agree on "
+            "a tree that lost a whole category. If the removal is intentional, "
+            "delete the name from `KNOWN_CATEGORIES` in the same commit — that "
+            "edit is the review moment this floor exists to force.",
+        )
+        self.assertEqual(
+            gone_from_doc,
+            [],
+            f"category no longer has a README row: {gone_from_doc}. The checks "
+            "may still exist while nothing documents them.",
+        )
+
+    def test_the_floor_does_not_block_a_new_category(self):
+        # The floor must be a FLOOR. If it were an equality, adding a category
+        # would fail here instead of failing the README comparison with a
+        # useful message — and the fix would be to edit this list, which is
+        # exactly the two-copies-of-one-claim shape the header rejects.
+        self.assertTrue(
+            KNOWN_CATEGORIES <= set(code_counts()),
+            "`KNOWN_CATEGORIES` names a category with no directory — it is a "
+            "floor, so it must be a SUBSET of what exists",
         )
 
     def test_the_readme_table_is_found(self):
@@ -401,12 +508,65 @@ class TestTheDetectorIsNotInert(unittest.TestCase):
     so a rename or a reordering fails here rather than leaving a surrogate
     green."""
 
+    @staticmethod
+    def doc(*rows):
+        """A synthetic README carrying `rows` inside the real section heading.
+
+        The heading is not decoration: `doc_rows` is section-SCOPED, so a
+        fixture without it exercises the empty-section path and would make every
+        `assertNotIn` below pass for the wrong reason."""
+        return f"# R\n\n{_SECTION}\n\n" + "\n".join(rows) + "\n"
+
     def test_a_wrong_number_is_detected(self):
-        rows = doc_rows("| `infra` | 16 | Docker |\n")
+        rows = doc_rows(self.doc("| `infra` | 16 | Docker |"))
         self.assertEqual(stated_count(rows["infra"]), 16)
         self.assertNotEqual(
             stated_count(rows["infra"]), 18, "the comparison is a real inequality"
         )
+
+    def test_a_row_with_the_number_deleted_is_still_EXTRACTED(self):
+        """The pre-filtering trap, pinned.
+
+        If `_ROW` required a number, deleting one would remove the row at the
+        extraction step and `test_each_row_states_the_implemented_count` would
+        never see the edit it exists to catch — the guard would be vacuous in
+        precisely its headline direction. The row must survive extraction and
+        the CELL must read as no count."""
+        for cell in (" ", " several ", " ~18 "):
+            with self.subTest(cell=cell):
+                rows = doc_rows(self.doc(f"| `infra` |{cell}| Docker |"))
+                self.assertIn(
+                    "infra", rows, "the row vanished at extraction, not at the "
+                    "assertion — the matcher pre-filters on the asserted value"
+                )
+                self.assertIsNone(stated_count(rows["infra"]))
+
+    def test_rows_outside_the_section_are_not_categories(self):
+        """The measured false positive, pinned.
+
+        An unrelated three-column table with a backticked lowercase first cell
+        is ordinary README content and must not be read as a category row."""
+        other = "| `verbose` | 0 | chatty |"
+        self.assertEqual(doc_rows(f"# R\n\n## Options\n\n{other}\n"), {})
+        both = (
+            f"# R\n\n## Options\n\n{other}\n\n{_SECTION}\n\n"
+            "| `infra` | 18 | Docker |\n"
+        )
+        self.assertEqual(doc_rows(both), {"infra": "18"})
+
+    def test_the_section_ends_at_the_next_heading(self):
+        # A row belonging to a LATER section must not be absorbed, or a table
+        # added below would inject phantom categories.
+        doc = (
+            f"# R\n\n{_SECTION}\n\n| `infra` | 18 | Docker |\n\n"
+            "## Project Structure\n\n| `ghost` | 3 | nope |\n"
+        )
+        self.assertEqual(doc_rows(doc), {"infra": "18"})
+
+    def test_a_missing_section_yields_no_rows(self):
+        # Fail-closed: if the heading is renamed, every category reads as
+        # missing (a loud failure) rather than the table reading as correct.
+        self.assertEqual(doc_rows("# R\n\n| `infra` | 18 | Docker |\n"), {})
 
     def test_a_hedge_is_not_a_count(self):
         # `5+` and `~20` read as a number to a human and to a `\d+` search. They
@@ -428,15 +588,28 @@ class TestTheDetectorIsNotInert(unittest.TestCase):
         # cannot see must read as MISSING (which fails
         # `test_every_category_has_a_row`), never as present-and-correct.
         row = "| `infra` | 18 | Docker |"
-        self.assertIn("infra", doc_rows(f"{row}\n"))
-        for doc in (
-            f"<!--\n{row}\n-->\n",
-            f"```\n{row}\n```\n",
-            f"<div>\n{row}\n</div>\n",
-            f"<!-- retiring this\n{row}\n",
+        self.assertIn("infra", doc_rows(self.doc(row)))
+        for label, body in (
+            ("closed-comment", f"<!--\n{row}\n-->"),
+            ("code-fence", f"```\n{row}\n```"),
+            ("html-block", f"<div>\n{row}\n</div>"),
+            ("unclosed-comment", f"<!-- retiring this\n{row}"),
         ):
-            with self.subTest(doc=doc.splitlines()[0]):
-                self.assertNotIn("infra", doc_rows(doc))
+            with self.subTest(vector=label, position="around-row"):
+                self.assertNotIn("infra", doc_rows(self.doc(body)))
+        # The vector ABOVE the anchor, which is the stronger case: it hides the
+        # heading too, so a detector that sliced the section out of RAW text
+        # before reducing would still find the row. That is the ordering
+        # `category_section` pins.
+        hidden_anchor = (
+            f"# R\n\n<!-- retiring the whole section\n\n{_SECTION}\n\n{row}\n"
+        )
+        self.assertEqual(
+            doc_rows(hidden_anchor),
+            {},
+            "a row under an anchor an unterminated opener already swallowed was "
+            "still read — the reduction is running after the slice, not before",
+        )
 
     def test_the_id_pattern_requires_a_helper_call(self):
         # An ID in prose, in a comment, or in a variable assignment is not an
@@ -449,9 +622,9 @@ class TestTheDetectorIsNotInert(unittest.TestCase):
     def test_the_row_pattern_needs_three_columns(self):
         # The README holds many tables. A two-column or four-column table with a
         # backticked first cell must not be read as a category row.
-        self.assertEqual(doc_rows("| `infra` | 18 |\n"), {})
-        self.assertEqual(doc_rows("| `infra` | 18 | a | b |\n"), {})
-        self.assertEqual(doc_rows("| `infra` | 18 | a |\n"), {"infra": "18"})
+        self.assertEqual(doc_rows(self.doc("| `infra` | 18 |")), {})
+        self.assertEqual(doc_rows(self.doc("| `infra` | 18 | a | b |")), {})
+        self.assertEqual(doc_rows(self.doc("| `infra` | 18 | a |")), {"infra": "18"})
 
 
 class TestTheTableAgreesWithTheRenderer(unittest.TestCase):
@@ -512,7 +685,7 @@ class TestTheTableAgreesWithTheRenderer(unittest.TestCase):
         # Without this, a `_reader_sees` that always returned everything would
         # make the comparison below pass on any document at all.
         table = (
-            "| Category | Checks | Covers |\n|---|---|---|\n"
+            f"{_SECTION}\n\n| Category | Checks | Covers |\n|---|---|---|\n"
             "| `infra` | 18 | Docker |\n"
         )
         self.assertEqual(self._reader_sees(table), {"infra"})
@@ -538,7 +711,7 @@ class TestTheTableAgreesWithTheRenderer(unittest.TestCase):
         `<!--` hides everything BELOW it, so a fixture that puts the row first
         proves nothing."""
         table = (
-            "| Category | Checks | Covers |\n|---|---|---|\n"
+            f"{_SECTION}\n\n| Category | Checks | Covers |\n|---|---|---|\n"
             "| `infra` | 18 | Docker |\n"
         )
         # A stray unmatched backtick makes `rendered_markdown`'s code-span
