@@ -304,6 +304,14 @@ _COMMENT_BODY_RE = re.compile(r"\s+#(?P<body>.*)$")
 # `v`-or-a-dot still required, so `# see #479` donates nothing and a bare `# 8`
 # is not a version. Case-insensitive because `V7.0.0` is the same claim.
 #
+# DO NOT read that as "prose cannot donate a label" — a bare DOTTED number still
+# can. `# 3.11` beside a `setup-python` pin (a maintainer noting the Python
+# version) yields the label `3.11`, as do `# 1.2` and `# 2026.09.17`. Nothing
+# distinguishes a version from any dotted number without knowing the action, and
+# the direction is over-report, so it is documented rather than guessed at. Left
+# open deliberately by the review of #557; stated here because the next audit
+# would otherwise re-derive it from the sentence above.
+#
 # TWO OR MORE distinct tokens is AMBIGUOUS and is NOT guessed at. `# v7.0.0 ->
 # v8.0.0` names two versions and picking either is a coin flip that would then
 # be asserted as fact. The primitive returns None, and the guard reports the

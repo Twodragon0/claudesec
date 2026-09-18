@@ -129,6 +129,24 @@ _FLOW_USES_RE = re.compile(
 )
 
 
+def labels_agree(a: str, b: str) -> bool:
+    """Whether two labels on ONE sha can both be true.
+
+    "One sha is one release" is false for major-alias tags: `v7` and `v7.0.1`
+    point at the same commit, so both are truthful and calling them a
+    contradiction cries wolf on correct data. This repo already labels 11 sites
+    with bare aliases (`actions/upload-artifact # v7`, `github-script # v9`,
+    `download-artifact # v8`), so the first full version written beside one of
+    them would have fired A.
+
+    Compatible means equal, or one is the other's prefix AT A DOT BOUNDARY —
+    `v7` ⊂ `v7.0.1` but NOT `v7` ⊂ `v71.0`, which is a different major."""
+    if a == b:
+        return True
+    short, long = sorted((a, b), key=len)
+    return long.startswith(short + ".")
+
+
 def ambiguous_label_lines(text: str) -> list:
     """`(lineno, body)` for a SHA-pinned `uses:` whose comment names TWO OR MORE
     versions. `version_tokens` refuses to guess which is the label, so without
@@ -179,13 +197,22 @@ def label_problems(docs) -> list:
     problems = []
     for (repo, sha), labels in sorted(by_sha.items()):
         named = {k: v for k, v in labels.items() if k is not None}
-        if len(named) > 1:
+        clashes = sorted(
+            {
+                tuple(sorted((x, y)))
+                for x in named for y in named
+                if x < y and not labels_agree(x, y)
+            }
+        )
+        if clashes:
             detail = "; ".join(
                 f"{lab} at {', '.join(sites)}" for lab, sites in sorted(named.items())
             )
+            pairs = ", ".join(f"{x} vs {y}" for x, y in clashes)
             problems.append(
-                f"A: {repo}@{sha[:12]} is labelled {len(named)} different ways -> "
-                f"{detail}. One SHA is one release; fix the label that is wrong."
+                f"A: {repo}@{sha[:12]} carries labels that cannot both be true "
+                f"({pairs}) -> {detail}. A major alias and a full version CAN "
+                f"share a sha (`v7` with `v7.0.1`); these cannot. Fix the wrong one."
             )
         if named and None in labels:
             lab = sorted(named)[0]
@@ -569,6 +596,24 @@ class TestDetectorFiresOnEachShape(unittest.TestCase):
         self.assertEqual(set(), by_action, "per-action keying misses the dark sha")
         self.assertEqual(1, len(by_pair), "per-(action,sha) keying must see it")
         self.assertEqual([], label_problems(docs), "A/B/C are blind here by design")
+
+    def test_a_major_alias_and_a_full_version_can_share_a_sha(self):
+        """`v7` and `v7.0.1` are the same commit, so both labels are true and
+        reporting a contradiction would cry wolf on correct data. This repo
+        already labels 11 sites with bare aliases, so the first full version
+        written beside one of them would have fired A. The prefix must be at a
+        DOT boundary — `v71.0` is a different major."""
+        def two(l1, l2):
+            return label_problems(self._doc(
+                f"      - uses: actions/checkout@{self.SHA_A}  # {l1}\n"
+                f"      - uses: actions/checkout@{self.SHA_A}  # {l2}\n"
+            ))
+        for l1, l2 in (("v7", "v7.0.1"), ("v7.0.1", "v7"), ("12.6.2", "12.6")):
+            with self.subTest(pair=(l1, l2)):
+                self.assertEqual([], two(l1, l2))
+        for l1, l2 in (("v7", "v71.0"), ("v7", "v6.1.0"), ("v4", "v5")):
+            with self.subTest(pair=(l1, l2)):
+                self.assertTrue(any(p.startswith("A:") for p in two(l1, l2)))
 
     def test_an_ambiguous_label_is_reported_not_guessed(self):
         """Two versions in one comment: the parser refuses to pick, so the line
