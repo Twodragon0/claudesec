@@ -117,7 +117,16 @@ def _split_ref(ref: str):
 # would change what the SHA-pin and gate-topology guards see, in one PR, as a side
 # effect), this FAILS CLOSED on the form: ADR-001 §5's rule for a shape the scanner
 # provably cannot read. The broader gap is reported separately.
-_FLOW_USES_RE = re.compile(r"[{,]\s*['\"]?uses['\"]?\s*:", re.IGNORECASE)
+# The VALUE must look like an action ref (`owner/repo…@something`), not just the
+# key. Matching the key alone fired on five ordinary lines that are not steps —
+# a step `- name:` containing the word `uses:`, an `if:` expression quoting it,
+# and three `run:` bodies with `{uses: …}` in jq/JSON/python — measured by the
+# false-positive review of #557. Live hits were 0 either way, so this is the
+# cry-wolf direction rather than a bypass, but a check that fires on a step name
+# is one someone deletes rather than obeys.
+_FLOW_USES_RE = re.compile(
+    r"[{,]\s*['\"]?uses['\"]?\s*:\s*['\"]?[\w.-]+/[\w./-]+@[\w./-]+", re.IGNORECASE
+)
 
 
 def ambiguous_label_lines(text: str) -> list:
@@ -242,9 +251,34 @@ class TestActionPinLabels(unittest.TestCase):
         satisfied when 13 files become 1."""
         corpus = label_corpus()
         workflows = [p for p in corpus if p.startswith(".github/")]
-        templates = [p for p in corpus if p.startswith("templates/")]
-        self.assertGreaterEqual(len(workflows), 15, f"workflow enumeration collapsed: {workflows}")
-        self.assertGreaterEqual(len(templates), 13, f"templates enumeration collapsed: {templates}")
+        self.assertGreaterEqual(
+            len(workflows), 15, f"workflow enumeration collapsed: {workflows}"
+        )
+        # The templates half is floored on the files that CONTRIBUTE a SHA-pinned
+        # ref, not on the raw count. Only 2 of 13 do; the rest are scanner-config
+        # examples with no `uses:` at all. A raw floor of 13 had zero slack and
+        # fired on retiring `templates/scorecard.yml` — a file with no refs,
+        # whose removal changes nothing this guard measures — while reporting
+        # "enumeration collapsed", which is not what happened. Measured by the
+        # false-positive review of #557. Counting contributors is also TIGHTER
+        # against the failure this canary exists for: if the glob or the suffix
+        # filter breaks, contributors go to 0.
+        contributing = [
+            p for p in corpus
+            if p.startswith("templates/")
+            and any(
+                _split_ref(ref)
+                for _, ref, _ in uses_refs_labeled(
+                    (REPO_ROOT / p).read_text(encoding="utf-8")
+                )
+            )
+        ]
+        self.assertGreaterEqual(
+            len(contributing), 2,
+            "no templates/ file contributes a SHA-pinned `uses:` any more. Either "
+            "the glob broke (the collapse this checks for) or the pinned "
+            "templates were retired — if retired, lower this floor and say so.",
+        )
 
     def test_no_action_goes_dark(self):
         """Non-vacuity of the SUBJECT, pinned per ACTION rather than as a total.
@@ -557,6 +591,21 @@ class TestDetectorFiresOnEachShape(unittest.TestCase):
             f"      - uses: actions/setup-python@{self.SHA_A}  # v7.0.0\n"
         ))
         self.assertEqual(1, len(unscannable_uses_lines(flow)))
+
+    def test_flow_check_does_not_fire_on_lines_that_merely_say_uses(self):
+        """The cry-wolf direction. Matching the `uses:` KEY alone fired on a step
+        name, an `if:` expression and three `run:` bodies; the value must look
+        like an action ref for the line to be a step."""
+        for line in (
+            "      - name: check refs, uses: are pinned\n",
+            "      - if: contains(github.event.head_commit.message, 'uses:')\n",
+            "      - run: jq '.steps[] | {uses: .uses}' x.json\n",
+            '      - run: echo \'{"uses": "actions/checkout"}\'\n',
+            "      - run: python3 -c \"d={'uses': 1}\"\n",
+            '      - run: grep -n "uses:" .github/workflows/*.yml\n',
+        ):
+            with self.subTest(line=line.strip()):
+                self.assertEqual([], unscannable_uses_lines(line))
 
     def test_an_uppercase_sha_is_the_same_identity(self):
         """A pin spelled in uppercase hex is the same commit. Rejecting it would
