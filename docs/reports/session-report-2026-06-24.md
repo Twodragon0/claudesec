@@ -72,5 +72,5 @@ codify 되었고, 분기 적대적 감사는 `guard-audit-reminder.yml`로 자�
 - [CI Config Regression Guards 카탈로그](../devsecops/ci-config-regression-guards.md)
 - [ADR-001](../devsecops/adr-001-ci-guard-hardening-and-audit-cadence.md) ·
   [ADR 인덱스](../devsecops/adr-index.md)
-- OWASP Top 10 CI/CD Security Risks: <https://owasp.org/www-project-top-10-ci-cd-security-risks/>
+- OWASP Top 10 CI/CD Security Risks: <https://github.com/OWASP/www-project-top-10-ci-cd-security-risks>
 - NIST SP 800-218 (SSDF): <https://csrc.nist.gov/pubs/sp/800/218/final>

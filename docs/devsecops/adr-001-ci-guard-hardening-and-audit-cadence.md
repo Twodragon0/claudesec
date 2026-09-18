@@ -403,9 +403,9 @@ and that the answer is now none.
 - [Runner-key audit retrospective (#404 → #408)](../reports/runner-key-audit-retrospective.md)
   — what execution-based proof closes, and the boundary it cannot cross
 - OWASP Top 10 CI/CD Security Risks — CICD-SEC-1 (Insufficient Flow Control):
-  <https://owasp.org/www-project-top-10-ci-cd-security-risks/>
+  <https://github.com/OWASP/www-project-top-10-ci-cd-security-risks>
 - OWASP Top 10 CI/CD — CICD-SEC-4 (Poisoned Pipeline Execution):
-  <https://owasp.org/www-project-top-10-ci-cd-security-risks/>
+  <https://github.com/OWASP/www-project-top-10-ci-cd-security-risks>
 - NIST SP 800-218 (SSDF) — PO.3 / PW.4:
   <https://csrc.nist.gov/pubs/sp/800/218/final>
 - GitHub Actions — Security hardening (script injection):
