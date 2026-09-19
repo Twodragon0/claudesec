@@ -280,7 +280,7 @@ claudesec/
 
 ## Scanner CLI
 
-ClaudeSec includes a zero-dependency bash scanner that checks your project for security best practices across 11 categories (~120+ checks). The `prowler` category integrates with [Prowler](https://github.com/prowler-cloud/prowler) for deep multi-cloud scanning.
+ClaudeSec includes a zero-dependency bash scanner that checks your project for security best practices across 11 categories (198 checks). The `prowler` category integrates with [Prowler](https://github.com/prowler-cloud/prowler) for deep multi-cloud scanning.
 
 **Scanner anchors**
 
@@ -446,16 +446,16 @@ See `templates/claudesec-network.example.yml` for config. Trivy runs by default 
 
 | Category | Checks | Covers |
 |----------|--------|--------|
-| `infra` | 16 | Docker, Kubernetes, IaC (Terraform/Helm) |
+| `infra` | 18 | Docker, Kubernetes, IaC (Terraform/Helm) |
 | `ai` | 9 | LLM API keys, prompt injection, RAG, agent tools |
-| `network` | 5+ | TLS, security headers, CORS, firewall rules; Trivy (vuln/misconfig), optional Nmap/SSLScan → dashboard tab |
+| `network` | 10 | TLS, security headers, CORS, firewall rules; Trivy (vuln/misconfig), optional Nmap/SSLScan → dashboard tab |
 | `cloud` | 13 | AWS, GCP, Azure (IAM, logging, storage, network) |
-| `access-control` | 6 | .env files, password hashing, JWT, sessions |
+| `access-control` | 10 | .env files, password hashing, JWT, sessions |
 | `cicd` | 8 | GHA permissions, SHA pinning, SAST, lockfiles |
 | `code` | 24 | SQL/Command/XSS injection, SSRF, XXE, crypto, deserialization, SAST tools |
 | `macos` | 20 | FileVault, SIP, Gatekeeper, CIS Benchmark v4.0 |
 | `windows` | 20 | KISA W-series, UAC, Firewall, Defender, SMBv1 |
-| `saas` | 33 | SaaS API scanning (GitHub, Datadog, Cloudflare, Vercel, Sentry, Okta, SendGrid, Slack, PagerDuty, Jira, Grafana, New Relic, Splunk, Twilio, MongoDB Atlas, Elastic Cloud) |
+| `saas` | 49 | SaaS API scanning (GitHub, Datadog, Cloudflare, Vercel, Sentry, Okta, SendGrid, Slack, PagerDuty, Jira, Grafana, New Relic, Splunk, Twilio, MongoDB Atlas, Elastic Cloud) |
 | `prowler` | 16 providers | Deep scan via Prowler: AWS, Azure, GCP, K8s, GitHub, M365, Google Workspace, Cloudflare, MongoDB Atlas, Oracle Cloud, Alibaba Cloud, OpenStack, NHN, IaC, LLM, Image |
 
 ## Project Structure
