@@ -416,6 +416,35 @@ def uses_refs_labeled(text: str) -> list:
     return out
 
 
+# A `uses:` inside a YAML FLOW mapping (`- { uses: x@sha, with: {...} }`). Actions
+# runs it — PyYAML resolves the step fully — but `_USES_LINE_RE` anchors the key to
+# the start of the line, so the whole ref is invisible to every line-scanning guard
+# in this repo, not just this one. Rather than widen the shared matcher (which
+# would change what the SHA-pin and gate-topology guards see, in one PR, as a side
+# effect), this FAILS CLOSED on the form: ADR-001 §5's rule for a shape the scanner
+# The VALUE must look like an action ref (`owner/repo…@something`), not just the
+# key. Matching the key alone fired on five ordinary lines that are not steps —
+# a step `- name:` containing the word `uses:`, an `if:` expression quoting it,
+# and three `run:` bodies with `{uses: …}` in jq/JSON/python — measured by the
+# false-positive review of #557. Live hits were 0 either way, so this is the
+# cry-wolf direction rather than a bypass, but a check that fires on a step name
+# is one someone deletes rather than obeys.
+_FLOW_USES_RE = re.compile(
+    r"[{,]\s*['\"]?uses['\"]?\s*:\s*['\"]?[\w.-]+/[\w./-]+@[\w./-]+", re.IGNORECASE
+)
+
+
+def unscannable_uses_lines(text: str) -> list:
+    """`(lineno, line)` for every flow-style `uses:` the line matcher cannot see."""
+    out = []
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        if raw.lstrip().startswith("#"):
+            continue
+        if _FLOW_USES_RE.search(raw):
+            out.append((lineno, raw.strip()))
+    return out
+
+
 def non_comment_lines(text: str) -> list:
     """The lines of `text` with whole-line `#` comments dropped."""
     return [line for line in text.splitlines() if not line.lstrip().startswith("#")]

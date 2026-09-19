@@ -47,7 +47,6 @@ System Configuration); NIST SSDF PW.4 / PO.3 (verify third-party components and
 their provenance).
 """
 
-import re
 import unittest
 from collections import defaultdict
 from pathlib import Path
@@ -58,6 +57,7 @@ from _ci_guard_util import (
     label_candidates,
     strip_inline_comment,
     tracked_files,
+    unscannable_uses_lines,
     uses_refs_labeled,
     workflow_and_action_files,
 )
@@ -109,25 +109,6 @@ def _split_ref(ref: str):
     # a disagreement between them — the silent direction, and the one the
     # unlabelled-set pin cannot see either.
     return "/".join(parts[:2]).lower(), rev
-
-
-# A `uses:` inside a YAML FLOW mapping (`- { uses: x@sha, with: {...} }`). Actions
-# runs it — PyYAML resolves the step fully — but `_USES_LINE_RE` anchors the key to
-# the start of the line, so the whole ref is invisible to every line-scanning guard
-# in this repo, not just this one. Rather than widen the shared matcher (which
-# would change what the SHA-pin and gate-topology guards see, in one PR, as a side
-# effect), this FAILS CLOSED on the form: ADR-001 §5's rule for a shape the scanner
-# provably cannot read. The broader gap is reported separately.
-# The VALUE must look like an action ref (`owner/repo…@something`), not just the
-# key. Matching the key alone fired on five ordinary lines that are not steps —
-# a step `- name:` containing the word `uses:`, an `if:` expression quoting it,
-# and three `run:` bodies with `{uses: …}` in jq/JSON/python — measured by the
-# false-positive review of #557. Live hits were 0 either way, so this is the
-# cry-wolf direction rather than a bypass, but a check that fires on a step name
-# is one someone deletes rather than obeys.
-_FLOW_USES_RE = re.compile(
-    r"[{,]\s*['\"]?uses['\"]?\s*:\s*['\"]?[\w.-]+/[\w./-]+@[\w./-]+", re.IGNORECASE
-)
 
 
 def labels_agree(a: str, b: str) -> bool:
@@ -188,17 +169,6 @@ def ambiguous_label_lines(text: str) -> list:
         cm = _COMMENT_BODY_RE.search(raw)
         if cm and len(label_candidates(cm.group("body"))) > 1:
             out.append((lineno, cm.group("body").strip()))
-    return out
-
-
-def unscannable_uses_lines(text: str) -> list:
-    """`(lineno, line)` for every flow-style `uses:` the line matcher cannot see."""
-    out = []
-    for lineno, raw in enumerate(text.splitlines(), start=1):
-        if raw.lstrip().startswith("#"):
-            continue
-        if _FLOW_USES_RE.search(raw):
-            out.append((lineno, raw.strip()))
     return out
 
 
