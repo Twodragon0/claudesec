@@ -56,13 +56,64 @@ Then classify:
      faster, not slower).
 
 4. **4xx / 5xx dead link** — **fix or replace the URL.** Only add a `lychee.toml`
-   exclude if the host merely bot-blocks CI (403/429/RST/timeout) but is fine in
-   a browser — then it goes in the "blocks bots / times out" section, NOT the
-   intentional-redirect section.
+   exclude if the host merely bot-blocks CI but is fine in a browser — then it
+   goes in the "blocks bots / times out" section, NOT the intentional-redirect
+   section.
+
+   **Do not decide this from the status code.** The codes that mean bot-block
+   are not a fixed set: measured 2026-09-18, `www.kisa.or.kr/2060305/form?postSeq=12`
+   returns **400**, which an earlier version of this list did not include
+   (it named 403/429/RST/timeout), so following the list would have classified a
+   live page as rot. Run the differential instead — it is two commands and it
+   answers "fine in a browser" without a browser:
+
+   ```bash
+   curl -sSL -o /dev/null -w '%{http_code}\n' "$URL"
+   curl -sSL -o /dev/null -w '%{http_code}\n' \
+     -A 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 \
+   (KHTML, like Gecko) Chrome/140.0 Safari/537.36' "$URL"
+   ```
+
+   Plain non-2xx **and** browser-UA 2xx ⇒ bot-block, exclude it. Non-2xx in
+   BOTH ⇒ rot, fix the URL. Also probe the site root: a host that 2xx's at `/`
+   and non-2xx on the path is more likely rot than a bot policy.
+
+   The direction matters for which error you would rather make. Excluding a
+   genuinely dead link hides rot silently; treating a bot-block as rot sends
+   someone to "fix" a working URL and, worse, teaches the next reader that this
+   list's status codes are authoritative when they are a sample.
 
 5. **Release-time 404 (by design)** — CHANGELOG version-compare links
    (`github.com/Twodragon0/claudesec/compare/...`) 404 until the tag publishes.
    Already excluded; keep it.
+
+## What lychee does NOT check — measured 2026-09-18
+
+Both jobs scan **`'**/*.md'` only**. Nothing else in the tree is link-checked,
+and the most consequential omission is `_finding_ref_url` in
+`scanner/lib/output.sh`: **15 reference URLs the scanner PRINTS to operators**
+as "go read this". That is how #559's dead OWASP CI/CD Top 10 link survived in
+the runtime path — its seven copies in `docs/` were scanned and passed only
+because the PR job accepts `100..=599`, while the copy the scanner actually
+emits was never looked at by either job.
+
+**Do not "fix" this by globbing the shell sources.** Measured over
+`scanner/lib/*.sh` with the sweep's strict settings: **23 of 23 unique URLs
+error**, and every one is an API ENDPOINT (`api.datadoghq.com` 307,
+`api.datadoghq.eu` 403, `api.ddog-gov.com` 307 …) that the scanner calls rather
+than a reference anyone should open. A 307 on an API root means nothing. That
+change would add 23 permanent false alarms to a notification-only sweep, and a
+sweep that cries wolf is how link rot lost its only detector.
+
+Scoped to `scanner/lib/output.sh` alone it is tractable — 15 URLs, all
+human-facing references, 0 endpoints — but under `--max-redirects 0` it still
+surfaces **10 redirect items** to triage, so it is a real decision with a real
+cost, not a free win. Recorded here with its numbers rather than left to be
+re-derived; whoever takes it should extract `_finding_ref_url`'s URLs
+specifically, not the file.
+
+Until then, the reference URLs are covered only by a hand probe. `#559` ran one:
+13 of 15 returned 200, one was rot (fixed) and one was the KISA bot-block above.
 
 ## Where excludes live (single source of truth)
 
