@@ -451,7 +451,7 @@ See `templates/claudesec-network.example.yml` for config. Trivy runs by default 
 | `network` | 5+ | TLS, security headers, CORS, firewall rules; Trivy (vuln/misconfig), optional Nmap/SSLScan → dashboard tab |
 | `cloud` | 13 | AWS, GCP, Azure (IAM, logging, storage, network) |
 | `access-control` | 6 | .env files, password hashing, JWT, sessions |
-| `cicd` | 8 | GHA permissions, SHA pinning, SAST, lockfiles |
+| `cicd` | 11 | GHA permissions, SHA pinning, SAST, lockfiles; run-history freshness (deploy liveness, scan staleness, zero-alert evidence) |
 | `code` | 24 | SQL/Command/XSS injection, SSRF, XXE, crypto, deserialization, SAST tools |
 | `macos` | 20 | FileVault, SIP, Gatekeeper, CIS Benchmark v4.0 |
 | `windows` | 20 | KISA W-series, UAC, Firewall, Defender, SMBv1 |

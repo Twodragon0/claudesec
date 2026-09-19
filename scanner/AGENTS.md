@@ -15,7 +15,7 @@ scanner/
 ├── checks/            # Check modules by category
 │   ├── access-control/  # .env files, password hashing, JWT, sessions
 │   ├── ai/              # LLM API keys, prompt injection, RAG, agent tools
-│   ├── cicd/            # GitHub Actions permissions, SHA pinning, secrets
+│   ├── cicd/            # GitHub Actions permissions, SHA pinning, secrets, run freshness
 │   ├── cloud/           # AWS, GCP, Azure IAM, logging, storage
 │   ├── code/            # SQL/command/XSS injection, SSRF, XXE, crypto (24 checks)
 │   ├── infra/           # Docker, Kubernetes, IaC (Terraform/Helm)
