@@ -28,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
+    unscannable_uses_lines,
     apply_mutation,
     explicit_key_lines,
     job_block,
@@ -79,6 +80,35 @@ UNGATED_JOBS_ALLOWLIST = {
 
 
 class TestActionShaPinning(unittest.TestCase):
+
+    def test_no_uses_is_written_in_a_form_this_guard_cannot_read(self):
+        """Fail closed on flow-style `uses:`, which Actions EXECUTES and this
+        file's line matcher cannot see — so every ref assertion here would pass
+        over it in silence.
+
+        Measured 2026-09-19 before this landed: `- { uses: "actions/checkout@main" }`
+        planted in `lint.yml` — valid YAML, resolved by PyYAML as a BRANCH ref in
+        the `dependency-review` job, i.e. a mutable ref Actions really runs —
+        left this guard at 16 passed and `uses_refs` returning nothing for it.
+
+        Asserted HERE rather than leaned on from a sibling. The guard that does
+        catch it is not named for this property and scopes to its own corpus, so
+        depending on it is the attribution trap: its coverage could narrow for
+        reasons unrelated to pinning and this file would go quiet without a
+        single test in it changing."""
+        found = [
+            f"{Path(p).name}:{ln}  {line}"
+            for p in workflow_and_action_files()
+            for ln, line in unscannable_uses_lines(
+                Path(p).read_text(encoding="utf-8")
+            )
+        ]
+        self.assertEqual(
+            [], found,
+            "a `uses:` is written in YAML flow style, which this guard's line "
+            "matcher is blind to — a branch or tag pin there is invisible here. "
+            "Rewrite it as a block mapping:\n  " + "\n  ".join(found),
+        )
     def test_every_uses_is_sha_pinned(self):
         # Workflows AND composite actions, both extensions — a composite
         # `action.yml` carries `steps[].uses` and was never globbed here, so a
