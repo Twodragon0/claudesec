@@ -76,6 +76,7 @@ from _ci_guard_util import (  # noqa: E402
     top_level_jobs,
     truncate_at_unclosed_html_comment,
     trigger_block,
+    unscannable_uses_lines,
     uses_refs,
     uses_refs_labeled,
     workflow_and_action_files,
@@ -1390,6 +1391,85 @@ class TestLiveOffsets(unittest.TestCase):
         with self.assertRaises(AssertionError) as caught:
             live_offsets("a\n", "a", syntax="python")
         self.assertIn("unknown syntax", str(caught.exception))
+
+
+class TestUnscannableUsesLines(unittest.TestCase):
+    """`unscannable_uses_lines` is the fail-closed half of `uses_refs`.
+
+    `uses_refs` anchors the key to the start of a line, so a `uses:` written in
+    a YAML FLOW mapping is invisible to it while Actions executes the step
+    normally. Three guards assert this over their own corpora, which makes the
+    two detectors' BOUNDARY load-bearing: a shape neither one sees is a silent
+    hole, and a shape both see is only noise. The cases below pin that boundary,
+    and each mutable-ref case was confirmed to parse as YAML with the ref
+    reaching `jobs.<j>.steps[].uses` before being written down.
+    """
+
+    MUTABLE = {
+        "no space after brace": '  - {uses: actions/checkout@main}',
+        "single-quoted key": "  - { 'uses': actions/checkout@main }",
+        "double-quoted key": '  - { "uses": actions/checkout@main }',
+        "whitespace around colon": '  - {   uses   :   actions/checkout@main   }',
+        "second key in the map": '  - { name: x, uses: actions/checkout@main }',
+        "reusable workflow": '  - { uses: o/r/.github/workflows/x.yml@main }',
+        "trailing comment": '  - { uses: actions/checkout@main }  # pinned',
+    }
+
+    def test_it_sees_every_flow_form_uses_refs_misses(self):
+        for label, line in self.MUTABLE.items():
+            with self.subTest(label):
+                self.assertEqual(
+                    [], uses_refs(line), "precondition: uses_refs must be blind here"
+                )
+                self.assertEqual(
+                    [(1, line.strip())],
+                    unscannable_uses_lines(line),
+                    f"flow-style `uses:` ({label}) slipped past BOTH detectors — "
+                    "a branch pin written this way is invisible to every guard",
+                )
+
+    def test_it_is_silent_on_forms_that_are_not_a_hole(self):
+        # "Not a hole" is scoped to the three guards built on `uses_refs`:
+        # `docker://` and `./local` hit the `continue` in test_ci_gate_topology's
+        # SHA-pin loop in block form too, so flow style opens nothing there that
+        # the block form has not already. A local ref DOES matter to
+        # test_ci_template_adopter_prereqs — but that guard's own matcher misses
+        # the plain `- uses: ./x` dash form as well, so the gap there is its
+        # defect to fix and not one this regex should paper over.
+        for label, line in {
+            "docker ref": '  - { uses: "docker://alpine:latest" }',
+            "local action": "  - { uses: ./.github/actions/thing }",
+            "whole-line comment": "  # - { uses: actions/checkout@main }",
+            "block style": "  - uses: actions/checkout@main",
+        }.items():
+            with self.subTest(label):
+                self.assertEqual([], unscannable_uses_lines(line), label)
+
+    def test_a_flow_map_opened_on_the_previous_line_is_covered_by_uses_refs(self):
+        """The one unmatched mutable form — proving it needs no match."""
+        doc = '  - {\n    uses: "actions/checkout@main"\n  }\n'
+        self.assertEqual([], unscannable_uses_lines(doc))
+        self.assertEqual(
+            ["actions/checkout@main"],
+            [ref for _, ref in uses_refs(doc)],
+            "if uses_refs ever stops seeing this, unscannable_uses_lines must "
+            "start seeing it — otherwise the form becomes a silent hole",
+        )
+
+    def test_the_key_alone_does_not_fire(self):
+        """The VALUE must look like an action ref, or the check cries wolf.
+
+        Measured by #557's false-positive review: matching the key alone fired
+        on five ordinary lines that are not steps, and a check that fires on a
+        step name is one someone deletes rather than obeys.
+        """
+        for line in (
+            '  - name: check that {uses: ...} is pinned',
+            '    if: contains(github.event.body, \'{uses:\')',
+            "    run: jq '{uses: .a}' f.json",
+        ):
+            with self.subTest(line):
+                self.assertEqual([], unscannable_uses_lines(line))
 
 
 if __name__ == "__main__":

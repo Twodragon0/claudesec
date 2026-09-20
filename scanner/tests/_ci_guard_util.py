@@ -416,6 +416,58 @@ def uses_refs_labeled(text: str) -> list:
     return out
 
 
+# A `uses:` inside a YAML FLOW mapping (`- { uses: x@sha, with: {...} }`). Actions
+# runs it — PyYAML resolves the step fully — but `_USES_LINE_RE` anchors the key to
+# the start of the line, so the whole ref is invisible to every line-scanning guard
+# in this repo. Rather than widen the shared matcher (which would change what the
+# SHA-pin, gate-topology and template guards all see, in one PR, as a side effect
+# of a blind-spot fix), this FAILS CLOSED on the form: ADR-001 §5's rule for a
+# shape the scanner provably cannot read. Each of the three guards built on
+# `uses_refs` asserts this over its OWN corpus — leaning on a sibling is the
+# attribution trap, since that sibling's coverage can narrow for unrelated
+# reasons and take the others quiet with it.
+#
+# NOT all four. `test_ci_template_adopter_prereqs` scans `uses:` too, with its
+# own `_LOCAL_USES_RE`, and is out of scope here because its blind spot is a
+# DIFFERENT one: that pattern is `^\s*uses:`, so it misses the ordinary
+# `- uses: ./x` dash form as well as the flow form. Measured 2026-09-20 —
+# `        uses: ./x` (nonexistent) yields a problem, `      - uses: ./x` and
+# `      - { uses: ./x }` both yield none. Its live 4 refs are all in the form
+# it can read, so it is green today and defeated by an ordinary rewrite. Fixing
+# that needs a change to ITS matcher, not this one; tracked separately.
+#
+# Two ref forms are deliberately NOT matched here, because their block-style
+# equivalents are exempt at the SHA-pin assertion anyway: `docker://…` and a
+# local `./…` action both hit the `continue` in test_ci_gate_topology's loop, so
+# for THAT guard flow style opens no hole the block form does not already have.
+# (A local ref does matter to the adopter guard above — which is why the gap
+# there is a separate defect and not a hole this regex should paper over.)
+# A flow map opened on the PRECEDING line (`- {` then `uses:` at column 0 of its
+# own line) is likewise unmatched and needs no match — `uses_refs` sees it.
+#
+# The VALUE must look like an action ref (`owner/repo…@something`), not just the
+# key. Matching the key alone fired on five ordinary lines that are not steps —
+# a step `- name:` containing the word `uses:`, an `if:` expression quoting it,
+# and three `run:` bodies with `{uses: …}` in jq/JSON/python — measured by the
+# false-positive review of #557. Live hits were 0 either way, so this is the
+# cry-wolf direction rather than a bypass, but a check that fires on a step name
+# is one someone deletes rather than obeys.
+_FLOW_USES_RE = re.compile(
+    r"[{,]\s*['\"]?uses['\"]?\s*:\s*['\"]?[\w.-]+/[\w./-]+@[\w./-]+", re.IGNORECASE
+)
+
+
+def unscannable_uses_lines(text: str) -> list:
+    """`(lineno, line)` for every flow-style `uses:` the line matcher cannot see."""
+    out = []
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        if raw.lstrip().startswith("#"):
+            continue
+        if _FLOW_USES_RE.search(raw):
+            out.append((lineno, raw.strip()))
+    return out
+
+
 def non_comment_lines(text: str) -> list:
     """The lines of `text` with whole-line `#` comments dropped."""
     return [line for line in text.splitlines() if not line.lstrip().startswith("#")]
