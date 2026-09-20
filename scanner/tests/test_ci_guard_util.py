@@ -1429,13 +1429,16 @@ class TestUnscannableUsesLines(unittest.TestCase):
                 )
 
     def test_it_is_silent_on_forms_that_are_not_a_hole(self):
-        # Exempt at the SHA-pin assertion in block form too (it `continue`s on
-        # both), so flow style opens nothing the block form has not already.
+        # "Not a hole" is scoped to the three guards built on `uses_refs`:
+        # `docker://` and `./local` hit the `continue` in test_ci_gate_topology's
+        # SHA-pin loop in block form too, so flow style opens nothing there that
+        # the block form has not already. A local ref DOES matter to
+        # test_ci_template_adopter_prereqs — but that guard's own matcher misses
+        # the plain `- uses: ./x` dash form as well, so the gap there is its
+        # defect to fix and not one this regex should paper over.
         for label, line in {
             "docker ref": '  - { uses: "docker://alpine:latest" }',
             "local action": "  - { uses: ./.github/actions/thing }",
-            # `uses:` at the start of its own line: uses_refs sees this one.
-            "flow map opened on the previous line": '    uses: "actions/checkout@main"',
             "whole-line comment": "  # - { uses: actions/checkout@main }",
             "block style": "  - uses: actions/checkout@main",
         }.items():
