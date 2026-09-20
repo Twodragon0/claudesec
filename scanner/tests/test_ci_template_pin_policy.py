@@ -75,13 +75,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
-    unscannable_uses_lines,
     REPO_ROOT,
     apply_mutation,
     assert_disables,
     explicit_key_lines,
     join_continuations,
     non_comment_lines,
+    unscannable_uses_lines,
     uses_refs,
     workflow_and_action_files,
 )
@@ -238,6 +238,7 @@ class TestTemplatePinPolicy(unittest.TestCase):
             "matcher is blind to — a branch or tag pin there is invisible here. "
             "Rewrite it as a block mapping:\n  " + "\n  ".join(found),
         )
+
     @classmethod
     def setUpClass(cls):
         cls.setup_text = (

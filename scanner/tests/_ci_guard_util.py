@@ -419,9 +419,21 @@ def uses_refs_labeled(text: str) -> list:
 # A `uses:` inside a YAML FLOW mapping (`- { uses: x@sha, with: {...} }`). Actions
 # runs it — PyYAML resolves the step fully — but `_USES_LINE_RE` anchors the key to
 # the start of the line, so the whole ref is invisible to every line-scanning guard
-# in this repo, not just this one. Rather than widen the shared matcher (which
-# would change what the SHA-pin and gate-topology guards see, in one PR, as a side
-# effect), this FAILS CLOSED on the form: ADR-001 §5's rule for a shape the scanner
+# in this repo. Rather than widen the shared matcher (which would change what the
+# SHA-pin, gate-topology and template guards all see, in one PR, as a side effect
+# of a blind-spot fix), this FAILS CLOSED on the form: ADR-001 §5's rule for a
+# shape the scanner provably cannot read. Every guard that scans `uses:` asserts
+# it over its OWN corpus — leaning on a sibling is the attribution trap, since
+# that sibling's coverage can narrow for unrelated reasons and take the others
+# quiet with it.
+#
+# Two ref forms are deliberately NOT matched, because their block-style
+# equivalents are exempt anyway: `docker://…` and a local `./…` action both hit
+# the `continue` in test_ci_gate_topology's SHA-pin loop, so flow style opens no
+# hole the block form does not already have. A flow map opened on the PRECEDING
+# line (`- {` then `uses:` at column 0 of its own line) is likewise unmatched and
+# needs no match — `uses_refs` sees that one normally.
+#
 # The VALUE must look like an action ref (`owner/repo…@something`), not just the
 # key. Matching the key alone fired on five ordinary lines that are not steps —
 # a step `- name:` containing the word `uses:`, an `if:` expression quoting it,

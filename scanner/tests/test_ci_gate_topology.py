@@ -28,7 +28,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
-    unscannable_uses_lines,
     apply_mutation,
     explicit_key_lines,
     job_block,
@@ -36,6 +35,7 @@ from _ci_guard_util import (  # noqa: E402
     required_aggregators,
     strip_inline_comment,
     top_level_jobs,
+    unscannable_uses_lines,
     uses_refs,
     workflow_and_action_files,
     yaml_key_pattern,
@@ -109,6 +109,7 @@ class TestActionShaPinning(unittest.TestCase):
             "matcher is blind to — a branch or tag pin there is invisible here. "
             "Rewrite it as a block mapping:\n  " + "\n  ".join(found),
         )
+
     def test_every_uses_is_sha_pinned(self):
         # Workflows AND composite actions, both extensions — a composite
         # `action.yml` carries `steps[].uses` and was never globbed here, so a
