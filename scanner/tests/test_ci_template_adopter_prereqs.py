@@ -49,14 +49,37 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from _ci_guard_util import strip_comment_lines
+from _ci_guard_util import (
+    strip_comment_lines,
+    unscannable_local_uses_lines,
+    uses_refs,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_DIR = REPO_ROOT / "templates"
 INSTALLER = REPO_ROOT / "scripts" / "setup.sh"
 
-# `uses: ./<path>` — a LOCAL action reference, resolved in the running repo.
-_LOCAL_USES_RE = re.compile(r"^\s*uses:\s*\./(?P<path>[^\s#]+)", re.M)
+#
+# There is no `_LOCAL_USES_RE` here any more. It was `^\s*uses:\s*\./…`, which
+# allows only WHITESPACE before the key, so it read ONE of the EIGHT ways a
+# local ref can actually be written. Measured 2026-09-20 by planting each form
+# in `templates/prowler.yml` pointed at a path no adopter can have, and running
+# this file against it:
+#
+#     uses: ./x              CAUGHT      - uses: "./x"          blind
+#   - uses: ./x              blind       - uses: ./x  # local   blind
+#     uses: './x'            blind       - { uses: ./x }        blind
+#     uses: "./x"            blind       - { uses: "./x" }      blind
+#
+# Seven blind, and `- uses: ./x` is a step's FIRST KEY — the ordinary way to
+# write one. The four refs live in `templates/` all happen to use the single
+# form it could read, so it was green and defeated by an ordinary rewrite.
+#
+# (A ninth shape, `-uses: ./x`, is not in that table: PyYAML rejects it, and a
+# mutation the grammar rejects proves nothing.)
+#
+# `uses_refs` is the canonical matcher and handles all six block forms; the two
+# flow forms cannot be line-matched at all and fail closed below.
 # A `vars.` reference whose name starts with GITHUB_ (case-insensitive, as the
 # GitHub restriction is).
 _GITHUB_VAR_RE = re.compile(r"vars\.GITHUB_[A-Z0-9_]*", re.I)
@@ -79,8 +102,19 @@ def workflow_like_files():
 
 
 def local_action_refs(text):
-    """Every `uses: ./<path>` in `text`, comment-stripped."""
-    return sorted(set(_LOCAL_USES_RE.findall(strip_comment_lines(text))))
+    """Every `uses: ./<path>` in `text`, comment-stripped, WITHOUT the `./`.
+
+    Routed through the shared `uses_refs` (ADR-001 §1) rather than a
+    private pattern: a fourth independent copy of the `uses:` matcher is how
+    this guard came to read one written form out of nine.
+    """
+    return sorted(
+        {
+            ref[2:]
+            for _, ref in uses_refs(strip_comment_lines(text))
+            if ref.startswith("./")
+        }
+    )
 
 
 def github_prefixed_vars(text):
@@ -159,6 +193,29 @@ class TestLocalActionRefsAreProvisioned(unittest.TestCase):
     def setUpClass(cls):
         cls.installer = INSTALLER.read_text(encoding="utf-8")
 
+    def test_no_local_ref_is_written_in_a_form_this_guard_cannot_read(self):
+        """Fail closed on flow-style `uses:`, which Actions EXECUTES and
+        `uses_refs` cannot see, so invariant 1 would pass over it in silence.
+
+        Asserted HERE over THIS guard's corpus rather than leaned on from the
+        three action-ref guards: they filter to `owner/repo@ref` and drop local
+        refs on purpose, so none of them would ever report this one.
+        """
+        found = [
+            f"{rel}:{ln}  {line}"
+            for rel in workflow_like_files()
+            for ln, line in unscannable_local_uses_lines(
+                (REPO_ROOT / rel).read_text(encoding="utf-8")
+            )
+        ]
+        self.assertEqual(
+            [], found,
+            "a local `uses: ./…` is written in YAML flow style, which this "
+            "guard's matcher is blind to — the adopter still gets `Can't find "
+            "'action.yml'`, and nothing here would say so. Rewrite it as a "
+            "block mapping:\n  " + "\n  ".join(found),
+        )
+
     def test_every_template_local_action_exists_and_is_installed(self):
         problems = []
         for rel in workflow_like_files():
@@ -232,13 +289,32 @@ class TestGuardIsNonVacuous(unittest.TestCase):
         self.assertNotIn(existing_but_uninstalled, installer,
                          "fixture stale: the installer now mentions this path")
 
+        # Every BLOCK form, not just the one the old matcher could read. The
+        # previous fixture used `      uses: ./x` exclusively — the single form
+        # `^\s*uses:` matched — so the guard's own non-vacuity test could not
+        # expose that the other five were invisible. A self-test that drives
+        # only the readable shape measures the fixture, not the guard.
+        # The two FLOW forms are not here: they are unreadable BY DESIGN and
+        # are covered by the fail-closed test above, not by this one.
+        forms = (
+            "      uses: ./{ref}",
+            "      - uses: ./{ref}",
+            "      uses: './{ref}'",
+            '      uses: "./{ref}"',
+            '      - uses: "./{ref}"',
+            "      - uses: ./{ref}  # local action",
+        )
         for ref, expect in ((existing_but_uninstalled, "does not exist here"),
                             (missing_entirely, "does not exist here")):
-            found = provisioning_problems(
-                "templates/fake.yml", f"      uses: ./{ref}\n", installer
-            )
-            self.assertEqual(len(found), 1, f"{ref}: expected one problem, got {found}")
-            self.assertIn(expect, found[0], f"{ref}: wrong reason -> {found[0]}")
+            for form in forms:
+                with self.subTest(ref=ref, form=form.strip()):
+                    found = provisioning_problems(
+                        "templates/fake.yml", form.format(ref=ref) + "\n", installer
+                    )
+                    self.assertEqual(
+                        len(found), 1, f"{ref} as `{form.strip()}`: got {found}"
+                    )
+                    self.assertIn(expect, found[0], f"{ref}: wrong reason -> {found[0]}")
 
         # And the installer-coverage half specifically: a path that DOES resolve
         # to an action file but is absent from the installer.
