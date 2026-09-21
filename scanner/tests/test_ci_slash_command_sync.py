@@ -22,21 +22,62 @@ without listing it fails, and listing one that does not exist fails. Neither
 direction is the "safe" one — an unlisted command is invisible, and a listed
 non-existent one is a broken instruction.
 
-WHY THE MARKDOWN REDUCTION IS USED DIFFERENTLY HERE
+WHY THE MARKDOWN REDUCTION IS BUILT BY HAND HERE
 `rendered_markdown` removes fenced code among its four evasions, and this list
-LIVES in a fence — reducing before searching would delete the subject and make
-every run read as "block missing". So the two steps are split, and each gets the
-text it can actually judge:
+LIVES in a fence — reducing with it would delete the subject and make every run
+read as "block missing". So this composes the two COMMENT primitives only:
 
-  - the section MARKER is checked against the reduced text, so a heading hidden
-    in a closed comment or after an unterminated `<!--` cannot silently take the
-    whole block out of scope;
-  - the command names are then read from the RAW fence, because that is where
-    they are and a browser shows them there.
+    truncate_at_unclosed_html_comment(strip_html_comments(text))
 
-Checking the marker against raw text instead would let someone comment out the
-whole section and keep this guard green over invisible content. Checking the
-names against reduced text would find nothing, ever.
+Comments removed, fences kept. That is the reduction whose blind spot is not
+this guard's subject.
+
+A FIRST VERSION OF THIS GUARD WAS DEFEATED HERE, and the fix is the reason the
+composition looks like this. It checked only the MARKER against
+`rendered_markdown` and then read the names from RAW text. The marker is not the
+subject, so hiding the FENCE while leaving the bold marker visible passed the
+check and still returned all eight names. Measured on the real README against
+the repo's browser oracle (markdown -> HTML -> consume comments; a containment
+check over the HTML string says "visible" for both of these and is the mistake
+that oracle exists to prevent):
+
+    case                                       guard  /scanner-feature seen
+    CLEAN (control)                                8  True
+    unterminated `<!--` between marker and fence   8  False   <- FALSE GREEN
+    fence wrapped in a closed `<!-- -->`           8  False   <- FALSE GREEN
+
+Both assertions passed in both rows. Reducing the whole region instead — marker
+AND fence together — is what closes it, because the subject is now inside what
+gets reduced.
+
+THE FENCE MUST OPEN IMMEDIATELY AFTER THE MARKER (blank lines aside). The first
+version took "the next fence anywhere below", so deleting the intended fence
+silently picked up the `Options` block further down and the canary that exists
+to catch exactly that edit went on passing. Today those lines start with `npx`
+so nothing was collected, but any later fence containing a `/name` line would
+have been read as an advertised command.
+
+RESIDUALS, both in the OVER-STRIP direction — a loud "block missing" failure,
+never a silent pass. Enumerated because an unexplained disagreement between this
+guard and a renderer is the thing the next audit has to re-derive:
+
+  - a `<!--` written as SAMPLE CODE inside a fence above this section truncates
+    the document here, because fences are deliberately not blanked first. The
+    README has 28 fences of which 0 contain `<!--` (measured 2026-09-21).
+  - commenting out the MARKER alone leaves the fence rendering, so a reader
+    still sees the list while this reports it gone. Correct behaviour rather
+    than a defect: without the heading there is nothing that identifies WHICH
+    fence is the command list, and guessing is how the first version came to
+    adopt the `Options` block.
+
+Everything else agrees with the renderer, checked shape by shape:
+
+    case                                      guard  reader sees list
+    CLEAN (control)                               8  True
+    unterminated `<!--` before the fence          0  False
+    fence wrapped in a closed `<!-- -->`          0  False
+    intended fence deleted                        0  False
+    tilde fence instead of backticks              8  True
 
 SCOPE: bounded to the one section (ADR-001 §2). `/scan` also appears in the
 `Options` block as `npx claudesec scan`, and command-looking tokens appear in
@@ -72,8 +113,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ci_guard_util import (  # noqa: E402
     REPO_ROOT,
     apply_mutation,
-    rendered_markdown,
+    strip_html_comments,
     tracked_files,
+    truncate_at_unclosed_html_comment,
 )
 
 README = REPO_ROOT / "README.md"
@@ -98,20 +140,51 @@ def command_files(paths=None) -> set:
     }
 
 
-def advertised_block(text: str):
-    """The RAW fenced block under `SECTION_MARKER`, or None if not visible.
+#: A fence opener, either flavour. `~~~` is accepted because a tilde fence
+#: renders identically and a matcher that knew only backticks would skip past
+#: one to some later block rather than read it.
+_FENCE_OPEN_RE = re.compile(r"^(`{3,}|~{3,})[^\n]*$")
 
-    Returns None when the marker is not present in the REDUCED text — i.e. when
-    a reader would not see the section at all — so a commented-out heading fails
-    loudly here instead of quietly narrowing the scope to nothing.
+
+def comment_reduced(text: str) -> str:
+    """`text` with HTML comments removed and FENCES LEFT INTACT.
+
+    Not `rendered_markdown`: that blanks fenced code, which is where this
+    guard's subject lives. See the module docstring for why the subject has to
+    be inside whatever gets reduced.
     """
-    if SECTION_MARKER not in rendered_markdown(text):
+    return truncate_at_unclosed_html_comment(strip_html_comments(text))
+
+
+def advertised_block(text: str):
+    """The fenced block under `SECTION_MARKER`, or None if a reader loses it.
+
+    Everything happens on the REDUCED text — marker AND fence — so a comment
+    that swallows either one fails closed here rather than yielding names
+    nobody can see.
+    """
+    reduced = comment_reduced(text)
+    # Exactly one, not "at least one": `str.find` takes the first occurrence
+    # while a presence check is satisfied by any, and those need not be the
+    # same one. A duplicate marker is a document bug either way.
+    if reduced.count(SECTION_MARKER) != 1:
         return None
-    start = text.find(SECTION_MARKER)
-    if start == -1:
+    lines = reduced[reduced.index(SECTION_MARKER):].splitlines()
+    i = 1
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    if i >= len(lines):
         return None
-    fence = re.search(r"^```[^\n]*\n(.*?)^```", text[start:], re.S | re.M)
-    return fence.group(1) if fence else None
+    opener = _FENCE_OPEN_RE.match(lines[i])
+    if not opener:
+        return None
+    closer = opener.group(1)[0] * 3
+    body = []
+    for line in lines[i + 1:]:
+        if line.startswith(closer):
+            return "\n".join(body)
+        body.append(line)
+    return None  # unterminated fence: not a block a reader gets either
 
 
 def advertised_commands(text: str) -> set:
@@ -138,6 +211,26 @@ class TestInputsAreLocatable(unittest.TestCase):
             len(command_files()), 0,
             f"no tracked `{COMMANDS_PREFIX}*.md` found — the enumeration "
             "collapsed, and the equality below would pass on two empty sets.",
+        )
+
+    def test_every_command_name_can_legally_be_advertised(self):
+        """A filename the advertising pattern cannot express makes
+        `test_every_command_on_disk_is_advertised` UNSATISFIABLE, and its
+        message then tells the reader to do something impossible.
+
+        `_ADVERTISED_RE` rejects uppercase, `_` and a digit-first name, so
+        `Team_Scan.md` would be reported as unlisted forever — no README line
+        can produce it. Fail here instead, where the fix is "rename the file".
+        """
+        inexpressible = sorted(
+            n for n in command_files() if not _ADVERTISED_RE.fullmatch("/" + n)
+        )
+        self.assertEqual(
+            [], inexpressible,
+            "command file name(s) cannot be written as an advertised command "
+            f"(`{_ADVERTISED_RE.pattern}`): {inexpressible}. Rename the file to "
+            "lowercase-with-hyphens; do NOT widen the pattern without checking "
+            "what else it would then collect from prose.",
         )
 
 
@@ -219,15 +312,69 @@ class TestGuardIsNonVacuous(unittest.TestCase):
         )
         self.assertIsNone(advertised_block(mutant))
 
-    def test_prose_outside_the_block_is_not_collected(self):
-        """SCOPE. `npx claudesec scan` and other command-shaped text live
-        elsewhere in this README; collecting them would invent commands."""
-        mutant = apply_mutation(
-            self.text,
-            "Dashboard serves at",
-            "/phantom-command\n\nDashboard serves at",
+    def test_deleting_the_fence_does_not_silently_adopt_a_LATER_one(self):
+        """SCOPE, and the case the first version of this guard got wrong.
+
+        Taking "the next fence anywhere below the marker" meant deleting the
+        intended fence picked up the `Options` block instead, and the canary
+        written to catch exactly that edit kept passing. It collected nothing
+        only because those lines happen to start with `npx`; a `/name` line in
+        any later fence would have been read as an advertised command.
+
+        Both halves are asserted — that the block is reported GONE, and that a
+        planted command in a later fence is not adopted — because the first is
+        satisfiable by an extractor that broke for an unrelated reason.
+        """
+        start = self.text.index(SECTION_MARKER)
+        fence_open = self.text.index("```", start)
+        fence_close = self.text.index("```", fence_open + 3) + 3
+        without_fence = self.text[:fence_open] + self.text[fence_close:]
+        self.assertIsNone(advertised_block(without_fence))
+
+        planted = apply_mutation(
+            without_fence,
+            "npx claudesec scan                      # Scan only",
+            "/phantom-command                        # not a real command",
         )
-        self.assertNotIn("phantom-command", advertised_commands(mutant))
+        self.assertNotIn("phantom-command", advertised_commands(planted))
+
+    def test_hiding_the_FENCE_is_caught_even_though_the_marker_survives(self):
+        """The shape that defeated the first version of this guard.
+
+        The marker is not the subject. Measured against the repo's browser
+        oracle, both mutants below make the list invisible to a reader while
+        the bold marker still renders — and the original, which reduced only
+        the marker, returned all eight names and passed both assertions.
+        """
+        start = self.text.index(SECTION_MARKER)
+        fence_open = self.text.index("```", start)
+        fence_close = self.text.index("```", fence_open + 3) + 3
+
+        between = (
+            self.text[:fence_open] + "<!-- retiring this list\n" + self.text[fence_open:]
+        )
+        wrapped = (
+            self.text[:fence_open]
+            + "<!--\n"
+            + self.text[fence_open:fence_close]
+            + "\n-->"
+            + self.text[fence_close:]
+        )
+        for label, mutant in (
+            ("unterminated opener between marker and fence", between),
+            ("fence wrapped in a closed comment", wrapped),
+        ):
+            with self.subTest(label):
+                self.assertIn(
+                    SECTION_MARKER, mutant,
+                    "fixture stale: the marker must SURVIVE, or this tests the "
+                    "old marker check rather than the new one",
+                )
+                self.assertEqual(
+                    set(), advertised_commands(mutant),
+                    f"{label}: the fence is hidden from a reader but its names "
+                    "were still collected",
+                )
 
 
 if __name__ == "__main__":

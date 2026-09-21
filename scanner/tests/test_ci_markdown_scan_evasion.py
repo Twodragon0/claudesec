@@ -512,8 +512,24 @@ def _is_read_call(node) -> bool:
     return isinstance(node.func, ast.Name) and node.func.id == "open"
 
 
+#: The one accepted ALTERNATIVE to `rendered_markdown`: both comment primitives
+#: composed, which removes comments while KEEPING fenced code. Admitted because
+#: a guard whose subject IS a fence cannot use the full pipeline — it would
+#: delete what the guard reads. Both names are required; either alone is weaker
+#: than the pipeline and must not qualify. Measured 2026-09-21 over every
+#: tracked `test_ci_*.py`: exactly two modules call both, and the other
+#: (`test_ci_guard_util`, the primitives' own unit tests) is not a census
+#: offender either way — so this opens no door for anything now in the tree.
+#: A module taking this route still has to appear in `_detectors()`, where the
+#: reduction is EXECUTED against all four vectors rather than merely present.
+COMMENT_ONLY_REDUCTION = frozenset(
+    {"strip_html_comments", "truncate_at_unclosed_html_comment"}
+)
+
+
 def applies_reduction(tree: ast.AST) -> bool:
-    """True when the module CALLS `rendered_markdown`, by AST.
+    """True when the module CALLS `rendered_markdown`, or the comment-only
+    composition named in `COMMENT_ONLY_REDUCTION`, by AST.
 
     A substring over the source was the first version and it was defeated the
     same day: the token in a `#` comment, or in a docstring, satisfied it while
@@ -521,15 +537,18 @@ def applies_reduction(tree: ast.AST) -> bool:
     that, and the pipeline half had no such protection — the presence-vs-
     attribution shape this repo has now hit in three separate sweeps. Proving a
     token EXISTS is never proof it belongs to the code that runs."""
+    called = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         func = node.func
-        if isinstance(func, ast.Name) and func.id == PIPELINE_NAME:
-            return True
-        if isinstance(func, ast.Attribute) and func.attr == PIPELINE_NAME:
-            return True
-    return False
+        if isinstance(func, ast.Name):
+            called.add(func.id)
+        elif isinstance(func, ast.Attribute):
+            called.add(func.attr)
+    if PIPELINE_NAME in called:
+        return True
+    return COMMENT_ONLY_REDUCTION <= called
 
 
 def exemption(tree: ast.AST):
