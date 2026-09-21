@@ -748,6 +748,80 @@ meant to model.
   positive control. This file cited #553's "assert a delta, not an empty list" three tests above
   the first of them.
 
+### Cycle #561–#565 — a self-test that drove only the shape its matcher could read (merged 2026-09-19 → 09-21)
+
+Three PRs, all downstream of one line in #557's review: `_USES_LINE_RE` anchors `uses:` to the
+start of a line, so a YAML FLOW mapping is invisible to it. Following that one observation
+outward found **four** guards blind, in two different ways, and the cycle's lesson is about how
+the blindness survived their own non-vacuity tests.
+
+- **A guard's self-test can measure the FIXTURE instead of the guard** (#565). This is the new
+  shape and it is worth recognising on sight. `test_ci_template_adopter_prereqs` had a private
+  `_LOCAL_USES_RE = ^\s*uses:\s*\./…` — whitespace only before the key — which read **one of the
+  eight** valid ways to write a local action ref. Its own `test_an_uninstalled_local_action_is_
+  caught` drove `provisioning_problems` with `f"      uses: ./{ref}"`, *exclusively that one
+  readable form*, so the guard was non-vacuous and green and blind, all three at once. The four
+  live refs in `templates/` happen to use the same form, so nothing on disk contradicted it
+  either. Measured pre/post in two clones:
+
+  ```
+                      PRE          POST
+    uses: ./x         CAUGHT       CAUGHT
+  - uses: ./x         blind        CAUGHT     <- a step's FIRST KEY, the ordinary way
+    uses: './x'       blind        CAUGHT
+    uses: "./x"       blind        CAUGHT
+  - uses: "./x"       blind        CAUGHT
+  - uses: ./x # local blind        CAUGHT
+  - { uses: ./x }     blind        CAUGHT
+  - { uses: "./x" }   blind        CAUGHT
+  ```
+
+  The rule: **a non-vacuity fixture must enumerate the input FORMS, not just the violation.** A
+  mutation test that only ever feeds the shape the parser already handles proves the parser
+  handles that shape.
+- **A fourth independent copy of a matcher is how a guard ends up reading one form** (#565). The
+  fix was not a wider private regex but routing `local_action_refs` through the shared
+  `uses_refs` (ADR-001 §1), which closed all six block forms at once. This is the same lesson as
+  the OCSF loader's two copies and `_SOURCE_FILES`' drift, arriving a third time: grep for other
+  implementations BEFORE widening the one in front of you.
+- **Each guard must own its check, not inherit it from a sibling** (#564). Two guards
+  (`test_ci_gate_topology`, `test_ci_template_pin_policy`) were blind to a flow-style `uses:`
+  while a third caught it. Leaning on the third is the attribution trap — it is not named for
+  that property and scopes elsewhere, so its coverage could narrow for unrelated reasons and take
+  the other two quiet with it, without a test changing. Each now asserts `unscannable_uses_lines`
+  over its OWN corpus. A single red would have left the other two blind.
+- **An allow-list and a deny-list backstopping each other will disagree** (#565 review). The
+  block-form SHA-pin loop is a deny-list (`if not ./ and not docker://` → must be 40 hex); the
+  new flow-form filter is an allow-list. The review recommended mirroring the deny-list so the
+  halves agree. **Measuring rejected that fix:** the deny-list fires on all four of #557's false
+  positives (`...`, `)`, `.a`, `${{`) because the flow matcher scans arbitrary text while
+  `uses_refs` only yields values from real `uses:` keys — same rule, different input population.
+  The real gap was narrower: `+` is a legal git refname character, so `owner/action@v1.0.0+build`
+  was flagged in block form and invisible in flow form. Widening the rev class fixed it and kept
+  the allow-list. **A recommendation from a review is a hypothesis too.**
+- **Stating an invariant is not measuring it** (#565 review). The new test class docstring said
+  the two filters partition by ref kind — and probed exactly the three refs that already
+  partition. `./x@v1` (a directory legal on disk and legal to `uses:`) satisfied both, because
+  `[\w.-]+` accepts a leading dot. The boundary is now a test.
+- **A comment's REASON can be wrong while its conclusion is right** (#565 review). "`-uses: ./x`
+  is excluded because PyYAML rejects it" — it does not; standalone it parses as the mapping
+  `{'-uses': './x'}`. It raises only when it FOLLOWS a real sequence entry, which is the context
+  my probe happened to use, so the measurement was true of the probe and false as written. The
+  conclusion survived (a mapping key is not a step), the stated reason did not.
+- **The guard that catches the next PR's drift is worth more than the count it fixes** (#561,
+  #560). #561 corrected the README check counts and pinned them; the very next PR to land,
+  #560, added three `cicd` checks, and the guard said `198 != 201` before review did. The README
+  conflict between them also needed both sides — #561's `access-control` 6→10 miscount fix AND
+  #560's `cicd` 8→11 — which is the ordinary case for a count conflict and the wrong place to
+  pick a side.
+
+Also in this cycle: my own commit lost a line while MOVING a comment, leaving a sentence without
+a verb and deleting a clause that had become false — moving a comment is editing it. And
+`test_ci_adr_citation_spelling` caught me citing an ADR section by the WORD rather than the
+section mark, which is the kind of thing a guard should catch instead of a human. (Writing the
+non-canonical spelling out here, even as an example, trips the same guard — so it is described
+rather than quoted.)
+
 ## Open Backlog
 
 Re-derived from `gh issue list --state open` + measured repo state on **2026-09-17**, re-checked

@@ -57,6 +57,7 @@ from _ci_guard_util import (  # noqa: E402
     desired_contexts,
     explicit_key_lines,
     extract_on_block,
+    flow_uses_lines,
     job_block,
     job_display_name,
     job_needs,
@@ -76,6 +77,7 @@ from _ci_guard_util import (  # noqa: E402
     top_level_jobs,
     truncate_at_unclosed_html_comment,
     trigger_block,
+    unscannable_local_uses_lines,
     unscannable_uses_lines,
     uses_refs,
     uses_refs_labeled,
@@ -1433,9 +1435,9 @@ class TestUnscannableUsesLines(unittest.TestCase):
         # `docker://` and `./local` hit the `continue` in test_ci_gate_topology's
         # SHA-pin loop in block form too, so flow style opens nothing there that
         # the block form has not already. A local ref DOES matter to
-        # test_ci_template_adopter_prereqs — but that guard's own matcher misses
-        # the plain `- uses: ./x` dash form as well, so the gap there is its
-        # defect to fix and not one this regex should paper over.
+        # test_ci_template_adopter_prereqs — which is why it has its own peer,
+        # `unscannable_local_uses_lines`, rather than this one being widened to
+        # cry wolf in the three guards that drop local refs deliberately.
         for label, line in {
             "docker ref": '  - { uses: "docker://alpine:latest" }',
             "local action": "  - { uses: ./.github/actions/thing }",
@@ -1470,6 +1472,96 @@ class TestUnscannableUsesLines(unittest.TestCase):
         ):
             with self.subTest(line):
                 self.assertEqual([], unscannable_uses_lines(line))
+
+
+class TestFlowUsesLinesPeers(unittest.TestCase):
+    """The two filters over `flow_uses_lines` must PARTITION by ref kind.
+
+    They are peers, not layers: the action-ref guards drop local refs on purpose
+    (those are exempt from SHA-pinning), and the adopter guard wants only those.
+    A ref kind that satisfies both filters, or neither, is the bug — one means a
+    guard cries wolf about something it exempts, the other is a silent hole.
+    """
+
+    ACTION = '  - { uses: actions/checkout@main }'
+    LOCAL = "  - { uses: ./.github/actions/thing }"
+    DOCKER = '  - { uses: "docker://alpine:latest" }'
+
+    def test_the_filters_do_not_overlap(self):
+        self.assertEqual([(1, self.ACTION.strip())], unscannable_uses_lines(self.ACTION))
+        self.assertEqual([], unscannable_local_uses_lines(self.ACTION))
+        self.assertEqual([(1, self.LOCAL.strip())], unscannable_local_uses_lines(self.LOCAL))
+        self.assertEqual([], unscannable_uses_lines(self.LOCAL))
+
+    def test_a_local_path_containing_an_at_sign_belongs_only_to_local(self):
+        """The BOUNDARY case, which the three cases above do not reach.
+
+        A directory named `x@v1` is legal on disk and legal to `uses:`, and
+        `[\\w.-]+` accepts the leading dot — so without the `(?!\\./)` this
+        satisfies both filters and gets reported twice. The invariant this class
+        states is a partition; stating it is not measuring it.
+        """
+        for line in ("  - { uses: ./x@v1 }",
+                     "  - { uses: ./.github/actions/x@main }"):
+            with self.subTest(line):
+                self.assertEqual([(1, line.strip())], unscannable_local_uses_lines(line))
+                self.assertEqual([], unscannable_uses_lines(line))
+
+    def test_a_legal_refname_character_does_not_fall_out_of_the_action_filter(self):
+        """`+` is legal in a git refname and semver build metadata uses it.
+
+        The block-form SHA-pin loop flags `owner/action@v1.0.0+build` (not 40
+        hex), so the flow-form backstop must see it or the two halves disagree —
+        anchoring the value with `$` is what makes the rev class load-bearing
+        rather than decorative. The illegal-in-a-refname characters stay out.
+        """
+        line = "  - { uses: owner/action@v1.0.0+build }"
+        self.assertEqual([(1, line.strip())], unscannable_uses_lines(line))
+        for bad in ("~1", "^", ":latest"):
+            with self.subTest(bad):
+                self.assertEqual(
+                    [], unscannable_uses_lines(f"  - {{ uses: owner/action@v1{bad} }}")
+                )
+
+    def test_docker_refs_belong_to_neither(self):
+        """Exempt from SHA-pinning AND not a local path — deliberately dropped."""
+        self.assertEqual([], unscannable_uses_lines(self.DOCKER))
+        self.assertEqual([], unscannable_local_uses_lines(self.DOCKER))
+        self.assertEqual(
+            ["docker://alpine:latest"],
+            [ref for _, ref, _ in flow_uses_lines(self.DOCKER)],
+            "the underlying matcher must still SEE it — only the filters drop "
+            "it, so widening a filter later does not need a matcher change",
+        )
+
+    def test_the_raw_matcher_captures_the_value(self):
+        self.assertEqual(
+            [(1, "actions/checkout@main", self.ACTION.strip())],
+            flow_uses_lines(self.ACTION),
+        )
+
+    def test_both_flow_forms_of_a_local_ref_are_seen(self):
+        for line in (
+            "  - { uses: ./.github/actions/x }",
+            '  - { uses: "./.github/actions/x" }',
+            "  - { name: y, uses: ./.github/actions/x }",
+        ):
+            with self.subTest(line):
+                self.assertEqual(
+                    [(1, line.strip())], unscannable_local_uses_lines(line)
+                )
+
+    def test_neither_filter_fires_on_prose_that_is_not_a_step(self):
+        """#557's five false positives, re-checked against BOTH filters."""
+        for line in (
+            "  - name: check that {uses: ...} is pinned",
+            "    if: contains(github.event.body, '{uses:')",
+            "    run: jq '{uses: .a}' f.json",
+            "  # - { uses: ./.github/actions/x }",
+        ):
+            with self.subTest(line):
+                self.assertEqual([], unscannable_uses_lines(line))
+                self.assertEqual([], unscannable_local_uses_lines(line))
 
 
 if __name__ == "__main__":

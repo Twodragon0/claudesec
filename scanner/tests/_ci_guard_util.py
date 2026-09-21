@@ -427,45 +427,79 @@ def uses_refs_labeled(text: str) -> list:
 # attribution trap, since that sibling's coverage can narrow for unrelated
 # reasons and take the others quiet with it.
 #
-# NOT all four. `test_ci_template_adopter_prereqs` scans `uses:` too, with its
-# own `_LOCAL_USES_RE`, and is out of scope here because its blind spot is a
-# DIFFERENT one: that pattern is `^\s*uses:`, so it misses the ordinary
-# `- uses: ./x` dash form as well as the flow form. Measured 2026-09-20 —
-# `        uses: ./x` (nonexistent) yields a problem, `      - uses: ./x` and
-# `      - { uses: ./x }` both yield none. Its live 4 refs are all in the form
-# it can read, so it is green today and defeated by an ordinary rewrite. Fixing
-# that needs a change to ITS matcher, not this one; tracked separately.
+# The matcher captures the VALUE and the two consumers below filter it, rather
+# than each baking its own value class in. They are PEERS chosen by ref kind, not
+# layers, so this is deliberately not a `WRAPPED_PRIMITIVES` entry: an action-ref
+# guard and a local-action guard want different subsets and neither decision
+# subsumes the other.
 #
-# Two ref forms are deliberately NOT matched here, because their block-style
-# equivalents are exempt at the SHA-pin assertion anyway: `docker://…` and a
-# local `./…` action both hit the `continue` in test_ci_gate_topology's loop, so
-# for THAT guard flow style opens no hole the block form does not already have.
-# (A local ref does matter to the adopter guard above — which is why the gap
-# there is a separate defect and not a hole this regex should paper over.)
 # A flow map opened on the PRECEDING line (`- {` then `uses:` at column 0 of its
-# own line) is likewise unmatched and needs no match — `uses_refs` sees it.
-#
-# The VALUE must look like an action ref (`owner/repo…@something`), not just the
-# key. Matching the key alone fired on five ordinary lines that are not steps —
-# a step `- name:` containing the word `uses:`, an `if:` expression quoting it,
-# and three `run:` bodies with `{uses: …}` in jq/JSON/python — measured by the
-# false-positive review of #557. Live hits were 0 either way, so this is the
-# cry-wolf direction rather than a bypass, but a check that fires on a step name
-# is one someone deletes rather than obeys.
+# own line) is not matched and needs no match — `uses_refs` sees it.
 _FLOW_USES_RE = re.compile(
-    r"[{,]\s*['\"]?uses['\"]?\s*:\s*['\"]?[\w.-]+/[\w./-]+@[\w./-]+", re.IGNORECASE
+    r"""[{,]\s*['"]?uses['"]?\s*:\s*['"]?(?P<ref>[^\s,}'"#]+)""", re.IGNORECASE
 )
+# An `owner/repo[/path]@ref` action reference, and NOT a local `./…` one — the
+# two filters below must not both fire, and `[\w.-]+` would otherwise accept the
+# leading dot of a directory named e.g. `./x@v1` (legal on disk and legal to
+# `uses:`), reporting it twice.
+#
+# `+` is in the rev class because it is a legal git refname character and semver
+# build metadata uses it (`@v1.0.0+build.1`). The block-form SHA-pin loop flags
+# such a ref — it is not 40 hex — so the flow-form backstop must see it too, or
+# the two halves disagree. `~ ^ : ? * [ \` are NOT legal in a refname and stay
+# out. Anchoring with `$` is what makes this a real value check rather than a
+# prefix match, so the class has to be right instead of merely permissive.
+_ACTION_REF_RE = re.compile(r"^(?!\./)[\w.-]+/[\w./-]+@[\w.+/-]+$")
 
 
-def unscannable_uses_lines(text: str) -> list:
-    """`(lineno, line)` for every flow-style `uses:` the line matcher cannot see."""
+def flow_uses_lines(text: str) -> list:
+    """`(lineno, ref, line)` for every `uses:` written in a YAML FLOW mapping.
+
+    Unfiltered on purpose — callers keep the ref kinds they enforce something
+    about. Filtering is what stops this crying wolf: matching the KEY alone fired
+    on five ordinary lines that are not steps (a step `- name:` containing the
+    word `uses:`, an `if:` expression quoting it, and three `run:` bodies with
+    `{uses: …}` in jq/JSON/python), measured by the false-positive review of
+    #557. A check that fires on a step name is one someone deletes rather than
+    obeys.
+    """
     out = []
     for lineno, raw in enumerate(text.splitlines(), start=1):
         if raw.lstrip().startswith("#"):
             continue
-        if _FLOW_USES_RE.search(raw):
-            out.append((lineno, raw.strip()))
+        for m in _FLOW_USES_RE.finditer(raw):
+            out.append((lineno, m.group("ref"), raw.strip()))
     return out
+
+
+def unscannable_uses_lines(text: str) -> list:
+    """`(lineno, line)` for every flow-style ACTION ref the line matcher misses.
+
+    For the guards that enforce SHA-pinning and label agreement. `docker://…`
+    and local `./…` refs are excluded because those hit the `continue` in
+    test_ci_gate_topology's SHA-pin loop in block form too — flow style opens no
+    hole there that the block form does not already have. A local ref DOES
+    matter elsewhere; that is `unscannable_local_uses_lines`, not this.
+    """
+    return [
+        (lineno, line)
+        for lineno, ref, line in flow_uses_lines(text)
+        if _ACTION_REF_RE.match(ref)
+    ]
+
+
+def unscannable_local_uses_lines(text: str) -> list:
+    """`(lineno, line)` for every flow-style LOCAL (`./…`) ref the matcher misses.
+
+    For the adopter-prereqs guard, whose invariant is about local action paths
+    resolving in someone else's repo — the one ref kind `unscannable_uses_lines`
+    deliberately drops.
+    """
+    return [
+        (lineno, line)
+        for lineno, ref, line in flow_uses_lines(text)
+        if ref.startswith("./")
+    ]
 
 
 def non_comment_lines(text: str) -> list:
