@@ -4,7 +4,7 @@
 
 ## Purpose
 
-ClaudeSec is a DevSecOps toolkit for AI-assisted secure development. It provides a zero-dependency bash security scanner (~120+ checks across 11 categories), an ISMS PDCA dashboard, asset management integrations, and reusable CI/CD templates — all designed to integrate with Claude Code workflows.
+ClaudeSec is a DevSecOps toolkit for AI-assisted secure development. It provides a zero-dependency bash security scanner (see README's `Scanner Categories` for the per-category counts and the total), an ISMS PDCA dashboard, asset management integrations, and reusable CI/CD templates — all designed to integrate with Claude Code workflows.
 
 npm: `claudesec` — version 0.7.2
 

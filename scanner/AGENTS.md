@@ -5,7 +5,7 @@
 
 ## Purpose
 
-Zero-dependency bash security scanner CLI. Runs ~120+ checks across 11 categories and outputs findings to stdout or JSON. The main entrypoint is `scanner/claudesec`.
+Zero-dependency bash security scanner CLI. Outputs findings to stdout or JSON. The main entrypoint is `scanner/claudesec`. For how many checks each category implements and the total, see README's `Scanner Categories` — that table is the one statement of those numbers that `test_ci_scanner_check_counts.py` holds to the tree, so restating them here would only rot (it already had: this line said `~120+` against a real 201).
 
 ## Directory Structure
 
@@ -15,7 +15,7 @@ scanner/
 ├── checks/            # Check modules by category
 │   ├── access-control/  # .env files, password hashing, JWT, sessions
 │   ├── ai/              # LLM API keys, prompt injection, RAG, agent tools
-│   ├── cicd/            # GitHub Actions permissions, SHA pinning, secrets
+│   ├── cicd/            # GitHub Actions permissions, SHA pinning, secrets, run freshness
 │   ├── cloud/           # AWS, GCP, Azure IAM, logging, storage
 │   ├── code/            # SQL/command/XSS injection, SSRF, XXE, crypto (24 checks)
 │   ├── infra/           # Docker, Kubernetes, IaC (Terraform/Helm)
