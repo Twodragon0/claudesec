@@ -825,16 +825,33 @@ rather than quoted.)
 ## Open Backlog
 
 Re-derived from `gh issue list --state open` + measured repo state on **2026-09-17**, re-checked
-**2026-09-18** with the set unchanged. **Verify before working an item** — this list rotted twice
-before, and the 2026-08-26 revision listed FOUR already-closed issues (#295, #297, #381, #399)
-as open.
+**2026-09-18** and again **2026-09-21**, the set unchanged all three times. **Verify before
+working an item** — this list rotted twice before, and the 2026-08-26 revision listed FOUR
+already-closed issues (#295, #297, #381, #399) as open.
 
 **Nothing opened or closed since the 2026-09-02 revision** — the same eight issues
 (#405, #498, #68, #39, #15, #12, #18, #20). A stable issue set is not a verified backlog:
-re-measuring found
+the 2026-09-18 pass found
 **three entries that were wrong about MECHANISM** while naming the right issue, which is the
 failure this file is least able to detect, because a wrong mechanism reads exactly as
 authoritative as a right one. Check with `gh issue list --state open` before trusting any entry.
+
+**The 2026-09-21 pass re-measured all three corrected mechanisms and they held** — `#405`
+`comments=0` with the body refreshed that week, `#498` `comments=2` with a body newer than the
+newest comment, `#68` still `updatedAt=2026-04-05` with `comments=0`. What it found instead is a
+*third* failure mode, distinct from a wrong mechanism and from a closed issue: **an entry that is
+correctly classified while the issue BODY describes a world that no longer exists.** Two of the
+five product asks are in that state (`#20`, `#12`, below). A stale premise is not visible from the
+issue list, from the labels, or from the mechanism — only from measuring the body's claims against
+the tree, which is the check this section had never applied to the product-ask entries because
+they were dismissed in one line as "not correctness work".
+
+**Re-measuring the backlog also found a defect that was not IN it** — README advertised four slash
+commands that do not exist and omitted five that do. Nothing in the backlog pointed at it; it
+surfaced only because `#20`'s "현재 5개 slash command" premise had to be checked against
+`.claude/commands/`. Fixed and guarded in #567. Worth noting as a property of this kind of sweep:
+verifying a stale premise reads the same surface a drift guard would, so it finds drift the
+backlog never tracked.
 
 **Closed in an earlier revision — do NOT re-propose as open:** `#295` (prowler/alpine freeze),
 `#297` (quarterly ADR-001 audit), `#381` (lychee sweep), `#399` (DAST nightly not running).
@@ -886,6 +903,21 @@ authoritative as a right one. Check with `gh issue list --state open` before tru
   the discriminator is whether a body-refresh step exists, not the tracker's age.
 - **`#39` ISMS-P 29 FAIL controls prioritised remediation plan** and **`#15` incident-response
   process 65% → 80%** are product/content work, not CI.
+  **`#39`'s denominator no longer exists** (measured 2026-09-21). Its table is
+  `PASS 13 / FAIL 29 / 42개, 준수율 31% (D)`; `COMPLIANCE_CONTROL_MAP["KISA ISMS-P"]` now holds
+  **44** controls, of which **15** carry `assessable: False` and render N/A, leaving **29**
+  scoreable. So the issue's 42 and today's 44 are different populations and its 13/31%
+  cannot be compared to a current run at all. (The 29 is a coincidence of two different
+  quantities — issue-FAIL versus today's assessable count — and conflating them is the trap.)
+  Eleven of the fifteen N/A are the `3.x` PII controls #309 already recorded, which is the one
+  number in this area that measured out exactly as written. Re-derive with
+  `importlib` against **`scanner/lib/compliance-map.py`** — not `scanner/compliance-map.py`,
+  which does not exist and is where an earlier attempt at this measurement died with
+  `FileNotFoundError` and had to be redone. A current pass/fail needs a Prowler OCSF corpus and
+  was NOT measured; treat any percentage in the issue as unverified rather than as a baseline.
+  Related and also drifted: `COMPLIANCE_CONTROL_MAP` now has **8** frameworks, so this file's
+  "SOC 2 (TSC) added as the 7th framework" is true-as-written-then and stale now — CMMC 2.0
+  Level 2 (14 controls) is the eighth.
 - **`#68` ZAP baseline — keep it open, but it is a DORMANT ARTIFACT, not a maintained tracker.**
   **Correction to the 2026-09-02 revision**, which called it "the intentional single-tracker
   issue" and so implied something still writes to it. Nothing does:
@@ -905,7 +937,28 @@ authoritative as a right one. Check with `gh issue list --state open` before tru
   absent here. Contrast #498, which is the live tracker. Check:
   `grep -n allow_issue_writing .github/workflows/dast-baseline.yml`.
 - **`#12` Zscaler MCP integration**, **`#18` GitHub Projects board**, **`#20` marketplace
-  plugin update** are `enhancement`-labelled product asks, not correctness work.
+  plugin update** are `enhancement`-labelled product asks, not correctness work. All three
+  are untouched since 2026-03 (`comments=0` on each), and measuring their BODIES on 2026-09-21
+  found two premises that no longer hold. Classification was right; the bodies had rotted
+  underneath it, which no amount of re-reading the issue list would surface.
+  - **`#20`'s premises are both stale.** It is titled "v0.6.0" and `package.json` says
+    **0.7.2** — three minors past it. It says "현재 5개 slash command" and there are **8**.
+    Two of its four tasks ask for `/compliance` and `/prowler`; neither exists as a slash
+    command and neither is what the repo ships (`/compliance-check` does, and Prowler is a CLI
+    subcommand). Re-scope it against `node -p "require('./package.json').version"` and
+    `ls .claude/commands/` before working it, and note #567 changed the second of those.
+  - **`#12`'s stated premise is partly false.** It argues MCP integration is *needed* to get
+    ZIA/ZPA data into the dashboard — but `scanner/checks/saas/zscaler.sh` already implements
+    `SAAS-ZIA-001..007`, seven checks, with no MCP server involved. Whatever remains of #12 is
+    about the MCP surface specifically, not about ZIA coverage existing; check
+    `grep -rl SAAS-ZIA scanner/checks/` first so the issue is not re-opened against a
+    requirement that is already met by another route.
+  - **`#18` is UNVERIFIED, not confirmed either way.** `gh project list --owner Twodragon0`
+    fails with `your authentication token is missing required scopes [read:project]`, so
+    whether a board exists was NOT established. Recorded as unverified on purpose — the
+    alternative is a guess, and a guess here reads as authoritative exactly like the three
+    wrong mechanisms did. Unblock with `gh auth refresh -s read:project` (which is the issue's
+    own first task, so the check and the work share a prerequisite).
 - **Merged 2026-09-01 → 09-02, do NOT re-propose as open.** The reasoning moved into the
   `#505–#511` cycle entry above and should be read there, not re-derived: the ruff `select`
   widening (#508), `_TEMPLATE_KEYS` caller arity (#509), the zscaler `_unreachable` `reason`
