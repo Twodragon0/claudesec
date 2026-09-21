@@ -109,6 +109,7 @@ guards = [
   "test_ci_scanner_lib_reachability.py",
   "test_ci_security_gate.py",
   "test_ci_security_gate_behaviour.py",
+  "test_ci_slash_command_sync.py",
   "test_ci_strip_before_match.py",
   "test_ci_template_adopter_prereqs.py",
   "test_ci_template_keys_arity.py",

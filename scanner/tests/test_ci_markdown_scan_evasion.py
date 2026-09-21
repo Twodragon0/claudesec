@@ -194,6 +194,7 @@ def _detectors():
     from test_ci_compliance_doc_table import parse_doc_rows
     from test_ci_kisa_control_alignment import guide_titles
     from test_ci_scanner_check_counts import doc_rows as scanner_category_rows
+    from test_ci_slash_command_sync import SECTION_MARKER, advertised_commands
 
     guard_row = "| `scanner/tests/test_ci_x.py` | verdict |"
     return (
@@ -208,6 +209,18 @@ def _detectors():
             "| `test_ci_x.py` | verdict |",
             "# Catalog\n\n## Block-collector enumeration\n\n{}\n",
             lambda doc: bool(documented_collectors(doc)),
+        ),
+        (
+            # The payload is the SECTION MARKER, not a command line. That guard
+            # reduces to decide whether the section is VISIBLE and then reads
+            # the names from the raw fence — because the names live inside a
+            # fence, which the reduction strips. So the thing that must vanish
+            # under every vector is the anchor, and wrapping a `/name` line
+            # would probe a step that guard deliberately does not reduce.
+            "test_ci_slash_command_sync.advertised_commands",
+            SECTION_MARKER,
+            "# Doc\n\n{}\n\n```\n/scan   # run a scan\n```\n",
+            lambda doc: bool(advertised_commands(doc)),
         ),
         (
             "test_ci_compliance_doc_table.parse_doc_rows",
@@ -499,8 +512,24 @@ def _is_read_call(node) -> bool:
     return isinstance(node.func, ast.Name) and node.func.id == "open"
 
 
+#: The one accepted ALTERNATIVE to `rendered_markdown`: both comment primitives
+#: composed, which removes comments while KEEPING fenced code. Admitted because
+#: a guard whose subject IS a fence cannot use the full pipeline — it would
+#: delete what the guard reads. Both names are required; either alone is weaker
+#: than the pipeline and must not qualify. Measured 2026-09-21 over every
+#: tracked `test_ci_*.py`: exactly two modules call both, and the other
+#: (`test_ci_guard_util`, the primitives' own unit tests) is not a census
+#: offender either way — so this opens no door for anything now in the tree.
+#: A module taking this route still has to appear in `_detectors()`, where the
+#: reduction is EXECUTED against all four vectors rather than merely present.
+COMMENT_ONLY_REDUCTION = frozenset(
+    {"strip_html_comments", "truncate_at_unclosed_html_comment"}
+)
+
+
 def applies_reduction(tree: ast.AST) -> bool:
-    """True when the module CALLS `rendered_markdown`, by AST.
+    """True when the module CALLS `rendered_markdown`, or the comment-only
+    composition named in `COMMENT_ONLY_REDUCTION`, by AST.
 
     A substring over the source was the first version and it was defeated the
     same day: the token in a `#` comment, or in a docstring, satisfied it while
@@ -508,15 +537,18 @@ def applies_reduction(tree: ast.AST) -> bool:
     that, and the pipeline half had no such protection — the presence-vs-
     attribution shape this repo has now hit in three separate sweeps. Proving a
     token EXISTS is never proof it belongs to the code that runs."""
+    called = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         func = node.func
-        if isinstance(func, ast.Name) and func.id == PIPELINE_NAME:
-            return True
-        if isinstance(func, ast.Attribute) and func.attr == PIPELINE_NAME:
-            return True
-    return False
+        if isinstance(func, ast.Name):
+            called.add(func.id)
+        elif isinstance(func, ast.Attribute):
+            called.add(func.attr)
+    if PIPELINE_NAME in called:
+        return True
+    return COMMENT_ONLY_REDUCTION <= called
 
 
 def exemption(tree: ast.AST):
