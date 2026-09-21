@@ -75,8 +75,12 @@ INSTALLER = REPO_ROOT / "scripts" / "setup.sh"
 # write one. The four refs live in `templates/` all happen to use the single
 # form it could read, so it was green and defeated by an ordinary rewrite.
 #
-# (A ninth shape, `-uses: ./x`, is not in that table: PyYAML rejects it, and a
-# mutation the grammar rejects proves nothing.)
+# (A ninth shape, `-uses: ./x`, is not in that table, and the reason is NOT that
+# YAML rejects it — standalone it parses fine, as the MAPPING `{'-uses': './x'}`.
+# That is the point: without the space it is a key, not a sequence item, so
+# `steps:` stops being a list and Actions never runs it as a step. It only
+# raises a ParserError when it follows a real `- ` entry. A shape that cannot be
+# a step cannot hide one.)
 #
 # `uses_refs` is the canonical matcher and handles all six block forms; the two
 # flow forms cannot be line-matched at all and fail closed below.
@@ -106,7 +110,7 @@ def local_action_refs(text):
 
     Routed through the shared `uses_refs` (ADR-001 §1) rather than a
     private pattern: a fourth independent copy of the `uses:` matcher is how
-    this guard came to read one written form out of nine.
+    this guard came to read one written form out of eight.
     """
     return sorted(
         {

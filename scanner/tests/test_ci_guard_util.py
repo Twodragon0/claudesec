@@ -1493,6 +1493,36 @@ class TestFlowUsesLinesPeers(unittest.TestCase):
         self.assertEqual([(1, self.LOCAL.strip())], unscannable_local_uses_lines(self.LOCAL))
         self.assertEqual([], unscannable_uses_lines(self.LOCAL))
 
+    def test_a_local_path_containing_an_at_sign_belongs_only_to_local(self):
+        """The BOUNDARY case, which the three cases above do not reach.
+
+        A directory named `x@v1` is legal on disk and legal to `uses:`, and
+        `[\\w.-]+` accepts the leading dot — so without the `(?!\\./)` this
+        satisfies both filters and gets reported twice. The invariant this class
+        states is a partition; stating it is not measuring it.
+        """
+        for line in ("  - { uses: ./x@v1 }",
+                     "  - { uses: ./.github/actions/x@main }"):
+            with self.subTest(line):
+                self.assertEqual([(1, line.strip())], unscannable_local_uses_lines(line))
+                self.assertEqual([], unscannable_uses_lines(line))
+
+    def test_a_legal_refname_character_does_not_fall_out_of_the_action_filter(self):
+        """`+` is legal in a git refname and semver build metadata uses it.
+
+        The block-form SHA-pin loop flags `owner/action@v1.0.0+build` (not 40
+        hex), so the flow-form backstop must see it or the two halves disagree —
+        anchoring the value with `$` is what makes the rev class load-bearing
+        rather than decorative. The illegal-in-a-refname characters stay out.
+        """
+        line = "  - { uses: owner/action@v1.0.0+build }"
+        self.assertEqual([(1, line.strip())], unscannable_uses_lines(line))
+        for bad in ("~1", "^", ":latest"):
+            with self.subTest(bad):
+                self.assertEqual(
+                    [], unscannable_uses_lines(f"  - {{ uses: owner/action@v1{bad} }}")
+                )
+
     def test_docker_refs_belong_to_neither(self):
         """Exempt from SHA-pinning AND not a local path — deliberately dropped."""
         self.assertEqual([], unscannable_uses_lines(self.DOCKER))

@@ -438,8 +438,18 @@ def uses_refs_labeled(text: str) -> list:
 _FLOW_USES_RE = re.compile(
     r"""[{,]\s*['"]?uses['"]?\s*:\s*['"]?(?P<ref>[^\s,}'"#]+)""", re.IGNORECASE
 )
-# An `owner/repo[/path]@ref` action reference.
-_ACTION_REF_RE = re.compile(r"^[\w.-]+/[\w./-]+@[\w./-]+$")
+# An `owner/repo[/path]@ref` action reference, and NOT a local `./…` one — the
+# two filters below must not both fire, and `[\w.-]+` would otherwise accept the
+# leading dot of a directory named e.g. `./x@v1` (legal on disk and legal to
+# `uses:`), reporting it twice.
+#
+# `+` is in the rev class because it is a legal git refname character and semver
+# build metadata uses it (`@v1.0.0+build.1`). The block-form SHA-pin loop flags
+# such a ref — it is not 40 hex — so the flow-form backstop must see it too, or
+# the two halves disagree. `~ ^ : ? * [ \` are NOT legal in a refname and stay
+# out. Anchoring with `$` is what makes this a real value check rather than a
+# prefix match, so the class has to be right instead of merely permissive.
+_ACTION_REF_RE = re.compile(r"^(?!\./)[\w.-]+/[\w./-]+@[\w.+/-]+$")
 
 
 def flow_uses_lines(text: str) -> list:
