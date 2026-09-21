@@ -5,7 +5,7 @@
 
 ## Purpose
 
-Zero-dependency bash security scanner CLI. Runs ~120+ checks across 11 categories and outputs findings to stdout or JSON. The main entrypoint is `scanner/claudesec`.
+Zero-dependency bash security scanner CLI. Outputs findings to stdout or JSON. The main entrypoint is `scanner/claudesec`. For how many checks each category implements and the total, see README's `Scanner Categories` — that table is the one statement of those numbers that `test_ci_scanner_check_counts.py` holds to the tree, so restating them here would only rot (it already had: this line said `~120+` against a real 201).
 
 ## Directory Structure
 

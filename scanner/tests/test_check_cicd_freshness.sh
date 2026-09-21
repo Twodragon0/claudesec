@@ -167,6 +167,11 @@ STUB_AUTH_RC=0
 STUB_DEFAULT_BRANCH="main"
 STUB_RUNS_DEPLOY=""
 STUB_RUNS_SCAN=""
+# A SECOND scan workflow's history, so a fixture can hold two scan workflows in
+# different states. Every broken-scan case used a single-workflow fixture, which
+# pinned broken-detection only in the no-sibling case — and a fresh sibling is
+# exactly what used to hide it. Only the two-workflow fixture sets this.
+STUB_RUNS_SCAN2=""
 STUB_ALERTS="0"
 # Non-zero makes `gh run list` fail the way a 403 rate limit or a revoked scope
 # does: no output AND a non-zero exit. Telling that apart from an empty 200
@@ -197,6 +202,7 @@ gh() {
         deploy-notify.yml)    printf '%s' "$STUB_RUNS_DEPLOY" ;;
         codeql.yml)           printf '%s' "$STUB_RUNS_SCAN" ;;
         trivy-monitor.yml)    printf '%s' "$STUB_RUNS_SCAN" ;;
+        trivy-second.yml)     printf '%s' "$STUB_RUNS_SCAN2" ;;
         *)          printf '' ;;
       esac
       ;;
@@ -262,6 +268,23 @@ permissions:
   security-events: write
 jobs:
   analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo scanning
+YML
+
+# Fixture with TWO scan workflows, so one can be fresh while the other has only
+# ever failed. `trivy-second.yml` sorts after `codeql.yml`, which is the order
+# that used to make the broken one unreachable behind an early break.
+mkdir -p "$tmpdir/twoscan/.github/workflows"
+cp "$tmpdir/repo/.github/workflows/codeql.yml" "$tmpdir/twoscan/.github/workflows/codeql.yml"
+cat > "$tmpdir/twoscan/.github/workflows/trivy-second.yml" <<'YML'
+name: Trivy Second
+on:
+  schedule:
+    - cron: '0 4 * * *'
+jobs:
+  scan:
     runs-on: ubuntu-latest
     steps:
       - run: echo scanning
@@ -442,6 +465,37 @@ assert_result_lacks "the broken FAIL does not call freshness unknown" "FAIL" "CI
 assert_no_result "all-failed is not downgraded to WARN" "WARN" "CICD-011"
 # ...and the failure count reaches the message, so the evidence is visible.
 assert_result_mentions "the FAIL reports how many runs failed" "FAIL" "CICD-011" "3 failed"
+
+echo "=== CICD-011: a FRESH sibling must not hide a scan that only ever failed ==="
+
+# The regression this case exists for: `_cf_scan_failing` was consulted only
+# when NO successful run existed anywhere, and the loop broke as soon as one
+# fresh workflow was found. So a scan workflow that runs and never completes was
+# reported only when it had no healthy sibling — the state this file's header
+# calls the worst of the four was sort-order dependent, and CICD-011 said PASS.
+# Two workflows: codeql.yml fresh, trivy-second.yml three failures and no
+# success. Both facts must reach the output.
+STUB_RUNS_SCAN=$(printf 'success\t%s\n' "$FRESH")
+STUB_RUNS_SCAN2=$(printf 'failure\t%s\nfailure\t%s\nfailure\t%s\n' \
+  "$(iso_ago 1)" "$(iso_ago 2)" "$(iso_ago 3)")
+SCAN_DIR="$tmpdir/twoscan" run_check
+assert_has_result "fresh + never-succeeded sibling -> WARN CICD-011" "WARN" "CICD-011"
+assert_no_result "a fresh scan does exist, so this is not a silent PASS" "PASS" "CICD-011"
+assert_result_mentions "the WARN names the dead workflow" "WARN" "CICD-011" "trivy-second.yml"
+assert_result_mentions "the WARN still names the fresh one" "WARN" "CICD-011" "codeql.yml"
+assert_result_mentions "the failure count reaches the message" "WARN" "CICD-011" "3 failed"
+# CICD-012 must still see a live producer: freshness IS established, so the zero
+# keeps its backing. Downgrading that too would over-correct.
+assert_has_result "a live producer still backs the zero" "PASS" "CICD-012"
+
+# The control for the case above: same fixture, sibling HEALTHY -> plain PASS.
+# Without this, the WARN could be firing on the two-workflow fixture itself
+# rather than on the failing history.
+STUB_RUNS_SCAN2=$(printf 'success\t%s\n' "$FRESH")
+SCAN_DIR="$tmpdir/twoscan" run_check
+assert_has_result "two healthy scan workflows -> PASS CICD-011" "PASS" "CICD-011"
+assert_no_result "no WARN when neither workflow is broken" "WARN" "CICD-011"
+STUB_RUNS_SCAN2=""
 
 echo "=== CICD-011: cancelled-only history -> WARN, not broken ==="
 

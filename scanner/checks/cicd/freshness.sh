@@ -6,6 +6,12 @@
 # declare `permissions:`, is a SAST tool named somewhere. That axis answers "is
 # the control DECLARED" and is blind to "is the control RUNNING".
 #
+# THE NUMBERING STARTS AT 010, NOT 009. CICD-009 is deliberately unused and
+# reserved for a future STATIC check, so pipeline.sh can grow one more without
+# interleaving into this file's range. An unexplained gap in an ID sequence
+# reads as a deleted check, which is a different and worse thing than a
+# reservation — hence this note rather than a silent jump.
+#
 # The blind spot is not hypothetical, and all three shapes look identical:
 #   - a deploy workflow whose manifest path drifted fails on every `main` push.
 #     The workflow file still reads perfectly, so the static axis scores it 100.
@@ -58,6 +64,20 @@
 # not block anything, and the monitor-filter override above narrows one common
 # shape of it. A content-based fallback is the real fix and is not attempted
 # here; it would change the cost model of the whole file.
+#
+# KNOWN LIMITATION — THESE THREE CHECKS NEVER RUN IN THIS REPO'S OWN CI
+# They need `gh` authenticated against a real repository, and `lint.yml` exports
+# no `GH_TOKEN`, so every CI invocation takes the `_cicd_freshness_gh_ready`
+# skip path. `test_check_cicd_freshness.sh` is hermetic by stubbing `gh`, which
+# is what keeps it fast and offline — and means the PRODUCTION path is covered
+# by stubs only. Worth saying plainly, because it is this file's own subject
+# matter one level up: a gate that never runs reads exactly like one that found
+# nothing. Two consequences to keep in mind when editing:
+#   - a defect reachable only with a live `gh` will not be caught here;
+#   - `test_scan_report_baseline.py` runs a real `-c cicd` scan, so on a DEV
+#     machine with `gh` logged in it is NOT hermetic and will make live API
+#     calls. It is green in CI only because no token is present, which is an
+#     absence rather than a guard.
 #
 # KNOWN LIMITATION — CICD-011 AND CICD-012 DO NOT READ THE SAME PRODUCER
 # CICD-011 measures the freshness of ANY scan-shaped workflow, while CICD-012
@@ -380,8 +400,12 @@ else
     if [[ "$_cf_query_failed" -eq 1 ]]; then
       skip "CICD-010" "Deployment path liveness" "$_cf_query_skip_reason"
     elif [[ -n "$_cf_broken" ]]; then
+      # `_cf_never` is appended rather than dropped: an `elif` chain reports the
+      # worse state and used to DISCARD the other, so a workflow that never
+      # succeeded vanished from the output whenever any sibling was also broken.
+      # Same masking shape as CICD-011's, and the reason both are spelled out.
       fail "CICD-010" "Deployment workflow failing since its last success" "high" \
-        "On ${_cf_branch}: ${_cf_broken}— the declared pipeline is intact but no longer ships" \
+        "On ${_cf_branch}: ${_cf_broken}— the declared pipeline is intact but no longer ships${_cf_never:+. Also never succeeded: ${_cf_never}}" \
         "Fix the failing deployment run before relying on this pipeline for remediation" \
         ".github/workflows"
     elif [[ -n "$_cf_never" ]]; then
@@ -461,9 +485,12 @@ else
       if [[ "$_cf_wf_success" -eq 0 && "$_cf_wf_fails" -gt 0 ]]; then
         _cf_scan_failing+="${_cf_wf} (${_cf_wf_fails} failed, never succeeded) "
       fi
-      if [[ -n "$_cf_newest_epoch" && "$_cf_newest_epoch" -ge "$_cf_cutoff" ]]; then
-        break
-      fi
+      # NO early break once something fresh is found. It saved an API call per
+      # remaining workflow and cost the `broken` state: a scan that has only
+      # ever failed was never queried at all if a fresher sibling happened to
+      # sort first, so the state this file calls the worst of the four was
+      # sort-order dependent. `_cf_cutoff` is still used below for the age
+      # verdict; it is just no longer a reason to stop looking.
     done <<< "$_cf_scan_workflows"
 
     if [[ "$_cf_query_failed" -eq 1 ]]; then
@@ -491,9 +518,20 @@ else
         # is a regression rather than an unknown.
         _cf_scan_state="stale"
         fail "CICD-011" "Security scan results are stale (${_cf_age_days}d old)" "high" \
-          "Newest successful scan run was ${_cf_newest_wf} at ${_cf_newest_iso}, past the ${CICD_FRESHNESS_SCAN_MAX_AGE_DAYS}d threshold" \
+          "Newest successful scan run was ${_cf_newest_wf} at ${_cf_newest_iso}, past the ${CICD_FRESHNESS_SCAN_MAX_AGE_DAYS}d threshold${_cf_scan_failing:+; also never succeeded on ${_cf_branch}: ${_cf_scan_failing}}" \
           "Restore the scan schedule, or raise CLAUDESEC_CICD_SCAN_MAX_AGE_DAYS if this cadence is intended" \
           ".github/workflows"
+      elif [[ -n "$_cf_scan_failing" ]]; then
+        # Fresh AND broken at once: one scan workflow is current while another
+        # has run and never once completed. The freshness QUESTION is answered
+        # — hence state `fresh`, and CICD-012 still has a live producer — but
+        # staying silent about the dead one is the defect this whole file
+        # exists to name. A scan workflow that never completes reads exactly
+        # like one that is not there, and here a healthy sibling was hiding it.
+        _cf_scan_state="fresh"
+        _cf_fresh_wf="$_cf_newest_wf"
+        warn "CICD-011" "Security scan is fresh, but another scan workflow has only ever failed" \
+          "Fresh: ${_cf_newest_wf} at ${_cf_newest_iso} (${_cf_age_days}d). Never succeeded on ${_cf_branch}: ${_cf_scan_failing}— whatever coverage that workflow claims does not exist"
       else
         _cf_scan_state="fresh"
         _cf_fresh_wf="$_cf_newest_wf"
