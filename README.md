@@ -54,14 +54,19 @@ npm run dashboard                 # Safe mode (port fallback, no Docker requirem
 **Claude Code slash commands**
 
 ```
-/scan                             # Run security scan
-/prowler                          # Prowler multi-cloud scan (AWS/Azure/GCP/K8s)
-/compliance                       # Compliance gap scan (NIST/ISO 27001/ISMS-P)
+/scan                             # Run security scan on the current project
+/compliance-check                 # Compliance gap analysis (NIST/ISO 27001/ISMS-P)
 /dashboard                        # Build + serve dashboard
-/audit                            # Full security audit
-/team-scan                        # Parallel multi-agent scan
 /security-review                  # Pre-commit security check
+/hotfix                           # Fast-track CVE/threat response workflow
+/new-guide                        # Author a security guide (multi-agent workflow)
+/pipeline-review                  # Full DevSecOps pipeline review
+/scanner-feature                  # Build a scanner feature (architect-to-CI)
 ```
+
+Every name above is a file in `.claude/commands/`, kept in step by
+`scanner/tests/test_ci_slash_command_sync.py`. For a Prowler multi-cloud scan
+use the CLI (`npx claudesec prowler`) — it is not a slash command.
 
 Dashboard serves at **`http://localhost:11777/`**
 

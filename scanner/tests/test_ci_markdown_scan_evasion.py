@@ -194,6 +194,7 @@ def _detectors():
     from test_ci_compliance_doc_table import parse_doc_rows
     from test_ci_kisa_control_alignment import guide_titles
     from test_ci_scanner_check_counts import doc_rows as scanner_category_rows
+    from test_ci_slash_command_sync import SECTION_MARKER, advertised_commands
 
     guard_row = "| `scanner/tests/test_ci_x.py` | verdict |"
     return (
@@ -208,6 +209,18 @@ def _detectors():
             "| `test_ci_x.py` | verdict |",
             "# Catalog\n\n## Block-collector enumeration\n\n{}\n",
             lambda doc: bool(documented_collectors(doc)),
+        ),
+        (
+            # The payload is the SECTION MARKER, not a command line. That guard
+            # reduces to decide whether the section is VISIBLE and then reads
+            # the names from the raw fence — because the names live inside a
+            # fence, which the reduction strips. So the thing that must vanish
+            # under every vector is the anchor, and wrapping a `/name` line
+            # would probe a step that guard deliberately does not reduce.
+            "test_ci_slash_command_sync.advertised_commands",
+            SECTION_MARKER,
+            "# Doc\n\n{}\n\n```\n/scan   # run a scan\n```\n",
+            lambda doc: bool(advertised_commands(doc)),
         ),
         (
             "test_ci_compliance_doc_table.parse_doc_rows",
