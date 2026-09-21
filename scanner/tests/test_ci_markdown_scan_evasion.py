@@ -193,6 +193,7 @@ def _detectors():
     from test_ci_catalog_doc_sync import documented_collectors, documented_guards
     from test_ci_compliance_doc_table import parse_doc_rows
     from test_ci_kisa_control_alignment import guide_titles
+    from test_ci_scanner_check_counts import doc_rows as scanner_category_rows
 
     guard_row = "| `scanner/tests/test_ci_x.py` | verdict |"
     return (
@@ -219,6 +220,16 @@ def _detectors():
             "| 2.9.3 | 백업 및 복구 관리 | 백업 정책 |",
             "# Guide\n\n{}\n",
             lambda doc: bool(guide_titles(doc)),
+        ),
+        (
+            # README's `Scanner Categories` table. Its guard is
+            # code-authoritative, so a hidden row fails it rather than passing
+            # it — but the row still has to be REDUCED before the search for
+            # that to hold, and `doc_rows` is the only place that happens.
+            "test_ci_scanner_check_counts.doc_rows",
+            "| `infra` | 18 | Docker, Kubernetes |",
+            "# README\n\n### Scanner Categories\n\n{}\n",
+            lambda doc: bool(scanner_category_rows(doc)),
         ),
     )
 

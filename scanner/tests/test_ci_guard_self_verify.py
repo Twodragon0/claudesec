@@ -151,6 +151,10 @@ CANARY_CLASSES = (
         "test_ci_markdown_scan_evasion.TestTheResidualIsBounded",
         "test_silent_passes_stay_within_the_measured_ceiling",
     ),
+    (
+        "test_ci_scanner_check_counts.TestTheTableAgreesWithTheRenderer",
+        "test_the_reduction_and_the_renderer_agree_on_the_real_readme",
+    ),
 )
 BUCKET_OUTPUT = "ci_config"
 
