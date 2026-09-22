@@ -80,6 +80,18 @@ raw text. The section slice is bounded at the next heading for the same reason
 that guard's canary needed bounding: an unbounded search adopts whatever table
 comes next and reports it as the subject.
 
+The heading must also be UNIQUE, and that was missing from the first version of
+this file. Bounding decides where the slice ENDS; it says nothing about which of
+several identical headings it STARTS at. A pre-merge adversarial pass planted a
+duplicate heading ABOVE the real one carrying the correct table, and all eight
+assertions stayed green while the real section published
+`KISA ISMS-P | 110 | 0 | 110` — every control assessable, against a true 29 of
+44. `test_ci_slash_command_sync` already asserted this uniqueness with the
+reason written down: `str.find` takes the FIRST occurrence, a presence check is
+satisfied by ANY, and those need not be the same one. The lesson was on file and
+this guard shipped without it, which is the part worth keeping — a documented
+failure mode is only closed where somebody re-applies it.
+
 CONSTRAINTS (same as every guard in this directory)
 ---------------------------------------------------
 stdlib-only (`ast` + `re` + `pathlib` + the shared reduction; no PyYAML, no
@@ -129,6 +141,15 @@ ROW = re.compile(
 )
 
 
+def section_heading_lines(reduced: str) -> list:
+    """Indices of every heading line naming the section, in the REDUCED text."""
+    return [
+        i
+        for i, line in enumerate(reduced.splitlines())
+        if line.lstrip().startswith("#") and SECTION_HEADING in line
+    ]
+
+
 def map_frameworks() -> dict:
     """`{framework: (total, na, scored)}` measured from the map's source.
 
@@ -169,13 +190,17 @@ def doc_rows(text: str) -> dict:
     reduced = rendered_markdown(text)
     lines = reduced.splitlines()
 
-    start = None
-    for i, line in enumerate(lines):
-        if line.lstrip().startswith("#") and SECTION_HEADING in line:
-            start = i + 1
-            break
-    if start is None:
+    heads = section_heading_lines(reduced)
+    # EXACTLY one, never "the first one". A presence check is satisfied by ANY
+    # occurrence while the slice below starts at the FIRST, and those need not be
+    # the same section. Measured: a duplicate heading planted ABOVE carrying the
+    # correct table left this guard at 8 passed while the real section told a
+    # reader `KISA ISMS-P | 110 | 0 | 110` — every control assessable, when the
+    # truth is 29 of 44. `test_ci_slash_command_sync` asserts the same
+    # uniqueness for the same reason.
+    if len(heads) != 1:
         return {}
+    start = heads[0] + 1
 
     rows = {}
     for line in lines[start:]:
@@ -222,6 +247,19 @@ class TheSubjectsAreWhereThisThinksTheyAre(unittest.TestCase):
             [],
             f"framework(s) in {MAP_NAME} with no controls: {empty}. A zero-row "
             "framework agrees with a zero-row README and proves nothing.",
+        )
+
+    def test_the_section_heading_is_unique(self):
+        heads = section_heading_lines(rendered_markdown(README.read_text(encoding="utf-8")))
+        self.assertEqual(
+            len(heads),
+            1,
+            f"the heading {SECTION_HEADING!r} appears {len(heads)} times in the "
+            "rendered README, so which section this guard reads is decided by "
+            "document order rather than by identity. Measured: a duplicate "
+            "carrying the correct table, planted above, left every assertion "
+            "green while the real section published "
+            "`KISA ISMS-P | 110 | 0 | 110`.",
         )
 
     def test_the_readme_table_is_found(self):
