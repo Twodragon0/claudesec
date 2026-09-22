@@ -822,6 +822,73 @@ section mark, which is the kind of thing a guard should catch instead of a human
 non-canonical spelling out here, even as an example, trips the same guard — so it is described
 rather than quoted.)
 
+### Cycle #560–#567 — the check that was not on the subject (merged 2026-09-21 → 09-22)
+
+Three PRs. Two of them shipped a guard that was **green, non-vacuous, registered, and pointed at
+the wrong thing** — and in both cases the review found it, not the test suite, because a guard
+aimed one position away from its subject passes every test you can write about the position it IS
+aimed at.
+
+- **A visibility check on the ANCHOR is not a visibility check on the SUBJECT** (#567). The new
+  slash-command guard reduced the section MARKER through `rendered_markdown` and then read the
+  command names from RAW text — the split was deliberate, because the names live in a fence and
+  the reduction blanks fences. The marker is not the subject. Hiding the FENCE while leaving the
+  bold marker visible passed the check and returned all eight names, on the REAL README:
+
+  ```
+  case                                        guard  /scanner-feature seen by a reader
+  CLEAN (control)                                 8  True
+  unterminated `<!--` between marker and fence    8  False   <- FALSE GREEN
+  fence wrapped in a closed `<!-- -->`            8  False   <- FALSE GREEN
+  ```
+
+  The fix is not a smarter marker check: it is to reduce the region so the SUBJECT is inside what
+  gets reduced — `truncate_at_unclosed_html_comment(strip_html_comments(text))`, comments removed
+  and fences kept. **Generalise as: name the thing the guard must not be wrong about, then check
+  that the reduction covers THAT, not whatever is convenient to reduce.**
+- **A canary can pass on precisely the edit it was written to detect** (#567). The same guard took
+  "the next fence anywhere below the marker", so deleting the intended fence silently adopted the
+  `Options` block further down — and `test_the_section_is_still_findable`, whose message reads
+  "the section or its code fence is gone … this guard is scoped to nothing", **kept passing**,
+  because a block WAS found. It collected nothing only because those lines happen to start with
+  `npx`. A canary that asserts "something was found" cannot tell found-the-right-thing from
+  found-anything; bound the search instead (the fence must open immediately after the marker).
+- **Two of my own probes measured the wrong thing before the third was right** (#567), on the
+  question of whether a reader sees the list. First used `rendered_markdown` as the oracle — it
+  strips fences, so it reports False on the CLEAN file too. Second used `'/scan' in html`, where
+  `/scan` occurs 15 times in the README and a commented-out string is still IN the HTML source.
+  The repo already had the answer — `_browser_sees` (markdown → HTML → consume comments) and the
+  recorded "containment lies" note — and a needle that occurs exactly once. **Before measuring
+  visibility, check that the control case measures VISIBLE.**
+- **A review recommendation is a hypothesis too** (#565). The reviewer proposed mirroring the
+  block-form deny-list into the flow-form filter so the two halves would agree. Measuring rejected
+  it: the deny-list fires on all four of #557's false positives, because the flow matcher scans
+  arbitrary text while `uses_refs` only yields values from real `uses:` keys — same rule, different
+  input population. The real gap was narrower (`+` is a legal git refname character, so
+  `owner/action@v1.0.0+build` was flagged in block form and invisible in flow form).
+- **A fresh sibling hid a dead one** (#560). CICD-011 consulted its `broken` accumulator only when
+  NO successful run existed anywhere, and broke out of the loop on the first fresh workflow — so a
+  scan that runs and never completes was reported only when it had no healthy sibling, and was
+  often never queried at all. The file's own header calls `broken` "the worst of the four" states
+  and declares an INVARIANT about it. Same shape as #392/#396/#397 one level in.
+- **Widening a shared meta-guard needs its own measurement** (#567). Dropping `rendered_markdown`
+  made the Markdown census flag the new module. `MARKDOWN_SCAN_EXEMPT` would have been misuse — it
+  is for a `.md` literal that is a path or fixture, not a parsed document — so `applies_reduction`
+  now also accepts the comment-only composition, requiring BOTH names (`strip_html_comments` alone
+  and `truncate_at_unclosed_html_comment` alone both stay False). Measured over every tracked
+  `test_ci_*.py`: exactly two modules call both, and the other is the primitives' own unit tests,
+  not a census offender either way. Widening a meta-guard is fine when you can name everything the
+  widening newly admits.
+- **The guard that shipped last cycle caught the next PR's drift** (#561 → #560). #561 pinned the
+  README check counts; #560 added three `cicd` checks and the guard said `198 != 201` before review
+  did. Their README conflict needed BOTH sides — #561's `access-control` 6→10 miscount fix AND
+  #560's `cicd` 8→11 — which is the ordinary case for a count conflict and the wrong place to pick
+  a winner.
+
+Also: a false claim shipped in TWO places (#567). The docstring and the catalog row both asserted
+the design prevented the very bypass above. Correcting the code is not enough when the reasoning
+was published alongside it — grep the claim, not just the function.
+
 ## Open Backlog
 
 Re-derived from `gh issue list --state open` + measured repo state on **2026-09-17**, re-checked
