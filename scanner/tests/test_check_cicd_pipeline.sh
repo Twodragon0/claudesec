@@ -14,7 +14,11 @@ TEST_FAILED=0
 NC="" GREEN="" RED="" YELLOW="" BLUE="" DIM="" BOLD="" MAGENTA="" CYAN=""
 
 RESULTS=()
-pass()  { RESULTS+=("PASS:$1"); }
+# The MESSAGE is recorded, not just the id. CICD-006 has two distinct PASS
+# branches — "handled safely" and "no event data at all" — and a bare
+# `PASS:CICD-006` cannot tell them apart, so an assertion on the id alone is
+# satisfied by the branch that means the detector never fired.
+pass()  { RESULTS+=("PASS:$1:${2:-}"); }
 fail()  { RESULTS+=("FAIL:$1:${4:-}"); }
 warn()  { RESULTS+=("WARN:$1"); }
 skip()  { RESULTS+=("SKIP:$1"); }
@@ -34,6 +38,21 @@ assert_has_result() {
     echo "  PASS: $desc"; ((TEST_PASSED++))
   else
     echo "  FAIL: $desc (expected $expected_type:$check_id, got: ${RESULTS[*]:-none})"; ((TEST_FAILED++))
+  fi
+}
+
+assert_result_message() {
+  local desc="$1" expected_type="$2" check_id="$3" needle="$4"
+  local found=false
+  for r in "${RESULTS[@]+"${RESULTS[@]}"}"; do
+    if [[ "$r" == "${expected_type}:${check_id}:"*"$needle"* ]]; then
+      found=true; break
+    fi
+  done
+  if $found; then
+    echo "  PASS: $desc"; ((TEST_PASSED++))
+  else
+    echo "  FAIL: $desc (expected $expected_type:$check_id containing '$needle', got: ${RESULTS[*]:-none})"; ((TEST_FAILED++))
   fi
 }
 
@@ -163,6 +182,103 @@ mkdir -p "$tmpdir/no_lock"
 echo '{}' > "$tmpdir/no_lock/package.json"
 SCAN_DIR="$tmpdir/no_lock" run_check
 assert_has_result "Missing lockfile fails" "FAIL" "CICD-007"
+
+# ── CICD-006: Script injection ──
+#
+# None of this was covered before: `grep -rn CICD-006 scanner/tests/` returned
+# nothing, and the detector was inert, so every branch below the first `if` was
+# unreachable code. The `fail` assertion is the one that matters — a check whose
+# failing branch cannot be reached reports PASS on the very construct it exists
+# to find.
+
+echo "=== CICD-006: Script injection ==="
+
+# Test: user-controlled event data interpolated into a run: step -> FAIL
+mkdir -p "$tmpdir/injection/.github/workflows"
+cat > "$tmpdir/injection/.github/workflows/triage.yml" <<'YML'
+name: Triage
+on: issues
+permissions:
+  contents: read
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - run: echo ${{ github.event.issue.title }}
+YML
+SCAN_DIR="$tmpdir/injection" run_check
+assert_has_result "Event data in run: step fails CICD-006" "FAIL" "CICD-006"
+
+# Test: event data present but NOT in a run: step -> PASS, and specifically the
+# "handled safely" branch. Asserting the id alone would be satisfied by the
+# no-event-data branch, which is what an inert detector returns.
+mkdir -p "$tmpdir/injection_safe/.github/workflows"
+cat > "$tmpdir/injection_safe/.github/workflows/triage.yml" <<'YML'
+name: Triage
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  label:
+    if: ${{ github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+YML
+SCAN_DIR="$tmpdir/injection_safe" run_check
+assert_result_message "Event data outside run: passes as handled safely" \
+  "PASS" "CICD-006" "Event data handled safely"
+
+# Test: no event data at all -> the OTHER pass branch. Pinned so a future edit
+# cannot collapse the two into one verdict.
+SCAN_DIR="$tmpdir/perm_ok" run_check
+assert_result_message "Workflow with no event data passes as none found" \
+  "PASS" "CICD-006" "No user-controlled event data"
+
+# ── .yaml extension parity ──
+#
+# CICD-001 has always checked both extensions; CICD-002..006 checked only
+# `*.yml`. `has_dir ".github/workflows"` is satisfied by a directory holding
+# only `.yaml`, so those five checks ran and reported against zero files — a
+# repo using the `.yaml` convention was scored PASS on the critical
+# secret-logging control and collected a false `high` for "no security
+# scanning". Every case below is byte-identical to a `.yml` case above except
+# for the extension.
+
+echo "=== CICD-002..006: .yaml extension parity ==="
+
+mkdir -p "$tmpdir/yaml_ext/.github/workflows"
+cat > "$tmpdir/yaml_ext/.github/workflows/deploy.yaml" <<'YML'
+name: Deploy
+on: push
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - run: echo ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - run: echo ${{ github.event.issue.title }}
+YML
+cat > "$tmpdir/yaml_ext/.github/workflows/codeql.yaml" <<'YML'
+name: CodeQL
+on: push
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: github/codeql-action/init@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+YML
+SCAN_DIR="$tmpdir/yaml_ext" run_check
+assert_has_result ".yaml: SHA-pinned actions passes CICD-002" "PASS" "CICD-002"
+assert_has_result ".yaml: secret in echo fails CICD-003" "FAIL" "CICD-003"
+assert_has_result ".yaml: CodeQL present passes CICD-005" "PASS" "CICD-005"
+assert_has_result ".yaml: event data in run: fails CICD-006" "FAIL" "CICD-006"
 
 # ── Summary ──
 
