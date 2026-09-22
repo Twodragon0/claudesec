@@ -192,6 +192,7 @@ def _detectors():
     # `test_ci_catalog_doc_sync`, which is what these two entries drive.
     from test_ci_catalog_doc_sync import documented_collectors, documented_guards
     from test_ci_compliance_doc_table import parse_doc_rows
+    from test_ci_compliance_framework_sync import doc_rows as framework_rows
     from test_ci_kisa_control_alignment import guide_titles
     from test_ci_scanner_check_counts import doc_rows as scanner_category_rows
     from test_ci_slash_command_sync import SECTION_MARKER, advertised_commands
@@ -243,6 +244,19 @@ def _detectors():
             "| `infra` | 18 | Docker, Kubernetes |",
             "# README\n\n### Scanner Categories\n\n{}\n",
             lambda doc: bool(scanner_category_rows(doc)),
+        ),
+        (
+            # README's scored-framework table. The payload is a ROW and the
+            # heading lives in the template, because the heading is what bounds
+            # the slice — hiding it is already covered by that guard's own
+            # canary, while hiding a row is the vector this file is about. The
+            # guard is code-authoritative, so a concealed row fails it as a
+            # MISSING framework rather than passing; `doc_rows` is where the
+            # reduction has to happen for that to hold.
+            "test_ci_compliance_framework_sync.doc_rows",
+            "| `ISO 27001:2022` | 7 | 1 | 6 |",
+            "# README\n\n### Frameworks Scored in the Compliance Report\n\n{}\n",
+            lambda doc: bool(framework_rows(doc)),
         ),
     )
 
