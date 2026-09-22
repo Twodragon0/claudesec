@@ -86,6 +86,23 @@ files_contain() {
   [[ -n "$result" ]]
 }
 
+# Does any GitHub Actions workflow match the pattern?
+#
+# BOTH extensions, always. GitHub accepts `.yml` and `.yaml` equally, and
+# `has_dir ".github/workflows"` is satisfied by a directory holding only the
+# latter — so a check globbing one extension still RUNS and reports, against
+# zero files. That is indistinguishable from "looked and found nothing": a repo
+# on the `.yaml` convention was scored PASS on the critical secret-logging
+# control (CICD-003) while collecting a false `high` for "no security scanning"
+# (CICD-005). Six of the seven call sites in cicd/pipeline.sh had drifted this
+# way while CICD-001, written with an explicit `||` over both, had not — which
+# is why this is a function and not a convention to remember.
+workflows_contain() {
+  local pattern="$1"
+  files_contain ".github/workflows/*.yml" "$pattern" 2>/dev/null || \
+  files_contain ".github/workflows/*.yaml" "$pattern" 2>/dev/null
+}
+
 # Count files matching a pattern
 count_files() {
   local glob="$1"

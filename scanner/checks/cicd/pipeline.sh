@@ -3,8 +3,7 @@
 
 # CICD-001: GitHub Actions — permissions restricted
 if has_dir ".github/workflows"; then
-  if files_contain ".github/workflows/*.yml" "permissions:" 2>/dev/null || \
-     files_contain ".github/workflows/*.yaml" "permissions:" 2>/dev/null; then
+  if workflows_contain "permissions:"; then
     pass "CICD-001" "GitHub Actions workflows define permissions"
   else
     fail "CICD-001" "GitHub Actions workflows missing permissions block" "high" \
@@ -13,9 +12,9 @@ if has_dir ".github/workflows"; then
   fi
 
   # CICD-002: Actions pinned to SHA
-  if files_contain ".github/workflows/*.yml" "uses:.*@[a-f0-9]{40}" 2>/dev/null; then
+  if workflows_contain "uses:.*@[a-f0-9]{40}"; then
     pass "CICD-002" "Some GitHub Actions pinned to SHA"
-  elif files_contain ".github/workflows/*.yml" "uses:.*@v[0-9]" 2>/dev/null; then
+  elif workflows_contain "uses:.*@v[0-9]"; then
     warn "CICD-002" "GitHub Actions pinned to version tags, not SHA" \
       "Pin to full SHA for supply chain security (e.g., actions/checkout@b4ffde65...)"
   else
@@ -23,7 +22,7 @@ if has_dir ".github/workflows"; then
   fi
 
   # CICD-003: No secrets in workflow logs
-  if files_contain ".github/workflows/*.yml" 'echo.*\$\{\{ secrets\.' 2>/dev/null; then
+  if workflows_contain 'echo.*\$\{\{ secrets\.'; then
     fail "CICD-003" "Possible secret exposure in workflow logs" "critical" \
       "Echoing secrets can expose them in build logs" \
       "Never echo or print secrets. Use them only as env vars."
@@ -32,7 +31,7 @@ if has_dir ".github/workflows"; then
   fi
 
   # CICD-004: Dependency review action
-  if files_contain ".github/workflows/*.yml" "dependency-review-action" 2>/dev/null; then
+  if workflows_contain "dependency-review-action"; then
     pass "CICD-004" "Dependency review action configured"
   else
     warn "CICD-004" "No dependency review action in CI" \
@@ -40,7 +39,7 @@ if has_dir ".github/workflows"; then
   fi
 
   # CICD-005: SAST/Security scanning in CI
-  if files_contain ".github/workflows/*.yml" "(codeql|semgrep|sonar|snyk|trivy|gitleaks|pip-audit|npm.audit|shellcheck)" 2>/dev/null; then
+  if workflows_contain "(codeql|semgrep|sonar|snyk|trivy|gitleaks|pip-audit|npm.audit|shellcheck)"; then
     pass "CICD-005" "Security scanning (SAST/SCA) configured in CI"
   else
     fail "CICD-005" "No security scanning in CI pipeline" "high" \
@@ -49,8 +48,14 @@ if has_dir ".github/workflows"; then
   fi
 
   # CICD-006: Script injection prevention
-  if files_contain ".github/workflows/*.yml" "\$\{\{ github\.event\.(issue|pull_request|comment)" 2>/dev/null; then
-    if files_contain ".github/workflows/*.yml" "run:.*\$\{\{ github\.event" 2>/dev/null; then
+  #
+  # SINGLE QUOTES ARE LOAD-BEARING. Written in double quotes, bash consumes the
+  # backslash before `$` and hands grep a bare `$` — an end-of-line anchor — so
+  # a pattern needing characters after it matches NOTHING, ever. That made the
+  # `fail` branch below unreachable code and this check report PASS on the very
+  # construct it exists to find. CICD-003 above has always used single quotes.
+  if workflows_contain '\$\{\{ github\.event\.(issue|pull_request|comment)'; then
+    if workflows_contain 'run:.*\$\{\{ github\.event'; then
       fail "CICD-006" "Potential script injection in GitHub Actions" "high" \
         "User-controlled event data used directly in run: steps" \
         "Use environment variables instead of direct interpolation"
