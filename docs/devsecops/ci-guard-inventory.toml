@@ -53,6 +53,7 @@ guards = [
   "test_ci_codeql_single_model.py",
   "test_ci_collector_table_completeness.py",
   "test_ci_compliance_doc_table.py",
+  "test_ci_compliance_framework_sync.py",
   "test_ci_compliance_keyword_guard.py",
   "test_ci_compose_dashboard_hardening.py",
   "test_ci_coverage_thresholds.py",

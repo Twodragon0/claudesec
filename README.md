@@ -165,7 +165,7 @@ AI coding assistants accelerate development — but speed without security creat
 - **AI Security automation**: GitHub Actions, pre-commit hooks, and CI/CD templates
 - **SaaS security scanning**: Datadog, Cloudflare, Vercel, ArgoCD, Sentry, Okta, SendGrid, and more
 - **Supply chain integrity**: SLSA, SBOM, and artifact signing workflows
-- **Compliance mapping**: SOC 2, ISO 27001, NIST, PCI-DSS, KISA ISMS-P, KISA 주요정보통신기반시설
+- **Compliance mapping**: SOC 2, ISO 27001, NIST 800-53, PCI-DSS, CMMC 2.0 Level 2, KISA ISMS-P, KISA 주요정보통신기반시설
 - **Living documentation**: Actionable guides for OWASP Top 10, MITRE ATLAS, and more
 
 ## ISMS Asset & Security Dashboard
@@ -540,7 +540,7 @@ claudesec/
 |-------|-------------|
 | [Getting Started](docs/guides/getting-started.md) | Quick setup guide |
 | [Shell Lint Policy](docs/guides/shell-lint-policy.md) | Fixed ShellCheck scope, severity, and options policy for local and CI |
-| [Compliance Mapping](docs/guides/compliance-mapping.md) | SOC 2, ISO 27001, NIST, PCI-DSS, KISA ISMS-P |
+| [Compliance Mapping](docs/guides/compliance-mapping.md) | SOC 2, ISO 27001, NIST 800-53, PCI-DSS, CMMC 2.0 Level 2, KISA ISMS-P |
 | [Workflow Components](docs/guides/workflow-components.md) | Reusable composite actions and template integration contract |
 | [Hourly Operations](docs/guides/hourly-operations.md) | Hourly cron automation with OpenCode pull and continuous improvement loop |
 | [Compliance Scan Priority](docs/guides/compliance-scan-integration-priority.md) | Prowler, Lynis, tool priorities and frameworks |
@@ -648,6 +648,35 @@ ClaudeSec scanner checks are mapped to major compliance frameworks. Each finding
 | CIS Benchmarks | v4.0 | macOS, Windows, K8s | OS hardening checks |
 | OWASP | Top 10 2025 | 10 categories | Code + AI checks |
 | OWASP LLM | Top 10 2025 | 10 LLM risks | AI category |
+
+### Frameworks Scored in the Compliance Report
+
+The table above lists the frameworks ClaudeSec has checks and guides for. It is
+deliberately wider than the set the compliance report *scores*: OWASP Top 10 is a
+check category, not a control catalogue. The scored set is
+`COMPLIANCE_CONTROL_MAP` in
+[`scanner/lib/compliance-map.py`](scanner/lib/compliance-map.py), and these are its
+framework keys verbatim — the same strings the dashboard renders:
+
+| Framework (`COMPLIANCE_CONTROL_MAP` key) | Controls | N/A | Scored |
+|------------------------------------------|---------:|----:|-------:|
+| `ISO 27001:2022` | 7 | 1 | 6 |
+| `KISA ISMS-P` | 44 | 15 | 29 |
+| `KISA ISMS Simple` | 20 | 6 | 14 |
+| `PCI-DSS v4.0.1` | 7 | 0 | 7 |
+| `NIST 800-53 Rev5` | 10 | 0 | 10 |
+| `CIS Benchmarks` | 9 | 1 | 8 |
+| `SOC 2 (TSC)` | 9 | 3 | 6 |
+| `CMMC 2.0 Level 2` | 14 | 0 | 14 |
+
+**N/A** counts controls carrying `assessable: False` — organisational requirements
+no automated check can evidence, rendered N/A rather than FAIL. Eleven of ISMS-P's
+fifteen are its `3.x` privacy controls. **Scored** is therefore the denominator of
+that framework's compliance percentage; a total taken from the published standard
+(ISO 27001's 93, CMMC's 110) is a different population and will not reconcile.
+
+These counts are pinned by `scanner/tests/test_ci_compliance_framework_sync.py`,
+which fails if a framework is added to the map without appearing here.
 
 ## Security Coverage Map
 
