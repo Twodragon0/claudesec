@@ -889,10 +889,89 @@ Also: a false claim shipped in TWO places (#567). The docstring and the catalog 
 the design prevented the very bypass above. Correcting the code is not enough when the reasoning
 was published alongside it — grep the claim, not just the function.
 
+### Cycle #570–#571 — a detector that could never fire, and a slice anchored at the wrong end (merged 2026-09-22)
+
+Two PRs, found by sweeping OUTSIDE the backlog. The backlog itself was re-measured first and
+**all eight entries still held** — `gh secret list` still empty for `#405`, `#498`'s body still
+tracking the newest nightly, ISMS-P still 44 total / 15 N/A / 29 scoreable across 8 frameworks.
+A backlog with nothing wrong in it is not a backlog with nothing to do: neither defect below was
+in it, and the CRITICAL one had been shipping for the life of the check.
+
+- **A pattern in DOUBLE quotes is not the pattern you wrote** (#571). `pipeline.sh:52` spelled
+  CICD-006's detector `"\$\{\{ github\.event\.…"`, so bash consumed the backslash before `$`
+  and grep received a bare `$` — an end-of-line anchor. A pattern needing characters after it
+  matches nothing, ever:
+
+  ```
+  BSD grep 2.6.0-FreeBSD   NOMATCH
+  ugrep 7.8.4              NOMATCH
+  GNU grep 3.11 (CI family) NOMATCH
+  single-quoted control     MATCH      <- the form CICD-003 has always used
+  ```
+
+  So the `if` was unsatisfiable, flow always reached the final `else`, and the `fail` branch
+  (severity `high`, GitHub Actions script injection) was **unreachable code**. Five of this
+  repo's own workflows contain the construct while the check printed "No user-controlled event
+  data in workflows" — the scanner asserting the opposite of an observable fact about itself.
+  Coverage was zero: `grep -rn CICD-006 scanner/tests/` returned nothing, and repo-wide the
+  string appeared only in the check's own definition. **Never exercised in its entire life**,
+  which is why no amount of running the suite would have surfaced it.
+- **`has_dir` succeeding is not the same as the glob matching** (#571). CICD-002..006 globbed
+  only `*.yml`, while `has_dir ".github/workflows"` is satisfied by a directory holding only
+  `.yaml` — so five checks RAN and REPORTED against zero files. Byte-identical content, extension
+  changed:
+
+  ```
+  check      .yml                     .yaml
+  CICD-002   WARN (tag-pinned)        SKIP "No action references found"
+  CICD-003   FAIL secret exposure     PASS "No obvious secret logging"   <- critical, inverted
+  CICD-005   PASS                     FAIL "No security scanning"        <- false high
+  ```
+
+  CICD-001 alone had it right, with an explicit `||` over both extensions — and that asymmetry is
+  the argument for `workflows_contain` in `scanner/lib/checks.sh` over a convention to remember.
+  Six of seven siblings had drifted away from a correct example sitting eleven lines above them.
+- **RED first is not ceremony when the defect IS an inert assertion** (#571). The seven new cases
+  failed 6/6 against the unmodified check, and each half of the fix was then reverted
+  independently: quotes-only reverted → 3 failed, `.yaml`-arm-only removed → 4 failed. Without
+  that, "18 passed" after a two-part fix proves only that *something* is pinned.
+- **The harness discarded the evidence the assertion needed** (#571). `pass()` recorded only the
+  check id, so CICD-006's two PASS branches — "handled safely" and "no event data at all" — were
+  the same string. An assertion on the id is satisfied by the branch an inert detector returns,
+  which is precisely the case under test. Widened to record the message.
+- **Bounding a slice says nothing about where it starts** (#570). The new README guard took the
+  FIRST heading matching its section name. A pre-merge adversarial pass planted a duplicate
+  heading ABOVE the real one carrying the correct table and falsified the real section — all
+  eight assertions stayed green while README published `KISA ISMS-P | 110 | 0 | 110`, every
+  control assessable against a true 29 of 44. **`test_ci_slash_command_sync` already asserted this
+  uniqueness with the reason written down** (`str.find` takes the first occurrence, a presence
+  check is satisfied by any, and those need not be the same one). The lesson was on file and the
+  new guard shipped without it. Generalise as: a documented failure mode is only closed where
+  somebody re-applies it — grep the catalog for the shape before adding a guard, not after.
+- **A README table may legitimately be WIDER than the code's set** (#570). `CMMC 2.0 Level 2`
+  shipped 14 controls, its own test and a guide section while README named `CMMC` **zero** times;
+  `PCI-DSS v4.0.1`, `NIST 800-53 Rev5` and `KISA ISMS Simple` were absent too. But equating
+  `Supported Frameworks` with `COMPLIANCE_CONTROL_MAP` would have been a WRONG guard — that table
+  rightly lists OWASP Top 10, ISO 42001 and NIST CSF, none of which are map keys. Splitting the
+  claim into a narrow table carrying map keys verbatim in code spans is what makes the comparison
+  exact string equality, with no normalisation that could accept `SOC 2` for `SOC 2 (TSC)`.
+- **Third instance of the README-surface class in three cycles** — #561 (check counts), #567
+  (slash commands), #570 (frameworks). Each needed its own guard because each guard's subject was
+  a different surface; the fix for one does not generalise to the next by itself.
+
+Also: the one local pytest failure this file's predecessors recorded was environment drift, not a
+repo defect, and was fixed at the source (`markdown-it-py` 4.0.0 → the pinned 4.2.0). Local
+baseline is now 0 failed. Re-measure the pass count rather than quoting one — it moves every cycle.
+
 ## Open Backlog
 
 Re-derived from `gh issue list --state open` + measured repo state on **2026-09-17**, re-checked
-**2026-09-18** and again **2026-09-21**, the set unchanged all three times. **Verify before
+**2026-09-18**, **2026-09-21** and again **2026-09-22**, the set unchanged all four times. The
+2026-09-22 pass re-ran every decision condition below and **found nothing wrong** — no rotted
+mechanism, no closed issue listed as open, no stale premise. That is the first fully clean pass
+this section has had, and it is also the pass that produced the cycle's two biggest defects
+(#570, #571) — **both from sweeping OUTSIDE the backlog**. Read that as: a clean backlog bounds
+where the next defect is NOT, and nothing more. **Verify before
 working an item** — this list rotted twice before, and the 2026-08-26 revision listed FOUR
 already-closed issues (#295, #297, #381, #399) as open.
 
