@@ -60,7 +60,7 @@ Token budget: prefer haiku subagents for read-only exploration. Use `run_in_back
 ## Local Testing
 
 - Run scanner shell tests directly: `bash scanner/tests/test_<name>.sh`.
-- **Set `CLAUDESEC_DASHBOARD_OFFLINE=1`** for any test that calls `generate_html_dashboard`. Without it, `dashboard-gen.py` makes live GitHub API calls and the test can hang for minutes. The kcov coverage job sets this at the job level and the three current dashboard tests also self-export it (PR #190/#191).
+- **Set `CLAUDESEC_DASHBOARD_OFFLINE=1`** for any test that calls `generate_html_dashboard`. Without it, `dashboard-gen.py` makes live GitHub API calls and the test can hang for minutes. The kcov coverage job sets this at the job level and every such test also self-exports it (PR #190/#191). List them with `grep -l generate_html_dashboard scanner/tests/*.sh`, never from a count written here — this line said three when there were five.
 
 ## Quality Gates
 
