@@ -116,9 +116,11 @@ bash scanner/tests/test_check_cicd_pipeline.sh
 - **Dashboard tests run offline.** Any test that calls `generate_html_dashboard`
   must run with `CLAUDESEC_DASHBOARD_OFFLINE=1`, otherwise `dashboard-gen.py`
   makes live GitHub API calls and the test can hang for minutes (root cause of
-  the kcov 27-min stalls; see PR #190/#191). The three current dashboard tests
-  (`test_output_coverage.sh`, `test_generate_html_dashboard.sh`,
-  `test_output_functions.sh`) self-export it; set the same in any new one.
+  the kcov 27-min stalls; see PR #190/#191). The kcov job sets it at the job
+  level and every such test self-exports it; set the same in any new one.
+  Enumerate them with `grep -l generate_html_dashboard scanner/tests/*.sh`
+  rather than from a list here — this sentence named three and there were five,
+  the two newest (#360, #473) having arrived after it was written.
 
 ### Conventions
 
