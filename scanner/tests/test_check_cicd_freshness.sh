@@ -161,6 +161,17 @@ iso_ago() {
   return 1
 }
 
+# Same, at second precision. The age verdict truncates to whole days, so the
+# boundary cases below cannot be expressed in `iso_ago`'s units at all — which
+# is why the 7-to-8-day window went untested and a dead threshold variable sat
+# in the check claiming to govern it.
+iso_ago_secs() {
+  local secs=$(( $(date -u +%s) - $1 ))
+  date -u -d "@${secs}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null && return 0
+  date -u -r "${secs}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null && return 0
+  return 1
+}
+
 # ── Stub state, reset per scenario ───────────────────────────────────────────
 
 STUB_AUTH_RC=0
@@ -433,6 +444,26 @@ echo "=== CICD-011: threshold is configurable via env -> FAIL at 0 days ==="
 STUB_RUNS_SCAN=$(printf 'success\t%s\n' "$(iso_ago 2)")
 CLAUDESEC_CICD_SCAN_MAX_AGE_DAYS=1 SCAN_DIR="$tmpdir/repo" run_check
 assert_has_result "2d-old scan under a 1d threshold -> FAIL CICD-011" "FAIL" "CICD-011"
+
+echo "=== CICD-011: the age comparison is WHOLE-DAY, on purpose ==="
+
+# `_cf_age_days` is integer division, so a scan 1d23h old under a 1d threshold
+# is ONE day old and passes. The check used to carry a `_cf_cutoff` epoch that
+# encoded the other reading — fail as soon as the threshold is exceeded by a
+# second — and a comment asserting that variable governed this verdict. It was
+# dead; `grep -rn _cf_cutoff` found only the assignment and the claim.
+#
+# Removing dead code should not silently move a verdict, so the shipped
+# whole-day reading stays and BOTH sides of the boundary are pinned here. If a
+# future change wants second precision, these two cases are where it announces
+# itself.
+STUB_RUNS_SCAN=$(printf 'success\t%s\n' "$(iso_ago_secs $(( 1 * 86400 + 23 * 3600 )))")
+CLAUDESEC_CICD_SCAN_MAX_AGE_DAYS=1 SCAN_DIR="$tmpdir/repo" run_check
+assert_has_result "1d23h-old scan under a 1d threshold -> PASS (truncates to 1d)" "PASS" "CICD-011"
+
+STUB_RUNS_SCAN=$(printf 'success\t%s\n' "$(iso_ago_secs $(( 2 * 86400 + 60 )))")
+CLAUDESEC_CICD_SCAN_MAX_AGE_DAYS=1 SCAN_DIR="$tmpdir/repo" run_check
+assert_has_result "2d-and-a-minute-old scan under a 1d threshold -> FAIL" "FAIL" "CICD-011"
 
 # ── ZERO RUNS vs ALL RUNS FAILED — two states, two verdicts ─────────────────
 #
