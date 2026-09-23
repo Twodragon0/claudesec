@@ -673,6 +673,74 @@ _rc=0
 assert_exit "secret-check still scans my_node_modules/ (anchor is not a substring)" 1 "$_rc"
 rm -rf "$_nm_dir" "$_lk_dir"
 
+# ── pii-check: the email rule ────────────────────────────────────────────────
+#
+# Nothing drove this rule before: "Possible real email" appeared nowhere outside
+# the hook itself, so its only exercise was the lint.yml job scanning a repo
+# where finding nothing is the expected result — which cannot tell a working
+# detector from a broken one.
+#
+# The defect was a FILE-level allowlist sitting in front of the already-correct
+# MATCH-level one: any allowlisted address anywhere in the file suppressed every
+# real address in it. The repo's mandated commit trailer is
+# `<noreply@anthropic.com>`, and lint.yml runs the hook over every
+# .md/.py/.sh/.yml/.yaml/.json/.html/.svg — so 11 files were fully exempt from
+# the email rule in CI, a count that grows with every doc showing an attribution
+# example.
+#
+# EVERY address below is ASSEMBLED AT RUNTIME. A real-looking address written
+# literally in this file would be found by the very CI job under test.
+
+echo "=== pii-check: email rule ==="
+
+_at="@"
+_real="jane.doe${_at}acmecorp.io"
+_placeholder="a${_at}example.com"
+_trailer="noreply${_at}anthropic.com"
+_lookalike="bob${_at}examplecorp.io"
+_gh_noreply="octocat${_at}users.noreply.github.com"
+_ssh_alg="chacha20-poly1305${_at}openssh.com"
+
+_pii_exit() {
+  local body="$1" rc=0
+  printf '%s\n' "$body" >"$REPO/pii_case.md"
+  (cd "$REPO" && bash "$PII_HOOK" pii_case.md) >/dev/null 2>&1 || rc=$?
+  rm -f "$REPO/pii_case.md"
+  echo "$rc"
+}
+
+# Positive control. Without it every assertion below is satisfiable by a rule
+# that reports nothing at all.
+assert_exit "pii-check reports a real email on its own" 1 \
+  "$(_pii_exit "contact: $_real")"
+
+# THE DEFECT: an allowlisted address in the same file hid the real one.
+assert_exit "pii-check still reports a real email beside an allowlisted one" 1 \
+  "$(_pii_exit "Co-Authored-By: Claude <$_trailer>
+contact: $_real")"
+
+# Same shape, the placeholder the docs actually use.
+assert_exit "pii-check still reports a real email beside a placeholder" 1 \
+  "$(_pii_exit "example: $_placeholder
+contact: $_real")"
+
+# The exclusion was an UNANCHORED substring, so a lookalike DOMAIN was silently
+# discarded — a false negative on a genuinely real address.
+assert_exit "pii-check reports a lookalike domain (exclusions are anchored)" 1 \
+  "$(_pii_exit "contact: $_lookalike")"
+
+# ...and the anchoring must not start reporting the things the allowlist exists
+# for. `users.noreply.github.com` is the one the file-level gate was masking:
+# the match-level list never excluded it, so removing the gate without fixing
+# the list would have turned every GitHub noreply address into a finding. SSH
+# algorithm identifiers (`...@openssh.com`, `...@libssh.org`) are address-shaped
+# for the same reason.
+assert_exit "pii-check stays silent on allowlisted addresses alone" 0 \
+  "$(_pii_exit "trailer: $_trailer
+example: $_placeholder
+github: $_gh_noreply
+kex: $_ssh_alg")"
+
 echo ""
 echo "Passed: $TEST_PASSED  Failed: $TEST_FAILED"
 [[ "$TEST_FAILED" -eq 0 ]]
