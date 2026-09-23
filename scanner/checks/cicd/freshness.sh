@@ -449,7 +449,6 @@ else
     # the same bad thing, and calling it "unknown rather than bad" was false.
     # It is also the scenario this file's own header opens with — a dependency
     # submission job that breaks at runtime and stops reporting.
-    _cf_cutoff=$(( $(date -u +%s) - CICD_FRESHNESS_SCAN_MAX_AGE_DAYS * 86400 ))
     _cf_newest_epoch=""
     _cf_newest_iso=""
     _cf_newest_wf=""
@@ -489,8 +488,19 @@ else
       # remaining workflow and cost the `broken` state: a scan that has only
       # ever failed was never queried at all if a fresher sibling happened to
       # sort first, so the state this file calls the worst of the four was
-      # sort-order dependent. `_cf_cutoff` is still used below for the age
-      # verdict; it is just no longer a reason to stop looking.
+      # sort-order dependent.
+      #
+      # The `_cf_cutoff` epoch this loop used to carry is GONE, and an earlier
+      # version of this comment claimed it was "still used below for the age
+      # verdict" — it was not. `grep -rn _cf_cutoff` returned exactly two hits:
+      # the assignment and that sentence. The verdict below derives
+      # `_cf_age_days` by integer division instead, so the comparison is
+      # WHOLE-DAY: at a 7d threshold a scan last successful 7d23h ago is 7 days
+      # old and PASSES. `_cf_cutoff` encoded fail-at-exceeds-7d-by-a-second, up
+      # to 86399s stricter. The whole-day reading is the one that ships and the
+      # one the `${N}d old` / `${N}d threshold` message states, so it stays --
+      # tightening it is a verdict change, not dead-code removal. Both sides of
+      # that boundary are now pinned in test_check_cicd_freshness.sh.
     done <<< "$_cf_scan_workflows"
 
     if [[ "$_cf_query_failed" -eq 1 ]]; then
