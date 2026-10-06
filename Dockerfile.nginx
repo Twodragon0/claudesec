@@ -2,7 +2,7 @@
 # Dependabot (docker ecosystem) bumps the digest below when the pinned tag is
 # rebuilt. The tag is named once, on the FROM line — restating it here is what
 # went stale for three months (#235 moved it off 1.27 and left this sentence).
-FROM nginx:1.31-alpine@sha256:db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913
+FROM nginx:1.31-alpine@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 # Shared response headers, `include`d by default.conf from every location that
 # declares an add_header of its own (nginx replaces the inherited set, so each
