@@ -956,12 +956,13 @@ jobs:
       # claiming the compile "only runs on cache miss" was false: it ran every time.
       # Observed live again on 2026-09-02 in run 33609540144.
       # `-v2` discards the poisoned `-v1` entry; reusing the key would inherit it.
+      # `-v3` rebuilds binaries from checksum-verified source, discarding v2.
       - name: Cache kcov v42 binary
         id: kcov-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ${{ runner.temp }}/kcov-prefix
-          key: kcov-v42-${{ runner.os }}-${{ runner.arch }}-noble-v2
+          key: kcov-v42-${{ runner.os }}-${{ runner.arch }}-noble-v3
       - name: Install kcov runtime dependencies
         run: |
           sudo apt-get update
@@ -975,7 +976,11 @@ jobs:
             libssl-dev zlib1g-dev cmake g++ pkg-config
           TMP=$(mktemp -d)
           cd "$TMP"
-          curl -fsSL https://github.com/SimonKagstrom/kcov/archive/refs/tags/v42.tar.gz | tar xz
+          # Re-verify a pin update by downloading this URL and running shasum -a 256.
+          KCOV_SHA256=2c47d75397af248bc387f60cdd79180763e1f88f3dd71c94bb52478f8e74a1f8
+          curl -fsSL --retry 3 -o kcov.tar.gz https://github.com/SimonKagstrom/kcov/archive/refs/tags/v42.tar.gz
+          echo "${KCOV_SHA256}  kcov.tar.gz" | sha256sum -c -
+          tar xzf kcov.tar.gz
           cd kcov-42
           mkdir build && cd build
           # CMake 4 removed compatibility below 3.5; kcov v42 declares 2.8.12.

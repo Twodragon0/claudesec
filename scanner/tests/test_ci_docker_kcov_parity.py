@@ -24,6 +24,9 @@ The load-bearing invariants:
   3. The docker script's `FLOOR` == CI's enforced coverage threshold.
   4. CI's own tty and non-tty kcov invocations use identical include/exclude
      patterns (a single canonical value to compare against).
+  5. Both builds pass a CMake policy floor >= 3.5, regardless of flag order.
+  6. Both builds verify the same SHA-256 before extracting kcov v42.
+  7. CI uses the v3 cache, excluding binaries built from unverified source.
 
 A legitimate coordinated change (e.g. splitting a new lib file and adding its
 pattern to both files) stays green — the guard pins *equality of the two
@@ -35,6 +38,7 @@ not touch the 99% coverage gate). No network, no subprocess. Runs under pytest
 """
 
 import re
+import shlex
 import sys
 import unittest
 from pathlib import Path
@@ -43,6 +47,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LINT_YML = REPO_ROOT / ".github" / "workflows" / "lint.yml"
 DOCKER_SH = REPO_ROOT / "scripts" / "verify-shell-coverage-docker.sh"
+DOCKERFILE = REPO_ROOT / "scripts" / "docker" / "shell-coverage.Dockerfile"
 
 # Shared guard primitive (whole-line comment stripping). Import as a top-level
 # module so it resolves under both pytest and `python3 -m unittest`.
@@ -86,11 +91,63 @@ def _as_float(s):
         return None
 
 
-def violations(lint_text: str, docker_text: str) -> list:
+def _build_violations(lint: str, dockerfile: str) -> list:
+    """Check active build commands, without reading files or running tools."""
+    problems = []
+    step = re.search(
+        r"^      - name: Build kcov v42 from source\n(.*?)(?=^      - name:|\Z)",
+        lint, re.MULTILINE | re.DOTALL,
+    )
+    build = step.group(1) if step else ""
+    if not step:
+        problems.append("CI kcov build step missing or renamed: expected Build kcov v42 from source.")
+    if not re.search(r"key: kcov-v42-.*-noble-v3$", lint, re.MULTILINE):
+        problems.append("CI kcov cache must use v3 to discard unverified binaries.")
+    if "refs/tags/v42.tar.gz" not in build or "cd kcov-42" not in build:
+        problems.append("CI kcov source must remain pinned to v42.")
+    if not re.search(r"^ARG KCOV_VERSION=42$", dockerfile, re.MULTILINE):
+        problems.append("Docker kcov source must remain pinned to v42.")
+
+    hashes = []
+    for label, text in (("CI", build), ("Docker", dockerfile)):
+        # Join shell continuations, then inspect only actual cmake commands.
+        joined = re.sub(r"\\\n\s*", " ", text)
+        commands = re.findall(r"(?:^|[;\n])\s*cmake\s+([^;\n]+)", joined)
+        floors = []
+        for command in commands:
+            tokens = shlex.split(command)
+            values = [t.split("=", 1)[1] for t in tokens
+                      if t.startswith("-DCMAKE_POLICY_VERSION_MINIMUM=")]
+            floors.extend(values)
+        if not floors or any(
+            not re.fullmatch(r"\d+\.\d+(?:\.\d+)?", value)
+            or tuple(map(int, value.split("."))) < (3, 5)
+            for value in floors
+        ) or len(floors) != len(commands):
+            problems.append(f"{label} cmake command must set CMAKE_POLICY_VERSION_MINIMUM >= 3.5.")
+        pin = re.search(r"(?:^|\n)\s*(?:ARG )?KCOV_SHA256=([0-9a-f]{64})\s*(?:\n|$)", text)
+        hashes.append(pin.group(1) if pin else None)
+        if not pin:
+            problems.append(f"{label} must declare a 64-digit KCOV_SHA256 pin.")
+        # The checked file must be the downloaded file, and extraction follows verification.
+        download = re.search(r"curl [^;\n]*-o kcov\.tar\.gz [^;\n]*refs/tags/", joined)
+        verify = re.search(r'echo "\$\{KCOV_SHA256\}  kcov\.tar\.gz" \| sha256sum -c -', joined)
+        extract = re.search(r"tar xzf kcov\.tar\.gz", joined)
+        if not (download and verify and extract
+                and download.start() < verify.start() < extract.start()):
+            problems.append(f"{label} must download, sha256sum -c, then extract kcov.tar.gz.")
+    if all(hashes) and hashes[0] != hashes[1]:
+        problems.append("KCOV_SHA256 drift: CI and Docker pins must match.")
+    return problems
+
+
+def violations(lint_text: str, docker_text: str, dockerfile_text: str) -> list:
     """Every way the two sources disagree. Empty list == in sync."""
     problems = []
     lint = strip_comment_lines(lint_text)
     docker = strip_comment_lines(docker_text)
+
+    problems.extend(_build_violations(lint, strip_comment_lines(dockerfile_text)))
 
     # --- CI side: collect every include/exclude occurrence, require consistency.
     ci_includes = CI_INCLUDE_RE.findall(lint)
@@ -171,29 +228,15 @@ class TestDockerKcovParity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.lint = LINT_YML.read_text(encoding="utf-8") if LINT_YML.is_file() else ""
+        cls.dockerfile = DOCKERFILE.read_text(encoding="utf-8")
         cls.docker = DOCKER_SH.read_text(encoding="utf-8") if DOCKER_SH.is_file() else ""
 
     def test_sources_exist(self):
         self.assertTrue(LINT_YML.is_file(), f"{LINT_YML} not found.")
         self.assertTrue(DOCKER_SH.is_file(), f"{DOCKER_SH} not found.")
 
-    def test_kcov_v42_build_supports_cmake_4(self):
-        build = self.lint.split("      - name: Build kcov v42 from source\n", 1)[1]
-        build = build.split("      - name:", 1)[0]
-        build = strip_comment_lines(build)
-        self.assertIn(
-            "https://github.com/SimonKagstrom/kcov/archive/refs/tags/v42.tar.gz",
-            build,
-        )
-        self.assertIn("cd kcov-42", build)
-        self.assertRegex(
-            build,
-            r'cmake -DCMAKE_POLICY_VERSION_MINIMUM=3\.5\s*\\\s*'
-            r'-DCMAKE_INSTALL_PREFIX="\$RUNNER_TEMP/kcov-prefix" \.\.',
-        )
-
     def test_in_sync(self):
-        problems = violations(self.lint, self.docker)
+        problems = violations(self.lint, self.docker, self.dockerfile)
         self.assertEqual(
             problems, [],
             "Local Docker kcov harness has drifted from CI (lint.yml):\n  "
@@ -227,31 +270,91 @@ class TestDockerKcovParityMutation(unittest.TestCase):
         ]
     )
 
+    _LINT += "\n" + "\n".join([
+        "          key: kcov-v42-Linux-X64-noble-v3",
+        "      - name: Build kcov v42 from source",
+        "        run: |",
+        "          KCOV_SHA256=" + "a" * 64,
+        "          curl -fsSL -o kcov.tar.gz https://github.com/SimonKagstrom/kcov/archive/refs/tags/v42.tar.gz",
+        '          echo "${KCOV_SHA256}  kcov.tar.gz" | sha256sum -c -',
+        "          tar xzf kcov.tar.gz",
+        "          cd kcov-42",
+        "          cmake -DCMAKE_INSTALL_PREFIX=/tmp/kcov -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..",
+    ])
+    _DOCKERFILE = "\n".join([
+        "ARG KCOV_VERSION=42",
+        "ARG KCOV_SHA256=" + "a" * 64,
+        "RUN set -eux; "
+        'curl -fsSL -o kcov.tar.gz https://github.com/SimonKagstrom/kcov/archive/refs/tags/v${KCOV_VERSION}.tar.gz; '
+        'echo "${KCOV_SHA256}  kcov.tar.gz" | sha256sum -c -; '
+        "tar xzf kcov.tar.gz; "
+        "cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_INSTALL_PREFIX=/usr/local ..",
+    ])
+
+    def test_build_mutations_fail(self):
+        for label, lint, dockerfile, message in [
+            ("missing flag", self._LINT.replace("-DCMAKE_POLICY_VERSION_MINIMUM=3.5", ""), self._DOCKERFILE, "CI cmake"),
+            ("comment only", self._LINT.replace("-DCMAKE_POLICY_VERSION_MINIMUM=3.5", "") + "\n# cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..", self._DOCKERFILE, "CI cmake"),
+            ("renamed step", self._LINT.replace("Build kcov v42 from source", "Build renamed"), self._DOCKERFILE, "missing or renamed"),
+            ("low floor", self._LINT.replace("MINIMUM=3.5", "MINIMUM=3.4"), self._DOCKERFILE, "CI cmake"),
+            ("invalid floor", self._LINT.replace("MINIMUM=3.5", "MINIMUM=bad"), self._DOCKERFILE, "CI cmake"),
+            ("docker missing flag", self._LINT, self._DOCKERFILE.replace("-DCMAKE_POLICY_VERSION_MINIMUM=3.5", ""), "Docker cmake"),
+            ("hash drift", self._LINT, self._DOCKERFILE.replace("a" * 64, "b" * 64), "KCOV_SHA256 drift"),
+            ("missing hash", self._LINT.replace("a" * 64, ""), self._DOCKERFILE, "64-digit"),
+            ("comment hash", self._LINT, self._DOCKERFILE.replace("ARG KCOV_SHA256", "# ARG KCOV_SHA256"), "64-digit"),
+            ("old cache", self._LINT.replace("noble-v3", "noble-v2"), self._DOCKERFILE, "cache"),
+        ]:
+            with self.subTest(label=label):
+                self.assertTrue(any(message in p for p in violations(lint, self._DOCKER, dockerfile)))
+
+    def test_verification_required_before_extraction(self):
+        for target in ("CI", "Docker"):
+            for old, new in [
+                ("sha256sum -c -", "true"),
+                ("-o kcov.tar.gz", "-o other.tar.gz"),
+                ("tar xzf kcov.tar.gz", "tar xzf other.tar.gz"),
+                ('echo "${KCOV_SHA256}  kcov.tar.gz" | sha256sum -c -',
+                 'tar xzf kcov.tar.gz; echo "${KCOV_SHA256}  kcov.tar.gz" | sha256sum -c -'),
+            ]:
+                with self.subTest(target=target, mutation=new):
+                    lint = self._LINT.replace(old, new) if target == "CI" else self._LINT
+                    dockerfile = self._DOCKERFILE.replace(old, new) if target == "Docker" else self._DOCKERFILE
+                    self.assertTrue(any(target + " must download" in p
+                                        for p in violations(lint, self._DOCKER, dockerfile)))
+
+    def test_reordered_flags_and_higher_policy_floor_pass(self):
+        lint = self._LINT.replace(
+            "-DCMAKE_INSTALL_PREFIX=/tmp/kcov -DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+            "-DCMAKE_POLICY_VERSION_MINIMUM=3.10 -DCMAKE_INSTALL_PREFIX=/tmp/kcov",
+        )
+        dockerfile = self._DOCKERFILE.replace("MINIMUM=3.5", "MINIMUM=4.0")
+        self.assertEqual(violations(lint, self._DOCKER, dockerfile), [])
+
     def test_good_passes(self):
-        self.assertEqual(violations(self._LINT, self._DOCKER), [])
+        self.assertEqual(violations(self._LINT, self._DOCKER, self._DOCKERFILE), [])
 
     def test_order_and_dupes_ignored(self):
         docker = 'INCLUDE="output.sh,checks.sh,checks.sh"\nEXCLUDE="test_x.sh,api-checks.sh"\nFLOOR="90.0"'
-        self.assertEqual(violations(self._LINT, docker), [])
+        self.assertEqual(violations(self._LINT, docker, self._DOCKERFILE), [])
 
     def test_include_drift_detected(self):
         docker = self._DOCKER.replace('INCLUDE="checks.sh,output.sh"', 'INCLUDE="checks.sh"')
         self.assertTrue(
-            any("INCLUDE drift" in p for p in violations(self._LINT, docker)),
+            any("INCLUDE drift" in p for p in violations(self._LINT, docker, self._DOCKERFILE)),
             "Mutation FAILED: a missing INCLUDE pattern was NOT detected.",
         )
 
     def test_exclude_drift_detected(self):
         docker = self._DOCKER.replace("test_x.sh", "")
         self.assertTrue(
-            any("EXCLUDE drift" in p for p in violations(self._LINT, docker)),
+            any("EXCLUDE drift" in p for p in violations(self._LINT, docker, self._DOCKERFILE)),
             "Mutation FAILED: a missing EXCLUDE pattern was NOT detected.",
         )
 
     def test_floor_drift_detected(self):
         docker = self._DOCKER.replace('FLOOR="90.0"', 'FLOOR="85.0"')
         self.assertTrue(
-            any("FLOOR drift" in p for p in violations(self._LINT, docker)),
+            any("FLOOR drift" in p for p in violations(self._LINT, docker, self._DOCKERFILE)),
             "Mutation FAILED: a floor mismatch was NOT detected.",
         )
 
@@ -263,7 +366,7 @@ class TestDockerKcovParityMutation(unittest.TestCase):
             1,
         )
         self.assertTrue(
-            any("differs between invocations" in p for p in violations(lint, self._DOCKER)),
+            any("differs between invocations" in p for p in violations(lint, self._DOCKER, self._DOCKERFILE)),
             "Mutation FAILED: divergent tty/non-tty CI patterns were NOT detected.",
         )
 
@@ -276,7 +379,7 @@ class TestDockerKcovParityMutation(unittest.TestCase):
             'FLOOR="90.0"'
         )
         self.assertTrue(
-            any("INCLUDE drift" in p for p in violations(self._LINT, docker)),
+            any("INCLUDE drift" in p for p in violations(self._LINT, docker, self._DOCKERFILE)),
             "Mutation FAILED: a comment-only pattern was treated as the real value.",
         )
 
