@@ -330,11 +330,13 @@ _write_findings_file() {
 # subshell) into the named parent array. No-op if the file is missing or empty.
 _merge_findings_file() {
   local file="$1"
-  local -n _target="$2"
+  local target_name="$2"
+  [[ "$target_name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 1
   [[ -f "$file" ]] || return 0
   local entry
   while IFS= read -r -d '' entry; do
-    _target+=("$entry")
+    # Interpolate only the validated name; expand entry as quoted data.
+    eval "$target_name"'+=("$entry")'
   done < "$file"
 }
 
