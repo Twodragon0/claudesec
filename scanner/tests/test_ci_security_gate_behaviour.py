@@ -1433,7 +1433,16 @@ class TestInputPreconditionDetector(unittest.TestCase):
         self.assertEqual(r.returncode, 0, f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}")
         self.assertIn("Critical: , High: ", r.stdout)
         self.assertEqual(
-            r.stderr.count("integer expression expected"),
+            # Bash 3.2/5.2 say "integer expression expected"; Bash 5.3
+            # says "integer expected". Pin both failed comparisons, rather
+            # than making the positive control depend on diagnostic wording.
+            len(
+                re.findall(
+                    r"^gate\.sh: line \d+: \[: : integer (?:expression )?expected$",
+                    r.stderr,
+                    re.MULTILINE,
+                )
+            ),
             2,
             f"expected the two swallowed `[` errors.\nstderr:\n{r.stderr}",
         )
