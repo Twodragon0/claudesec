@@ -177,6 +177,21 @@ class TestDockerKcovParity(unittest.TestCase):
         self.assertTrue(LINT_YML.is_file(), f"{LINT_YML} not found.")
         self.assertTrue(DOCKER_SH.is_file(), f"{DOCKER_SH} not found.")
 
+    def test_kcov_v42_build_supports_cmake_4(self):
+        build = self.lint.split("      - name: Build kcov v42 from source\n", 1)[1]
+        build = build.split("      - name:", 1)[0]
+        build = strip_comment_lines(build)
+        self.assertIn(
+            "https://github.com/SimonKagstrom/kcov/archive/refs/tags/v42.tar.gz",
+            build,
+        )
+        self.assertIn("cd kcov-42", build)
+        self.assertRegex(
+            build,
+            r'cmake -DCMAKE_POLICY_VERSION_MINIMUM=3\.5\s*\\\s*'
+            r'-DCMAKE_INSTALL_PREFIX="\$RUNNER_TEMP/kcov-prefix" \.\.',
+        )
+
     def test_in_sync(self):
         problems = violations(self.lint, self.docker)
         self.assertEqual(

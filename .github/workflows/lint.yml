@@ -978,7 +978,10 @@ jobs:
           curl -fsSL https://github.com/SimonKagstrom/kcov/archive/refs/tags/v42.tar.gz | tar xz
           cd kcov-42
           mkdir build && cd build
-          cmake -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/kcov-prefix" ..
+          # CMake 4 removed compatibility below 3.5; kcov v42 declares 2.8.12.
+          # Set the policy floor externally while keeping the v42 source pin.
+          cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/kcov-prefix" ..
           make -j"$(nproc)"
           make install
       # Runs on hit AND miss: the cache holds the staging prefix, so the copy
