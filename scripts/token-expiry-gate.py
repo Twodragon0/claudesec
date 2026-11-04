@@ -150,7 +150,7 @@ def main() -> int:
                 )
             continue
 
-        remaining = int((expiry - now).total_seconds())
+        remaining = (expiry - now).total_seconds()
         if remaining <= 0:
             violations.append(f"{provider} token expired")
         elif remaining <= threshold_seconds:
