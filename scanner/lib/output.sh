@@ -267,7 +267,12 @@ _finding_id_to_category() {
 }
 
 _print_findings() {
-  local -n arr=$1
+  local findings_name="$1"
+  [[ "$findings_name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 1
+  # Bash 3.2 has no namerefs. Expand only the validated array name;
+  # array values remain quoted data during the eval expansion.
+  local arr=()
+  eval 'arr=("${'"$findings_name"'[@]+"${'"$findings_name"'[@]}"}")'
   local label="$2" show_fix="${3:-true}"
   for entry in "${arr[@]+"${arr[@]}"}"; do
     # Read all 6 packed fields (id/title/severity/remediation/details/location)
