@@ -31,9 +31,14 @@ Regression guard: two CI failures that were fixed must not silently return.
    re-admit the exact line that was fixed.
 
    Direction: an intermediate stage still counts (`curl | tee f | sh`), quoted
-   text is searched (`bash -c "curl x | sh"`), and a `curl` mentioned in a `name:`
-   beside a pipe over-reports. Out of scope, not piped: `sh -c "$(curl ...)"`,
-   `bash <(curl ...)`.
+   text is searched (`bash -c "curl x | sh"`), scalars YAML folds onto one line
+   are joined first, and quoted or wrapped consumers count (`| "bash"`,
+   `| env bash`). Over-reports: a `curl` in a `name:` beside a pipe, a more-indented
+   line in a folded scalar (YAML keeps that newline), `| time grep sh`.
+   Out of scope, not piped: `sh -c "$(curl ...)"`, `bash <(curl ...)`.
+   False negatives, accepted because this guards accidents and not an adversary:
+   a value on the line after its key (`run:` alone cannot be told from a mapping),
+   `| (cd d && tar xz)`, `| "$SHELL"`, `| ba''sh`.
 
 The kcov/CMake invariant itself is `test_ci_docker_kcov_parity.py` (PR #595).
 """
@@ -84,14 +89,24 @@ KNOWN_PENDING = (
 # match cannot backtrack exponentially.
 _ATOM = r"""(?:"(?:[^"\\]|\\.)*"|'[^']*'|\\.|&(?!&)|[^;|&'"\\])"""
 _PIPE = r"\|(?!\|)&?"
+# Words before the consumer: `FOO=1`, then a wrapper that runs its arguments. Its
+# flags and operands are not modelled, so any later word may be the consumer.
+_WORD = r"[^\s;|&]+"
+_WRAPPER = r"(?:\S*/)?(?:sudo|doas|env|exec|command|nice|nohup|time|busybox)"
+_CONSUMER_PREFIX = rf"(?:\w+=\S*\s+)*(?:{_WRAPPER}\s+(?:{_WORD}\s+)*?)?"
 PIPED_DOWNLOAD = re.compile(
     rf"(?<![\w.-])(?:curl|wget)(?![\w.-])"
     rf"{_ATOM}*(?:{_PIPE}{_ATOM}*)*?"
-    rf"{_PIPE}\s*(?:sudo\s+(?:-\S+\s+)*)?(?:\S*/)?(?:tar|sh|bash)(?![\w.-])"
+    rf"{_PIPE}\s*{_CONSUMER_PREFIX}"
+    r"""(?P<quote>["']?)\\?(?:[^\s;|&'"]*/)?(?:tar|sh|bash)(?P=quote)(?![\w.-])"""
 )
 # A line ending in a pipe continues, except `run: |`, which opens a YAML block
 # scalar (`|-` and `|+` do not end in a pipe at all).
 _TRAILING_PIPE = re.compile(r"(?<![:\s])\s*\|$")
+# `key: value` whose value YAML folds with any deeper lines that follow: `>`, plain
+# and quoted scalars alike. Not `key: |`, a literal scalar, which keeps its newlines.
+_FOLDING_KEY = re.compile(r"^(\s*(?:-\s+)*)\S+:\s+(?!\|)\S")
+_FOLD_HEADER = re.compile(r":\s+>[-+\d]*$")
 
 
 def literal_diagnostics_py(source: str) -> list:
@@ -139,18 +154,35 @@ def diagnostic_violations(root: Path) -> list:
 
 
 def logical_lines(text: str) -> list:
-    """Comment-free lines, with `\\`, trailing-`|` and folded leading-`|`
+    """Comment-free lines, with `\\`, trailing-`|`, leading-`|` and YAML-folded
     continuations joined so a pipeline split across lines is one string."""
     lines = []
+    fold_col = None  # column of the key whose scalar is being folded
+    folding = False  # the previous line folds into this one; a blank line ends it
     for raw in text.splitlines():
-        line = strip_inline_comment_sh(raw).strip()
+        code = strip_inline_comment_sh(raw)
+        line = code.strip()
         if not line:
+            folding = False
             continue
+        col = len(code) - len(code.lstrip())
+        if fold_col is not None and col <= fold_col:
+            fold_col, folding = None, False
         prev = lines[-1] if lines else ""
-        if prev.endswith("\\") or _TRAILING_PIPE.search(prev) or (prev and line.startswith("|")):
+        if (
+            folding
+            or prev.endswith("\\")
+            or _TRAILING_PIPE.search(prev)
+            or (prev and line.startswith("|"))
+        ):
             lines[-1] = f"{prev.rstrip(chr(92)).rstrip()} {line}"
         else:
             lines.append(line)
+        key = _FOLDING_KEY.match(code) if fold_col is None else None
+        if key:
+            fold_col = key.end(1)
+        # `key: >` holds no text of its own, so its first body line starts fresh.
+        folding = fold_col is not None and _FOLD_HEADER.search(line) is None
     return lines
 
 
@@ -335,6 +367,70 @@ class TestPipedDownloadDetector(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(len(piped_downloads(text)), 1)
 
+    def test_scalars_yaml_folds_onto_one_line_must_fire(self):
+        for text in (
+            "      run: >\n        curl -fsSL\n        https://x/a.tgz | tar xz",
+            "      - run: >-\n          curl -fsSL\n          https://x/a.tgz | tar xz",
+            "      run: >+\n        curl\n        -fsSL\n        https://x/a.tgz\n        | tar xz",
+            "      run: curl -fsSL\n        https://x/a.tgz | tar xz",
+            '      run: "curl -fsSL\n        https://x/i.sh | sh"',
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(len(piped_downloads(text)), 1)
+
+    def test_fold_boundaries_must_stay_quiet(self):
+        for text in (
+            # A blank line is a real newline in a folded scalar.
+            "      run: >\n        curl -o a https://x/a\n\n        cat a | sh",
+            # A sibling key ends the scalar.
+            "      run: >\n        curl -o a https://x/a\n      name: cat a | sh",
+            "      name: fetch with curl\n      run: cat a | sh",
+            # A literal scalar keeps its newlines.
+            "      run: |\n        curl -o a https://x/a\n        cat a | sh",
+            # A `#` line is folded in as content, so bash reads the rest as a comment.
+            "      run: >\n        curl -fsSL\n        # c\n        https://x/a.tgz | tar xz",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(piped_downloads(text), [])
+
+    def test_quoted_and_wrapped_consumers_must_fire(self):
+        for consumer in (
+            '"bash"',
+            "'sh'",
+            '"tar" xz',
+            '"/bin/sh"',
+            "\\bash",
+            "env bash",
+            "/usr/bin/env bash",
+            "env -i FOO=1 bash",
+            "FOO=1 bash",
+            "sudo -u root bash",
+            'sudo env "bash"',
+            "exec sh",
+            "command sh",
+            "nice -n 5 sh",
+            "nohup sh",
+            "time bash",
+            "doas sh",
+            "busybox sh",
+        ):
+            with self.subTest(consumer=consumer):
+                self.assertEqual(len(piped_downloads(f"curl https://x/i | {consumer}")), 1)
+
+    def test_lookalike_consumers_must_stay_quiet(self):
+        for consumer in (
+            "env",
+            "envsubst",
+            '"jq" .',
+            "'tar-tool'",
+            '"shasum"',
+            "sudo tee a",
+            "time jq .",
+            "bashful",
+        ):
+            with self.subTest(consumer=consumer):
+                self.assertEqual(piped_downloads(f"curl https://x/i | {consumer}"), [])
+
     def test_shapes_that_must_stay_quiet(self):
         for text in (
             "curl -fsSL -o a.tgz https://x/a.tgz",
@@ -371,6 +467,8 @@ class TestPipedDownloadDetector(unittest.TestCase):
     def test_nonmatching_long_line_is_fast(self):
         line = "curl " + '"a" ' * 5000
         self.assertEqual(piped_downloads(line), [])
+        wrapped = "curl https://x/a | env " + "a " * 5000
+        self.assertEqual(piped_downloads(wrapped), [])
 
 
 class TestAllowlistIsExactMatch(unittest.TestCase):
