@@ -11,6 +11,8 @@
 FROM ubuntu:24.04
 
 ARG KCOV_VERSION=42
+# Re-verify with the source URL below and shasum -a 256; keep in sync with CI.
+ARG KCOV_SHA256=2c47d75397af248bc387f60cdd79180763e1f88f3dd71c94bb52478f8e74a1f8
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Runtime + build deps for kcov, plus python3/jq/shellcheck/git for the tests.
@@ -23,11 +25,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Build kcov v42 from source (matches the CI pin).
+# CMake 4 rejects kcov v42's 2.8.12 policy floor; match the CI workaround.
 RUN set -eux; \
     TMP="$(mktemp -d)"; cd "$TMP"; \
-    curl -fsSL "https://github.com/SimonKagstrom/kcov/archive/refs/tags/v${KCOV_VERSION}.tar.gz" | tar xz; \
+    curl -fsSL --retry 3 -o kcov.tar.gz "https://github.com/SimonKagstrom/kcov/archive/refs/tags/v${KCOV_VERSION}.tar.gz"; \
+    echo "${KCOV_SHA256}  kcov.tar.gz" | sha256sum -c -; \
+    tar xzf kcov.tar.gz; \
     cd "kcov-${KCOV_VERSION}"; mkdir build && cd build; \
-    cmake -DCMAKE_INSTALL_PREFIX=/usr/local ..; \
+    cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_INSTALL_PREFIX=/usr/local ..; \
     make -j"$(nproc)"; \
     make install; \
     cd /; rm -rf "$TMP"; \
