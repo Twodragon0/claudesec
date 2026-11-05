@@ -89,6 +89,7 @@ guards = [
   "test_ci_nginx_security_headers.py",
   "test_ci_no_code_injection_regression.py",
   "test_ci_no_ere_pipe_regression.py",
+  "test_ci_no_exact_bash_diagnostics.py",
   "test_ci_no_raw_output_interpolation.py",
   "test_ci_no_secrets_in_if.py",
   "test_ci_npm_files.py",
