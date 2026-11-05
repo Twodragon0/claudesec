@@ -134,6 +134,7 @@ modules = [
   "test_ci_guard_self_verify.py",
   "test_ci_injection_surface.py",
   "test_ci_lychee_redirect_sweep.py",
+  "test_ci_no_exact_bash_diagnostics.py",
   "test_ci_no_secrets_in_if.py",
   "test_ci_npm_publish.py",
   "test_ci_pii_check_executes.py",
