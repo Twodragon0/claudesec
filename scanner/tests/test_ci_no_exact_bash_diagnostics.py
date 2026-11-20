@@ -70,19 +70,9 @@ DIAGNOSTIC_PHRASES = (
     "too many arguments",
 )
 
-# Live on main until PR #595 merges, which replaces both lines with a download
-# verified by sha256 before extraction. Remove these entries in that PR (or here
-# if it lands first); test_no_stale_entries fails until they are gone.
-KNOWN_PENDING = (
-    (
-        ".github/workflows/lint.yml",
-        "curl -fsSL https://github.com/SimonKagstrom/kcov/archive/refs/tags/v42.tar.gz | tar",
-    ),
-    (
-        "scripts/docker/shell-coverage.Dockerfile",
-        'curl -fsSL "https://github.com/SimonKagstrom/kcov/archive/refs/tags/v${KCOV_VERSION}.tar.gz" | tar',
-    ),
-)
+# Empty: PR #595 replaced both kcov `curl | tar` lines with a download verified
+# by sha256 before extraction. Any piped download now fails the guard.
+KNOWN_PENDING = ()
 
 # One word of a command: a quoted string, an escape, or a character that neither
 # ends the command nor opens a quote. The alternatives are disjoint, so a failed
