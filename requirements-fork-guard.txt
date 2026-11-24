@@ -24,4 +24,4 @@
 #   The `pip-audit` job installs this file alongside requirements-ci.txt so the
 #   pinned version is covered by `pip-audit --strict`. That job is path-gated on
 #   `requirements.*\.txt`, so editing this file re-runs the audit.
-pyyaml==6.0.3
+pyyaml==6.0.4
