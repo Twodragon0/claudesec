@@ -111,16 +111,32 @@ scan_file() {
   fi
 
   # Internal email addresses (not example.com or placeholder)
+  #
+  # THE EXCLUSION IS PER-ADDRESS, NEVER PER-FILE. A file-level gate used to sit
+  # in front of the filter below — `if ! grep -q <allowlist> "$content"` — so a
+  # single allowlisted address anywhere in the file suppressed every real one in
+  # it. The repo's mandated commit trailer is `<noreply@anthropic.com>` and
+  # lint.yml runs this hook over every .md/.py/.sh/.yml/.yaml/.json/.html/.svg,
+  # so 11 files were fully exempt from this rule in CI, a count that grew with
+  # every doc showing an attribution example.
+  #
+  # The allowlist is ANCHORED at the end of the address. Unanchored `@example`
+  # also discarded `@examplecorp.io` — a real address at a lookalike domain,
+  # which is the false negative this rule exists to prevent. `users.noreply.
+  # github.com` MUST be listed here and not only in the removed file-level gate:
+  # `@noreply` never matched it (the label order is `users.noreply`), so the
+  # gate was the only thing keeping GitHub noreply addresses quiet. The
+  # `openssh`/`libssh`/`openbsd` entries are SSH algorithm identifiers
+  # (`chacha20-poly1305@openssh.com`), which are address-shaped by coincidence.
   if grep -qE "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.(io|co|com|net|org)" "$content" 2>/dev/null; then
-    # Exclude common safe patterns
-    if ! grep -qE "@(example\.com|anthropic\.com|users\.noreply\.github\.com|your-domain\.com)" "$content" 2>/dev/null; then
-      local real_emails
-      real_emails=$(grep -oE "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.(io|co|com|net|org)" "$content" 2>/dev/null | grep -vE "@(example|anthropic|noreply|your-domain|openssh|libssh|openbsd)" | head -3)
-      if [ -n "$real_emails" ]; then
-        echo -e "${YELLOW}[PII]${NC} Possible real email in: $file"
-        echo "  $real_emails"
-        FOUND=$((FOUND + 1))
-      fi
+    local real_emails
+    real_emails=$(grep -oE "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.(io|co|com|net|org)" "$content" 2>/dev/null \
+      | grep -vE "@(example\.(com|org|net)|anthropic\.com|users\.noreply\.github\.com|your-domain\.com|openssh\.com|libssh\.org|openbsd\.org)$" \
+      | head -3)
+    if [ -n "$real_emails" ]; then
+      echo -e "${YELLOW}[PII]${NC} Possible real email in: $file"
+      echo "  $real_emails"
+      FOUND=$((FOUND + 1))
     fi
   fi
 
